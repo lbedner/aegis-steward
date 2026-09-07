@@ -12,14 +12,14 @@ import re
 from fastapi.testclient import TestClient
 import pytest
 
-from app.components.web_frontend import main as web_main
+from app.components.web_frontend import assets as web_assets
 
 
 @pytest.fixture(autouse=True)
 def _reset_manifest_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test starts with an empty, unprimed manifest cache."""
-    monkeypatch.setattr(web_main, "_manifest", {})
-    monkeypatch.setattr(web_main, "_manifest_mtime", -1.0)
+    monkeypatch.setattr(web_assets, "_manifest", {})
+    monkeypatch.setattr(web_assets, "_manifest_mtime", -1.0)
 
 
 def _write_manifest(
@@ -27,7 +27,7 @@ def _write_manifest(
 ) -> Path:
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(data))
-    monkeypatch.setattr(web_main, "MANIFEST_PATH", manifest)
+    monkeypatch.setattr(web_assets, "MANIFEST_PATH", manifest)
     return manifest
 
 
@@ -36,8 +36,8 @@ class TestStaticUrl:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """Dev renders with no build step, so a missing manifest is normal."""
-        monkeypatch.setattr(web_main, "MANIFEST_PATH", tmp_path / "absent.json")
-        assert web_main.static_url("css/app.css") == "/static/css/app.css"
+        monkeypatch.setattr(web_assets, "MANIFEST_PATH", tmp_path / "absent.json")
+        assert web_assets.static_url("css/app.css") == "/static/css/app.css"
 
     def test_resolves_hashed_path_from_manifest(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -45,7 +45,9 @@ class TestStaticUrl:
         _write_manifest(
             monkeypatch, tmp_path, {"css/app.css": "dist/css/app-a1b2c3d4.css"}
         )
-        assert web_main.static_url("css/app.css") == "/static/dist/css/app-a1b2c3d4.css"
+        assert (
+            web_assets.static_url("css/app.css") == "/static/dist/css/app-a1b2c3d4.css"
+        )
 
     def test_unknown_asset_falls_back_to_source_path(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -53,7 +55,7 @@ class TestStaticUrl:
         _write_manifest(
             monkeypatch, tmp_path, {"css/app.css": "dist/css/app-a1b2c3d4.css"}
         )
-        assert web_main.static_url("js/nope.js") == "/static/js/nope.js"
+        assert web_assets.static_url("js/nope.js") == "/static/js/nope.js"
 
     def test_corrupt_manifest_does_not_raise(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -61,8 +63,8 @@ class TestStaticUrl:
         """A half-written manifest must not take pages down."""
         manifest = tmp_path / "manifest.json"
         manifest.write_text("{not json")
-        monkeypatch.setattr(web_main, "MANIFEST_PATH", manifest)
-        assert web_main.static_url("css/app.css") == "/static/css/app.css"
+        monkeypatch.setattr(web_assets, "MANIFEST_PATH", manifest)
+        assert web_assets.static_url("css/app.css") == "/static/css/app.css"
 
     def test_rebuilt_manifest_is_picked_up(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -72,7 +74,9 @@ class TestStaticUrl:
         manifest = _write_manifest(
             monkeypatch, tmp_path, {"css/app.css": "dist/css/app-aaaaaaaa.css"}
         )
-        assert web_main.static_url("css/app.css") == "/static/dist/css/app-aaaaaaaa.css"
+        assert (
+            web_assets.static_url("css/app.css") == "/static/dist/css/app-aaaaaaaa.css"
+        )
 
         manifest.write_text(json.dumps({"css/app.css": "dist/css/app-bbbbbbbb.css"}))
         # Force a distinct mtime: same-second writes can otherwise collide.
@@ -81,7 +85,9 @@ class TestStaticUrl:
 
         os.utime(manifest, (stat.st_atime, stat.st_mtime + 10))
 
-        assert web_main.static_url("css/app.css") == "/static/dist/css/app-bbbbbbbb.css"
+        assert (
+            web_assets.static_url("css/app.css") == "/static/dist/css/app-bbbbbbbb.css"
+        )
 
 
 class TestAssetFingerprinting:
@@ -210,7 +216,7 @@ class TestCachedStaticFiles:
         (tmp_path / "dist" / "app-a1b2c3d4.css").write_text("body{}")
 
         app = FastAPI()
-        app.mount("/static", web_main.CachedStaticFiles(directory=str(tmp_path)))
+        app.mount("/static", web_assets.CachedStaticFiles(directory=str(tmp_path)))
         return TestClient(app)
 
     def test_fingerprinted_asset_is_immutable(self, tmp_path: Path) -> None:

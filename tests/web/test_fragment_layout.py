@@ -4,7 +4,7 @@ Same ``app_content`` block as the shell, no chrome around it, so one page
 template serves both render paths by switching which layout it extends.
 """
 
-from app.components.web_frontend.main import templates
+from app.components.web_frontend.rendering import templates
 from tests.web.dom import none, one
 
 PROBE = '<p id="probe">hello</p>'

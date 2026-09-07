@@ -4,7 +4,7 @@ Rendered straight from the Jinja environment with a probe child, so the
 shell is pinned independently of any route (routes arrive in #8).
 """
 
-from app.components.web_frontend.main import templates
+from app.components.web_frontend.rendering import templates
 from tests.web.dom import none, one
 
 PROBE = '<p id="probe">hello</p>'

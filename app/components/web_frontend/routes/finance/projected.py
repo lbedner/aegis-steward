@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Request
 from starlette.responses import Response
 
-from app.components.web_frontend.main import render
 from app.components.web_frontend.nav import section
+from app.components.web_frontend.rendering import render
 
 SECTION = section("projected")
 router = APIRouter()

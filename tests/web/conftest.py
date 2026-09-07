@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from jinja2 import ChoiceLoader, DictLoader
 import pytest
 
-from app.components.web_frontend.main import templates
+from app.components.web_frontend.rendering import templates
 
 
 @pytest.fixture

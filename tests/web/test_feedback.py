@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.responses import Response
 
-from app.components.web_frontend.main import templates, with_toast
+from app.components.web_frontend.rendering import templates, with_toast
 from tests.web.dom import none, one, select, text
 
 
