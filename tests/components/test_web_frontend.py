@@ -226,66 +226,15 @@ class TestCachedStaticFiles:
         assert response.headers["cache-control"] == "public, max-age=3600"
 
 
-class TestLanding:
-    """The landing page served at /.
-
-    It is rendered by the real app, mounted alongside the Flet dashboard,
-    so these cover the wiring as well as the page.
-    """
-
-    @pytest.fixture
-    def page(self) -> str:
+class TestRoot:
+    def test_redirects_to_overview(self) -> None:
+        """There is no landing page; the app opens on Overview."""
         from app.integrations.main import create_integrated_app
 
         with TestClient(create_integrated_app()) as client:
-            response = client.get("/")
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
-        return response.text
-
-    def test_renders_through_the_template(self, page: str) -> None:
-        # Rendered through the template, so static() resolved the stylesheet.
-        assert "/static/css/app.css" in page
-
-    def test_names_this_project(self, page: str) -> None:
-        """The project's own name, not a placeholder."""
-        from app.core.config import settings
-
-        assert f"<title>{settings.PROJECT_DISPLAY_NAME}</title>" in page
-        # And in the hero, not just the tab.
-        assert page.count(settings.PROJECT_DISPLAY_NAME) >= 2
-
-    def test_describes_this_project(self, page: str) -> None:
-        from app.core.config import settings
-
-        assert settings.PROJECT_DESCRIPTION in page
-
-    def test_seo_head_is_parameterized(self, page: str) -> None:
-        from app.core.config import settings
-
-        assert (
-            f'<meta name="description" content="{settings.PROJECT_DESCRIPTION}">'
-            in (page)
-        )
-        assert (
-            f'<meta property="og:title" content="{settings.PROJECT_DISPLAY_NAME}">'
-            in (page)
-        )
-        assert 'property="og:description"' in page
-
-    def test_every_destination_it_offers_exists(self) -> None:
-        """No dead links: each in-project href the landing advertises
-        actually resolves."""
-        from app.integrations.main import create_integrated_app
-
-        with TestClient(create_integrated_app()) as client:
-            for path in ("/docs", "/health", "/dashboard"):
-                response = client.get(path, follow_redirects=True)
-                assert response.status_code == 200, path
-
-    def test_carries_no_template_placeholder_copy(self, page: str) -> None:
-        for banned in ("lorem", "TODO", "FIXME", "placeholder", "Your Name"):
-            assert banned.lower() not in page.lower(), banned
+            response = client.get("/", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/overview"
 
 
 class TestBaseLayout:
@@ -300,7 +249,7 @@ class TestBaseLayout:
         from app.integrations.main import create_integrated_app
 
         with TestClient(create_integrated_app()) as client:
-            return client.get("/").text
+            return client.get("/overview").text
 
     def test_htmx_history_cache_is_disabled(self, page: str) -> None:
         """htmx history snapshots duplicate Alpine-expanded DOM and re-run
@@ -326,7 +275,9 @@ class TestBaseLayout:
         assert "__app_snackbar" in page
 
     def test_app_js_is_loaded(self, page: str) -> None:
-        assert "/static/js/app.js" in page
+        """Either the source path or, once a build has run, its
+        fingerprinted twin - the test must not depend on a stale dist/."""
+        assert re.search(r'src="/static/(dist/)?js/app(-[0-9a-f]{8})?\.js"', page)
 
     def test_favicon_is_served(self) -> None:
         from app.integrations.main import create_integrated_app

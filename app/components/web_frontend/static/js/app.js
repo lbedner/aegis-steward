@@ -15,3 +15,19 @@ document.body.addEventListener('htmx:afterSwap', (event) => {
     script.parentNode.replaceChild(newScript, script);
   });
 });
+
+// Keep the sidebar's aria-current in step with the URL. The server sets it
+// on a full load; htmx swaps only #app-content, so after a pushed URL (and
+// on back/forward) the link matching the new path takes over.
+function markCurrentSection() {
+  const path = window.location.pathname;
+  document.querySelectorAll('#sidebar nav a[href]').forEach((a) => {
+    if (a.getAttribute('href') === path) {
+      a.setAttribute('aria-current', 'page');
+    } else {
+      a.removeAttribute('aria-current');
+    }
+  });
+}
+document.body.addEventListener('htmx:pushedIntoHistory', markCurrentSection);
+window.addEventListener('popstate', markCurrentSection);

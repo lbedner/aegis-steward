@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import FileResponse, Response
 
+from app.components.web_frontend.nav import NAV
 from app.core.config import settings
 
 COMPONENT_DIR = Path(__file__).parent
@@ -96,6 +97,8 @@ templates.env.globals["project_description"] = settings.PROJECT_DESCRIPTION
 # stays one file whether or not the project selected auth. AUTH_ENABLED is
 # always defined: it is False when the service was not selected.
 templates.env.globals["auth_enabled"] = settings.AUTH_ENABLED
+# The sidebar loops this; see nav.py.
+templates.env.globals["nav"] = NAV
 templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
 
 
@@ -197,7 +200,12 @@ def render(
     response = templates.TemplateResponse(
         request=request,
         name=name,
-        context={**(context or {}), "layout": layout},
+        context={
+            **(context or {}),
+            "layout": layout,
+            # The sidebar marks the current section on full loads.
+            "current_path": request.url.path,
+        },
         status_code=status_code,
     )
     response.headers["Vary"] = "HX-Request"
@@ -208,8 +216,10 @@ def create_web_frontend_app() -> APIRouter:
     """Create the web frontend router with page and partial routes."""
     router = APIRouter()
 
+    from app.components.web_frontend.routes.finance import router as finance_router
     from app.components.web_frontend.routes.pages import router as pages_router
 
     router.include_router(pages_router)
+    router.include_router(finance_router)
 
     return router

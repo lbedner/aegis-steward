@@ -1,18 +1,15 @@
-"""Full-page routes for the web frontend.
+"""Routes that are not a section: today only the root redirect.
 
-One handler per page: build the context, hand it to a template. Anything a
-page swaps in without a reload belongs in ``routes/partials/`` instead.
+Section pages live under ``routes/finance/``, one module per sidebar entry.
 """
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
-
-from app.components.web_frontend.main import templates
+from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 
 
-@router.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def landing(request: Request) -> HTMLResponse:
-    """Landing page."""
-    return templates.TemplateResponse(request=request, name="pages/landing.html")
+@router.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    """There is no landing page; the app opens on Overview."""
+    return RedirectResponse(url="/overview", status_code=303)
