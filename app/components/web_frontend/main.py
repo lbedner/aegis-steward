@@ -12,10 +12,10 @@ from pathlib import Path
 import re
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, Response
 
 from app.core.config import settings
 
@@ -159,6 +159,49 @@ def _strftime(value: datetime | str, fmt: str = "%m/%d") -> str:
 
 
 templates.env.filters["strftime"] = _strftime
+
+
+# ---------------------------------------------------------------------------
+# Rendering - one route, two render paths.
+# ---------------------------------------------------------------------------
+
+SHELL_LAYOUT = "layouts/app_shell.html"
+FRAGMENT_LAYOUT = "layouts/fragment.html"
+
+
+def wants_fragment(request: Request) -> bool:
+    """True when htmx will swap the response into ``#app-content``.
+
+    A boosted request (``hx-boost``) replaces the whole body, so it still
+    needs the shell; history restores never reach here because the htmx
+    config turns them into full page loads.
+    """
+    headers = request.headers
+    return headers.get("HX-Request") == "true" and headers.get("HX-Boosted") != "true"
+
+
+def render(
+    request: Request,
+    name: str,
+    context: dict[str, Any] | None = None,
+    status_code: int = 200,
+) -> Response:
+    """Render page template ``name`` for either render path.
+
+    The template ends with ``{% extends layout %}``; ``layout`` is set here
+    to the app shell on a full load and to the bare fragment when htmx asks,
+    so a view has one URL and one template. ``Vary`` tells caches the two
+    bodies differ. ``status_code`` is for validation re-renders (422).
+    """
+    layout = FRAGMENT_LAYOUT if wants_fragment(request) else SHELL_LAYOUT
+    response = templates.TemplateResponse(
+        request=request,
+        name=name,
+        context={**(context or {}), "layout": layout},
+        status_code=status_code,
+    )
+    response.headers["Vary"] = "HX-Request"
+    return response
 
 
 def create_web_frontend_app() -> APIRouter:
