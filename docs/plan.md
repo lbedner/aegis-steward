@@ -41,7 +41,13 @@ ticket.
 13. **The agent contract ships as a skill, not a docs tree.** One
     `add-page` skill in `.claude/skills/`, written after Phase 3 from what
     converged, not before.
-14. **Module size budget applies**: 500 lines per logic module. Routes split
+14. **Out-of-band swaps have one shape on both sides.** Routes emit OOB
+    siblings only through an `oob(target_id)` macro; the test kit's
+    `oob(html)` splits a response into the primary element and its OOB
+    siblings, so `one` selects against the primary and the counters get
+    their own assertions. Never strip OOB in tests: the counter update is
+    what pattern 2 promises. Lands with the first OOB response (P3.3).
+15. **Module size budget applies**: 500 lines per logic module. Routes split
     per section (`routes/finance/accounts.py`, ...). Pulse's 1825-line
     `pages.py` is the anti-pattern.
 
@@ -152,7 +158,8 @@ Property / Loans & Debt / Other, group and grand totals), register right.
 - **P3.3** Row actions: categorize inline (`select` posts on change, row
   swaps back, OOB uncategorized count), tag add/remove, delete. First
   `macros/form.html` controls: `field()`, `select()`, `checkbox()`,
-  `money_input()`, `date_input()`. All native inputs with `name`.
+  `money_input()`, `date_input()`. All native inputs with `name`. Births
+  the OOB contract (decision 14): `oob()` macro and `tests/web/dom.oob()`.
 - **P3.4** Bulk actions: checkbox column + action bar, assign payee with
   create-new, "also apply to N similar" offer.
 - **P3.5** Add account dialog (pattern 1 inside pattern 4). `dialog()` macro

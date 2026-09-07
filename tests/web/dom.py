@@ -5,10 +5,11 @@ response for substrings. A substring check passes when the words appear in a
 comment or the wrong element, and fails on a harmless attribute reorder;
 selectors do neither.
 
-    from tests.web.dom import one, select, text
+    from tests.web.dom import none, one, select, text
 
     row = one(resp.text, "#txn-42")
     assert text(one(row, "td.amount")) == "$12.00"
+    none(row, "button.delete")  # read-only view
 """
 
 from __future__ import annotations
@@ -39,12 +40,12 @@ def one(markup: Markup, css: str) -> HtmlElement:
     return found[0]
 
 
+def none(markup: Markup, css: str) -> None:
+    """Assert nothing matches ``css``; the message names what was there."""
+    found = select(markup, css)
+    assert not found, f"expected no {css!r}, found {len(found)}"
+
+
 def text(element: HtmlElement) -> str:
     """Visible text of ``element`` and its descendants, whitespace collapsed."""
     return " ".join(element.text_content().split())
-
-
-def is_fragment(markup: str) -> bool:
-    """True when ``markup`` is a bare fragment rather than a full document."""
-    lowered = markup.lstrip().lower()
-    return not (lowered.startswith("<!doctype") or lowered.startswith("<html"))

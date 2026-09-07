@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 import pytest
 
-from tests.web.dom import is_fragment, one, select, text
+from tests.web.dom import none, one, select, text
 
 PAGE = """<!DOCTYPE html><html><head><title>t</title></head><body>
 <main id="app-content">
@@ -51,12 +51,15 @@ class TestText:
         assert text(one(PAGE, "p.msg")) == "hello world"
 
 
-class TestIsFragment:
-    def test_full_page_is_not_a_fragment(self) -> None:
-        assert not is_fragment(PAGE)
+class TestNone:
+    def test_passes_when_nothing_matches(self) -> None:
+        none(PAGE, "nav")
 
-    def test_bare_markup_is_a_fragment(self) -> None:
-        assert is_fragment(FRAGMENT)
+    def test_fails_naming_what_was_found(self) -> None:
+        """Absence is a real assertion: the delete button must not render
+        on a read-only view, the empty state must replace the table."""
+        with pytest.raises(AssertionError, match="expected no 'td.c', found 2"):
+            none(PAGE, "td.c")
 
 
 @pytest.fixture
