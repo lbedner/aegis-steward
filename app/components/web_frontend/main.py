@@ -6,7 +6,7 @@ Flet dashboard at ``/dashboard``. Route modules import the shared
 htmx fragments in ``routes/partials/``.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 import json
 from pathlib import Path
 import re
@@ -163,6 +163,54 @@ def _strftime(value: datetime | str, fmt: str = "%m/%d") -> str:
 
 templates.env.filters["strftime"] = _strftime
 
+# Amounts arrive as integer minor units with a currency code. Symbols for
+# the codes a household ledger actually sees; anything else shows its code.
+_CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
+_ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
+
+
+def _money(cents: int | None, currency: str = "USD") -> str:
+    """Jinja2 filter: minor units -> ``-$1,234.56`` (the Flet register's
+    ``_usd`` rule, widened to honour the currency code)."""
+    code = (currency or "USD").upper()
+    if code in _ZERO_DECIMAL_CURRENCIES:
+        value, number = cents or 0, f"{abs(cents or 0):,}"
+    else:
+        value = (cents or 0) / 100
+        number = f"{abs(value):,.2f}"
+    sign = "-" if value < 0 else ""
+    symbol = _CURRENCY_SYMBOLS.get(code)
+    return f"{sign}{symbol}{number}" if symbol else f"{sign}{code} {number}"
+
+
+def _short_date(value: date | datetime | str | None, today: date | None = None) -> str:
+    """Jinja2 filter: ``Jul 15`` this year, ``Jul 15, 2025`` otherwise."""
+    if not value:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    if isinstance(value, datetime):
+        value = value.date()
+    label = f"{value:%b} {value.day}"
+    if value.year == (today or date.today()).year:
+        return label
+    return f"{label}, {value.year}"
+
+
+def _pct(ratio: float | None, digits: int = 0) -> str:
+    """Jinja2 filter: a 0-1 ratio -> ``15%`` (``digits`` decimals)."""
+    if ratio is None:
+        return ""
+    return f"{ratio * 100:.{digits}f}%"
+
+
+templates.env.filters["money"] = _money
+templates.env.filters["short_date"] = _short_date
+templates.env.filters["pct"] = _pct
+
 
 # ---------------------------------------------------------------------------
 # Rendering - one route, two render paths.
@@ -209,6 +257,25 @@ def render(
         status_code=status_code,
     )
     response.headers["Vary"] = "HX-Request"
+    return response
+
+
+def with_toast(response: Response, text: str, tone: str = "ok") -> Response:
+    """Attach a toast to any response (pattern 6).
+
+    Written into ``HX-Trigger`` so htmx raises a ``toast`` event that the
+    region in base.html shows. Merges with triggers already on the
+    response; a bare event-name header is kept as an event with no detail.
+    """
+    existing = response.headers.get("HX-Trigger")
+    triggers: dict[str, Any] = {}
+    if existing:
+        try:
+            triggers = json.loads(existing)
+        except json.JSONDecodeError:
+            triggers = {name.strip(): None for name in existing.split(",")}
+    triggers["toast"] = {"text": text, "tone": tone}
+    response.headers["HX-Trigger"] = json.dumps(triggers)
     return response
 
 

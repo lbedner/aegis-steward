@@ -20,17 +20,25 @@ from lxml.html import HtmlElement
 Markup = str | HtmlElement
 
 
-def _root(markup: Markup) -> HtmlElement:
-    if isinstance(markup, HtmlElement):
-        return markup
-    # ``fragment_fromstring`` would reject multi-root fragments; wrapping
-    # gives one root for full pages and fragments alike.
-    return html.fromstring(f"<div>{markup}</div>")
+def _is_document(markup: str) -> bool:
+    lowered = markup.lstrip().lower()
+    return lowered.startswith("<!doctype") or lowered.startswith("<html")
 
 
 def select(markup: Markup, css: str) -> list[HtmlElement]:
-    """Every element matching ``css``. Empty list on no match."""
-    return _root(markup).cssselect(css)
+    """Every element matching ``css``. Empty list on no match.
+
+    A full document is parsed as one (so ``head script`` resolves); a
+    fragment is wrapped so multi-root markup parses, and the wrapper itself
+    never counts as a match. An element scopes the search to itself and
+    its descendants.
+    """
+    if isinstance(markup, HtmlElement):
+        return markup.cssselect(css)
+    if _is_document(markup):
+        return html.document_fromstring(markup).cssselect(css)
+    wrapper = html.fromstring(f"<div>{markup}</div>")
+    return [element for element in wrapper.cssselect(css) if element is not wrapper]
 
 
 def one(markup: Markup, css: str) -> HtmlElement:

@@ -270,9 +270,8 @@ class TestBaseLayout:
             tag = page[page.index(src) - 200 : page.index(src) + 200]
             assert "defer" in tag, src
 
-    def test_snackbar_surface_is_present_on_every_page(self, page: str) -> None:
-        assert "appFlashSnackbar" in page
-        assert "__app_snackbar" in page
+    def test_toast_region_is_present_on_every_page(self, page: str) -> None:
+        assert 'id="toasts"' in page
 
     def test_app_js_is_loaded(self, page: str) -> None:
         """Either the source path or, once a build has run, its
