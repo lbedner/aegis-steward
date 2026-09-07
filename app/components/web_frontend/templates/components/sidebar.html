@@ -1,7 +1,8 @@
 {# Primary navigation. Included by layouts/app_shell.html inside its
    ``mobileOpen`` Alpine scope: off-canvas on mobile, a fixed column on
-   desktop. The section links are rendered from the ``NAV`` list in P1.3;
-   until then the nav is an empty landmark. #}
+   desktop. Links come from ``nav`` (the NAV list, a template global);
+   ``current_path`` is set by ``render()`` on full loads. #}
+{% from "components/macros/layout.html" import nav_item %}
 <aside id="sidebar"
        aria-label="Primary"
        :class="mobileOpen ? 'translate-x-0' : '-translate-x-full'"
@@ -13,5 +14,8 @@
   </div>
 
   <nav aria-label="Sections" class="flex-1 min-h-0 overflow-y-auto py-4 px-2 space-y-0.5">
+    {% for section in nav %}
+    {{ nav_item(section, current_path) }}
+    {% endfor %}
   </nav>
 </aside>

@@ -12,14 +12,14 @@ import re
 from fastapi.testclient import TestClient
 import pytest
 
-from app.components.web_frontend import main as web_main
+from app.components.web_frontend import assets as web_assets
 
 
 @pytest.fixture(autouse=True)
 def _reset_manifest_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test starts with an empty, unprimed manifest cache."""
-    monkeypatch.setattr(web_main, "_manifest", {})
-    monkeypatch.setattr(web_main, "_manifest_mtime", -1.0)
+    monkeypatch.setattr(web_assets, "_manifest", {})
+    monkeypatch.setattr(web_assets, "_manifest_mtime", -1.0)
 
 
 def _write_manifest(
@@ -27,7 +27,7 @@ def _write_manifest(
 ) -> Path:
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(data))
-    monkeypatch.setattr(web_main, "MANIFEST_PATH", manifest)
+    monkeypatch.setattr(web_assets, "MANIFEST_PATH", manifest)
     return manifest
 
 
@@ -36,8 +36,8 @@ class TestStaticUrl:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """Dev renders with no build step, so a missing manifest is normal."""
-        monkeypatch.setattr(web_main, "MANIFEST_PATH", tmp_path / "absent.json")
-        assert web_main.static_url("css/app.css") == "/static/css/app.css"
+        monkeypatch.setattr(web_assets, "MANIFEST_PATH", tmp_path / "absent.json")
+        assert web_assets.static_url("css/app.css") == "/static/css/app.css"
 
     def test_resolves_hashed_path_from_manifest(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -45,7 +45,9 @@ class TestStaticUrl:
         _write_manifest(
             monkeypatch, tmp_path, {"css/app.css": "dist/css/app-a1b2c3d4.css"}
         )
-        assert web_main.static_url("css/app.css") == "/static/dist/css/app-a1b2c3d4.css"
+        assert (
+            web_assets.static_url("css/app.css") == "/static/dist/css/app-a1b2c3d4.css"
+        )
 
     def test_unknown_asset_falls_back_to_source_path(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -53,7 +55,7 @@ class TestStaticUrl:
         _write_manifest(
             monkeypatch, tmp_path, {"css/app.css": "dist/css/app-a1b2c3d4.css"}
         )
-        assert web_main.static_url("js/nope.js") == "/static/js/nope.js"
+        assert web_assets.static_url("js/nope.js") == "/static/js/nope.js"
 
     def test_corrupt_manifest_does_not_raise(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -61,8 +63,8 @@ class TestStaticUrl:
         """A half-written manifest must not take pages down."""
         manifest = tmp_path / "manifest.json"
         manifest.write_text("{not json")
-        monkeypatch.setattr(web_main, "MANIFEST_PATH", manifest)
-        assert web_main.static_url("css/app.css") == "/static/css/app.css"
+        monkeypatch.setattr(web_assets, "MANIFEST_PATH", manifest)
+        assert web_assets.static_url("css/app.css") == "/static/css/app.css"
 
     def test_rebuilt_manifest_is_picked_up(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -72,7 +74,9 @@ class TestStaticUrl:
         manifest = _write_manifest(
             monkeypatch, tmp_path, {"css/app.css": "dist/css/app-aaaaaaaa.css"}
         )
-        assert web_main.static_url("css/app.css") == "/static/dist/css/app-aaaaaaaa.css"
+        assert (
+            web_assets.static_url("css/app.css") == "/static/dist/css/app-aaaaaaaa.css"
+        )
 
         manifest.write_text(json.dumps({"css/app.css": "dist/css/app-bbbbbbbb.css"}))
         # Force a distinct mtime: same-second writes can otherwise collide.
@@ -81,7 +85,9 @@ class TestStaticUrl:
 
         os.utime(manifest, (stat.st_atime, stat.st_mtime + 10))
 
-        assert web_main.static_url("css/app.css") == "/static/dist/css/app-bbbbbbbb.css"
+        assert (
+            web_assets.static_url("css/app.css") == "/static/dist/css/app-bbbbbbbb.css"
+        )
 
 
 class TestAssetFingerprinting:
@@ -210,7 +216,7 @@ class TestCachedStaticFiles:
         (tmp_path / "dist" / "app-a1b2c3d4.css").write_text("body{}")
 
         app = FastAPI()
-        app.mount("/static", web_main.CachedStaticFiles(directory=str(tmp_path)))
+        app.mount("/static", web_assets.CachedStaticFiles(directory=str(tmp_path)))
         return TestClient(app)
 
     def test_fingerprinted_asset_is_immutable(self, tmp_path: Path) -> None:
@@ -226,66 +232,15 @@ class TestCachedStaticFiles:
         assert response.headers["cache-control"] == "public, max-age=3600"
 
 
-class TestLanding:
-    """The landing page served at /.
-
-    It is rendered by the real app, mounted alongside the Flet dashboard,
-    so these cover the wiring as well as the page.
-    """
-
-    @pytest.fixture
-    def page(self) -> str:
+class TestRoot:
+    def test_redirects_to_overview(self) -> None:
+        """There is no landing page; the app opens on Overview."""
         from app.integrations.main import create_integrated_app
 
         with TestClient(create_integrated_app()) as client:
-            response = client.get("/")
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
-        return response.text
-
-    def test_renders_through_the_template(self, page: str) -> None:
-        # Rendered through the template, so static() resolved the stylesheet.
-        assert "/static/css/app.css" in page
-
-    def test_names_this_project(self, page: str) -> None:
-        """The project's own name, not a placeholder."""
-        from app.core.config import settings
-
-        assert f"<title>{settings.PROJECT_DISPLAY_NAME}</title>" in page
-        # And in the hero, not just the tab.
-        assert page.count(settings.PROJECT_DISPLAY_NAME) >= 2
-
-    def test_describes_this_project(self, page: str) -> None:
-        from app.core.config import settings
-
-        assert settings.PROJECT_DESCRIPTION in page
-
-    def test_seo_head_is_parameterized(self, page: str) -> None:
-        from app.core.config import settings
-
-        assert (
-            f'<meta name="description" content="{settings.PROJECT_DESCRIPTION}">'
-            in (page)
-        )
-        assert (
-            f'<meta property="og:title" content="{settings.PROJECT_DISPLAY_NAME}">'
-            in (page)
-        )
-        assert 'property="og:description"' in page
-
-    def test_every_destination_it_offers_exists(self) -> None:
-        """No dead links: each in-project href the landing advertises
-        actually resolves."""
-        from app.integrations.main import create_integrated_app
-
-        with TestClient(create_integrated_app()) as client:
-            for path in ("/docs", "/health", "/dashboard"):
-                response = client.get(path, follow_redirects=True)
-                assert response.status_code == 200, path
-
-    def test_carries_no_template_placeholder_copy(self, page: str) -> None:
-        for banned in ("lorem", "TODO", "FIXME", "placeholder", "Your Name"):
-            assert banned.lower() not in page.lower(), banned
+            response = client.get("/", follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/overview"
 
 
 class TestBaseLayout:
@@ -300,7 +255,7 @@ class TestBaseLayout:
         from app.integrations.main import create_integrated_app
 
         with TestClient(create_integrated_app()) as client:
-            return client.get("/").text
+            return client.get("/overview").text
 
     def test_htmx_history_cache_is_disabled(self, page: str) -> None:
         """htmx history snapshots duplicate Alpine-expanded DOM and re-run
@@ -321,12 +276,13 @@ class TestBaseLayout:
             tag = page[page.index(src) - 200 : page.index(src) + 200]
             assert "defer" in tag, src
 
-    def test_snackbar_surface_is_present_on_every_page(self, page: str) -> None:
-        assert "appFlashSnackbar" in page
-        assert "__app_snackbar" in page
+    def test_toast_region_is_present_on_every_page(self, page: str) -> None:
+        assert 'id="toasts"' in page
 
     def test_app_js_is_loaded(self, page: str) -> None:
-        assert "/static/js/app.js" in page
+        """Either the source path or, once a build has run, its
+        fingerprinted twin - the test must not depend on a stale dist/."""
+        assert re.search(r'src="/static/(dist/)?js/app(-[0-9a-f]{8})?\.js"', page)
 
     def test_favicon_is_served(self) -> None:
         from app.integrations.main import create_integrated_app

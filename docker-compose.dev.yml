@@ -43,6 +43,10 @@ services:
     working_dir: /code
     volumes:
       - .:/code
+      # npm install runs inside this Linux container; a named volume keeps
+      # its node_modules off the host, where the platform binaries would
+      # be wrong and break `make lint-frontend`.
+      - tailwind-node-modules:/code/node_modules
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "1000"
@@ -71,3 +75,6 @@ services:
     restart: unless-stopped
     profiles:
       - dev
+
+volumes:
+  tailwind-node-modules:

@@ -4,7 +4,7 @@ Rendered straight from the Jinja environment with a probe child, so the
 shell is pinned independently of any route (routes arrive in #8).
 """
 
-from app.components.web_frontend.main import templates
+from app.components.web_frontend.rendering import templates
 from tests.web.dom import none, one
 
 PROBE = '<p id="probe">hello</p>'
@@ -37,12 +37,12 @@ class TestAppShell:
         assert toggle.get("aria-controls") == "sidebar"
         assert toggle.get(":aria-expanded") is not None
 
-    def test_snackbar_sits_outside_the_scroll_container(self) -> None:
+    def test_toast_region_sits_outside_the_scroll_container(self) -> None:
         """Fixed to the viewport regardless of section scroll, so it must
         not be a descendant of ``#app-content``."""
         page = render_shell()
-        one(page, '[x-data="snackbar()"]')
-        none(one(page, "main#app-content"), '[x-data="snackbar()"]')
+        one(page, "#toasts")
+        none(one(page, "main#app-content"), "#toasts")
 
     def test_is_not_indexable(self) -> None:
         one(render_shell(), 'meta[name="robots"][content="noindex, nofollow"]')

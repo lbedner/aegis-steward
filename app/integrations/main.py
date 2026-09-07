@@ -29,10 +29,8 @@ from app.components.backend.middleware.paste_capture import (  # noqa: E402
     PasteCaptureMiddleware,
 )
 from app.components.frontend.main import create_frontend_app  # noqa: E402
-from app.components.web_frontend.main import (  # noqa: E402
-    CachedStaticFiles,
-    create_web_frontend_app,
-)
+from app.components.web_frontend.assets import CachedStaticFiles  # noqa: E402
+from app.components.web_frontend.main import create_web_frontend_app  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.core.constants import dashboard_upload_dir  # noqa: E402
 from app.core.log import logger, setup_logging  # noqa: E402

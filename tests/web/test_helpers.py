@@ -32,6 +32,17 @@ class TestSelect:
         them in a way that breaks selectors."""
         assert len(select(FRAGMENT, "#row-1 .amt")) == 1
 
+    def test_fragment_wrapper_is_never_a_match(self) -> None:
+        """The kit wraps fragments in a div to parse them; that div must
+        not answer for ``div`` or every empty-state test passes twice."""
+        assert len(select('<div id="only"></div>', "div")) == 1
+        assert select("<p>x</p>", "div") == []
+
+    def test_full_document_keeps_its_head(self) -> None:
+        """``head script`` must resolve on a real page, so a document is
+        parsed as a document rather than wrapped."""
+        assert len(select(PAGE, "head title")) == 1
+
 
 class TestOne:
     def test_returns_the_single_match(self) -> None:
