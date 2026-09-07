@@ -1,0 +1,73 @@
+# Development overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile dev up
+#
+# Adds:
+#   - Code volume mounts for hot-reload
+#   - Debug ports for direct service access
+
+services:
+  webserver:
+    volumes:
+      - .:/code
+    ports:
+      # Host port auto-selected by `make serve` (WEBSERVER_HOST_PORT);
+      # falls back to PORT for a raw `docker compose up`.
+      - "${WEBSERVER_HOST_PORT:-${PORT:-8000}}:${PORT:-8000}"
+    environment:
+      - PLAID_TUNNEL_METRICS_URL=http://plaid-tunnel:20241
+
+  scheduler:
+    volumes:
+      - .:/code
+
+  worker-load-test:
+    volumes:
+      - .:/code
+
+  worker-system:
+    volumes:
+      - .:/code
+
+  redis:
+    ports:
+      # Host port auto-selected by `make serve` (REDIS_HOST_PORT). The
+      # container still listens on 6379 for in-network clients.
+      - "${REDIS_HOST_PORT:-6379}:6379"
+
+  test_runner:
+    volumes:
+      - .:/code
+
+  tailwind:
+    image: node:22-alpine
+    working_dir: /code
+    volumes:
+      - .:/code
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "1000"
+    entrypoint: sh
+    command:
+      - -c
+      - npm install --no-audit --no-fund --silent && exec npx tailwindcss -i /code/app/components/web_frontend/static/input.css -o /code/app/components/web_frontend/static/dist/app.css --watch=always
+    profiles:
+      - dev
+
+  build-static-watcher:
+    image: ${AEGIS_STACK_TAG:-aegis-stack:latest}
+    env_file:
+      - ${AEGIS_STACK_ENV_FILE:-.env}
+    working_dir: /code
+    volumes:
+      - .:/code
+    command:
+      - build-watch
+    profiles:
+      - dev
+
+  plaid-tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:20241 --loglevel fatal --transport-loglevel fatal --url http://webserver:${PORT:-8000}
+    restart: unless-stopped
+    profiles:
+      - dev

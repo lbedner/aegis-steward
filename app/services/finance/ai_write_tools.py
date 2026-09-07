@@ -1,0 +1,398 @@
+"""The finance write surface for agents: propose, never mutate.
+
+Split from ``ai_tools`` (the read surface): the tools that file pending
+changes for the user's approval, plus ``categories``, the id lookup a
+categorize payload needs. The write tools register ``native_write``, so
+code mode dispatches them as visible calls.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from app.core.db import get_async_session
+from app.services.ai.domains.chat.tools import register_tool
+
+
+async def propose_many(
+    change_type: str, payloads: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Propose MANY changes of one type as a single batch the user
+    resolves together ("approve them all"), with a per-row veto. Use
+    this whenever more than one change of the same type is wanted - a
+    batch renders as one card, not a pile. Max 100 per batch; every
+    payload follows the change type's contract. Never claim the changes
+    happened - they are pending until the user acts.
+    """
+    from app.services.ai.domains.chat.user_memory import (
+        current_agent_slug,
+        current_conversation_id,
+    )
+    from app.services.finance.domains import writes
+
+    async with get_async_session() as session:
+        try:
+            rows = await writes.propose_many(
+                session,
+                change_type,
+                payloads,
+                owner_user_id=None,
+                proposed_by_agent=current_agent_slug.get(),
+                conversation_id=current_conversation_id.get(),
+            )
+            items = [
+                {
+                    "id": row.id,
+                    "pending_change_id": row.id,
+                    "status": row.status,
+                    # Tool results serialize into the model's context:
+                    # typed rows become plain dicts at this boundary.
+                    "display": [
+                        line.model_dump()
+                        for line in await writes.describe_change(session, row)
+                    ],
+                }
+                for row in rows
+            ]
+            await session.commit()
+        except ValueError as e:
+            return {
+                "error": str(e),
+                "registered_change_types": list(writes.registered_change_types()),
+            }
+    return {
+        "batch_id": rows[0].batch_id,
+        "change_type": change_type,
+        "title": writes.executor_for(change_type).title,
+        "count": len(items),
+        "items": items,
+    }
+
+
+async def categories() -> dict[str, Any]:
+    """Every assignable category: 'id', 'name' and 'classification'
+    ('expense' | 'income' | 'transfer'). The id is what a
+    transaction.categorize proposal's 'category_id' takes.
+    """
+    from sqlmodel import select
+
+    from app.services.finance.models import FinanceCategory
+
+    async with get_async_session() as session:
+        rows = (
+            await session.exec(
+                select(FinanceCategory)
+                .where(FinanceCategory.is_archived == False)  # noqa: E712
+                .order_by(FinanceCategory.name)
+            )
+        ).all()
+    return {
+        "categories": [
+            {"id": row.id, "name": row.name, "classification": row.classification}
+            for row in rows
+        ]
+    }
+
+
+async def bills() -> dict[str, Any]:
+    """Every live bill and income stream: 'id', 'name', 'direction'
+    ('outflow' | 'inflow'), 'frequency', 'expected_amount' (cents),
+    'next_expected_date' and 'last_date' (ISO or null). The id is what
+    a recurring.match proposal's 'stream_id' takes."""
+    from app.services.finance.domains.planning.recurring import queries
+
+    async with get_async_session() as session:
+        rows = await queries.active_streams(session, owner_user_id=None)
+    return {
+        "bills": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "direction": s.direction,
+                "frequency": s.frequency,
+                "expected_amount": s.expected_amount,
+                "average_amount": s.average_amount,
+                "next_expected_date": (
+                    s.next_expected_date.isoformat() if s.next_expected_date else None
+                ),
+                "last_date": s.last_date.isoformat() if s.last_date else None,
+            }
+            for s in rows
+        ]
+    }
+
+
+async def bill_candidates(stream_id: int) -> dict[str, Any]:
+    """The ranked shortlist of unclaimed transactions that could be this
+    bill's payment - the same heuristic the app's manual match picker
+    uses (direction, amount band, due-date window, name affinity).
+    Each candidate's 'id' is what a recurring.match proposal's
+    'transaction_id' takes. Propose matches ONLY from this list."""
+    from app.services.finance.domains.planning.recurring.matching import (
+        recurring_match_candidates,
+    )
+
+    async with get_async_session() as session:
+        rows = await recurring_match_candidates(session, stream_id, owner_user_id=None)
+    return {
+        "stream_id": stream_id,
+        "candidates": [
+            {
+                "id": t.id,
+                "date": t.date_.isoformat(),
+                "payee": t.merchant_name or t.name,
+                "amount": t.amount,
+                "account_id": t.account_id,
+            }
+            for t in rows
+        ],
+    }
+
+
+async def tags() -> dict[str, Any]:
+    """Every live tag with how many transactions wear it: 'id', 'name',
+    'count'. Tags are the label axis ORTHOGONAL to categories (a
+    "Business" tag on a Software-categorized row). A transaction.tag
+    payload takes the NAME - reuse an existing spelling from here before
+    coining a new one."""
+    from app.services.finance.domains.ledger.transactions import list_tags
+
+    async with get_async_session() as session:
+        rows = await list_tags(session, owner_user_id=None)
+    return {"tags": [{"id": t.id, "name": t.name, "count": count} for t, count in rows]}
+
+
+async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Propose a finance mutation for the user's approval. The ONLY
+    write tool: nothing moves until the user approves the pending
+    change in the app, and execution happens exclusively there.
+
+    ``change_type`` must be a registered type (see the error message
+    for the current vocabulary); ``payload`` is that type's exact
+    mutation contract. Returns the pending change's id, status and the
+    human-readable description the approval card will show. Propose
+    ONE change per call; never claim a change happened - it is pending
+    until the user acts.
+    """
+    from app.services.ai.domains.chat.user_memory import (
+        current_agent_slug,
+        current_conversation_id,
+    )
+    from app.services.finance.domains import writes
+
+    async with get_async_session() as session:
+        try:
+            row = await writes.propose(
+                session,
+                change_type,
+                payload,
+                owner_user_id=None,
+                proposed_by_agent=current_agent_slug.get(),
+                conversation_id=current_conversation_id.get(),
+            )
+            display = [
+                line.model_dump() for line in await writes.describe_change(session, row)
+            ]
+            await session.commit()
+        except ValueError as e:
+            return {
+                "error": str(e),
+                "registered_change_types": list(writes.registered_change_types()),
+            }
+    return {
+        "pending_change_id": row.id,
+        "change_type": row.change_type,
+        "title": writes.executor_for(row.change_type).title,
+        "status": row.status,
+        "display": display,
+    }
+
+
+async def pending(about: str | None = None) -> dict[str, Any]:
+    """YOUR OWN cards: {"pending": [...]} still awaiting the user and
+    {"decided": [...]} the user acted on in the last two weeks. One entry
+    per card, with exactly these keys: batch_id (null for a single
+    proposal), pending_change_ids (its rows), rows (how many), change_type,
+    title, status (pending, approved, rejected, withdrawn by you, or mixed),
+    filed_at, decided_at (null while pending), summary (one line: what the
+    card does, with one example row). Read this before filing a
+    replacement so you can withdraw what it supersedes yourself -
+    withdraw_batch(batch_id) for a whole card, withdraw(id) for one row -
+    instead of asking the user to reject them. Calling it also redraws the
+    listed cards in the chat, decided ones in their final state, so when
+    the user asks to see a card again or what became of it, call this and
+    point at the card. ``about`` narrows to cards mentioning it ("state
+    farm"): always pass it when the user asked about one card, or every
+    card you ever filed is redrawn. Other agents' cards and the user's own
+    are not listed and cannot be withdrawn."""
+    from app.services.ai.domains.chat.user_memory import current_agent_slug
+    from app.services.finance.domains import writes
+
+    needle = (about or "").strip().lower()
+    horizon = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=14)
+    async with get_async_session() as session:
+        rows = await writes.list_changes(
+            session,
+            owner_user_id=None,
+            status=None,
+            proposed_by_agent=current_agent_slug.get(),
+        )
+        cards: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            if row.status != "pending" and (
+                row.resolved_at is None or row.resolved_at < horizon
+            ):
+                continue
+            line = " / ".join(
+                f"{ln.label}: {ln.value}"
+                for ln in await writes.describe_change(session, row)
+            )
+            card = cards.setdefault(
+                row.batch_id or f"row-{row.id}",
+                {
+                    "batch_id": row.batch_id,
+                    "pending_change_ids": [],
+                    "rows": 0,
+                    "change_type": row.change_type,
+                    "title": writes.executor_for(row.change_type).title,
+                    "statuses": set(),
+                    "filed_at": row.created_at.isoformat(),
+                    "decided_at": row.resolved_at and row.resolved_at.isoformat(),
+                    "summary": line,
+                    "matches": False,
+                },
+            )
+            card["pending_change_ids"].append(row.id)
+            card["rows"] += 1
+            card["statuses"].add(writes.outcome_of(row))
+            card["matches"] |= not needle or needle in line.lower()
+    listing: dict[str, Any] = {"pending": [], "decided": []}
+    for card in cards.values():
+        if not card.pop("matches"):
+            continue
+        statuses = card.pop("statuses")
+        card["status"] = next(iter(statuses)) if len(statuses) == 1 else "mixed"
+        if card["rows"] > 1:
+            card["summary"] = f"{card['rows']} rows, e.g. {card['summary']}"
+        listing["pending" if "pending" in statuses else "decided"].append(card)
+    listing["note"] = (
+        "These cards are redrawn in the chat for the user, decided ones in "
+        "their final state. Point at them; never list their rows."
+    )
+    return listing
+
+
+async def withdraw(pending_change_id: int, reason: str | None = None) -> dict[str, Any]:
+    """Retract one of YOUR OWN still-pending proposals - the cleanup
+    for a card you filed by mistake or have superseded. It resolves as
+    rejected with a "withdrawn" note the user can still see, so give a
+    short ``reason`` ("superseded by the five-row card"). Only the agent
+    that proposed a change can withdraw it. Use it yourself, immediately,
+    instead of asking the user to reject the card."""
+    from app.services.ai.domains.chat.user_memory import current_agent_slug
+    from app.services.finance.domains import writes
+
+    async with get_async_session() as session:
+        try:
+            row = await writes.withdraw(
+                session,
+                pending_change_id,
+                agent_slug=current_agent_slug.get(),
+                owner_user_id=None,
+                reason=reason,
+            )
+            await session.commit()
+        except ValueError as e:
+            return {"error": str(e)}
+    return {
+        "pending_change_id": row.id,
+        "status": row.status,
+        "note": (row.result or {}).get("note"),
+    }
+
+
+async def withdraw_batch(batch_id: str, reason: str | None = None) -> dict[str, Any]:
+    """Retract a whole still-pending card of YOUR OWN in one step - every
+    row of one propose_many batch, one transaction, one reason the user
+    will see on the folded card ("superseded by the five-row card").
+    Prefer this over withdrawing a batch row by row."""
+    from app.services.ai.domains.chat.user_memory import current_agent_slug
+    from app.services.finance.domains import writes
+
+    async with get_async_session() as session:
+        try:
+            withdrawn = await writes.withdraw_batch(
+                session,
+                batch_id,
+                agent_slug=current_agent_slug.get(),
+                owner_user_id=None,
+                reason=reason,
+            )
+            await session.commit()
+        except ValueError as e:
+            return {"error": str(e)}
+    return {"batch_id": batch_id, "withdrawn": withdrawn}
+
+
+# Built-in registration: importing this module makes the tools grantable
+# via the agent registry. replace=True keeps re-imports idempotent.
+register_tool(
+    "categories",
+    categories,
+    description="Assignable categories with the ids proposals need",
+    replace=True,
+)
+register_tool(
+    "bills",
+    bills,
+    description="Live bills and income streams with the ids matches need",
+    replace=True,
+)
+register_tool(
+    "bill_candidates",
+    bill_candidates,
+    description="Ranked unclaimed transactions that could be a bill's payment",
+    replace=True,
+)
+register_tool(
+    "tags",
+    tags,
+    description="The tag directory: names, ids and usage counts",
+    replace=True,
+)
+register_tool(
+    "propose",
+    propose,
+    description="Propose a finance change for the user's approval (the only write)",
+    native_write=True,
+    replace=True,
+)
+register_tool(
+    "propose_many",
+    propose_many,
+    description="Propose a batch of same-type changes for one bulk approval",
+    native_write=True,
+    replace=True,
+)
+register_tool(
+    "pending",
+    pending,
+    description="Your own still-pending proposals, so you can withdraw what you supersede",
+    native_write=True,
+    replace=True,
+)
+register_tool(
+    "withdraw",
+    withdraw,
+    description="Retract one of your own still-pending proposals",
+    native_write=True,
+    replace=True,
+)
+register_tool(
+    "withdraw_batch",
+    withdraw_batch,
+    description="Retract one of your own still-pending batch cards, all rows at once",
+    native_write=True,
+    replace=True,
+)

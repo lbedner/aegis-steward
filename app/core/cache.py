@@ -1,0 +1,217 @@
+"""
+Application cache service.
+
+Process-shared TTL cache. Backed by Redis in production (so the
+webserver, the scheduler, the CLI, and any future worker all read
+and write to the same store), and by an in-memory dict in tests
+and when no Redis URL is configured.
+
+Async-first API
+---------------
+All ops (`get`, `set`, `invalidate`, `invalidate_prefix`, `clear`)
+are coroutines. Callers ``await`` each call. Production callers are
+already async (FastAPI handlers, collector loops, CLI entrypoints
+under ``asyncio.run``), so the cost is just one ``await`` token per
+callsite — and the win is not blocking the event loop on Redis I/O.
+
+Two-backend design
+------------------
+* ``redis_url is None`` → in-memory ``dict[str, (value, expires_at)]``.
+  Tests that do ``CacheService()`` directly stay self-contained, no
+  Redis server needed.
+* ``redis_url`` set → ``redis.asyncio.Redis``, values pickled. The
+  module-level singleton uses this path.
+
+Why pickle
+----------
+Cached values are arbitrary Python objects (Pydantic models, dicts,
+lists). Pickle round-trips losslessly with no per-model serialisation
+contract. The cache is process-trusted (we put values in, we pull
+them out), so the unsafe-unpickle attack surface doesn't apply.
+
+Why a separate logical DB
+-------------------------
+``CACHE_REDIS_DB`` keeps this cache off the queue DB where arq's
+jobs live. ``cache.clear()`` (FLUSHDB on the cache DB) can't
+accidentally take down the worker, and arq purges can't blow away
+view cache.
+"""
+
+import pickle
+import time
+from typing import Any
+
+
+class CacheService:
+    """Async TTL cache with pluggable backend (Redis or in-memory dict).
+
+    Default TTL of 5 min matches the original template default;
+    callers can override per-set when needed.
+    """
+
+    def __init__(
+        self,
+        default_ttl: int = 300,
+        *,
+        redis_url: str | None = None,
+        redis_db: int = 1,
+    ) -> None:
+        self._default_ttl = default_ttl
+        self._redis: Any = None
+        self._store: dict[str, tuple[Any, float]] | None = None
+        if redis_url:
+            # Imported lazily so the dict-only path doesn't carry the
+            # redis dependency at import time (tests that hit
+            # ``CacheService()`` directly stay fast).
+            import redis.asyncio as aioredis
+
+            self._redis = aioredis.from_url(
+                redis_url,
+                db=redis_db,
+                decode_responses=False,  # we store bytes (pickled)
+                # Hard timeouts so a flapping Redis can't wedge a
+                # webserver request behind a stuck cache call.
+                socket_timeout=2,
+                socket_connect_timeout=2,
+            )
+        else:
+            self._store = {}
+
+    # ----- backend-agnostic ops -----
+
+    async def get(self, key: str) -> Any | None:
+        """Return a cached value, or None if missing/expired."""
+        if self._redis is not None:
+            blob = await self._redis.get(key)
+            if blob is None:
+                return None
+            return pickle.loads(blob)
+        assert self._store is not None
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        value, expires_at = entry
+        if time.time() > expires_at:
+            del self._store[key]
+            return None
+        return value
+
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> None:
+        """Store a value with TTL (seconds). Uses default_ttl if not specified.
+
+        ``ttl <= 0`` means "don't cache this value". Both backends honor
+        this the same way: if the key already exists, it's deleted; the
+        new value is not written. Without this guard, Redis would floor
+        to ``ex=1`` (the smallest allowed expiry) and the dict backend
+        would write an instantly-stale entry that lingers until the next
+        read — both surprising behaviors for callers that pass ``ttl=0``
+        to mean "invalidate".
+        """
+        ttl_eff = ttl if ttl is not None else self._default_ttl
+        if ttl_eff <= 0:
+            if self._redis is not None:
+                await self._redis.delete(key)
+                return
+            assert self._store is not None
+            self._store.pop(key, None)
+            return
+        if self._redis is not None:
+            blob = pickle.dumps(value)
+            await self._redis.set(key, blob, ex=ttl_eff)
+            return
+        assert self._store is not None
+        self._store[key] = (value, time.time() + ttl_eff)
+
+    async def invalidate(self, key: str) -> None:
+        """Remove a specific key."""
+        if self._redis is not None:
+            await self._redis.delete(key)
+            return
+        assert self._store is not None
+        self._store.pop(key, None)
+
+    async def invalidate_prefix(self, prefix: str) -> int:
+        """Remove every key starting with ``prefix``. Returns count removed.
+
+        Used by per-namespace nukes where the exact key set is
+        unbounded. Redis path uses SCAN with MATCH (O(n) over the
+        keyspace but non-blocking, unlike KEYS), batched into a single
+        DEL per page.
+        """
+        if self._redis is not None:
+            total = 0
+            cursor = 0
+            while True:
+                cursor, keys = await self._redis.scan(
+                    cursor=cursor,
+                    match=f"{prefix}*",
+                    count=500,
+                )
+                if keys:
+                    total += await self._redis.delete(*keys)
+                if cursor == 0:
+                    break
+            return int(total)
+        assert self._store is not None
+        keys = [k for k in self._store if k.startswith(prefix)]
+        for k in keys:
+            self._store.pop(k, None)
+        return len(keys)
+
+    async def clear(self) -> None:
+        """Remove all cached entries in this cache's namespace.
+
+        Redis path: FLUSHDB on the cache's logical DB (``CACHE_REDIS_DB``).
+        Safe because the cache lives on its own DB — arq's queue is on
+        a different DB and isn't affected.
+        """
+        if self._redis is not None:
+            await self._redis.flushdb()
+            return
+        assert self._store is not None
+        self._store.clear()
+
+    async def aclose(self) -> None:
+        """Release the Redis connection pool.
+
+        Long-lived processes (webserver, scheduler) never call this —
+        the singleton lives for the lifetime of the process. Short-
+        lived processes (CLI commands) should call it before the
+        event loop tears down, otherwise the redis client's
+        ``__del__`` fires after the loop is closed and emits a noisy
+        ``RuntimeError: Event loop is closed`` traceback at GC time.
+        The op already succeeded; the traceback is cosmetic. Calling
+        ``aclose()`` cleanly suppresses it.
+
+        No-op for the dict backend.
+        """
+        if self._redis is not None:
+            await self._redis.aclose()
+
+
+def _build_singleton() -> CacheService:
+    """Build the module-level singleton.
+
+    Imports settings lazily inside the function so circular-import
+    edge cases (settings → other code → cache → settings) don't trip
+    at module load time.
+
+    ``redis_url_effective`` only exists on stacks that opted into the
+    Redis component. When absent, fall back to the dict backend —
+    same shape as a test environment. No-Redis projects don't share
+    cache state across processes, which is fine for single-process
+    deployments.
+    """
+    from app.core.config import settings
+
+    redis_url = getattr(settings, "redis_url_effective", None)
+    redis_db = getattr(settings, "CACHE_REDIS_DB", 1)
+    return CacheService(redis_url=redis_url, redis_db=redis_db)
+
+
+cache = _build_singleton()
+
+
+def get_cache() -> CacheService:
+    """Dependency provider for CacheService."""
+    return cache

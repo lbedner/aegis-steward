@@ -1,0 +1,1616 @@
+"""Tests for the Plaid connection sync — a mocked client returning payloads in
+the exact shape verified against the Plaid sandbox.
+
+Plain ``.py`` (only generated when ``finance_plaid`` is selected). No network:
+``FakePlaidClient`` stands in for ``PlaidClient``.
+"""
+
+import httpx
+import pytest
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.services.finance.adapters.providers import connections
+from app.services.finance.models import (
+    FinanceImportBatch,
+    FinanceTransaction,
+    FinanceWebhookEvent,
+)
+from app.services.finance.service import FinanceService
+
+# Shapes copied from a real sandbox response (accounts/get, transactions/sync).
+_ACCOUNTS = [
+    {
+        "account_id": "acc_check",
+        "name": "Plaid Checking",
+        "official_name": "Plaid Gold Standard Checking",
+        "type": "depository",
+        "subtype": "checking",
+        "mask": "0000",
+        "balances": {"current": 110.0, "available": 100.0, "iso_currency_code": "USD"},
+    },
+    {
+        "account_id": "acc_savings",
+        "name": "Plaid Saving",
+        "type": "depository",
+        "subtype": "savings",
+        "mask": "1111",
+        "balances": {"current": 210.0, "available": 200.0, "iso_currency_code": "USD"},
+    },
+    {
+        "account_id": "acc_card",
+        "name": "Plaid Credit Card",
+        "type": "credit",
+        "subtype": "credit card",
+        "mask": "3333",
+        "balances": {"current": 410.0, "available": None, "iso_currency_code": "USD"},
+    },
+    {
+        "account_id": "acc_ira",
+        "name": "Plaid IRA",
+        "type": "investment",
+        "subtype": "ira",
+        "mask": "5555",
+        "balances": {"current": 320.76, "available": None, "iso_currency_code": "USD"},
+    },
+]
+_TXNS = [
+    {
+        "transaction_id": "txn_mcd",
+        "account_id": "acc_check",
+        "amount": 12.0,  # Plaid positive == outflow
+        "date": "2026-07-10",
+        "name": "McDonald's 3322",
+        "merchant_name": "McDonald's",
+        "iso_currency_code": "USD",
+        "pending": False,
+        "personal_finance_category": {"primary": "FOOD_AND_DRINK"},
+    },
+    {
+        "transaction_id": "txn_intrst",
+        "account_id": "acc_check",
+        "amount": -4.22,  # negative == inflow
+        "date": "2026-07-08",
+        "name": "INTRST PYMNT",
+        "merchant_name": None,
+        "iso_currency_code": "USD",
+        "pending": False,
+        "personal_finance_category": {"primary": "INCOME"},
+    },
+]
+
+
+# investments/holdings/get shapes (verified against the sandbox).
+_SECURITIES = [
+    {
+        "security_id": "sec_aapl",
+        "ticker_symbol": "AAPL",
+        "name": "Apple Inc.",
+        "type": "equity",
+        "close_price": 150.0,
+        "cusip": "037833100",
+        "isin": None,
+        "figi": None,
+        "iso_currency_code": "USD",
+    },
+    {
+        "security_id": "sec_opt",
+        "ticker_symbol": "NFLX180201C00355000",  # option: still keyed by id
+        "name": "Nflx Feb 01'18 $355 Call",
+        "type": "derivative",
+        "close_price": None,
+        "cusip": None,
+        "isin": None,
+        "figi": None,
+        "iso_currency_code": "USD",
+    },
+]
+_HOLDINGS = [
+    {
+        "account_id": "acc_ira",
+        "security_id": "sec_aapl",
+        "quantity": 10.0,
+        "institution_price": 150.0,
+        "institution_value": 1500.0,
+        "cost_basis": 1200.0,
+        "institution_price_as_of": "2026-07-10",
+        "iso_currency_code": "USD",
+    },
+    {
+        "account_id": "acc_ira",
+        "security_id": "sec_opt",
+        "quantity": 2.0,
+        "institution_price": 5.0,
+        "institution_value": 10.0,
+        "cost_basis": 8.0,
+        "institution_price_as_of": None,
+        "iso_currency_code": "USD",
+    },
+]
+# investments/transactions/get shapes (verified against the sandbox). Plaid
+# signs ``amount`` positive when cash leaves the account (a buy) and negative
+# when it arrives (a sell / dividend). ``type`` is coarse; ``subtype`` is the
+# granular intent the mapper keys off.
+_INVESTMENT_TXNS = [
+    {
+        "investment_transaction_id": "inv_buy_1",
+        "account_id": "acc_ira",
+        "security_id": "sec_aapl",
+        "type": "buy",
+        "subtype": "buy",
+        "quantity": 10.0,
+        "amount": 1500.0,
+        "price": 150.0,
+        "fees": 0.0,
+        "date": "2026-06-01",
+        "name": "BUY Apple Inc.",
+        "iso_currency_code": "USD",
+    },
+    {
+        "investment_transaction_id": "inv_div_1",
+        "account_id": "acc_ira",
+        "security_id": "sec_aapl",
+        "type": "cash",
+        "subtype": "dividend",
+        "quantity": 0.0,
+        "amount": -12.5,
+        "price": 0.0,
+        "fees": 0.0,
+        "date": "2026-06-15",
+        "name": "DIVIDEND Apple Inc.",
+        "iso_currency_code": "USD",
+    },
+]
+
+
+class FakePlaidClient:
+    environment = "sandbox"
+
+    def __init__(
+        self,
+        accounts,
+        added,
+        *,
+        modified=None,
+        removed=None,
+        always=False,
+        holdings=None,
+        securities=None,
+        investment_txns=None,
+        investment_securities=None,
+        public_tokens=None,
+        liabilities=None,
+    ):
+        self._accounts = accounts
+        self._added = added
+        self._modified = modified or []
+        self._removed = removed or []
+        self._always = always
+        self._holdings = holdings or []
+        self._securities = securities or []
+        self._investment_txns = investment_txns or []
+        self._investment_securities = investment_securities or []
+        self._public_tokens = public_tokens or []
+        self.removed_tokens: list[str] = []
+        self.hosted_link_calls: list[dict] = []
+        self.fired_webhooks: list[tuple[str, str]] = []
+        self._liabilities = liabilities
+        self.liabilities_calls = 0
+
+    async def fire_sandbox_webhook(self, access_token, webhook_code):
+        self.fired_webhooks.append((access_token, webhook_code))
+
+    async def get_liabilities(self, _access_token):
+        self.liabilities_calls += 1
+        return self._liabilities or {}
+
+    async def create_hosted_link(
+        self,
+        *,
+        user_id,
+        client_name="Aegis Finance",
+        products=None,
+        update_access_token=None,
+    ):
+        self.hosted_link_calls.append(
+            {
+                "user_id": user_id,
+                "products": products,
+                "update_access_token": update_access_token,
+            }
+        )
+        return "https://hosted.example/link", "link-token-x"
+
+    async def link_public_tokens(self, _link_token):
+        return self._public_tokens
+
+    async def remove_item(self, access_token):
+        self.removed_tokens.append(access_token)
+
+    async def exchange_public_token(self, public_token):
+        return f"access-{public_token}", f"item-{public_token}"
+
+    async def get_accounts(self, _access_token):
+        item = {"institution_id": "ins_109508"}
+        if self._liabilities is not None:
+            item["available_products"] = ["liabilities"]
+        return self._accounts, item
+
+    async def get_institution_name(self, _institution_id):
+        return "First Platypus Bank"
+
+    async def sync_transactions(self, _access_token, cursor=None):
+        give = self._always or cursor is None
+        return {
+            "added": self._added if give else [],
+            "modified": self._modified if give else [],
+            "removed": self._removed if give else [],
+            "next_cursor": "cursor-1",
+            "has_more": False,
+        }
+
+    async def get_holdings(self, _access_token):
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        if not self._holdings:
+            raise PlaidError("NO_INVESTMENT_ACCOUNTS", "item has no investments")
+        return self._holdings, self._securities
+
+    async def get_investment_transactions(
+        self, _access_token, _start, _end, *, offset=0, count=500
+    ):
+        page = self._investment_txns[offset : offset + count]
+        return {
+            "investment_transactions": page,
+            "securities": self._investment_securities,
+            "total_investment_transactions": len(self._investment_txns),
+        }
+
+
+class TestPlaidConnection:
+    @pytest.mark.asyncio
+    async def test_create_connection_encrypts_token_and_is_idempotent(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        first = await connections.create_plaid_connection(
+            async_db_session,
+            owner_user_id=1,
+            access_token="access-sandbox-secret",
+            item_id="item-1",
+        )
+        assert first.access_token_encrypted != "access-sandbox-secret"
+        assert first.provider == "plaid"
+        # Same item id -> same row (re-linked), not a duplicate.
+        again = await connections.create_plaid_connection(
+            async_db_session,
+            owner_user_id=1,
+            access_token="access-sandbox-rotated",
+            item_id="item-1",
+        )
+        assert again.id == first.id
+
+    @pytest.mark.asyncio
+    async def test_sync_maps_accounts_and_transaction_signs(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = FakePlaidClient(_ACCOUNTS, _TXNS)
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        result = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert result.accounts == 4
+        assert result.added == 2
+        assert conn.sync_cursor == "cursor-1"
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        by_name = {a.name: a for a in accounts}
+        # Type/classification mapping.
+        assert by_name["Plaid Checking"].account_type == "checking"
+        assert by_name["Plaid Saving"].account_type == "savings"
+        assert by_name["Plaid Credit Card"].classification == "liability"
+        assert by_name["Plaid IRA"].account_type == "brokerage"
+        # Balance in cents; not manual.
+        assert by_name["Plaid Checking"].current_balance == 11000
+        assert by_name["Plaid Checking"].is_manual is False
+
+        txns, _ = await svc.list_transactions(owner_user_id=1)
+        amounts = {t.name: t.amount for t in txns}
+        assert amounts["McDonald's"] == -1200  # Plaid +12.00 -> outflow -1200
+        assert amounts["INTRST PYMNT"] == 422  # Plaid -4.22 -> inflow +422
+
+    @pytest.mark.asyncio
+    async def test_sync_labels_connection_with_institution_name(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        assert conn.label is None
+        await connections.sync_plaid_connection(
+            async_db_session, conn, client=FakePlaidClient(_ACCOUNTS, _TXNS)
+        )
+        assert conn.label == "First Platypus Bank"  # UI shows this, not "Plaid"
+
+    @pytest.mark.asyncio
+    async def test_sync_categorizes_from_plaid_pfc(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        await connections.sync_plaid_connection(
+            async_db_session, conn, client=FakePlaidClient(_ACCOUNTS, _TXNS)
+        )
+        # McDonald's carries PFC FOOD_AND_DRINK and is an outflow, so it lands in
+        # the spending-by-category breakdown under "Food And Drink".
+        rows = await svc.spending_by_category(owner_user_id=1, days=100000)
+        assert any(name == "Food And Drink" for name, _amount in rows)
+
+    @pytest.mark.asyncio
+    async def test_resync_dedups_by_external_id(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        # ``always`` returns the same transactions on every page, so the second
+        # sync must dedup them by (account, source, transaction_id).
+        client = FakePlaidClient(_ACCOUNTS, _TXNS, always=True)
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        first = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        second = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert first.added == 2
+        assert second.added == 0  # nothing new
+        assert second.updated == 2  # existing rows refreshed, not duplicated
+
+        _txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 2  # no duplicate rows
+
+    @pytest.mark.asyncio
+    async def test_sync_pulls_holdings_without_clobbering_balance(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = FakePlaidClient(
+            _ACCOUNTS, _TXNS, holdings=_HOLDINGS, securities=_SECURITIES
+        )
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        result = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert result.holdings == 2
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        ira = next(a for a in accounts if a.name == "Plaid IRA")
+        # Balance stays the provider's accounts/get value (320.76), NOT the
+        # holdings sum — sync_account_balance=False for Plaid.
+        assert ira.current_balance == 32076
+
+        holdings = await svc.list_current_holdings(owner_user_id=1, account_id=ira.id)
+        assert len(holdings) == 2  # includes the tickerless option, keyed by id
+        by_ticker = {s.ticker: (h, v) for h, s, v in holdings}
+        aapl_holding, aapl_value = by_ticker["AAPL"]
+        assert aapl_holding.quantity_e8 == 10 * 10**8
+        assert aapl_holding.cost_basis == 120000  # $1,200.00
+        assert aapl_value == 150_000  # 10 shares @ $150.00
+
+    @pytest.mark.asyncio
+    async def test_sync_pulls_investment_trades(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = FakePlaidClient(
+            _ACCOUNTS,
+            _TXNS,
+            holdings=_HOLDINGS,
+            securities=_SECURITIES,
+            investment_txns=_INVESTMENT_TXNS,
+            investment_securities=_SECURITIES,
+        )
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        result = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert result.trades == 2
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        ira = next(a for a in accounts if a.name == "Plaid IRA")
+        trades = await svc.list_trades(owner_user_id=1, account_id=ira.id)
+        assert len(trades) == 2
+        by_type = {t.type: t for t in trades}
+        # Coarse "buy" maps straight through; "cash"/"dividend" resolves via
+        # subtype, not the blunt coarse type.
+        assert set(by_type) == {"buy", "dividend"}
+        buy = by_type["buy"]
+        assert buy.quantity_e8 == 10 * 10**8
+        assert buy.amount == -150_000  # $1,500.00 cash out -> negative
+        assert buy.price == 15_000  # $150.00
+        assert by_type["dividend"].amount == 1250  # $12.50 cash in -> positive
+
+    @pytest.mark.asyncio
+    async def test_resync_dedups_trades_by_external_id(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = FakePlaidClient(
+            _ACCOUNTS,
+            _TXNS,
+            investment_txns=_INVESTMENT_TXNS,
+            investment_securities=_SECURITIES,
+        )
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        first = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        second = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert first.trades == 2
+        assert second.trades == 2  # re-applied every window...
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        ira = next(a for a in accounts if a.name == "Plaid IRA")
+        trades = await svc.list_trades(owner_user_id=1, account_id=ira.id)
+        assert len(trades) == 2  # ...but deduped by investment_transaction_id
+
+    @pytest.mark.asyncio
+    async def test_relink_same_bank_dedups_accounts(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Re-linking the same institution (new Item, fresh account_ids) must
+        update the existing accounts, not duplicate them."""
+
+        conn_a = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="a", item_id="item-a"
+        )
+        await connections.sync_plaid_connection(
+            async_db_session, conn_a, client=FakePlaidClient(_ACCOUNTS, [])
+        )
+
+        # Same accounts (same name + mask), brand-new account_ids.
+        relinked = [{**a, "account_id": a["account_id"] + "_v2"} for a in _ACCOUNTS]
+        conn_b = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="b", item_id="item-b"
+        )
+        await connections.sync_plaid_connection(
+            async_db_session, conn_b, client=FakePlaidClient(relinked, [])
+        )
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        plaid = [a for a in accounts if a.provider == "plaid"]
+        assert len(plaid) == len(_ACCOUNTS)  # merged, not doubled
+        assert len([a for a in plaid if a.name == "Plaid Checking"]) == 1
+        # The surviving row points at the newest connection + provider id.
+        checking = next(a for a in plaid if a.name == "Plaid Checking")
+        assert checking.connection_id == conn_b.id
+        assert checking.provider_account_id == "acc_check_v2"
+
+    @pytest.mark.asyncio
+    async def test_relink_dedups_transactions_by_content(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Re-linking regenerates transaction_ids too, so LANE-1 can't catch
+        them — the content hash (LANE-2) must, or every transaction doubles."""
+
+        conn_a = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="a", item_id="item-a"
+        )
+        first = await connections.sync_plaid_connection(
+            async_db_session, conn_a, client=FakePlaidClient(_ACCOUNTS, _TXNS)
+        )
+        assert first.added == 2
+
+        # Re-link: same accounts AND same transactions, but fresh Plaid ids.
+        relinked_accounts = [
+            {**a, "account_id": a["account_id"] + "_v2"} for a in _ACCOUNTS
+        ]
+        relinked_txns = [
+            {
+                **t,
+                "transaction_id": t["transaction_id"] + "_v2",
+                "account_id": t["account_id"] + "_v2",
+            }
+            for t in _TXNS
+        ]
+        conn_b = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="b", item_id="item-b"
+        )
+        second = await connections.sync_plaid_connection(
+            async_db_session,
+            conn_b,
+            client=FakePlaidClient(relinked_accounts, relinked_txns),
+        )
+        assert second.added == 0  # recognized by content
+        assert second.updated == 2  # reconciled, not re-inserted
+
+        _txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 2  # no duplicate transactions
+
+    @pytest.mark.asyncio
+    async def test_disconnect_revokes_and_removes_connection_and_accounts(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Disconnect revokes the Item at Plaid, then soft-deletes the connection
+        and every account under it (history rows are kept, not deleted)."""
+        client = FakePlaidClient(_ACCOUNTS, _TXNS)
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert len(accounts) == 4
+
+        ok, revoke = await connections.disconnect_connection(
+            async_db_session, conn.id, owner_user_id=1, client=client
+        )
+        assert ok is True
+        # Local teardown never waits on the provider round trip - the caller
+        # runs the returned revoke AFTER responding (BackgroundTasks).
+        assert client.removed_tokens == []
+        assert revoke is not None
+        await revoke()
+        assert client.removed_tokens == ["tok"]  # Item revoked at Plaid
+        # Connection drops from the active listing; accounts drop from listings.
+        conns = await connections.list_plaid_connections(
+            async_db_session, owner_user_id=1
+        )
+        assert conns == []
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert accounts == []
+        # Hidden from the register once the account is gone...
+        _txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 0
+        # ...but the rows are retained in the DB (history, not hard-deleted).
+        from sqlmodel import func, select
+
+        from app.services.finance.models import FinanceTransaction
+
+        kept = (
+            await async_db_session.exec(
+                select(func.count())
+                .select_from(FinanceTransaction)
+                .where(FinanceTransaction.deleted_at.is_(None))
+            )
+        ).one()
+        assert kept == 2
+
+    @pytest.mark.asyncio
+    async def test_disconnect_missing_connection_returns_false(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        ok, revoke = await connections.disconnect_connection(
+            async_db_session, 999, owner_user_id=1, client=FakePlaidClient([], [])
+        )
+        assert ok is False
+        assert revoke is None
+
+    @pytest.mark.asyncio
+    async def test_disconnect_tears_down_locally_when_plaid_revoke_fails(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A stuck/invalid Item must still be removable: a Plaid error on
+        item/remove is swallowed (in the deferred revoke) and the local
+        teardown has already happened."""
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        class BoomClient(FakePlaidClient):
+            async def remove_item(self, access_token):
+                raise PlaidError("ITEM_NOT_FOUND", "already gone")
+
+        client = BoomClient(_ACCOUNTS, _TXNS)
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        ok, revoke = await connections.disconnect_connection(
+            async_db_session, conn.id, owner_user_id=1, client=client
+        )
+        assert ok is True
+        conns = await connections.list_plaid_connections(
+            async_db_session, owner_user_id=1
+        )
+        assert conns == []
+        assert revoke is not None
+        await revoke()  # provider error is swallowed and logged, never raised
+
+    @pytest.mark.asyncio
+    async def test_disconnect_tears_down_locally_when_plaid_unreachable(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A network failure (httpx error) on item/remove must not block the
+        local teardown — the connection is still removed."""
+
+        class UnreachableClient(FakePlaidClient):
+            async def remove_item(self, access_token):
+                raise httpx.ConnectError("plaid unreachable")
+
+        client = UnreachableClient(_ACCOUNTS, _TXNS)
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        ok, revoke = await connections.disconnect_connection(
+            async_db_session, conn.id, owner_user_id=1, client=client
+        )
+        assert ok is True
+        conns = await connections.list_plaid_connections(
+            async_db_session, owner_user_id=1
+        )
+        assert conns == []
+        assert revoke is not None
+        await revoke()  # network failure is swallowed and logged, never raised
+
+    @pytest.mark.asyncio
+    async def test_disconnect_with_undecryptable_token_still_tears_down(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A corrupted/rekeyed ciphertext must not block the local teardown:
+        the disconnect succeeds with no revoke (nothing usable to revoke)."""
+        client = FakePlaidClient(_ACCOUNTS, _TXNS)
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        conn.access_token_encrypted = "not-a-valid-ciphertext"
+        ok, revoke = await connections.disconnect_connection(
+            async_db_session, conn.id, owner_user_id=1, client=client
+        )
+        assert ok is True
+        assert revoke is None
+        assert client.removed_tokens == []
+        conns = await connections.list_plaid_connections(
+            async_db_session, owner_user_id=1
+        )
+        assert conns == []
+
+    @pytest.mark.asyncio
+    async def test_complete_hosted_link_exchanges_and_syncs(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        # Pending (no public tokens yet) -> no connections, so the frontend
+        # keeps polling.
+        pending = await connections.complete_hosted_link(
+            async_db_session,
+            "link-token-x",
+            owner_user_id=1,
+            client=FakePlaidClient(_ACCOUNTS, _TXNS, public_tokens=[]),
+        )
+        assert pending == []
+
+        # Completed -> exchange the public token into a synced connection.
+        client = FakePlaidClient(_ACCOUNTS, _TXNS, public_tokens=["public-sandbox-abc"])
+        results = await connections.complete_hosted_link(
+            async_db_session, "link-token-x", owner_user_id=1, client=client
+        )
+        assert len(results) == 1
+        assert results[0].accounts == 4
+        assert results[0].added == 2
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert any(a.name == "Plaid Checking" for a in accounts)
+
+    @pytest.mark.asyncio
+    async def test_webhook_transactions_update_syncs_the_item(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = FakePlaidClient(_ACCOUNTS, _TXNS)
+        await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        result = await connections.process_plaid_webhook(
+            async_db_session,
+            {
+                "webhook_type": "TRANSACTIONS",
+                "webhook_code": "SYNC_UPDATES_AVAILABLE",
+                "item_id": "item-1",
+            },
+            client=client,
+        )
+        assert result == "synced"
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert len(accounts) == 4  # the webhook pulled the item's accounts
+
+    @pytest.mark.asyncio
+    async def test_webhook_ignores_non_transaction_and_unknown_item(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        fake = FakePlaidClient([], [])
+        # ITEM webhook for an item we don't have -> unknown_item, no state flip.
+        non_txn = await connections.process_plaid_webhook(
+            async_db_session,
+            {"webhook_type": "ITEM", "webhook_code": "ERROR", "item_id": "item-1"},
+            client=fake,
+        )
+        assert non_txn == "unknown_item"
+        # Transaction webhook for an item we don't have -> unknown_item.
+        unknown = await connections.process_plaid_webhook(
+            async_db_session,
+            {
+                "webhook_type": "TRANSACTIONS",
+                "webhook_code": "SYNC_UPDATES_AVAILABLE",
+                "item_id": "not-ours",
+            },
+            client=fake,
+        )
+        assert unknown == "unknown_item"
+
+
+# A card pre-auth and the posted transaction that later replaces it. Plaid
+# gives the posted row a NEW transaction_id and points back at the pending one
+# via ``pending_transaction_id`` (shape verified against the sandbox).
+_PENDING_TXN = {
+    "transaction_id": "txn_pending_coffee",
+    "account_id": "acc_check",
+    "amount": 4.5,
+    "date": "2026-07-11",
+    "name": "STARBUCKS (PENDING)",
+    "merchant_name": "Starbucks",
+    "iso_currency_code": "USD",
+    "pending": True,
+    "personal_finance_category": {"primary": "FOOD_AND_DRINK"},
+}
+_POSTED_TXN = {
+    "transaction_id": "txn_posted_coffee",
+    "account_id": "acc_check",
+    "amount": 4.75,
+    "date": "2026-07-12",
+    "name": "STARBUCKS STORE 123",
+    "merchant_name": "Starbucks",
+    "iso_currency_code": "USD",
+    "pending": False,
+    "pending_transaction_id": "txn_pending_coffee",
+    "personal_finance_category": {"primary": "FOOD_AND_DRINK"},
+}
+
+
+class TestPlaidPendingAndMutations:
+    """FIN-20 mutation invariants: pending->posted collapse, modified[] category
+    precedence, and removed[] tombstones."""
+
+    async def _connect(self, db: AsyncSession):
+        return await connections.create_plaid_connection(
+            db, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+
+    async def _plaid_rows(self, db: AsyncSession) -> list[FinanceTransaction]:
+        return list(
+            (
+                await db.exec(
+                    select(FinanceTransaction).where(
+                        FinanceTransaction.source == "plaid"
+                    )
+                )
+            ).all()
+        )
+
+    @pytest.mark.asyncio
+    async def test_pending_transaction_stored_as_pending(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        await connections.sync_plaid_connection(
+            async_db_session, conn, client=FakePlaidClient(_ACCOUNTS, [_PENDING_TXN])
+        )
+        rows = await self._plaid_rows(async_db_session)
+        assert len(rows) == 1
+        assert rows[0].pending is True
+        assert rows[0].status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_pending_to_posted_collapses_to_one_visible_row(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient(_ACCOUNTS, [_PENDING_TXN], always=True)
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        # Next sync generation: the posted row replaces the pre-auth.
+        client._added = [_POSTED_TXN]
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+
+        rows = {r.external_id: r for r in await self._plaid_rows(async_db_session)}
+        pending = rows["txn_pending_coffee"]
+        posted = rows["txn_posted_coffee"]
+        assert posted.pending_provider_id == "txn_pending_coffee"
+        assert posted.pending_transaction_id == pending.id  # linked via self-FK
+        assert pending.deleted_at is not None  # tombstoned, not hard-deleted
+
+        txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 1  # one visible row, no double-count
+        assert txns[0].external_id == "txn_posted_coffee"
+        assert txns[0].amount == -475
+
+    @pytest.mark.asyncio
+    async def test_pending_and_posted_in_same_sync_collapse(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        await connections.sync_plaid_connection(
+            async_db_session,
+            conn,
+            client=FakePlaidClient(_ACCOUNTS, [_PENDING_TXN, _POSTED_TXN]),
+        )
+        _txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 1
+
+    @pytest.mark.asyncio
+    async def test_phantom_preauth_removed_tombstones_pending(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient(_ACCOUNTS, [_PENDING_TXN], always=True)
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        # The pre-auth never posts; Plaid retracts it via removed[].
+        client._added = []
+        client._removed = [
+            {"transaction_id": "txn_pending_coffee", "account_id": "acc_check"}
+        ]
+        result = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert result.removed == 1
+
+        rows = await self._plaid_rows(async_db_session)
+        assert len(rows) == 1
+        assert rows[0].is_removed is True
+        assert rows[0].status == "removed"
+        assert rows[0].removed_at is not None
+        assert rows[0].deleted_at is not None  # tombstone survives, row hidden
+
+        _txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 0  # no phantom spend
+
+    @pytest.mark.asyncio
+    async def test_modified_preserves_user_category(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient(_ACCOUNTS, _TXNS, always=True)
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        rows = {r.external_id: r for r in await self._plaid_rows(async_db_session)}
+        mcd = rows["txn_mcd"]
+        mcd.category_id = 4242
+        mcd.category_source = "user"
+        mcd.is_user_categorized = True
+        async_db_session.add(mcd)
+        await async_db_session.flush()
+
+        # Bank rewrites history (modified[]): display fields refresh, but the
+        # user's category wins over the provider's.
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        rows = {r.external_id: r for r in await self._plaid_rows(async_db_session)}
+        assert rows["txn_mcd"].category_id == 4242
+        assert rows["txn_mcd"].category_source == "user"
+
+    @pytest.mark.asyncio
+    async def test_modified_refreshes_provider_category_when_not_user_set(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient(_ACCOUNTS, [dict(_TXNS[0])], always=True)
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        # Plaid re-categorizes the merchant in a later sync generation.
+        client._added = [
+            {**_TXNS[0], "personal_finance_category": {"primary": "TRAVEL"}}
+        ]
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        rows = {r.external_id: r for r in await self._plaid_rows(async_db_session)}
+        travel = await svc.get_or_create_pfc_category("TRAVEL")
+        assert rows["txn_mcd"].category_id == travel.id
+        assert rows["txn_mcd"].category_source == "provider"
+
+    @pytest.mark.asyncio
+    async def test_removed_is_scoped_to_the_named_account(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient(_ACCOUNTS, [], always=True)
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        by_name = {a.name: a for a in accounts}
+        from datetime import date as date_type
+
+        # Savings first: an unscoped external-id lookup would tombstone this
+        # row instead of the checking one the removed[] entry names.
+        for account in (by_name["Plaid Saving"], by_name["Plaid Checking"]):
+            await svc.create_transaction(
+                owner_user_id=1,
+                account_id=account.id,
+                connection_id=conn.id,
+                amount=-1000,
+                txn_date=date_type(2026, 7, 10),
+                name="Shared external id",
+                source="plaid",
+                external_id="txn_shared",
+                external_id_source="plaid",
+            )
+
+        client._removed = [{"transaction_id": "txn_shared", "account_id": "acc_check"}]
+        result = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert result.removed == 1
+
+        rows = await self._plaid_rows(async_db_session)
+        by_account = {r.account_id: r for r in rows if r.external_id == "txn_shared"}
+        assert by_account[by_name["Plaid Checking"].id].deleted_at is not None
+        assert by_account[by_name["Plaid Saving"].id].deleted_at is None
+
+
+class TestPlaidWebhookLifecycle:
+    """FIN-21: ITEM webhooks flip connection health, redelivery is a no-op,
+    relink issues an update-mode Hosted Link, and a successful sync clears the
+    needs-attention flag."""
+
+    async def _connect(self, db: AsyncSession):
+        return await connections.create_plaid_connection(
+            db, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_item_login_required_flags_the_connection(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        result = await connections.process_plaid_webhook(
+            async_db_session,
+            {
+                "webhook_type": "ITEM",
+                "webhook_code": "ERROR",
+                "item_id": "item-1",
+                "error": {
+                    "error_code": "ITEM_LOGIN_REQUIRED",
+                    "error_message": "the login details of this item have changed",
+                },
+            },
+            client=FakePlaidClient([], []),
+        )
+        assert result == "processed"
+        assert conn.status == "login_required"
+        assert conn.needs_user_action is True
+        assert conn.last_error_code == "ITEM_LOGIN_REQUIRED"
+
+        health = await svc.health(owner_user_id=1)
+        assert health.status == "attention"  # the card chip goes amber
+        assert health.connections_needing_action == 1
+
+    @pytest.mark.asyncio
+    async def test_item_pending_expiration_stores_consent_deadline(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        result = await connections.process_plaid_webhook(
+            async_db_session,
+            {
+                "webhook_type": "ITEM",
+                "webhook_code": "PENDING_EXPIRATION",
+                "item_id": "item-1",
+                "consent_expiration_time": "2026-08-19T12:00:00Z",
+            },
+            client=FakePlaidClient([], []),
+        )
+        assert result == "processed"
+        assert conn.status == "pending_expiration"
+        assert conn.needs_user_action is True
+        assert conn.consent_expiration_at is not None
+        assert conn.consent_expiration_at.year == 2026
+        assert conn.consent_expiration_at.month == 8
+
+    @pytest.mark.asyncio
+    async def test_item_user_permission_revoked(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        result = await connections.process_plaid_webhook(
+            async_db_session,
+            {
+                "webhook_type": "ITEM",
+                "webhook_code": "USER_PERMISSION_REVOKED",
+                "item_id": "item-1",
+            },
+            client=FakePlaidClient([], []),
+        )
+        assert result == "processed"
+        assert conn.status == "revoked"
+        assert conn.needs_user_action is True
+
+    @pytest.mark.asyncio
+    async def test_redelivered_webhook_is_a_noop(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        await self._connect(async_db_session)
+        payload = {
+            "webhook_type": "TRANSACTIONS",
+            "webhook_code": "SYNC_UPDATES_AVAILABLE",
+            "item_id": "item-1",
+        }
+        client = FakePlaidClient(_ACCOUNTS, _TXNS)
+        first = await connections.process_plaid_webhook(
+            async_db_session, payload, client=client
+        )
+        second = await connections.process_plaid_webhook(
+            async_db_session, dict(payload), client=client
+        )
+        assert first == "synced"
+        assert second == "duplicate"
+        events = (await async_db_session.exec(select(FinanceWebhookEvent))).all()
+        assert len(events) == 1  # the idempotency key blocked a second row
+
+    @pytest.mark.asyncio
+    async def test_successful_sync_clears_needs_user_action(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        conn.status = "login_required"
+        conn.needs_user_action = True
+        async_db_session.add(conn)
+        await async_db_session.flush()
+        # The user re-authenticated via update-mode Link; the next sync works
+        # and the connection returns to healthy.
+        await connections.sync_plaid_connection(
+            async_db_session, conn, client=FakePlaidClient(_ACCOUNTS, _TXNS)
+        )
+        assert conn.status == "healthy"
+        assert conn.needs_user_action is False
+
+    @pytest.mark.asyncio
+    async def test_relink_issues_update_mode_hosted_link(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient([], [])
+        session = await connections.relink_connection(
+            async_db_session, conn.id, owner_user_id=1, client=client
+        )
+        assert session is not None
+        url, link_token = session
+        assert url == "https://hosted.example/link"
+        assert link_token == "link-token-x"
+        call = client.hosted_link_calls[0]
+        # Update mode: the EXISTING access token rides along and products are
+        # omitted (Plaid rejects products in update mode).
+        assert call["update_access_token"] == "tok"
+        assert call["products"] is None
+
+    @pytest.mark.asyncio
+    async def test_relink_unknown_or_foreign_connection_returns_none(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient([], [])
+        assert (
+            await connections.relink_connection(
+                async_db_session, 99999, owner_user_id=1, client=client
+            )
+            is None
+        )
+        assert (
+            await connections.relink_connection(
+                async_db_session, conn.id, owner_user_id=2, client=client
+            )
+            is None
+        )
+        assert client.hosted_link_calls == []
+
+
+# /liabilities/get shape (verified against the sandbox): credit entries carry
+# floats for money and percentages; the adapter converts to cents / bps.
+_LIABILITIES = {
+    "credit": [
+        {
+            "account_id": "acc_card",
+            "aprs": [
+                {
+                    "apr_type": "purchase_apr",
+                    "apr_percentage": 15.24,
+                    "balance_subject_to_apr": 1562.32,
+                    "interest_charge_amount": 22.56,
+                }
+            ],
+            "is_overdue": False,
+            "last_payment_amount": 168.25,
+            "last_payment_date": "2026-06-13",
+            "last_statement_issue_date": "2026-06-28",
+            "last_statement_balance": 1708.77,
+            "minimum_payment_amount": 20.0,
+            "next_payment_due_date": "2026-07-28",
+        }
+    ],
+}
+
+
+class TestPlaidLiabilities:
+    """FIN-23: credit liability detail (APR/statement/min-payment) — pulled
+    only when the item supports it, upserted 1:1 per account, and gracefully
+    ABSENT (no calls, no rows, no errors) for AMEX-style items without it."""
+
+    async def _liability_rows(self, db: AsyncSession):
+        from app.services.finance.models import FinanceLiabilityDetail
+
+        return list((await db.exec(select(FinanceLiabilityDetail))).all())
+
+    @pytest.mark.asyncio
+    async def test_sync_pulls_and_upserts_credit_liability_detail(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        import copy
+
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        client = FakePlaidClient(_ACCOUNTS, [], liabilities=copy.deepcopy(_LIABILITIES))
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        rows = await self._liability_rows(async_db_session)
+        assert len(rows) == 1
+        detail = rows[0]
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        card = next(a for a in accounts if a.name == "Plaid Credit Card")
+        assert detail.account_id == card.id
+        assert detail.liability_type == "credit"
+        assert detail.last_statement_balance == 170877
+        assert detail.last_statement_issue_date is not None
+        assert detail.minimum_payment_amount == 2000
+        assert detail.next_payment_due_date is not None
+        assert detail.last_payment_amount == 16825
+        assert detail.is_overdue is False
+        assert detail.aprs == [
+            {
+                "apr_type": "purchase_apr",
+                "apr_percentage_bps": 1524,
+                "balance_subject_to_apr": 156232,
+                "interest_charge_amount": 2256,
+            }
+        ]
+        assert detail.raw  # full payload retained
+
+        # Re-pull with changed values -> same row updated in place, never a
+        # second row per account.
+        client._liabilities["credit"][0]["minimum_payment_amount"] = 35.0
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        rows = await self._liability_rows(async_db_session)
+        assert len(rows) == 1
+        assert rows[0].minimum_payment_amount == 3500
+
+    @pytest.mark.asyncio
+    async def test_item_without_liabilities_support_makes_zero_calls(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        client = FakePlaidClient(_ACCOUNTS, _TXNS)  # no liabilities capability
+        result = await connections.sync_plaid_connection(
+            async_db_session, conn, client=client
+        )
+        assert result.added == 2  # the sync itself is unaffected
+        assert client.liabilities_calls == 0  # capability-gated, not try/except
+        assert await self._liability_rows(async_db_session) == []
+
+
+class _FailsForToken(FakePlaidClient):
+    """Raises inside the transactions pull for one connection's token."""
+
+    def __init__(self, *args, fail_token: str, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._fail_token = fail_token
+        self.accounts_calls: list[str] = []
+
+    async def get_accounts(self, _access_token):
+        self.accounts_calls.append(_access_token)
+        return await super().get_accounts(_access_token)
+
+    async def sync_transactions(self, _access_token, cursor=None):
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        if _access_token == self._fail_token:
+            raise PlaidError("INTERNAL_SERVER_ERROR", "bank is on fire")
+        return await super().sync_transactions(_access_token, cursor)
+
+
+class TestSyncFailureIsolation:
+    """FIN-22: one failing bank never kills the others, failures are marked on
+    the connection, and needs-user-action connections are skipped."""
+
+    @pytest.mark.asyncio
+    async def test_one_failing_connection_does_not_stop_the_rest(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        first = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok-1", item_id="item-1"
+        )
+        second = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok-2", item_id="item-2"
+        )
+        client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="tok-1")
+        results = await connections.sync_owner_connections(
+            async_db_session, owner_user_id=1, client=client
+        )
+        # The healthy bank synced; the failing one is marked, not fatal.
+        assert [r.connection_id for r in results] == [second.id]
+        assert second.status == "healthy"
+        assert first.status == "error"
+        assert first.last_error_code == "INTERNAL_SERVER_ERROR"
+        assert first.status_detail is not None
+        assert "bank is on fire" in first.status_detail
+
+        # SAVEPOINT isolation: the failed connection's partial writes (its
+        # account upserts happened before the pull blew up) are rolled back,
+        # so only the healthy connection's accounts exist.
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert len(accounts) == 4
+        assert {a.connection_id for a in accounts} == {second.id}
+
+    @pytest.mark.asyncio
+    async def test_needs_user_action_connection_is_skipped(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok-1", item_id="item-1"
+        )
+        conn.needs_user_action = True
+        conn.status = "login_required"
+        async_db_session.add(conn)
+        await async_db_session.flush()
+
+        client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="none")
+        results = await connections.sync_owner_connections(
+            async_db_session, owner_user_id=1, client=client
+        )
+        assert results == []
+        assert client.accounts_calls == []  # no futile re-auth spam
+        assert conn.status == "login_required"  # untouched
+
+    @pytest.mark.asyncio
+    async def test_sync_one_connection_targets_a_single_bank(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        first = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok-1", item_id="item-1"
+        )
+        await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok-2", item_id="item-2"
+        )
+        client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="none")
+        result = await connections.sync_one_connection(
+            async_db_session, first.id, owner_user_id=1, client=client
+        )
+        assert result is not None
+        assert result.connection_id == first.id
+        assert client.accounts_calls == ["tok-1"]  # the other bank untouched
+
+    @pytest.mark.asyncio
+    async def test_sync_one_connection_unknown_or_foreign_returns_none(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok-1", item_id="item-1"
+        )
+        client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="none")
+        assert (
+            await connections.sync_one_connection(
+                async_db_session, 99999, owner_user_id=1, client=client
+            )
+            is None
+        )
+        assert (
+            await connections.sync_one_connection(
+                async_db_session, conn.id, owner_user_id=2, client=client
+            )
+            is None
+        )
+
+
+class TestPlaidFireSandboxWebhook:
+    """The dev-time webhook path: ``finance fire-webhook`` makes Plaid deliver
+    a REAL signed webhook to PLAID_WEBHOOK_URL, exercising verification and
+    dispatch end to end without waiting for new bank data."""
+
+    @pytest.mark.asyncio
+    async def test_fires_for_each_plaid_connection(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        client = FakePlaidClient([], [])
+        fired = await connections.fire_sandbox_webhook(
+            async_db_session, owner_user_id=1, client=client
+        )
+        assert fired == [conn.id]
+        assert client.fired_webhooks == [("tok", "SYNC_UPDATES_AVAILABLE")]
+
+    @pytest.mark.asyncio
+    async def test_refuses_outside_sandbox(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        client = FakePlaidClient([], [])
+        client.environment = "production"
+        with pytest.raises(PlaidError):
+            await connections.fire_sandbox_webhook(
+                async_db_session, owner_user_id=1, client=client
+            )
+        assert client.fired_webhooks == []
+
+
+class TestPlaidWebhookVerification:
+    """FIN-21: the webhook endpoint only processes requests carrying a valid
+    Plaid-Verification ES256 JWT whose body hash matches the raw body."""
+
+    @staticmethod
+    def _make_key():
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        numbers = private_key.public_key().public_numbers()
+
+        def b64url(data: bytes) -> str:
+            import base64
+
+            return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+        jwk = {
+            "alg": "ES256",
+            "kty": "EC",
+            "crv": "P-256",
+            "use": "sig",
+            "kid": "test-kid-1",
+            "x": b64url(numbers.x.to_bytes(32, "big")),
+            "y": b64url(numbers.y.to_bytes(32, "big")),
+        }
+        return private_key, jwk
+
+    @staticmethod
+    def _make_jwt(
+        private_key,
+        body: bytes,
+        *,
+        kid: str = "test-kid-1",
+        alg: str = "ES256",
+        iat: int | None = None,
+        body_sha: str | None = None,
+    ) -> str:
+        import base64
+        import hashlib
+        import json
+        import time
+
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import (
+            decode_dss_signature,
+        )
+
+        def b64url(data: bytes) -> str:
+            return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+        header = {"alg": alg, "kid": kid, "typ": "JWT"}
+        claims = {
+            "iat": int(time.time()) if iat is None else iat,
+            "request_body_sha256": body_sha or hashlib.sha256(body).hexdigest(),
+        }
+        signing_input = (
+            b64url(json.dumps(header).encode())
+            + "."
+            + b64url(json.dumps(claims).encode())
+        )
+        der = private_key.sign(signing_input.encode(), ec.ECDSA(hashes.SHA256()))
+        r, s = decode_dss_signature(der)
+        signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+        return signing_input + "." + b64url(signature)
+
+    def _client(self, jwk):
+        from app.services.finance.adapters.providers.plaid import PlaidClient
+
+        class KeyedClient(PlaidClient):
+            def __init__(self) -> None:
+                super().__init__(client_id="id", secret="sec", environment="sandbox")
+
+            async def get_webhook_verification_key(self, key_id: str):
+                assert key_id == jwk["kid"]
+                return jwk
+
+        return KeyedClient()
+
+    @pytest.mark.asyncio
+    async def test_valid_jwt_verifies_and_returns_payload(self) -> None:
+        private_key, jwk = self._make_key()
+        body = b'{"webhook_type": "TRANSACTIONS", "item_id": "item-1"}'
+        token = self._make_jwt(private_key, body)
+        payload = await self._client(jwk).verify_webhook(body, token)
+        assert payload["webhook_type"] == "TRANSACTIONS"
+
+    @pytest.mark.asyncio
+    async def test_tampered_body_is_rejected(self) -> None:
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        private_key, jwk = self._make_key()
+        token = self._make_jwt(private_key, b'{"item_id": "item-1"}')
+        with pytest.raises(PlaidError):
+            await self._client(jwk).verify_webhook(b'{"item_id": "item-EVIL"}', token)
+
+    @pytest.mark.asyncio
+    async def test_non_es256_alg_is_rejected(self) -> None:
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        private_key, jwk = self._make_key()
+        body = b"{}"
+        token = self._make_jwt(private_key, body, alg="none")
+        with pytest.raises(PlaidError):
+            await self._client(jwk).verify_webhook(body, token)
+
+    @pytest.mark.asyncio
+    async def test_stale_iat_is_rejected(self) -> None:
+        import time
+
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        private_key, jwk = self._make_key()
+        body = b"{}"
+        token = self._make_jwt(private_key, body, iat=int(time.time()) - 600)
+        with pytest.raises(PlaidError):
+            await self._client(jwk).verify_webhook(body, token)
+
+    @pytest.mark.asyncio
+    async def test_wrong_key_signature_is_rejected(self) -> None:
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        _key_a, jwk = self._make_key()
+        other_key, _jwk_b = self._make_key()
+        body = b"{}"
+        token = self._make_jwt(other_key, body)  # signed by a different key
+        with pytest.raises(PlaidError):
+            await self._client(jwk).verify_webhook(body, token)
+
+    @pytest.mark.asyncio
+    async def test_webhook_route_rejects_missing_header(
+        self, async_client_with_db
+    ) -> None:
+        response = async_client_with_db.post(
+            "/api/v1/finance/webhook/plaid",
+            json={"webhook_type": "TRANSACTIONS", "item_id": "item-1"},
+        )
+        assert response.status_code == 401
+        assert "Plaid-Verification" in response.json()["detail"]
+
+
+class TestPlaidSyncAudit:
+    """FIN-20 auditability + atomicity: every sync pass writes a
+    ``finance_import_batch`` row (cursors before/after), and a mid-sync failure
+    never advances the cursor past pages that were not applied."""
+
+    async def _connect(self, db: AsyncSession):
+        return await connections.create_plaid_connection(
+            db, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+
+    async def _batches(self, db: AsyncSession) -> list[FinanceImportBatch]:
+        return list(
+            (
+                await db.exec(
+                    select(FinanceImportBatch).where(
+                        FinanceImportBatch.source_type == "plaid_sync"
+                    )
+                )
+            ).all()
+        )
+
+    @pytest.mark.asyncio
+    async def test_each_sync_writes_an_audit_batch(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        conn = await self._connect(async_db_session)
+        client = FakePlaidClient(_ACCOUNTS, _TXNS, always=True)
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        batches = await self._batches(async_db_session)
+        assert len(batches) == 1
+        first = batches[0]
+        assert first.connection_id == conn.id
+        assert first.sync_cursor_before is None  # first pull starts from scratch
+        assert first.sync_cursor_after == "cursor-1"
+        assert first.rows_inserted == 2
+        assert first.rows_updated == 0
+        assert first.status == "committed"
+        assert first.finished_at is not None
+
+        # Imported rows FK back to their batch (the reversible unit).
+        txns = (
+            await async_db_session.exec(
+                select(FinanceTransaction).where(FinanceTransaction.source == "plaid")
+            )
+        ).all()
+        assert all(t.import_batch_id == first.id for t in txns)
+
+        # A second pass is its own audit row, resuming from the prior cursor.
+        await connections.sync_plaid_connection(async_db_session, conn, client=client)
+        batches = await self._batches(async_db_session)
+        assert len(batches) == 2
+        second = next(b for b in batches if b.id != first.id)
+        assert second.sync_cursor_before == "cursor-1"
+        assert second.rows_inserted == 0
+        assert second.rows_updated == 2
+
+    @pytest.mark.asyncio
+    async def test_midsync_failure_never_advances_the_cursor(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        class ExplodesOnPageTwo(FakePlaidClient):
+            async def sync_transactions(self, _access_token, cursor=None):
+                if cursor == "page-1":
+                    raise PlaidError("INTERNAL_SERVER_ERROR", "boom on page 2")
+                return {
+                    "added": [_TXNS[0]],
+                    "modified": [],
+                    "removed": [],
+                    "next_cursor": "page-1",
+                    "has_more": True,
+                }
+
+        conn = await self._connect(async_db_session)
+        with pytest.raises(PlaidError):
+            await connections.sync_plaid_connection(
+                async_db_session,
+                conn,
+                client=ExplodesOnPageTwo(_ACCOUNTS, []),
+            )
+        # THE atomicity invariant: no cursor advance, no partial rows, no
+        # committed batch for a pull that did not fully apply.
+        assert conn.sync_cursor is None
+        txns = (
+            await async_db_session.exec(
+                select(FinanceTransaction).where(FinanceTransaction.source == "plaid")
+            )
+        ).all()
+        assert txns == []
+        assert all(
+            b.status != "committed" for b in await self._batches(async_db_session)
+        )
+
+        # Recovery: the next run starts from the last committed cursor and
+        # applies everything exactly once.
+        result = await connections.sync_plaid_connection(
+            async_db_session, conn, client=FakePlaidClient(_ACCOUNTS, _TXNS)
+        )
+        assert result.added == 2
+        assert conn.sync_cursor == "cursor-1"
+        _txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 2
+
+
+class TestPlaidClientPost:
+    @pytest.mark.asyncio
+    async def test_non_json_body_raises_plaid_error(self, monkeypatch) -> None:
+        """A non-JSON body (e.g. an HTML 502 from an upstream proxy) surfaces as
+        a PlaidError, not a raw JSONDecodeError."""
+        from app.services.finance.adapters.providers import plaid as plaid_mod
+        from app.services.finance.adapters.providers.plaid import (
+            PlaidClient,
+            PlaidError,
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(502, text="<html>Bad Gateway</html>")
+
+        real_async_client = httpx.AsyncClient
+
+        def fake_async_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real_async_client(*args, **kwargs)
+
+        monkeypatch.setattr(plaid_mod.httpx, "AsyncClient", fake_async_client)
+        client = PlaidClient(client_id="id", secret="sec", environment="sandbox")
+        with pytest.raises(PlaidError) as exc:
+            await client._post("/accounts/get", {"access_token": "tok"})
+        assert exc.value.error_code == "invalid_response"

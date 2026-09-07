@@ -1,0 +1,100 @@
+"""Tests for scheduler execution-history logging (execution_log.py)."""
+
+from contextlib import contextmanager
+
+import pytest
+from sqlmodel import Session, select
+
+import app.services.scheduler.execution_log as execution_log
+from app.services.scheduler.execution_log import (
+    prune_executions,
+    record_job_finished,
+    record_job_missed,
+    record_job_started,
+)
+from app.services.scheduler.models import JobExecution
+
+
+@pytest.fixture(autouse=True)
+def _route_db_session(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Route the module's ``db_session()`` to the transactional test session.
+
+    execution_log opens a fresh session per call against the app engine;
+    in tests we point every call at the rolled-back fixture session so the
+    writes are visible to assertions and isolated between tests.
+    """
+
+    @contextmanager
+    def _session(autocommit: bool = True):
+        yield db_session
+        if autocommit:
+            db_session.flush()
+
+    monkeypatch.setattr(execution_log, "db_session", _session)
+
+
+def _rows(db_session: Session) -> list[JobExecution]:
+    return list(db_session.exec(select(JobExecution)).all())
+
+
+def test_record_job_started_inserts_running_row(db_session: Session) -> None:
+    execution_id = record_job_started("job1", "Job One")
+
+    assert execution_id is not None
+    rows = _rows(db_session)
+    assert len(rows) == 1
+    assert rows[0].status == "running"
+    assert rows[0].job_name == "Job One"
+    assert rows[0].finished_at is None
+
+
+def test_record_job_finished_success_updates_row(db_session: Session) -> None:
+    execution_id = record_job_started("job1", "Job One")
+    record_job_finished(execution_id, "job1", success=True)
+
+    row = _rows(db_session)[0]
+    assert row.status == "success"
+    assert row.finished_at is not None
+    assert row.duration_ms is not None and row.duration_ms >= 0
+
+
+def test_record_job_finished_failure_captures_error(db_session: Session) -> None:
+    execution_id = record_job_started("job1", "Job One")
+    record_job_finished(
+        execution_id, "job1", success=False, error="boom", traceback="trace"
+    )
+
+    row = _rows(db_session)[0]
+    assert row.status == "failed"
+    assert row.error_message == "boom"
+    assert row.traceback == "trace"
+
+
+def test_record_job_finished_without_start_inserts_completed_row(
+    db_session: Session,
+) -> None:
+    # Scheduler restarted between submit and completion: no running row.
+    record_job_finished(None, "orphan", success=True)
+
+    rows = _rows(db_session)
+    assert len(rows) == 1
+    assert rows[0].status == "success"
+    assert rows[0].job_id == "orphan"
+
+
+def test_record_job_missed_inserts_missed_row(db_session: Session) -> None:
+    record_job_missed("job1")
+
+    rows = _rows(db_session)
+    assert len(rows) == 1
+    assert rows[0].status == "missed"
+
+
+def test_prune_keeps_most_recent(db_session: Session) -> None:
+    for _ in range(5):
+        record_job_started("job1", "Job One")
+
+    removed = prune_executions("job1", keep=2)
+
+    assert removed == 3
+    assert len(_rows(db_session)) == 2

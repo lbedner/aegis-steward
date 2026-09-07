@@ -1,0 +1,322 @@
+"""
+Tests for health API endpoints.
+
+These tests focus on the HTTP endpoints that CLI health commands call,
+ensuring API responses match expected CLI input format and handle errors correctly.
+"""
+
+from collections.abc import AsyncIterator
+
+from httpx import ASGITransport, AsyncClient
+import pytest
+
+from app.integrations.main import create_integrated_app
+
+
+class TestHealthEndpoints:
+    """Test health API endpoints with various component states."""
+
+    @pytest.fixture
+    async def async_client(self) -> AsyncIterator[AsyncClient]:
+        """Async HTTP client for testing."""
+        app = create_integrated_app()
+
+        # Manually trigger startup for health check registration
+        from app.components.backend.hooks import backend_hooks
+
+        await backend_hooks.discover_lifespan_hooks()
+        await backend_hooks.execute_startup_hooks()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+
+        # Clean up after test
+        await backend_hooks.execute_shutdown_hooks()
+
+        # Dispose the global async engine so its asyncpg connection pool
+        # doesn't carry pending operations into the next test (which would
+        # otherwise see "another operation is in progress" when a sync
+        # TestClient-based test reuses the same connection).
+        try:
+            from app.core.db import async_engine
+
+            await async_engine.dispose()
+        except ImportError:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_basic_health_endpoint_accessible(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test /health/ endpoint is accessible."""
+        response = await async_client.get("/health/")
+
+        # Should return a valid response (200 for healthy, 503 for unhealthy)
+        assert response.status_code in [200, 503]
+        data = response.json()
+
+        # Verify response structure matches HealthResponse model
+        assert "healthy" in data
+        assert "status" in data
+        assert "components" in data
+        assert "timestamp" in data
+
+        # Verify components are included
+        assert isinstance(data["components"], dict)
+
+    @pytest.mark.asyncio
+    async def test_detailed_health_endpoint_accessible(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test /health/detailed endpoint is accessible."""
+        response = await async_client.get("/health/detailed")
+
+        # Should return a valid response
+        assert response.status_code in [200, 503]
+        data = response.json()
+
+        if response.status_code == 200:
+            # Verify response structure matches DetailedHealthResponse model
+            assert "healthy" in data
+            assert "status" in data
+            assert "service" in data
+            assert "version" in data
+            assert "components" in data
+            assert "system_info" in data
+            assert "timestamp" in data
+            assert "healthy_components" in data
+            assert "unhealthy_components" in data
+            assert "health_percentage" in data
+        else:
+            # For 503 responses, check error structure
+            assert "detail" in data
+
+    @pytest.mark.asyncio
+    async def test_health_endpoints_json_format(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test that health endpoints return valid JSON for CLI consumption."""
+
+        # Test both endpoints
+        endpoints = ["/health/", "/health/detailed"]
+
+        for endpoint in endpoints:
+            response = await async_client.get(endpoint)
+            assert response.status_code in [200, 503]
+
+            # Should be valid JSON
+            data = response.json()
+            assert isinstance(data, dict)
+
+            # Should have basic health information
+            if response.status_code == 200:
+                assert isinstance(data.get("healthy"), bool)
+                assert isinstance(data.get("components"), dict)
+            elif response.status_code == 503:
+                # Error response should have detail
+                assert "detail" in data
+
+    @pytest.mark.asyncio
+    async def test_health_endpoint_component_structure(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test that component structure is suitable for CLI tree display."""
+
+        response = await async_client.get("/health/detailed")
+        assert response.status_code in [200, 503]
+
+        data = response.json()
+
+        if response.status_code == 200:
+            components = data["components"]
+
+            # Should have aegis root component
+            assert "aegis" in components
+            aegis_component = components["aegis"]
+
+            # Aegis component should have required fields for CLI display
+            assert "name" in aegis_component
+            assert "healthy" in aegis_component
+            assert "message" in aegis_component
+
+            # Should have sub-components for tree structure
+            if "sub_components" in aegis_component:
+                sub_components = aegis_component["sub_components"]
+                assert isinstance(sub_components, dict)
+
+                # Each sub-component should have required fields
+                for comp_name, comp_data in sub_components.items():
+                    assert "name" in comp_data
+                    assert "healthy" in comp_data
+                    assert "message" in comp_data
+
+    @pytest.mark.asyncio
+    async def test_worker_component_appears_in_health_response(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test that worker component appears in health responses when included."""
+
+        response = await async_client.get("/health/detailed")
+        assert response.status_code in [200, 503]
+
+        data = response.json()
+
+        if response.status_code == 200:
+            components = data["components"]
+
+            # Should have aegis root component
+            assert "aegis" in components
+            aegis_component = components["aegis"]
+
+            if "sub_components" in aegis_component:
+                sub_components = aegis_component["sub_components"]
+
+                # Check if using grouped structure
+                if "components" in sub_components:
+                    components_group = sub_components["components"]
+                    if "sub_components" in components_group:
+                        worker_component = components_group["sub_components"].get(
+                            "worker"
+                        )
+                else:
+                    # Legacy direct structure
+                    worker_component = sub_components.get("worker")
+
+                available_components = (
+                    list(sub_components.keys())
+                    if "components" not in sub_components
+                    else list(components_group.get("sub_components", {}).keys())
+                )
+                assert worker_component is not None, (
+                    f"Worker component missing from health response. "
+                    f"Available: {available_components}"
+                )
+
+                # Worker component should have required structure
+                assert "name" in worker_component
+                assert worker_component["name"] == "worker"
+                assert "healthy" in worker_component
+                assert "message" in worker_component
+                assert isinstance(worker_component["healthy"], bool)
+
+                # Worker should have queue sub-components
+                if "sub_components" in worker_component:
+                    worker_sub_components = worker_component["sub_components"]
+
+                    # Should have queues component
+                    if "queues" in worker_sub_components:
+                        queues_component = worker_sub_components["queues"]
+                        assert "name" in queues_component
+                        assert "healthy" in queues_component
+                        assert "message" in queues_component
+
+                        # Check for individual queue health if available
+                        if "sub_components" in queues_component:
+                            queue_sub_components = queues_component["sub_components"]
+
+                            # Should have system and load_test queues
+                            for queue_name in ["system", "load_test"]:
+                                if queue_name in queue_sub_components:
+                                    queue_comp = queue_sub_components[queue_name]
+                                    assert "name" in queue_comp
+                                    assert "healthy" in queue_comp
+                                    assert "message" in queue_comp
+
+                                    # Verify queue metadata exists
+                                    if "metadata" in queue_comp:
+                                        metadata = queue_comp["metadata"]
+                                        assert "queue_type" in metadata
+                                        assert metadata["queue_type"] == queue_name
+
+    @pytest.mark.asyncio
+    async def test_basic_health_includes_worker_in_components(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test that basic health endpoint includes worker in components dict."""
+
+        response = await async_client.get("/health/")
+        assert response.status_code in [200, 503]
+
+        data = response.json()
+
+        if response.status_code == 200:
+            components = data["components"]
+
+            # Should have aegis root component with worker
+            assert "aegis" in components
+            aegis_component = components["aegis"]
+
+            if "sub_components" in aegis_component:
+                sub_components = aegis_component["sub_components"]
+
+                # Check if using grouped structure
+                if "components" in sub_components:
+                    components_group = sub_components["components"]
+                    if "sub_components" in components_group:
+                        worker_component = components_group["sub_components"].get(
+                            "worker"
+                        )
+                else:
+                    # Legacy direct structure
+                    worker_component = sub_components.get("worker")
+
+                assert worker_component is not None, (
+                    "Worker component should appear in basic health response"
+                )
+                assert worker_component["name"] == "worker"
+                assert isinstance(worker_component["healthy"], bool)
+
+    @pytest.mark.asyncio
+    async def test_dashboard_endpoint_accessible(
+        self, async_client: AsyncClient
+    ) -> None:
+        """Test /health/dashboard endpoint is accessible and returns valid structure."""
+        response = await async_client.get("/health/dashboard")
+
+        # Should return a valid response
+        assert response.status_code in [200, 503]
+        data = response.json()
+
+        if response.status_code == 200:
+            # Verify top-level structure
+            assert "status" in data
+            assert "service" in data
+            assert "version" in data
+            assert "dashboard_data" in data
+
+            dashboard_data = data["dashboard_data"]
+
+            # Verify dashboard_data structure
+            assert "overall_status" in dashboard_data
+            assert "components" in dashboard_data
+            assert "summary" in dashboard_data
+            assert "services" in dashboard_data
+            assert "system_info" in dashboard_data
+            assert "timestamp" in dashboard_data
+            assert "last_updated" in dashboard_data
+
+            # Verify overall_status structure
+            overall = dashboard_data["overall_status"]
+            assert "healthy" in overall
+            assert "percentage" in overall
+            assert "status_text" in overall
+
+            # Verify services structure (this catches the .items() bug)
+            services = dashboard_data["services"]
+            assert "enabled" in services
+            assert isinstance(services.get("services", {}), dict)
+
+            # If services are enabled, verify each service has required fields
+            if services.get("enabled") and services.get("services"):
+                for svc_name, svc_data in services["services"].items():
+                    assert "name" in svc_data, f"Service {svc_name} missing 'name'"
+                    assert "healthy" in svc_data, (
+                        f"Service {svc_name} missing 'healthy'"
+                    )
+                    assert "message" in svc_data, (
+                        f"Service {svc_name} missing 'message'"
+                    )
+        else:
+            # For 503 responses, check error structure
+            assert "detail" in data

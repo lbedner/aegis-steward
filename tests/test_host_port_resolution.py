@@ -1,0 +1,101 @@
+"""Tests for host-side service URL resolution.
+
+``make serve`` shifts only the HOST publish port when a default is taken by
+another stack; the container port never moves. These tests pin the
+behaviour of ``Settings._localhost_url`` and each ``*_effective`` property:
+the host-side branch must use the chosen ``*_HOST_PORT`` (loaded from
+``.env.ports``) so host-side CLI commands reach the same port compose
+published, while in-Docker resolution and explicit ``*_URL_LOCAL``
+overrides keep their precedence.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from app.core.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Run each test with no .env / .env.ports and on the host-side branch.
+
+    chdir to an empty dir so ``Settings()`` finds no dotenv files (config
+    state stays a function of the explicit kwargs). ``is_docker`` is a
+    property; force it False so translation runs even when pytest itself
+    runs inside a container. Docker-path tests re-patch it to True.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Settings, "is_docker", property(lambda self: False))
+
+
+class TestLocalhostUrlHelper:
+    def test_swaps_docker_hostname_for_localhost(self) -> None:
+        url = Settings._localhost_url("postgresql://u:p@postgres:5432/db", {"postgres"})
+        assert url == "postgresql://u:p@localhost:5432/db"
+
+    def test_host_port_overrides_container_port(self) -> None:
+        url = Settings._localhost_url(
+            "postgresql://u:p@postgres:5432/db", {"postgres"}, 5433
+        )
+        assert url == "postgresql://u:p@localhost:5433/db"
+
+    def test_preserves_auth_and_path(self) -> None:
+        url = Settings._localhost_url(
+            "postgresql://user:secret@postgres:5432/mydb", {"postgres"}, 5499
+        )
+        assert url == "postgresql://user:secret@localhost:5499/mydb"
+
+    def test_passthrough_when_host_not_a_docker_service(self) -> None:
+        # An already host-reachable URL is returned untouched, host port and all.
+        url = Settings._localhost_url(
+            "postgresql://u:p@db.example.com:5432/db", {"postgres"}, 5433
+        )
+        assert url == "postgresql://u:p@db.example.com:5432/db"
+
+
+class TestRedisUrlEffective:
+    URL = "redis://redis:6379"
+
+    def test_uses_host_port_when_set(self) -> None:
+        s = Settings(REDIS_URL=self.URL, REDIS_HOST_PORT=6380)
+        assert s.redis_url_effective == "redis://localhost:6380"
+
+    def test_defaults_to_container_port_when_unset(self) -> None:
+        s = Settings(REDIS_URL=self.URL)
+        assert s.redis_url_effective == "redis://localhost:6379"
+
+    def test_local_override_wins_over_host_port(self) -> None:
+        s = Settings(
+            REDIS_URL=self.URL,
+            REDIS_URL_LOCAL="redis://localhost:6400/2",
+            REDIS_HOST_PORT=6380,
+        )
+        assert s.redis_url_effective == "redis://localhost:6400/2"
+
+    def test_in_docker_keeps_container_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(Settings, "is_docker", property(lambda self: True))
+        s = Settings(REDIS_URL=self.URL, REDIS_HOST_PORT=6380)
+        assert s.redis_url_effective == self.URL
+
+
+class TestOllamaBaseUrlEffective:
+    URL = "http://ollama:11434"
+
+    def test_uses_host_port_when_set(self) -> None:
+        s = Settings(OLLAMA_BASE_URL=self.URL, OLLAMA_HOST_PORT=11500)
+        assert s.ollama_base_url_effective == "http://localhost:11500"
+
+    def test_translates_host_docker_internal(self) -> None:
+        s = Settings(OLLAMA_BASE_URL="http://host.docker.internal:11434")
+        assert s.ollama_base_url_effective == "http://localhost:11434"
+
+    def test_local_override_wins_over_host_port(self) -> None:
+        s = Settings(
+            OLLAMA_BASE_URL=self.URL,
+            OLLAMA_BASE_URL_LOCAL="http://localhost:9999",
+            OLLAMA_HOST_PORT=11500,
+        )
+        assert s.ollama_base_url_effective == "http://localhost:9999"

@@ -1,0 +1,155 @@
+"""Tests for AI service health checks."""
+
+import pytest
+
+from app.core.config import settings
+from app.services.ai.health import check_ai_service_health
+from app.services.ai.models import AIProvider
+from app.services.system.models import ComponentStatusType
+
+
+class TestAIHealthCheck:
+    """Test AI service health check functionality."""
+
+    @pytest.mark.asyncio
+    async def test_health_check_returns_component_status(self) -> None:
+        """Test that health check returns valid ComponentStatus."""
+        status = await check_ai_service_health()
+
+        assert status.name == "ai"
+        assert isinstance(status.status, ComponentStatusType)
+        assert isinstance(status.message, str)
+        assert isinstance(status.metadata, dict)
+
+    @pytest.mark.asyncio
+    async def test_health_check_metadata_structure(self) -> None:
+        """Test that health check includes expected metadata fields."""
+        status = await check_ai_service_health()
+
+        # Core metadata fields
+        assert "service_type" in status.metadata
+        assert status.metadata["service_type"] == "ai"
+        assert "engine" in status.metadata
+        assert status.metadata["engine"] == "pydantic-ai"
+        assert "enabled" in status.metadata
+        assert "provider" in status.metadata
+        assert "model" in status.metadata
+
+    @pytest.mark.asyncio
+    async def test_health_check_provider_metadata(self) -> None:
+        """Test provider-specific metadata in health check."""
+        status = await check_ai_service_health()
+
+        # Provider in metadata should be a string value for serialization
+        provider = status.metadata.get("provider")
+        assert isinstance(provider, str)
+        assert provider in [p.value for p in AIProvider]
+
+    @pytest.mark.asyncio
+    async def test_health_check_free_tier_metadata(self) -> None:
+        """Test that free tier status is correctly reported.
+
+        This test would have caught the bug where provider enum
+        was compared to list of strings.
+        """
+        status = await check_ai_service_health()
+
+        # Should have free tier info when service is enabled
+        if status.metadata.get("enabled"):
+            assert "provider_free_tier" in status.metadata
+            assert isinstance(status.metadata["provider_free_tier"], bool)
+
+            # PUBLIC provider should be free
+            if status.metadata["provider"] == "public":
+                assert status.metadata["provider_free_tier"] is True
+
+    @pytest.mark.asyncio
+    async def test_health_check_streaming_capability(self) -> None:
+        """Test that streaming capability is correctly reported."""
+        status = await check_ai_service_health()
+
+        if status.metadata.get("enabled"):
+            assert "provider_supports_streaming" in status.metadata
+            assert isinstance(status.metadata["provider_supports_streaming"], bool)
+
+    @pytest.mark.asyncio
+    async def test_health_check_when_enabled(self) -> None:
+        """Test health check when AI service is enabled."""
+        # Assuming default config has AI enabled
+        if settings.AI_ENABLED:
+            status = await check_ai_service_health()
+
+            assert status.metadata["enabled"] is True
+            assert status.status in [
+                ComponentStatusType.HEALTHY,
+                ComponentStatusType.UNHEALTHY,
+            ]
+
+    @pytest.mark.asyncio
+    async def test_health_check_dependencies_metadata(self) -> None:
+        """Test that dependencies are listed in metadata."""
+        status = await check_ai_service_health()
+
+        assert "dependencies" in status.metadata
+        dependencies = status.metadata["dependencies"]
+
+        assert "backend" in dependencies
+
+        assert "pydantic_ai" in dependencies
+
+    @pytest.mark.asyncio
+    async def test_health_check_validation_errors(self) -> None:
+        """Test that validation errors are counted in metadata."""
+        status = await check_ai_service_health()
+
+        assert "validation_errors_count" in status.metadata
+        assert isinstance(status.metadata["validation_errors_count"], int)
+        assert status.metadata["validation_errors_count"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_health_check_handles_errors_gracefully(self) -> None:
+        """Test that health check doesn't crash on errors."""
+        # This should always succeed, even with invalid config
+        status = await check_ai_service_health()
+
+        assert status is not None
+        assert status.name == "ai"
+        # Either healthy or unhealthy, but shouldn't crash
+        assert status.status in [
+            ComponentStatusType.HEALTHY,
+            ComponentStatusType.UNHEALTHY,
+        ]
+
+
+class TestAIHealthMetadataAccuracy:
+    """Test accuracy of AI health metadata values."""
+
+    @pytest.mark.asyncio
+    async def test_public_provider_metadata_accuracy(self) -> None:
+        """Test that PUBLIC provider metadata is accurate."""
+        # Assuming default config uses PUBLIC provider
+        status = await check_ai_service_health()
+
+        if status.metadata.get("provider") == "public":
+            # PUBLIC should be free
+            assert status.metadata.get("provider_free_tier") is True
+            # PUBLIC doesn't support streaming
+            assert status.metadata.get("provider_supports_streaming") is False
+
+    @pytest.mark.asyncio
+    async def test_agent_ready_metadata(self) -> None:
+        """Test that agent readiness is reported."""
+        status = await check_ai_service_health()
+
+        assert "agent_ready" in status.metadata
+        # Agents are created per-request, should always be ready when enabled
+        if status.metadata.get("enabled"):
+            assert status.metadata["agent_ready"] is True
+
+    @pytest.mark.asyncio
+    async def test_configuration_valid_metadata(self) -> None:
+        """Test that configuration validity is reported."""
+        status = await check_ai_service_health()
+
+        assert "configuration_valid" in status.metadata
+        assert isinstance(status.metadata["configuration_valid"], bool)

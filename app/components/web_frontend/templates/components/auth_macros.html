@@ -1,0 +1,58 @@
+{# Macros used only by the auth pages.
+
+   The generic kit lives in components/macros.html; these ship with the auth
+   service, so they are separate rather than mixed into it. Import them the
+   same way:
+
+       {% from "components/auth_macros.html" import auth_field %}
+#}
+{% from "components/macros.html" import password_input %}
+
+
+{# Labeled text/email/password input with the auth-form styling. Used by
+   every auth page so the forms stay consistent and each input carries the
+   right ``autocomplete`` hint (which is what lets a password manager offer
+   to save and autofill).
+
+   A caller body renders right-aligned in the label row, used for the
+   "Forgot?" link on the password field:
+
+       {% call auth_field("password", "Password", type="password") %}
+         <a href="/forgot-password">Forgot?</a>
+       {% endcall %}
+#}
+{% macro auth_field(name, label, type="text", autocomplete=None, required=True, minlength=None, placeholder="") %}
+<div>
+  <div class="flex items-baseline justify-between mb-2">
+    <label class="block text-xxs text-aegis-muted uppercase tracking-wider">{{ label }}</label>
+    {% if caller is defined %}{{ caller() }}{% endif %}
+  </div>
+  {% if type == "password" %}
+  {# Password fields delegate to ``password_input`` so the show/hide eye
+     toggle is consistent everywhere. Other types stay a plain <input> and
+     don't pay for the Alpine wrapper. #}
+  {{ password_input(name=name, autocomplete=autocomplete, required=required, minlength=minlength, placeholder=placeholder) }}
+  {% else %}
+  <input type="{{ type }}" name="{{ name }}"
+    {% if required %}required{% endif %}
+    {% if autocomplete %}autocomplete="{{ autocomplete }}"{% endif %}
+    {% if minlength %}minlength="{{ minlength }}"{% endif %}
+    class="w-full bg-aegis-card border border-aegis-border rounded px-3 py-2 text-sm text-white placeholder:text-aegis-muted/40 focus:border-aegis-teal focus:outline-none transition-colors"
+    placeholder="{{ placeholder }}">
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{# Banner for a form-level message. ``tone`` is "ok" or "error". #}
+{% macro auth_banner(expr, tone="error") %}
+<template x-if="{{ expr }}">
+  {% if tone == "ok" %}
+  <div class="text-xs text-success bg-aegis-teal/5 border border-aegis-teal/40 rounded px-3 py-2"
+       x-text="{{ expr }}"></div>
+  {% else %}
+  <div class="text-xs text-error bg-red-500/5 border border-red-500/40 rounded px-3 py-2"
+       x-text="{{ expr }}"></div>
+  {% endif %}
+</template>
+{% endmacro %}

@@ -1,0 +1,553 @@
+"""Tests for the SnapTrade connection flow + sync — a mocked client returning
+payloads in the shape of the SDK's typed responses.
+
+Plain ``.py`` (only generated when ``finance_snaptrade`` is selected). No
+network: ``FakeSnapTradeClient`` stands in for ``SnapTradeClient``.
+"""
+
+from datetime import date, timedelta
+from unittest.mock import MagicMock
+
+import pytest
+from sqlmodel import func, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.services.finance.adapters.providers import connections
+from app.services.finance.models import FinanceSecurity
+from app.services.finance.service import FinanceService
+
+_AAPL_FIGI = "BBG000B9XRY4"
+
+_AUTHORIZATIONS = [
+    {
+        "id": "auth-1",
+        "name": "Connection-1",
+        "brokerage": {"display_name": "Fidelity", "name": "FIDELITY"},
+    }
+]
+
+_ACCOUNTS = [
+    {
+        "id": "acct-roth",
+        "brokerage_authorization": "auth-1",
+        "name": "ROTH IRA",
+        "number": "****1164",
+        "institution_name": "Fidelity",
+        "balance": {"total": {"amount": 1000.10, "currency": "USD"}},
+    },
+    {
+        "id": "acct-401k",
+        "brokerage_authorization": "auth-1",
+        "name": "401(K) SAVINGS PLAN",
+        "number": "7961",
+        "institution_name": "Fidelity",
+        "balance": {"total": {"amount": 250.00, "currency": "USD"}},
+    },
+]
+
+_UNIVERSAL_AAPL = {
+    "id": "sym-aapl",
+    "symbol": "AAPL",
+    "raw_symbol": "AAPL",
+    "description": "APPLE INC",
+    "type": {"code": "cs"},
+    "currency": {"code": "USD"},
+    "figi_code": _AAPL_FIGI,
+}
+
+# ``/positions/all`` rows: an ``instrument`` discriminated by ``kind``, with
+# the numeric fields serialized as strings.
+_POSITIONS = {
+    "acct-roth": [
+        {
+            "instrument": {
+                "kind": "stock",
+                "id": "sym-aapl",
+                "symbol": "AAPL",
+                "raw_symbol": "AAPL",
+                "description": "APPLE INC",
+                "currency": "USD",
+                "figi_instrument": {"figi_code": _AAPL_FIGI},
+            },
+            "units": "10.0",
+            "price": "150.0",
+            "cost_basis": "120.0",
+            "currency": "USD",
+        }
+    ]
+}
+
+# SnapTrade signs ``amount`` positive for cash INTO the account — a BUY is
+# negative. That is already this project's convention (no negation on ingest).
+_ACTIVITIES = {
+    "acct-roth": [
+        {
+            "id": "act-buy-1",
+            "symbol": _UNIVERSAL_AAPL,
+            "type": "BUY",
+            "units": 10.0,
+            "price": 150.0,
+            "amount": -1500.0,
+            "fee": 0.0,
+            "currency": {"code": "USD"},
+            "trade_date": "2026-06-01T00:00:00Z",
+            "description": "BUY APPLE INC",
+        },
+        {
+            "id": "act-div-1",
+            "symbol": _UNIVERSAL_AAPL,
+            "type": "DIVIDEND",
+            "units": 0.0,
+            "price": 0.0,
+            "amount": 12.5,
+            "fee": 0.0,
+            "currency": {"code": "USD"},
+            "trade_date": "2026-06-15T00:00:00Z",
+            "description": "DIVIDEND APPLE INC",
+        },
+    ]
+}
+
+
+class FakeSnapTradeClient:
+    def __init__(
+        self,
+        *,
+        authorizations=None,
+        accounts=None,
+        positions=None,
+        activities=None,
+        is_personal=False,
+    ):
+        self._authorizations = authorizations or []
+        self._accounts = accounts or []
+        self._positions = positions or {}
+        self._activities = activities or {}
+        self.is_personal = is_personal
+        self.registered: list[str] = []
+        self.deleted_users: list[str] = []
+        self.removed_authorizations: list[str] = []
+        self.activity_pulls: list[str] = []  # account_id per activities call
+
+    async def register_user(self, user_id):
+        self.registered.append(user_id)
+        return "user-secret-1"
+
+    async def delete_user(self, user_id):
+        self.deleted_users.append(user_id)
+
+    async def login_url(
+        self, user_id, user_secret, *, broker=None, custom_redirect=None
+    ):
+        return "https://app.snaptrade.com/connect?token=abc"
+
+    async def list_authorizations(self, user_id, user_secret):
+        return self._authorizations
+
+    async def remove_authorization(self, user_id, user_secret, authorization_id):
+        self.removed_authorizations.append(authorization_id)
+
+    async def list_accounts(self, user_id, user_secret):
+        return self._accounts
+
+    async def get_positions(self, user_id, user_secret, account_id):
+        return self._positions.get(account_id, [])
+
+    async def get_activities(
+        self,
+        user_id,
+        user_secret,
+        account_id,
+        *,
+        start_date,
+        end_date,
+        offset=0,
+        limit=500,
+    ):
+        self.activity_pulls.append(account_id)
+        rows = self._activities.get(account_id, [])
+        return {
+            "data": rows[offset : offset + limit],
+            "pagination": {"total": len(rows)},
+        }
+
+
+def _client() -> FakeSnapTradeClient:
+    return FakeSnapTradeClient(
+        authorizations=_AUTHORIZATIONS,
+        accounts=_ACCOUNTS,
+        positions=_POSITIONS,
+        activities=_ACTIVITIES,
+    )
+
+
+async def _connect_and_complete(db: AsyncSession, client: FakeSnapTradeClient):
+    await connections.start_snaptrade_connect(db, owner_user_id=1, client=client)
+    return await connections.complete_snaptrade_connect(
+        db, owner_user_id=1, client=client
+    )
+
+
+class TestSnapTradeClientCalls:
+    """The fake client above cannot see a renamed SDK method - the real
+    client resolves those attributes only at call time, in production. A
+    ``spec``-ed mock of the SDK's own API class is the cheapest place to
+    catch it."""
+
+    @pytest.mark.asyncio
+    async def test_get_positions_hits_the_sdk_and_unwraps_results(self) -> None:
+        from snaptrade_client.apis.tags.account_information_api import (
+            AccountInformationApi,
+        )
+
+        from app.services.finance.adapters.providers.snaptrade import SnapTradeClient
+
+        row = {"instrument": {"id": "sym-aapl", "kind": "stock"}, "units": "10.0"}
+        api = MagicMock(spec=AccountInformationApi)
+        api.get_all_account_positions.return_value = MagicMock(body={"results": [row]})
+        client = SnapTradeClient(client_id="cid", consumer_key="key")
+        client._client = MagicMock(account_information=api)
+
+        assert await client.get_positions("u", "s", "acct-roth") == [row]
+        api.get_all_account_positions.assert_called_once_with(
+            user_id="u", user_secret="s", account_id="acct-roth"
+        )
+
+
+class TestSnapTradeConnect:
+    @pytest.mark.asyncio
+    async def test_start_creates_pending_row_with_encrypted_secret(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        client = _client()
+        connection, url = await connections.start_snaptrade_connect(
+            async_db_session, owner_user_id=1, client=client
+        )
+        assert url.startswith("https://")
+        assert client.registered == ["user-1"]
+        assert connection.provider == "snaptrade"
+        assert connection.connection_type == "aggregator_token"
+        assert connection.status == "loading"  # portal not completed yet
+        assert connection.provider_item_id is None
+        # The userSecret is the credential — never stored in the clear.
+        assert connection.access_token_encrypted != "user-secret-1"
+
+    @pytest.mark.asyncio
+    async def test_start_reuses_the_owners_existing_secret(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        client = _client()
+        await connections.start_snaptrade_connect(
+            async_db_session, owner_user_id=1, client=client
+        )
+        await connections.start_snaptrade_connect(
+            async_db_session, owner_user_id=1, client=client
+        )
+        # One SnapTrade user per owner: the second connect must NOT re-register.
+        assert client.registered == ["user-1"]
+
+    @pytest.mark.asyncio
+    async def test_complete_pending_returns_empty(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        client = FakeSnapTradeClient()  # portal not finished: no authorizations
+        await connections.start_snaptrade_connect(
+            async_db_session, owner_user_id=1, client=client
+        )
+        results = await connections.complete_snaptrade_connect(
+            async_db_session, owner_user_id=1, client=client
+        )
+        assert results == []  # frontend keeps polling
+
+    @pytest.mark.asyncio
+    async def test_complete_adopts_authorization_and_syncs(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = _client()
+        results = await _connect_and_complete(async_db_session, client)
+        assert len(results) == 1
+        assert results[0].accounts == 2
+        assert results[0].holdings == 1
+        assert results[0].trades == 2
+
+        connection_rows = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        assert len(connection_rows) == 1
+        connection = connection_rows[0]
+        assert connection.provider_item_id == "auth-1"
+        assert connection.label == "Fidelity"
+        assert connection.status == "healthy"
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        by_name = {a.name: a for a in accounts}
+        roth = by_name["ROTH IRA"]
+        assert roth.account_type == "brokerage"
+        assert roth.classification == "asset"
+        assert roth.current_balance == 100_010  # $1,000.10 in cents
+        assert roth.mask == "1164"  # last 4 of the account number
+        assert roth.is_manual is False
+
+    @pytest.mark.asyncio
+    async def test_sync_maps_positions_and_activity_signs(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        roth = next(a for a in accounts if a.name == "ROTH IRA")
+
+        holdings = await svc.list_current_holdings(owner_user_id=1, account_id=roth.id)
+        assert len(holdings) == 1
+        holding, security, value = holdings[0]
+        assert security.ticker == "AAPL"
+        assert security.figi == _AAPL_FIGI
+        assert holding.quantity_e8 == 10 * 10**8
+        assert holding.cost_basis == 120_000  # 10 shares @ $120.00 avg cost
+        assert value == 150_000  # 10 shares @ $150.00
+        # Balance stays SnapTrade's balance.total, not the holdings sum.
+        assert roth.current_balance == 100_010
+
+        trades = await svc.list_trades(owner_user_id=1, account_id=roth.id)
+        by_type = {t.type: t for t in trades}
+        assert set(by_type) == {"buy", "dividend"}
+        # SnapTrade amounts arrive in our convention — asserted verbatim.
+        assert by_type["buy"].amount == -150_000  # cash out
+        assert by_type["buy"].quantity_e8 == 10 * 10**8
+        assert by_type["buy"].price == 15_000
+        assert by_type["dividend"].amount == 1_250  # cash in
+
+    @pytest.mark.asyncio
+    async def test_same_figi_as_plaid_lands_on_one_security_row(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """FIN-25 acceptance: a security held at a Plaid brokerage AND a
+        SnapTrade brokerage resolves to ONE finance_security row (FIGI merge)."""
+        plaid_row = await svc.upsert_provider_security(
+            provider="plaid",
+            provider_security_id="plaid-aapl",
+            ticker="AAPL",
+            name="Apple Inc.",
+            figi=_AAPL_FIGI,
+        )
+        await _connect_and_complete(async_db_session, _client())
+        count = (
+            await async_db_session.exec(
+                select(func.count())
+                .select_from(FinanceSecurity)
+                .where(FinanceSecurity.figi == _AAPL_FIGI)
+            )
+        ).one()
+        assert count == 1
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        roth = next(a for a in accounts if a.name == "ROTH IRA")
+        holdings = await svc.list_current_holdings(owner_user_id=1, account_id=roth.id)
+        _holding, security, _value = holdings[0]
+        assert security.id == plaid_row.id  # the SnapTrade sync reused the row
+
+    @pytest.mark.asyncio
+    async def test_activities_pull_at_most_once_per_day(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """SnapTrade's polling budget: positions refresh every sync, but the
+        activities endpoint is hit at most once per day per account."""
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+        assert sorted(client.activity_pulls) == ["acct-401k", "acct-roth"]
+
+        connection_rows = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        connection = connection_rows[0]
+        await connections.sync_snaptrade_connection(
+            async_db_session, connection, client=client
+        )
+        # Same day: no account is pulled again.
+        assert sorted(client.activity_pulls) == ["acct-401k", "acct-roth"]
+
+        # A stale cursor (yesterday) re-opens the window — one pull per account.
+        connection.sync_cursor = (date.today() - timedelta(days=1)).isoformat()
+        await connections.sync_snaptrade_connection(
+            async_db_session, connection, client=client
+        )
+        assert sorted(client.activity_pulls) == [
+            "acct-401k",
+            "acct-401k",
+            "acct-roth",
+            "acct-roth",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rewindowed_activities_dedup_by_id(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+        connection_rows = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        connection = connection_rows[0]
+        connection.sync_cursor = (date.today() - timedelta(days=1)).isoformat()
+        second = await connections.sync_snaptrade_connection(
+            async_db_session, connection, client=client
+        )
+        assert second.trades == 2  # re-applied from the overlap window...
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        roth = next(a for a in accounts if a.name == "ROTH IRA")
+        trades = await svc.list_trades(owner_user_id=1, account_id=roth.id)
+        assert len(trades) == 2  # ...but deduped by activity id
+
+    @pytest.mark.asyncio
+    async def test_disconnect_revokes_authorization_and_soft_deletes(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+        connection_rows = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        ok, revoke = await connections.disconnect_connection(
+            async_db_session,
+            connection_rows[0].id,
+            owner_user_id=1,
+            snaptrade_client=client,
+        )
+        assert ok is True
+        # Local teardown never waits on the provider round trip - the caller
+        # runs the returned revoke AFTER responding (BackgroundTasks).
+        assert client.removed_authorizations == []
+        assert revoke is not None
+        await revoke()
+        assert client.removed_authorizations == ["auth-1"]
+        remaining = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        assert remaining == []
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert accounts == []
+
+    @pytest.mark.asyncio
+    async def test_personal_key_connect_skips_registration(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Personal (PERS-) keys have no registerUser AND no connection
+        portal (the login endpoint rejects them - verified against
+        SnapTrade's API): brokerages are linked in SnapTrade's own
+        dashboard, so connect returns an EMPTY url and the frontend goes
+        straight to adopting whatever authorizations exist."""
+        client = FakeSnapTradeClient(is_personal=True)
+        connection, url = await connections.start_snaptrade_connect(
+            async_db_session, owner_user_id=1, client=client
+        )
+        assert url == ""  # no portal for personal keys
+        assert client.registered == []  # never calls registerUser
+        assert connection.provider == "snaptrade"
+        assert connection.status == "loading"
+        # The empty secret is still stored encrypted, keeping sync uniform.
+        assert connection.access_token_encrypted
+        assert connection.access_token_encrypted != ""
+
+    @pytest.mark.asyncio
+    async def test_personal_key_complete_adopts_existing_authorization(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        client = FakeSnapTradeClient(
+            is_personal=True,
+            authorizations=_AUTHORIZATIONS,
+            accounts=_ACCOUNTS,
+            positions=_POSITIONS,
+            activities=_ACTIVITIES,
+        )
+        results = await _connect_and_complete(async_db_session, client)
+        assert len(results) == 1
+        assert results[0].accounts == 2
+        assert results[0].holdings == 1
+        assert client.registered == []
+        connection_rows = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        assert connection_rows[0].status == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_disconnect_with_undecryptable_secret_still_tears_down(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A corrupted/rekeyed ciphertext must not block the local teardown:
+        the disconnect succeeds with no revoke (nothing usable to revoke)."""
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+        connection_rows = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        connection_rows[0].access_token_encrypted = "not-a-valid-ciphertext"
+        ok, revoke = await connections.disconnect_connection(
+            async_db_session,
+            connection_rows[0].id,
+            owner_user_id=1,
+            snaptrade_client=client,
+        )
+        assert ok is True
+        assert revoke is None
+        assert client.removed_authorizations == []
+        remaining = await connections.list_provider_connections(
+            async_db_session, provider="snaptrade", owner_user_id=1
+        )
+        assert remaining == []
+
+    @pytest.mark.asyncio
+    async def test_transient_register_error_never_deletes_the_user(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The delete+re-register recovery is destructive (it revokes the
+        user's existing authorizations), so it must NOT fire on transient
+        failures - only on SnapTrade's "user already exists" code."""
+        from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+
+        class FlakyClient(FakeSnapTradeClient):
+            async def register_user(self, user_id):
+                raise SnapTradeError("500", "internal server error")
+
+        client = FlakyClient()
+        with pytest.raises(SnapTradeError):
+            await connections.start_snaptrade_connect(
+                async_db_session, owner_user_id=1, client=client
+            )
+        assert client.deleted_users == []
+
+    @pytest.mark.asyncio
+    async def test_lost_secret_recovery_gated_on_user_exists_code(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """User exists at SnapTrade but no local row holds its secret: the
+        recovery deletes and re-registers - gated on the specific code."""
+        from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+
+        class ExistsClient(FakeSnapTradeClient):
+            async def register_user(self, user_id):
+                if not self.deleted_users:
+                    raise SnapTradeError("1010", "user already exists")
+                return await super().register_user(user_id)
+
+        client = ExistsClient()
+        connection, url = await connections.start_snaptrade_connect(
+            async_db_session, owner_user_id=1, client=client
+        )
+        assert url.startswith("https://")
+        assert client.deleted_users == ["user-1"]
+        assert client.registered == ["user-1"]
+
+    @pytest.mark.asyncio
+    async def test_sync_owner_connections_dispatches_to_snaptrade(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The provider-agnostic sync path picks up SnapTrade rows without a
+        Plaid client ever being constructed (no Plaid connections exist)."""
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+        results = await connections.sync_owner_connections(
+            async_db_session, owner_user_id=1, snaptrade_client=client
+        )
+        assert len(results) == 1
+        assert results[0].accounts == 2

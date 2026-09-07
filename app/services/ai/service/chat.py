@@ -1,0 +1,301 @@
+"""The chat entrypoint: one non-streaming turn, end to end.
+
+``chat()`` orchestrates the full request: resolve agent row, set up the
+conversation, gather contexts (from the mixin chain below), run the
+model, record usage, persist. Streaming lives in ``streaming.py``.
+"""
+
+from datetime import UTC, datetime
+from typing import Any
+import uuid
+
+from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
+
+from app.core.log import logger
+from app.services.ai.config import AIServiceConfig
+from app.services.ai.domains.chat.agent_loader import (
+    DEFAULT_AGENT_SLUG,
+    resolve_agent,
+)
+from app.services.ai.domains.chat.attachments import (
+    ChatAttachment,
+    build_user_content,
+    prepare_turn,
+)
+from app.services.ai.domains.chat.module_context import render_memory_modules
+from app.services.ai.domains.chat.readings import (
+    merge_staged_readings,
+    reading_stage,
+)
+from app.services.ai.domains.chat.titles import conversation_title
+from app.services.ai.domains.chat.user_memory import (
+    build_user_memory_context,
+    memory_user,
+)
+from app.services.ai.models import Conversation, ConversationMessage, MessageRole
+from app.services.ai.service.base import (
+    AIServiceError,
+    ConversationError,
+    ProviderError,
+)
+from app.services.ai.service.prompt import PromptMixin, history_char_budget
+
+# Importing registers the finance host tools (ledger, accounts, quote)
+# so DB-granted names resolve in every process that serves chat - the
+# API, the CLI, and code-mode agents alike.
+import app.services.finance.ai_tools  # noqa: F401
+
+
+class ChatMixin(PromptMixin):
+    """Non-streaming chat turn plus conversation setup/teardown."""
+
+    async def chat(
+        self,
+        message: str,
+        conversation_id: str | None = None,
+        user_id: str = "default",
+        agent_slug: str | None = None,
+        surface: str | None = None,
+        attachments: list[ChatAttachment] | None = None,
+    ) -> ConversationMessage:
+        """
+        Send a chat message and get AI response.
+
+        Args:
+            message: The user's message
+            conversation_id: Optional conversation ID (creates new if None)
+            user_id: User identifier for conversation ownership
+            agent_slug: Agent row to speak as (None = the default agent)
+            surface: Originating chat surface, recorded on new
+                conversations so each embedded chat lists only its own
+                history
+            attachments: Image parts riding this turn (screenshots,
+                receipts); the model sees them alongside the message
+
+        Returns:
+            ConversationMessage: The AI's response message
+
+        Raises:
+            AIServiceError: If service is disabled or not configured
+            ProviderError: If AI provider fails
+            ConversationError: If conversation management fails
+        """
+        if not self.config.enabled:
+            raise AIServiceError("AI service is disabled")
+
+        try:
+            # Get fresh config for metadata (reflects current .env after use-provider)
+            current = self.config
+
+            # Resolve the requested agent definition (DB row or code default)
+            if agent_slug:
+                agent_config = await resolve_agent(agent_slug)
+            else:
+                agent_config = await resolve_agent()
+
+            # Setup conversation and add user message. The stored text
+            # carries the attachment marker; the bytes ride only this
+            # turn's model call (history replays as text).
+            # Kept, not just carried: the bytes ride this turn's model
+            # call and the message remembers where the image was stored,
+            # so reopening the conversation still shows it.
+            stored_text, stored_metadata = await prepare_turn(message, attachments)
+            conversation = self._setup_conversation(
+                stored_text,
+                conversation_id,
+                user_id,
+                config=current,
+                surface=surface,
+                metadata=stored_metadata,
+            )
+
+            # Build health context (always included, refreshed per message)
+            health_context, health_warning = await self._build_health_context()
+
+            # Usage and model-catalog self-awareness belong to the
+            # default ops assistant; custom agents (a finance analyst,
+            # say) would pay their token cost every turn without ever
+            # using them.
+            is_default_agent = (
+                agent_config is None or agent_config.slug == DEFAULT_AGENT_SLUG
+            )
+            usage_context = self._build_usage_context() if is_default_agent else None
+            catalog_context = (
+                self._build_catalog_context() if is_default_agent else None
+            )
+
+            # Guarded per-user memory block (saved via the save_memory tool)
+            memory_context = await build_user_memory_context(user_id)
+
+            # History budget scales with the EFFECTIVE model for this
+            # request (the agent's pin wins over the active default).
+            from app.services.ai.domains.llm.catalog import context_window_for
+
+            effective_model = (
+                agent_config.model_id
+                if agent_config is not None and agent_config.model_id
+                else current.model
+            )
+            history_budget = history_char_budget(
+                await context_window_for(effective_model)
+            )
+
+            # The agent row's memory modules (e.g. the finance snapshot)
+            agent_modules_context = await render_memory_modules(
+                agent_config.memory_modules, user_id=user_id
+            )
+
+            # Prepare agent and conversation context
+            agent, conversation_context = self._prepare_agent_and_context(
+                conversation,
+                health_context=health_context,
+                health_warning=health_warning,
+                usage_context=usage_context,
+                catalog_context=catalog_context,
+                agent_config=agent_config,
+                memory_context=memory_context,
+                agent_modules_context=agent_modules_context,
+                history_budget=history_budget,
+            )
+
+            # Get AI response. The turn's user rides a ContextVar so a
+            # memory write from inside the model call knows whose it is.
+            start_time = datetime.now(UTC)
+
+            with (
+                memory_user(
+                    user_id,
+                    agent_slug=agent_slug,
+                    conversation_id=conversation.id,
+                ),
+                reading_stage() as staged_readings,
+            ):
+                result = await agent.run(
+                    build_user_content(conversation_context, attachments)
+                )
+            # Extractions recorded mid-run outlive the image: fold them
+            # into the conversation before finalize persists it.
+            merge_staged_readings(conversation.metadata, staged_readings)
+            end_time = datetime.now(UTC)
+            response_time_ms = (end_time - start_time).total_seconds() * 1000
+
+            # Add AI response to conversation
+            ai_message = conversation.add_message(
+                MessageRole.ASSISTANT, result.output, message_id=str(uuid.uuid4())
+            )
+
+            # Store conversation ID in message metadata for easy lookup
+            ai_message.metadata["conversation_id"] = conversation.id
+            ai_message.metadata["response_time_ms"] = response_time_ms
+
+            # Record usage tracking, attributed to the resolved agent
+            usage = self._extract_usage(result)
+            self._record_usage(f"chat:{agent_config.slug}", usage, user_id)
+
+            # Add TPS (tokens per second) to metadata for performance monitoring
+            output_tokens = usage.get("output_tokens", 0)
+            if output_tokens > 0 and response_time_ms > 0:
+                ai_message.metadata["gen_tps"] = round(
+                    output_tokens * 1000 / response_time_ms, 1
+                )
+            ai_message.metadata["input_tokens"] = usage.get("input_tokens", 0)
+            ai_message.metadata["output_tokens"] = output_tokens
+
+            # Finalize conversation (update metadata and save)
+            self._finalize_conversation(conversation, response_time_ms)
+
+            return ai_message
+
+        except (ModelRetry, UnexpectedModelBehavior) as e:
+            error_msg = f"AI provider error: {e}"
+            logger.error(error_msg)
+            raise ProviderError(error_msg) from e
+
+        except AIServiceError:
+            # ConversationError and friends carry meaning for callers (the
+            # API router maps them to distinct status codes); wrapping them
+            # would collapse that distinction.
+            raise
+        except Exception as e:
+            error_msg = f"Chat processing failed: {e}"
+            logger.exception(error_msg)
+            raise AIServiceError(error_msg) from e
+
+    def _setup_conversation(
+        self,
+        message: str,
+        conversation_id: str | None,
+        user_id: str,
+        config: AIServiceConfig | None = None,
+        surface: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Conversation:
+        """
+        Get or create conversation and add user message.
+
+        Args:
+            message: The user's message
+            conversation_id: Optional conversation ID (creates new if None)
+            user_id: User identifier for conversation ownership
+            config: Optional fresh config (uses self.config if not provided)
+            surface: Originating chat surface, recorded on new conversations
+                so each embedded chat lists only its own history
+
+        Returns:
+            Conversation: The conversation with user message added
+
+        Raises:
+            ConversationError: If conversation_id provided but not found
+        """
+        # Use provided config or fall back to cached
+        cfg = config or self.config
+
+        # Get or create conversation
+        if conversation_id:
+            conversation = self.conversation_manager.get_conversation(conversation_id)
+            if not conversation:
+                raise ConversationError(f"Conversation {conversation_id} not found")
+        else:
+            conversation = self.conversation_manager.create_conversation(
+                provider=cfg.provider,
+                model=cfg.model,
+                user_id=user_id,
+                surface=surface,
+            )
+            # First message names the conversation; history lists need a
+            # human hook, not a UUID.
+            conversation.title = conversation_title(message)
+
+        # Add user message to conversation
+        conversation.add_message(MessageRole.USER, message, metadata=metadata)
+
+        return conversation
+
+    def _finalize_conversation(
+        self,
+        conversation: Conversation,
+        response_time_ms: float,
+        is_streaming: bool = False,
+    ) -> None:
+        """
+        Update conversation metadata and save.
+
+        Args:
+            conversation: The conversation to finalize
+            response_time_ms: Response time in milliseconds
+            is_streaming: Whether this was a streaming response
+        """
+        # Update conversation metadata
+        metadata_update = {
+            "last_response_time_ms": response_time_ms,
+            "total_messages": conversation.get_message_count(),
+            "last_activity": datetime.now(UTC).isoformat(),
+        }
+
+        if is_streaming:
+            metadata_update["streaming"] = True
+
+        conversation.metadata.update(metadata_update)
+
+        # Save conversation
+        self.conversation_manager.save_conversation(conversation)

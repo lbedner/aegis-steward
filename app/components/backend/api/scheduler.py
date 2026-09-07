@@ -1,0 +1,235 @@
+"""Scheduled job API endpoints."""
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
+from app.components.backend.api.models import (
+    JobExecutionStatsResponse,
+    ScheduledExecutionListResponse,
+    ScheduledTaskDetailResponse,
+    ScheduledTaskListResponse,
+    ScheduledTaskStatisticsResponse,
+    TriggerJobResponse,
+)
+from app.core.log import logger
+from app.services.scheduler import (
+    ScheduledTaskManager,
+    import_job_function,
+    run_triggered_job,
+)
+
+router = APIRouter(
+    prefix="/scheduler",
+    tags=["scheduler"],
+)
+
+
+async def get_task_manager() -> ScheduledTaskManager:
+    """Dependency to provide ScheduledTaskManager instance."""
+    return ScheduledTaskManager()
+
+
+@router.get("/jobs", response_model=ScheduledTaskListResponse)
+async def list_scheduled_jobs(
+    manager: ScheduledTaskManager = Depends(get_task_manager),
+) -> ScheduledTaskListResponse:
+    """Get list of all scheduled jobs."""
+    try:
+        tasks = await manager.list_tasks()
+
+        return ScheduledTaskListResponse(tasks=tasks, total_count=len(tasks))
+
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "scheduler_unavailable", "message": str(e)},
+        )
+    except Exception as e:
+        logger.error(f"Failed to list scheduled jobs: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"Failed to retrieve scheduled jobs: {str(e)}",
+            },
+        )
+
+
+@router.get("/jobs/{job_id}", response_model=ScheduledTaskDetailResponse)
+async def get_scheduled_job(
+    job_id: str, manager: ScheduledTaskManager = Depends(get_task_manager)
+) -> ScheduledTaskDetailResponse:
+    """Get specific scheduled job details."""
+    try:
+        task = await manager.get_task(job_id)
+
+        if not task:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "job_not_found",
+                    "message": f"Scheduled job '{job_id}' not found",
+                },
+            )
+
+        return ScheduledTaskDetailResponse(task=task)
+
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "scheduler_unavailable", "message": str(e)},
+        )
+    except Exception as e:
+        logger.error(f"Failed to get scheduled job {job_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"Failed to retrieve job details: {str(e)}",
+            },
+        )
+
+
+@router.get("/statistics", response_model=ScheduledTaskStatisticsResponse)
+async def get_scheduler_statistics(
+    manager: ScheduledTaskManager = Depends(get_task_manager),
+) -> ScheduledTaskStatisticsResponse:
+    """Get scheduler statistics."""
+    try:
+        statistics = await manager.get_statistics()
+
+        return ScheduledTaskStatisticsResponse(statistics=statistics)
+
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "scheduler_unavailable", "message": str(e)},
+        )
+    except Exception as e:
+        logger.error(f"Failed to get scheduler statistics: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"Failed to retrieve statistics: {str(e)}",
+            },
+        )
+
+
+@router.get("/executions", response_model=ScheduledExecutionListResponse)
+async def list_job_executions(
+    offset: int = 0,
+    limit: int = 25,
+    status: str | None = None,
+    job_id: str | None = None,
+    order: str = "desc",
+    manager: ScheduledTaskManager = Depends(get_task_manager),
+) -> ScheduledExecutionListResponse:
+    """Get paginated scheduled-job execution history (newest first)."""
+    try:
+        executions, total = await manager.list_executions(
+            offset=offset,
+            limit=limit,
+            status=status,
+            job_id=job_id,
+            order=order,
+        )
+        return ScheduledExecutionListResponse(executions=executions, total=total)
+
+    except Exception as e:
+        logger.error(f"Failed to list job executions: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"Failed to retrieve executions: {str(e)}",
+            },
+        )
+
+
+@router.get("/jobs/{job_id}/stats", response_model=JobExecutionStatsResponse)
+async def get_job_execution_stats(
+    job_id: str, manager: ScheduledTaskManager = Depends(get_task_manager)
+) -> JobExecutionStatsResponse:
+    """Get aggregate execution stats for one scheduled job."""
+    try:
+        stats = await manager.get_job_stats(job_id)
+        return JobExecutionStatsResponse(**stats)
+
+    except Exception as e:
+        logger.error(f"Failed to get execution stats for {job_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"Failed to retrieve job stats: {str(e)}",
+            },
+        )
+
+
+@router.post("/jobs/{job_id}/run", response_model=TriggerJobResponse, status_code=202)
+async def trigger_scheduled_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    manager: ScheduledTaskManager = Depends(get_task_manager),
+) -> TriggerJobResponse:
+    """Manually trigger a scheduled job to run now, in the background.
+
+    The job runs in the backend process and is recorded to execution history
+    like a scheduled run. Returns 202 immediately; poll the executions API
+    for the outcome.
+    """
+    try:
+        task = await manager.get_task(job_id)
+        if task is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "job_not_found",
+                    "message": f"Scheduled job '{job_id}' not found",
+                },
+            )
+
+        if await manager.is_job_running(job_id):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "job_already_running",
+                    "message": f"Job '{job_id}' is already running",
+                },
+            )
+
+        func = import_job_function(task.function)
+        if func is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "job_not_runnable",
+                    "message": (f"Could not resolve job function '{task.function}'"),
+                },
+            )
+
+        background_tasks.add_task(run_triggered_job, func, job_id, task.name)
+        return TriggerJobResponse(
+            job_id=job_id,
+            status="triggered",
+            message=f"Job '{task.name}' triggered",
+        )
+
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "scheduler_unavailable", "message": str(e)},
+        )
+    except Exception as e:
+        logger.error(f"Failed to trigger job {job_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"Failed to trigger job: {str(e)}",
+            },
+        )

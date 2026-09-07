@@ -1,0 +1,186 @@
+"""Tests for agent registry admin operations (list, toggle, serialize)."""
+
+from unittest.mock import MagicMock
+
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+import app.services.ai.domains.chat.agent_registry as agent_registry_module
+from app.services.ai.domains.chat.agent_registry import (
+    AgentNotFoundError,
+    InvalidAgentUpdateError,
+    list_agents,
+    serialize_agent,
+    set_agent_active,
+    update_agent,
+)
+from app.services.ai.models.agents import Agent, AgentTool, Tool
+
+
+@pytest.fixture
+def session(async_db_session: AsyncSession) -> AsyncSession:
+    """The root conftest's transactional async session (rolled back per
+    test). A bare local engine cannot create this project's schema-qualified
+    tables (finance, scheduler, ...)."""
+    return async_db_session
+
+
+async def _add_agent(session: AsyncSession, slug: str, **extra: object) -> Agent:
+    agent = Agent(
+        slug=slug,
+        name=slug.title(),
+        system_prompt="You are helpful.",
+        **extra,  # type: ignore[arg-type]
+    )
+    session.add(agent)
+    await session.commit()
+    await session.refresh(agent)
+    return agent
+
+
+class TestListAgents:
+    async def test_lists_ordered_with_tools(self, session: AsyncSession) -> None:
+        beta = await _add_agent(session, "beta")
+        await _add_agent(session, "alpha")
+        tool = Tool(name="save_memory")
+        session.add(tool)
+        await session.commit()
+        await session.refresh(beta)
+        await session.refresh(tool)
+        session.add(AgentTool(agent_id=beta.id, tool_id=tool.id))
+        await session.commit()
+
+        agents = await list_agents(session=session)
+
+        assert [a.slug for a in agents] == ["alpha", "beta"]
+        assert [t.name for t in agents[1].tools] == ["save_memory"]
+
+
+class TestSetAgentActive:
+    async def test_toggle_persists_and_invalidates_cache(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await _add_agent(session, "assistant")
+        invalidated = MagicMock()
+        monkeypatch.setattr(
+            agent_registry_module, "invalidate_agent_cache", invalidated
+        )
+
+        updated = await set_agent_active("assistant", False, session=session)
+        assert updated.is_active is False
+
+        agents = await list_agents(session=session)
+        assert agents[0].is_active is False
+        invalidated.assert_called_once_with("assistant")
+
+    async def test_unknown_slug_raises(self, session: AsyncSession) -> None:
+        with pytest.raises(AgentNotFoundError):
+            await set_agent_active("ghost", True, session=session)
+
+
+class TestUpdateAgent:
+    async def test_partial_update_persists_and_invalidates(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await _add_agent(session, "assistant")
+        invalidated = MagicMock()
+        monkeypatch.setattr(
+            agent_registry_module, "invalidate_agent_cache", invalidated
+        )
+
+        updated = await update_agent(
+            "assistant",
+            {"system_prompt": "You are terse.", "temperature": 0.1},
+            session=session,
+        )
+
+        assert updated.system_prompt == "You are terse."
+        assert updated.temperature == 0.1
+        # Untouched fields survive a partial update.
+        assert updated.name == "Assistant"
+        invalidated.assert_called_once_with("assistant")
+
+    async def test_invalid_values_are_rejected(self, session: AsyncSession) -> None:
+        await _add_agent(session, "assistant")
+
+        with pytest.raises(InvalidAgentUpdateError):
+            await update_agent("assistant", {"temperature": 9.0}, session=session)
+        with pytest.raises(InvalidAgentUpdateError):
+            await update_agent("assistant", {"system_prompt": "  "}, session=session)
+        with pytest.raises(InvalidAgentUpdateError):
+            await update_agent("assistant", {"slug": "hijack"}, session=session)
+
+    async def test_null_required_fields_are_rejected_cleanly(
+        self, session: AsyncSession
+    ) -> None:
+        """JSON null on a non-nullable field is a validation error, not a 500."""
+        await _add_agent(session, "assistant")
+
+        for field in (
+            "name",
+            "temperature",
+            "max_tokens",
+            "system_prompt",
+            "is_active",
+        ):
+            with pytest.raises(InvalidAgentUpdateError):
+                await update_agent("assistant", {field: None}, session=session)
+
+    async def test_null_model_id_means_active_default(
+        self, session: AsyncSession
+    ) -> None:
+        await _add_agent(session, "assistant", model_id="gpt-x")
+
+        updated = await update_agent("assistant", {"model_id": None}, session=session)
+
+        assert updated.model_id is None
+
+
+class TestSerializeAgent:
+    async def test_serializes_full_shape(self, session: AsyncSession) -> None:
+        await _add_agent(
+            session,
+            "assistant",
+            memory_modules=["diet"],
+            knowledge_base_ids=["kb-food"],
+        )
+
+        # Serialize an eager-loaded row (the shape API consumers get).
+        agents = await list_agents(session=session)
+        payload = serialize_agent(agents[0])
+
+        assert payload["slug"] == "assistant"
+        assert payload["is_active"] is True
+        assert payload["tools"] == []
+        assert payload["memory_modules"] == ["diet"]
+        assert payload["knowledge_base_ids"] == ["kb-food"]
+        assert payload["system_prompt"] == "You are helpful."
+
+
+class TestCodeModeField:
+    async def test_update_accepts_code_mode_and_invalidates(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await _add_agent(session, "assistant")
+        invalidated = MagicMock()
+        monkeypatch.setattr(
+            agent_registry_module, "invalidate_agent_cache", invalidated
+        )
+
+        updated = await update_agent("assistant", {"code_mode": True}, session=session)
+
+        assert updated.code_mode is True
+        invalidated.assert_called_once_with("assistant")
+
+    async def test_code_mode_rejects_null(self, session: AsyncSession) -> None:
+        await _add_agent(session, "assistant")
+
+        with pytest.raises(InvalidAgentUpdateError):
+            await update_agent("assistant", {"code_mode": None}, session=session)
+
+    async def test_serialize_includes_code_mode(self, session: AsyncSession) -> None:
+        await _add_agent(session, "assistant", code_mode=True)
+
+        agents = await list_agents(session=session)
+
+        assert serialize_agent(agents[0])["code_mode"] is True

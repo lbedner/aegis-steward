@@ -1,0 +1,988 @@
+"""
+System health monitoring functions.
+
+Pure functions for system health checking, monitoring, and status reporting.
+All functions use Pydantic models for type safety and validation.
+"""
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+import os
+import sys
+from typing import Any, cast
+
+import psutil
+
+from app.core.config import settings
+from app.core.log import logger
+
+from . import activity
+from .alerts import send_critical_alert, send_health_alert
+from .models import ComponentStatus, ComponentStatusType, SystemStatus
+
+# Global registry for custom health checks
+_health_checks: dict[str, Callable[[], Awaitable[ComponentStatus]]] = {}
+
+# Global registry for service health checks
+_service_health_checks: dict[str, Callable[[], Awaitable[ComponentStatus]]] = {}
+
+# Track previous status per component for activity events
+_previous_status: dict[str, ComponentStatusType] = {}
+
+# System metrics that shouldn't create separate activity events
+# (they're sub-components of backend)
+SYSTEM_METRICS = {"cpu", "memory", "disk"}
+
+
+def format_bytes(size: int) -> str:
+    """Format bytes into human-readable string."""
+    if size == 0:
+        return "0 B"
+
+    size_float = float(size)
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size_float < 1024.0:
+            if unit == "B":
+                return f"{int(size_float)} {unit}"
+            else:
+                return f"{size_float:.1f} {unit}"
+        size_float /= 1024.0
+    return f"{size_float:.1f} TB"
+
+
+def propagate_status(child_statuses: list[ComponentStatusType]) -> ComponentStatusType:
+    """
+    Determine parent status from child statuses using standard hierarchy.
+
+    Status priority (highest to lowest):
+    1. UNHEALTHY - Any unhealthy child makes parent unhealthy
+    2. WARNING - Any warning child makes parent warning (if no unhealthy)
+    3. INFO - Any info child makes parent info (if no unhealthy/warning)
+    4. HEALTHY - All children healthy makes parent healthy
+
+    Args:
+        child_statuses: List of ComponentStatusType from child components
+
+    Returns:
+        ComponentStatusType for the parent component
+    """
+    if not child_statuses:
+        return ComponentStatusType.HEALTHY
+
+    if any(status == ComponentStatusType.UNHEALTHY for status in child_statuses):
+        return ComponentStatusType.UNHEALTHY
+    elif any(status == ComponentStatusType.WARNING for status in child_statuses):
+        return ComponentStatusType.WARNING
+    elif any(status == ComponentStatusType.INFO for status in child_statuses):
+        return ComponentStatusType.INFO
+    elif all(status == ComponentStatusType.HEALTHY for status in child_statuses):
+        return ComponentStatusType.HEALTHY
+    else:
+        return ComponentStatusType.HEALTHY  # Default for edge cases
+
+
+# Cache for system metrics to improve performance
+_system_metrics_cache: dict[str, tuple[ComponentStatus, datetime]] = {}
+
+
+def register_health_check(
+    name: str, check_fn: Callable[[], Awaitable[ComponentStatus]]
+) -> None:
+    """
+    Register a custom health check function.
+
+    Args:
+        name: Unique name for the health check
+        check_fn: Async function that returns ComponentStatus or bool
+    """
+    _health_checks[name] = check_fn
+    logger.info(f"Registered custom health check: {name}")
+    # Note: Activity event is emitted by _run_health_check on first check
+    # with the actual status (not hardcoded "success")
+
+
+def register_service_health_check(
+    name: str, check_fn: Callable[[], Awaitable[ComponentStatus]]
+) -> None:
+    """
+    Register a service health check function.
+
+    Args:
+        name: Unique name for the service health check
+        check_fn: Async function that returns ComponentStatus
+    """
+    _service_health_checks[name] = check_fn
+    logger.info(f"Registered service health check: {name}")
+    # Note: Activity event is emitted by _run_health_check on first check
+    # with the actual status (not hardcoded "success")
+
+
+async def get_system_status() -> SystemStatus:
+    """
+    Get comprehensive system status.
+
+    Returns:
+        SystemStatus with all component health information organized as Aegis tree
+    """
+    start_time = datetime.now(UTC)
+
+    # Launch ALL checks concurrently (components + services + metrics)
+    # so total time = max(all checks) instead of sum(sequential groups)
+    component_tasks: list[tuple[str, asyncio.Task[ComponentStatus]]] = []
+    for name, check_fn in _health_checks.items():
+        task = asyncio.create_task(_run_health_check(name, check_fn))
+        component_tasks.append((name, task))
+
+    service_tasks: list[tuple[str, asyncio.Task[ComponentStatus]]] = []
+    for name, check_fn in _service_health_checks.items():
+        task = asyncio.create_task(_run_health_check(name, check_fn))
+        service_tasks.append((name, task))
+
+    metrics_task = asyncio.create_task(_get_cached_system_metrics(start_time))
+
+    # Collect component results
+    component_results = {}
+    for name, task in component_tasks:
+        try:
+            component_results[name] = await task
+        except Exception as e:
+            logger.error(f"Component check failed for {name}: {e}")
+            component_results[name] = ComponentStatus(
+                name=name,
+                status=ComponentStatusType.UNHEALTHY,
+                message=f"Health check failed: {str(e)}",
+                response_time_ms=None,
+            )
+
+    # Collect service results
+    service_results = {}
+    for name, task in service_tasks:
+        try:
+            service_results[name] = await task
+        except Exception as e:
+            logger.error(f"Service check failed for {name}: {e}")
+            service_results[name] = ComponentStatus(
+                name=name,
+                status=ComponentStatusType.UNHEALTHY,
+                message=f"Service health check failed: {str(e)}",
+                response_time_ms=None,
+            )
+
+    # Collect system metrics (already running concurrently)
+    system_metrics = await metrics_task
+
+    # Group system metrics under backend component if it exists
+    if "backend" in component_results:
+        # Backend exists - recreate with system metrics as sub-components
+        backend_component = component_results["backend"]
+
+        # Propagate status from system metrics and original backend status
+        system_metrics_statuses = [
+            getattr(metric, "status", ComponentStatusType.HEALTHY)
+            for metric in system_metrics.values()
+        ]
+        original_backend_status = getattr(
+            backend_component, "status", ComponentStatusType.HEALTHY
+        )
+        all_backend_statuses = system_metrics_statuses + [original_backend_status]
+
+        backend_status = propagate_status(all_backend_statuses)
+
+        component_results["backend"] = ComponentStatus(
+            name=backend_component.name,
+            status=backend_status,
+            message=backend_component.message,
+            response_time_ms=backend_component.response_time_ms,
+            metadata=backend_component.metadata,
+            sub_components=system_metrics,
+        )
+    else:
+        # Backend doesn't exist - create a virtual backend component to hold
+        # system metrics
+        backend_healthy = all(metric.healthy for metric in system_metrics.values())
+
+        # Propagate status from system metrics only
+        system_metrics_statuses = [
+            getattr(metric, "status", ComponentStatusType.HEALTHY)
+            for metric in system_metrics.values()
+        ]
+        backend_status = propagate_status(system_metrics_statuses)
+
+        backend_message = (
+            "System container metrics"
+            if backend_healthy
+            else "System container has issues"
+        )
+
+        component_results["backend"] = ComponentStatus(
+            name="backend",
+            status=backend_status,
+            message=backend_message,
+            response_time_ms=None,
+            metadata={"type": "system_container", "virtual": True},
+            sub_components=system_metrics,
+        )
+
+    # Calculate overall health (including sub-components and services)
+    all_statuses = list(component_results.values()) + list(service_results.values())
+    for component in component_results.values():
+        all_statuses.extend(component.sub_components.values())
+    overall_healthy = all(status.healthy for status in all_statuses)
+
+    # Create Aegis root structure with components underneath
+    aegis_healthy = all(status.healthy for status in all_statuses)
+
+    # Propagate status from all top-level components and services
+    component_statuses = [
+        getattr(component, "status", ComponentStatusType.HEALTHY)
+        for component in component_results.values()
+    ]
+    service_statuses = [
+        getattr(service, "status", ComponentStatusType.HEALTHY)
+        for service in service_results.values()
+    ]
+    all_top_level_statuses = component_statuses + service_statuses
+    aegis_status = propagate_status(all_top_level_statuses)
+
+    aegis_message = (
+        "Aegis Stack application" if aegis_healthy else "Aegis Stack has issues"
+    )
+
+    # Create aegis sub-components structure with components and services grouped
+    aegis_sub_components = {}
+
+    # Group all components under "components" if any exist
+    if component_results:
+        components_status = propagate_status(component_statuses)
+        components_healthy = all(
+            component.healthy for component in component_results.values()
+        )
+        components_message = (
+            f"{len(component_results)} components available"
+            if components_healthy
+            else "Some components have issues"
+        )
+
+        aegis_sub_components["components"] = ComponentStatus(
+            name="components",
+            status=components_status,
+            message=components_message,
+            response_time_ms=None,
+            metadata={
+                "type": "components_group",
+                "total_components": len(component_results),
+                "component_names": list(component_results.keys()),
+            },
+            sub_components=component_results,
+        )
+
+    # Add services as a sub-component if any services are registered
+    if service_results:
+        # Determine services component status
+        services_status = propagate_status(service_statuses)
+        services_healthy = all(service.healthy for service in service_results.values())
+        services_message = (
+            f"{len(service_results)} services available"
+            if services_healthy
+            else "Some services have issues"
+        )
+
+        aegis_sub_components["services"] = ComponentStatus(
+            name="services",
+            status=services_status,
+            message=services_message,
+            response_time_ms=None,
+            metadata={
+                "type": "services_group",
+                "total_services": len(service_results),
+                "service_names": list(service_results.keys()),
+            },
+            sub_components=service_results,
+        )
+
+    root_components = {
+        "aegis": ComponentStatus(
+            name="aegis",
+            status=aegis_status,
+            message=aegis_message,
+            response_time_ms=None,
+            metadata={"type": "application_root", "version": "1.0"},
+            sub_components=aegis_sub_components,
+        )
+    }
+
+    # Get system information
+    system_info = _get_system_info()
+
+    status = SystemStatus(
+        components=root_components,
+        overall_healthy=overall_healthy,
+        timestamp=start_time,
+        system_info=system_info,
+    )
+
+    # Log unhealthy components (debug-only to avoid log spam from periodic checks)
+    if not overall_healthy:
+        logger.debug(
+            f"System unhealthy: {status.unhealthy_components}",
+            extra={"unhealthy_components": status.unhealthy_components},
+        )
+
+    return status
+
+
+async def is_system_healthy() -> bool:
+    """Quick check if system is overall healthy."""
+    status = await get_system_status()
+    return status.overall_healthy
+
+
+async def check_system_status() -> None:
+    """
+    Scheduled health check function for use in APScheduler jobs.
+
+    This function gets the system status and logs any issues.
+    Can be extended to send alerts to Slack, email, etc.
+    """
+    logger.debug("Running scheduled system health check")
+
+    try:
+        status = await get_system_status()
+
+        if status.overall_healthy:
+            log_msg = (
+                f"System healthy: {len(status.healthy_top_level_components)}/"
+                f"{status.total_components} components OK"
+            )
+            logger.debug(log_msg)
+        else:
+            logger.debug(
+                f"System issues detected: "
+                f"{len(status.unhealthy_components)} unhealthy components",
+                extra={
+                    "unhealthy_components": status.unhealthy_components,
+                    "health_percentage": status.health_percentage,
+                },
+            )
+
+            # Log details for each unhealthy component
+            for component_name in status.unhealthy_components:
+                component = status.components[component_name]
+                logger.debug(
+                    f"{component_name}: {component.message}",
+                    extra={"component": component.name, "metadata": component.metadata},
+                )
+
+            # Send health alerts
+            await send_health_alert(status)
+
+    except Exception as e:
+        logger.error(f"System health check failed: {e}")
+        # Send critical alert about monitoring failure
+        await send_critical_alert(f"Health monitoring failed: {e}", str(e))
+
+
+async def _get_cached_system_metrics(
+    current_time: datetime,
+) -> dict[str, ComponentStatus]:
+    """Get system metrics with caching for better performance."""
+    cache_duration = settings.SYSTEM_METRICS_CACHE_SECONDS
+    system_metric_checks = {
+        "memory": _check_memory,
+        "disk": _check_disk_space,
+        "cpu": _check_cpu_usage,
+    }
+
+    system_metrics = {}
+    tasks = []
+
+    for name, check_fn in system_metric_checks.items():
+        # Check if we have a valid cached result
+        if name in _system_metrics_cache:
+            cached_result, cached_time = _system_metrics_cache[name]
+            age_seconds = (current_time - cached_time).total_seconds()
+
+            if age_seconds < cache_duration:
+                # Use cached result
+                system_metrics[name] = cached_result
+                continue
+
+        # Need to run the check
+        task = asyncio.create_task(
+            _run_health_check_with_cache(name, check_fn, current_time)
+        )
+        tasks.append((name, task))
+
+    # Collect results from non-cached checks
+    for name, task in tasks:
+        try:
+            system_metrics[name] = await task
+        except Exception as e:
+            logger.error(f"System metric check failed for {name}: {e}")
+            system_metrics[name] = ComponentStatus(
+                name=name,
+                status=ComponentStatusType.UNHEALTHY,
+                message=f"Health check failed: {str(e)}",
+                response_time_ms=None,
+            )
+
+    return system_metrics
+
+
+async def _run_health_check_with_cache(
+    name: str, check_fn: Callable[[], Awaitable[ComponentStatus]], timestamp: datetime
+) -> ComponentStatus:
+    """Run health check and cache the result."""
+    result = await _run_health_check(name, check_fn)
+    _system_metrics_cache[name] = (result, timestamp)
+    return result
+
+
+async def _run_health_check(
+    name: str, check_fn: Callable[[], Awaitable[ComponentStatus]]
+) -> ComponentStatus:
+    """Run a single health check with timing and status change tracking."""
+    start_time = datetime.now(UTC)
+    try:
+        result = await check_fn()
+        end_time = datetime.now(UTC)
+        response_time = (end_time - start_time).total_seconds() * 1000
+
+        if isinstance(result, ComponentStatus):
+            result.response_time_ms = response_time
+
+            # Track status changes and emit activity events
+            current_status = result.status
+            previous_status = _previous_status.get(name)
+
+            # Skip activity events for system metrics (sub-components of backend)
+            if name not in SYSTEM_METRICS:
+                # Log on FIRST check (previous is None) OR status change
+                if previous_status is None or previous_status != current_status:
+                    event_status = (
+                        "success"
+                        if current_status == ComponentStatusType.HEALTHY
+                        else "error"
+                        if current_status == ComponentStatusType.UNHEALTHY
+                        else "info"
+                        if current_status == ComponentStatusType.INFO
+                        else "warning"
+                    )
+                    display_name = name.replace("_", " ").title()
+                    details = result.message if result.message else None
+
+                    if previous_status is None:
+                        # First health check - use startup message with actual status
+                        activity.add_event(
+                            component=name,
+                            event_type="startup",
+                            message=f"{display_name} initialized",
+                            status=event_status,
+                            details=details,
+                        )
+                    else:
+                        # Status change
+                        change_msg = (
+                            f"{display_name}: "
+                            f"{previous_status.value} → "
+                            f"{current_status.value}"
+                        )
+                        activity.add_event(
+                            component=name,
+                            event_type="status_change",
+                            message=change_msg,
+                            status=event_status,
+                            details=details,
+                        )
+
+            _previous_status[name] = current_status
+
+            return result
+        else:
+            return ComponentStatus(
+                name=name,
+                status=(
+                    ComponentStatusType.HEALTHY
+                    if bool(result)
+                    else ComponentStatusType.UNHEALTHY
+                ),
+                message="OK" if result else "Failed",
+                response_time_ms=response_time,
+            )
+    except Exception as e:
+        end_time = datetime.now(UTC)
+        response_time = (end_time - start_time).total_seconds() * 1000
+        return ComponentStatus(
+            name=name,
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"Error: {str(e)}",
+            response_time_ms=response_time,
+        )
+
+
+def _get_system_info() -> dict[str, Any]:
+    """Get general system information."""
+    try:
+        return {
+            "python_version": (
+                f"{sys.version_info.major}."
+                f"{sys.version_info.minor}."
+                f"{sys.version_info.micro}"
+            ),
+            "platform": psutil.WINDOWS if psutil.WINDOWS else "unix",
+            "containerized": "docker" if os.path.exists("/.dockerenv") else "false",
+        }
+    except Exception as e:
+        logger.warning(f"Failed to get system info: {e}")
+        return {"error": str(e)}
+
+
+async def _check_memory() -> ComponentStatus:
+    """Check system memory usage."""
+    try:
+        # Run in thread to avoid blocking
+        memory = await asyncio.to_thread(psutil.virtual_memory)
+        memory_percent = memory.percent
+
+        # Determine status based on memory usage thresholds
+        if memory_percent >= settings.MEMORY_THRESHOLD_PERCENT:
+            status = ComponentStatusType.UNHEALTHY
+        elif memory_percent >= settings.MEMORY_THRESHOLD_PERCENT * 0.8:
+            status = ComponentStatusType.WARNING
+        else:
+            status = ComponentStatusType.HEALTHY
+
+        return ComponentStatus(
+            name="memory",
+            status=status,
+            message=f"Memory usage: {memory_percent:.1f}%",
+            response_time_ms=None,
+            metadata={
+                "percent_used": memory_percent,
+                "total_gb": round(memory.total / (1024**3), 2),
+                "available_gb": round(memory.available / (1024**3), 2),
+                "threshold_percent": settings.MEMORY_THRESHOLD_PERCENT,
+            },
+        )
+    except Exception as e:
+        return ComponentStatus(
+            name="memory",
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"Failed to check memory: {e}",
+            response_time_ms=None,
+        )
+
+
+async def _check_disk_space() -> ComponentStatus:
+    """Check disk space usage."""
+    try:
+        # Run in thread to avoid blocking
+        disk = await asyncio.to_thread(psutil.disk_usage, "/")
+        disk_percent = (disk.used / disk.total) * 100
+
+        # Determine status based on disk usage thresholds
+        if disk_percent >= settings.DISK_THRESHOLD_PERCENT:
+            status = ComponentStatusType.UNHEALTHY
+        elif disk_percent >= settings.DISK_THRESHOLD_PERCENT * 0.8:
+            status = ComponentStatusType.WARNING
+        else:
+            status = ComponentStatusType.HEALTHY
+
+        return ComponentStatus(
+            name="disk",
+            status=status,
+            message=f"Disk usage: {disk_percent:.1f}%",
+            response_time_ms=None,
+            metadata={
+                "percent_used": disk_percent,
+                "total_gb": round(disk.total / (1024**3), 2),
+                "free_gb": round(disk.free / (1024**3), 2),
+                "threshold_percent": settings.DISK_THRESHOLD_PERCENT,
+            },
+        )
+    except Exception as e:
+        return ComponentStatus(
+            name="disk",
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"Failed to check disk space: {e}",
+            response_time_ms=None,
+        )
+
+
+async def _check_cpu_usage() -> ComponentStatus:
+    """Check CPU usage (instant sampling)."""
+    try:
+        # Get instant CPU usage (non-blocking, immediate reading)
+        cpu_percent = await asyncio.to_thread(psutil.cpu_percent, None)
+
+        # Determine status based on CPU usage thresholds
+        if cpu_percent >= settings.CPU_THRESHOLD_PERCENT:
+            status = ComponentStatusType.UNHEALTHY
+        elif cpu_percent >= settings.CPU_THRESHOLD_PERCENT * 0.8:
+            status = ComponentStatusType.WARNING
+        else:
+            status = ComponentStatusType.HEALTHY
+
+        return ComponentStatus(
+            name="cpu",
+            status=status,
+            message=f"CPU usage: {cpu_percent:.1f}%",
+            response_time_ms=None,
+            metadata={
+                "percent_used": cpu_percent,
+                "cpu_count": psutil.cpu_count(),
+                "threshold_percent": settings.CPU_THRESHOLD_PERCENT,
+            },
+        )
+    except Exception as e:
+        return ComponentStatus(
+            name="cpu",
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"Failed to check CPU usage: {e}",
+            response_time_ms=None,
+        )
+
+
+def _decode_slowlog_arg(arg: Any) -> str:
+    """Decode a single SLOWLOG command argument to a readable string."""
+    if isinstance(arg, bytes):
+        return arg.decode("utf-8", errors="replace")
+    if isinstance(arg, str):
+        return arg
+    if isinstance(arg, list | tuple):
+        # redis-py can return args as list of ints (ASCII byte values)
+        try:
+            return bytes(arg).decode("utf-8", errors="replace")
+        except (ValueError, TypeError):
+            return str(arg)
+    return str(arg)
+
+
+def _decode_slowlog_command(command: Any) -> str:
+    """Decode a SLOWLOG command entry to a human-readable string."""
+    if isinstance(command, list | tuple):
+        return " ".join(_decode_slowlog_arg(arg) for arg in command)
+    if isinstance(command, bytes):
+        return command.decode("utf-8", errors="replace")
+    return str(command)
+
+
+async def check_cache_health() -> ComponentStatus:
+    """
+    Check cache connectivity and basic functionality.
+
+    Returns:
+        ComponentStatus indicating cache health
+    """
+    try:
+        import redis
+        import redis.asyncio as aioredis
+
+        # Create Redis connection with timeout
+        redis_url = (
+            settings.redis_url_effective
+            if hasattr(settings, "redis_url_effective")
+            else settings.REDIS_URL
+        )
+        redis_connection = aioredis.from_url(  # type: ignore[no-untyped-call]
+            redis_url,
+            db=settings.REDIS_DB,
+            socket_timeout=settings.HEALTH_CHECK_TIMEOUT_SECONDS,
+            socket_connect_timeout=settings.HEALTH_CHECK_TIMEOUT_SECONDS,
+        )
+        redis_client: aioredis.Redis = cast(aioredis.Redis, redis_connection)
+
+        start_time = datetime.now(UTC)
+
+        # Test basic connectivity with ping
+        await redis_client.ping()
+
+        # Test basic set/get functionality
+        test_key = "health_check:test"
+        test_value = f"test_{start_time.timestamp()}"
+        await redis_client.set(test_key, test_value, ex=10)  # Expire in 10 seconds
+        retrieved_value = await redis_client.get(test_key)
+
+        # Cleanup test key
+        await redis_client.delete(test_key)
+
+        # Verify test worked
+        if retrieved_value.decode() != test_value:
+            raise Exception("Redis set/get test failed")
+
+        # Get comprehensive Redis info for detailed monitoring
+        # Reuse existing connection instead of creating a second one
+        redis_info_client = redis_client
+
+        # Get multiple INFO sections for comprehensive metrics
+        info = await redis_info_client.info()
+        stats_info = await redis_info_client.info("stats")
+        memory_info = await redis_info_client.info("memory")
+        clients_info = await redis_info_client.info("clients")
+        keyspace_info = await redis_info_client.info("keyspace")
+
+        # Get recent slow query log entries from Redis SLOWLOG
+        slowlog_entries: list[dict[str, Any]] = []
+        try:
+            slowlog = await redis_info_client.slowlog_get(10)
+            slowlog_entries = [
+                {
+                    "id": entry["id"],
+                    "timestamp": entry["start_time"],
+                    # Convert microseconds to ms
+                    "duration_ms": round(entry["duration"] / 1000, 2),
+                    "command": _decode_slowlog_command(entry["command"]),
+                }
+                for entry in slowlog
+            ]
+        except (redis.exceptions.RedisError, AttributeError, KeyError) as e:
+            logger.warning(f"Failed to get SLOWLOG: {e}")
+
+        # Get active client connections
+        active_clients: list[dict[str, str]] = []
+        try:
+            client_list = await redis_info_client.client_list()
+            active_clients = [
+                {
+                    "id": str(client.get("id", "")),
+                    "addr": str(client.get("addr", "")),
+                    "age": str(client.get("age", "0")),
+                    "idle": str(client.get("idle", "0")),
+                    "db": str(client.get("db", "0")),
+                    "cmd": str(client.get("cmd", "")),
+                }
+                for client in client_list
+            ]
+        except (redis.exceptions.RedisError, AttributeError, KeyError) as e:
+            logger.warning(f"Failed to get CLIENT LIST: {e}")
+
+        await redis_info_client.aclose()
+
+        # Calculate derived metrics
+        keyspace_hits = stats_info.get("keyspace_hits", 0)
+        keyspace_misses = stats_info.get("keyspace_misses", 0)
+        total_keyspace_ops = keyspace_hits + keyspace_misses
+        hit_rate = (keyspace_hits / max(total_keyspace_ops, 1)) * 100
+
+        # Extract total keys from all databases
+        total_keys = 0
+        keys_with_expiry = 0
+        for key, value in keyspace_info.items():
+            if key.startswith("db"):
+                # Redis info('keyspace') returns nested dict format
+                if isinstance(value, dict):
+                    total_keys += value.get("keys", 0)
+                    keys_with_expiry += value.get("expires", 0)
+
+        # Memory usage calculations
+        used_memory = memory_info.get("used_memory", 0)
+        used_memory_peak = memory_info.get("used_memory_peak", 0)
+        mem_fragmentation_ratio = memory_info.get("mem_fragmentation_ratio", 1.0)
+
+        return ComponentStatus(
+            name="cache",
+            status=ComponentStatusType.HEALTHY,
+            message="Redis cache connection and operations successful",
+            response_time_ms=None,  # Will be set by caller
+            metadata={
+                "implementation": "redis",
+                "version": info.get("redis_version", "unknown"),
+                "url": redis_url,
+                "db": settings.REDIS_DB,
+                # Connection and client metrics
+                "connected_clients": clients_info.get("connected_clients", 0),
+                "blocked_clients": clients_info.get("blocked_clients", 0),
+                "client_longest_output_list": clients_info.get(
+                    "client_longest_output_list", 0
+                ),
+                # Server uptime
+                "uptime_in_seconds": info.get("uptime_in_seconds", 0),
+                # Memory metrics
+                "used_memory": used_memory,
+                "used_memory_human": memory_info.get("used_memory_human", "unknown"),
+                "used_memory_peak": used_memory_peak,
+                "used_memory_peak_human": memory_info.get(
+                    "used_memory_peak_human", "unknown"
+                ),
+                "mem_fragmentation_ratio": mem_fragmentation_ratio,
+                "maxmemory": memory_info.get("maxmemory", 0),
+                "maxmemory_human": memory_info.get("maxmemory_human", "0B"),
+                # Performance and cache metrics
+                "instantaneous_ops_per_sec": stats_info.get(
+                    "instantaneous_ops_per_sec", 0
+                ),
+                "keyspace_hits": keyspace_hits,
+                "keyspace_misses": keyspace_misses,
+                "hit_rate_percent": hit_rate,
+                "evicted_keys": stats_info.get("evicted_keys", 0),
+                "expired_keys": stats_info.get("expired_keys", 0),
+                # Keyspace statistics
+                "total_keys": total_keys,
+                "keys_with_expiry": keys_with_expiry,
+                # Additional useful stats
+                "total_commands_processed": stats_info.get(
+                    "total_commands_processed", 0
+                ),
+                "total_connections_received": stats_info.get(
+                    "total_connections_received", 0
+                ),
+                "rejected_connections": stats_info.get("rejected_connections", 0),
+                # Slow queries and client connections
+                "slowlog_entries": slowlog_entries,
+                "active_clients": active_clients,
+            },
+        )
+
+    except ImportError:
+        return ComponentStatus(
+            name="cache",
+            status=ComponentStatusType.UNHEALTHY,
+            message="Cache library not installed",
+            response_time_ms=None,
+            metadata={
+                "implementation": "redis",
+                "error": "Redis library not available",
+            },
+        )
+    except Exception as e:
+        return ComponentStatus(
+            name="cache",
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"Cache health check failed: {str(e)}",
+            response_time_ms=None,
+            metadata={
+                "implementation": "redis",
+                "url": (
+                    settings.redis_url_effective
+                    if hasattr(settings, "redis_url_effective")
+                    else settings.REDIS_URL
+                ),
+                "db": settings.REDIS_DB,
+                "error": str(e),
+                # Provide fallback values for card display
+                "connected_clients": 0,
+                "used_memory_human": "unknown",
+                "uptime_in_seconds": 0,
+                "instantaneous_ops_per_sec": 0,
+                "hit_rate_percent": 0,
+                "total_keys": 0,
+                "evicted_keys": 0,
+                "expired_keys": 0,
+            },
+        )
+
+
+async def check_ollama_health() -> ComponentStatus:
+    """
+    Check Ollama server health and running models.
+
+    Returns:
+        ComponentStatus indicating Ollama infrastructure health with model info
+    """
+    try:
+        from app.services.ai.domains.llm.ollama import OllamaClient
+
+        # Get Ollama URL from settings (uses effective URL for Docker/local auto-detection)
+        ollama_url = settings.ollama_base_url_effective
+
+        client = OllamaClient(base_url=ollama_url)
+
+        # Get comprehensive server status
+        server_status = await client.get_server_status()
+
+        if not server_status.available:
+            return ComponentStatus(
+                name="ollama",
+                status=ComponentStatusType.UNHEALTHY,
+                message="Ollama server not reachable",
+                response_time_ms=None,
+                metadata={
+                    "available": False,
+                    "base_url": ollama_url,
+                    "error": "Connection failed",
+                },
+            )
+
+        # Feed the activity tracker: diffing the running set on every poll
+        # is how idle evictions and externally triggered loads get noticed
+        # (Ollama has no event API).
+        from app.services.ai.domains.llm.ollama_activity import get_ollama_activity
+
+        get_ollama_activity().observe(
+            {m.name: m.size_vram_gb for m in server_status.running_models}
+        )
+
+        # Use Pydantic's model_dump for clean serialization
+        running_models_info = [
+            m.model_dump(
+                include={"name", "size_vram_gb", "is_warm", "context_length", "details"}
+            )
+            for m in server_status.running_models
+        ]
+        installed_models_info = [
+            m.model_dump(
+                include={
+                    "name",
+                    "size_gb",
+                    "details",
+                    # What `ollama list` prints and the table could not show:
+                    # the digest tells two pulls of one tag apart, and the
+                    # timestamp is how you spot a model that has gone stale.
+                    "digest",
+                    "modified_at",
+                    "capabilities",
+                },
+                mode="json",
+            )
+            for m in server_status.installed_models
+        ]
+
+        # Determine status based on server state
+        if server_status.running_models:
+            status = ComponentStatusType.HEALTHY
+            primary_model = server_status.running_models[0]
+            message = (
+                f"{primary_model.name} • {primary_model.size_vram_gb:.1f}GB VRAM • warm"
+            )
+        elif server_status.installed_models_count > 0:
+            status = ComponentStatusType.INFO
+            message = f"Ollama ready • {server_status.installed_models_count} models installed • none loaded"
+        else:
+            status = ComponentStatusType.WARNING
+            message = "Ollama running but no models installed"
+
+        return ComponentStatus(
+            name="ollama",
+            status=status,
+            message=message,
+            response_time_ms=None,
+            metadata={
+                "available": True,
+                "base_url": ollama_url,
+                "version": server_status.version,
+                "running_models": running_models_info,
+                "running_models_count": len(server_status.running_models),
+                "installed_models": installed_models_info,
+                "installed_models_count": server_status.installed_models_count,
+                "total_vram_gb": round(server_status.total_vram_gb, 2),
+            },
+        )
+
+    except ImportError:
+        return ComponentStatus(
+            name="ollama",
+            status=ComponentStatusType.UNHEALTHY,
+            message="Ollama client not available",
+            response_time_ms=None,
+            metadata={"error": "OllamaClient not installed"},
+        )
+    except Exception as e:
+        logger.error(f"Ollama health check failed: {e}")
+        return ComponentStatus(
+            name="ollama",
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"Ollama health check failed: {str(e)}",
+            response_time_ms=None,
+            metadata={"error": str(e)},
+        )

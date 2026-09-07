@@ -1,0 +1,61 @@
+{# Shared split-screen shell for the auth pages.
+
+   Child pages define two blocks:
+     auth_form   - the form card (left side)
+     auth_footer - the small link row under the form (optional)
+
+   The right panel is deliberately quiet: an ambient backdrop and the
+   project's own name and description. It is the first screen a user of your
+   app sees, so it is a good place to put a product visual once you have one.
+#}
+{% extends "base.html" %}
+
+{% block head_extra %}
+  {# Reset-password and verify-email carry one-time tokens in the URL. Never
+     let a crawler snapshot them. #}
+  <meta name="robots" content="noindex, nofollow">
+{% endblock %}
+
+{% block navbar %}{# auth pages stand alone - no navbar #}{% endblock %}
+
+{% block content %}
+<div class="min-h-screen grid grid-cols-1 lg:grid-cols-2">
+
+  {# -------- LEFT: form -------- #}
+  <div class="flex flex-col px-6 sm:px-12 lg:px-16 py-8">
+    <a href="/" class="text-sm font-semibold text-white tracking-wide mb-auto">
+      {{ project_name }}
+    </a>
+
+    <div class="w-full max-w-sm mx-auto my-16">
+      {% block auth_form %}{% endblock %}
+    </div>
+
+    <div class="mt-auto pt-8 text-xxs text-aegis-muted/60">
+      {% block auth_footer %}{% endblock %}
+    </div>
+  </div>
+
+  {# -------- RIGHT: ambient panel -------- #}
+  <div class="hidden lg:block relative overflow-hidden bg-gradient-to-br from-aegis-bg via-aegis-card to-aegis-bg">
+    <div class="absolute top-1/3 left-1/4 w-96 h-96 bg-aegis-teal/10 blur-3xl rounded-full"></div>
+
+    <svg class="absolute inset-0 w-full h-full opacity-[0.05]" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="auth-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#FFFFFF" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#auth-grid)"/>
+    </svg>
+
+    <div class="absolute bottom-10 left-0 right-0 text-center px-12">
+      <p class="text-sm text-aegis-muted">
+        <span class="text-white">{{ project_name }}</span>
+        &nbsp;{{ project_description }}
+      </p>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

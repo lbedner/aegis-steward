@@ -1,0 +1,167 @@
+"""Persist scheduled-job execution history (timing, status, errors).
+
+Written by the scheduler process's APScheduler event listeners and read by
+the backend API for the dashboard History view. Every function is
+best-effort: logging a run must never break the run itself, so failures
+are swallowed and logged at debug level.
+
+Datetimes are stored naive-UTC to match the ``sa.DateTime()`` columns and
+to keep ``finished_at - started_at`` duration math from mixing aware and
+naive values.
+"""
+
+from datetime import UTC, datetime
+
+from sqlmodel import col, delete, select
+
+from app.core.db import db_session
+from app.core.log import logger
+
+from .models import JobExecution
+
+# Keep the most recent N runs per job; older rows are pruned opportunistically.
+DEFAULT_RETENTION_PER_JOB = 100
+
+
+def _utcnow() -> datetime:
+    """Naive-UTC now, matching the table's timezone-naive columns."""
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    """Normalise an aware datetime (APScheduler uses the scheduler tz) to
+    naive-UTC so it lines up with the stored columns."""
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+def record_job_started(
+    job_id: str, job_name: str, scheduled_run_time: datetime | None = None
+) -> int | None:
+    """Insert a ``running`` row and return its id (or None on failure)."""
+    try:
+        with db_session(autocommit=True) as session:
+            row = JobExecution(
+                job_id=job_id,
+                job_name=job_name or job_id,
+                scheduled_run_time=_as_naive_utc(scheduled_run_time),
+                started_at=_utcnow(),
+                status="running",
+            )
+            session.add(row)
+            session.flush()
+            return row.id
+    except Exception as e:
+        logger.debug(f"Failed to record job start for {job_id}: {e}")
+        return None
+
+
+def record_job_finished(
+    execution_id: int | None,
+    job_id: str,
+    *,
+    success: bool,
+    error: str | None = None,
+    traceback: str | None = None,
+) -> None:
+    """Mark a run finished. Updates the ``running`` row when its id is known,
+    otherwise inserts a completed row (e.g. the scheduler restarted between
+    submit and completion)."""
+    try:
+        now = _utcnow()
+        with db_session(autocommit=True) as session:
+            row = (
+                session.get(JobExecution, execution_id)
+                if execution_id is not None
+                else None
+            )
+            if row is None:
+                row = JobExecution(job_id=job_id, job_name=job_id, started_at=now)
+                session.add(row)
+            row.finished_at = now
+            if row.started_at is not None:
+                row.duration_ms = (now - row.started_at).total_seconds() * 1000
+            row.status = "success" if success else "failed"
+            if error:
+                row.error_message = str(error)[:2000]
+            if traceback:
+                row.traceback = str(traceback)[:8000]
+    except Exception as e:
+        logger.debug(f"Failed to record job finish for {job_id}: {e}")
+
+
+def record_job_missed(job_id: str, scheduled_run_time: datetime | None = None) -> None:
+    """Record a missed run (the scheduler woke past its grace window)."""
+    try:
+        now = _utcnow()
+        with db_session(autocommit=True) as session:
+            session.add(
+                JobExecution(
+                    job_id=job_id,
+                    job_name=job_id,
+                    scheduled_run_time=_as_naive_utc(scheduled_run_time),
+                    started_at=now,
+                    finished_at=now,
+                    status="missed",
+                )
+            )
+    except Exception as e:
+        logger.debug(f"Failed to record missed job {job_id}: {e}")
+
+
+def prune_executions(job_id: str, keep: int = DEFAULT_RETENTION_PER_JOB) -> int:
+    """Delete all but the most recent ``keep`` runs for one job.
+
+    The table has no TTL (unlike the worker's Redis history), so callers
+    prune opportunistically. Returns the number of rows removed.
+    """
+    try:
+        with db_session(autocommit=True) as session:
+            cutoff_ids = session.exec(
+                select(JobExecution.id)
+                .where(JobExecution.job_id == job_id)
+                .order_by(col(JobExecution.started_at).desc())
+                .offset(keep)
+            ).all()
+            if not cutoff_ids:
+                return 0
+            session.exec(
+                delete(JobExecution).where(col(JobExecution.id).in_(cutoff_ids))
+            )
+            return len(cutoff_ids)
+    except Exception as e:
+        logger.debug(f"Failed to prune executions for {job_id}: {e}")
+        return 0
+
+
+def cancel_stale_running_rows() -> int:
+    """Mark any rows stuck in 'running' as 'failed' on scheduler startup.
+
+    Rows left as 'running' mean the scheduler was killed while a job was
+    in-flight (or the run_key mismatch bug was present). Closed at startup
+    so they don't pollute the History view permanently.  Returns the number
+    of rows updated.
+    """
+    try:
+        with db_session(autocommit=True) as session:
+            stale = session.exec(
+                select(JobExecution).where(JobExecution.status == "running")
+            ).all()
+            now = _utcnow()
+            for row in stale:
+                row.status = "failed"
+                row.finished_at = now
+                row.error_message = "Run did not complete (scheduler restarted)"
+                if row.started_at is not None:
+                    row.duration_ms = (now - row.started_at).total_seconds() * 1000
+            if stale:
+                logger.info(
+                    f"Marked {len(stale)} stale 'running' execution(s) as failed"
+                )
+            return len(stale)
+    except Exception as e:
+        logger.debug(f"Failed to cancel stale running rows: {e}")
+        return 0

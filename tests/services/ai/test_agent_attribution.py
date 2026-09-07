@@ -1,0 +1,532 @@
+"""Chat routes through the agent loader: persona, sampling, attribution."""
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+from unittest.mock import MagicMock
+
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    PartStartEvent,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
+from pydantic_ai.run import AgentRunResultEvent
+import pytest
+
+from app.services.ai.domains.chat.agent_loader import AgentConfig, default_agent_config
+from app.services.ai.service import AIService
+import app.services.ai.service.chat as chat_module
+import app.services.ai.service.prompt as prompt_module
+import app.services.ai.service.streaming as streaming_module
+
+
+class _FakeUsage:
+    input_tokens = 3
+    output_tokens = 5
+
+
+class _FakeResult:
+    output = "ok"
+    usage = _FakeUsage()
+
+
+class _FakeEventStream:
+    def __aiter__(self) -> AsyncIterator[Any]:
+        return self._events()
+
+    async def _events(self) -> AsyncIterator[Any]:
+        yield PartStartEvent(index=0, part=TextPart(content="Let me check. "))
+        yield FunctionToolCallEvent(part=ToolCallPart(tool_name="lookup", args="{}"))
+        # run_code completing: its metadata carries the sandbox-dispatched
+        # nested calls (the harness's code-mode ToolReturn shape).
+        yield FunctionToolResultEvent(
+            part=ToolReturnPart(
+                tool_name="run_code",
+                content={"output": "42"},
+                tool_call_id="c1",
+                metadata={
+                    "code_mode": True,
+                    "tool_calls": {
+                        "c1__2": ToolCallPart(
+                            tool_name="accounts", args="{}", tool_call_id="c1__2"
+                        ),
+                        "c1__1": ToolCallPart(
+                            tool_name="ledger",
+                            args='{"months": 3}',
+                            tool_call_id="c1__1",
+                        ),
+                    },
+                },
+            )
+        )
+        yield PartStartEvent(index=1, part=TextPart(content="ok"))
+        yield AgentRunResultEvent(result=_FakeResult())
+
+
+class _FakeAgent:
+    async def run(self, prompt: str) -> _FakeResult:
+        return _FakeResult()
+
+    @asynccontextmanager
+    async def run_stream_events(self, prompt: str) -> AsyncIterator[Any]:
+        yield _FakeEventStream()
+
+
+def _custom_config(**overrides: object) -> AgentConfig:
+    data: dict[str, object] = {
+        "slug": "support",
+        "name": "Support",
+        "system_prompt": "You are Support.",
+        "model_id": None,
+        "temperature": 0.2,
+        "max_tokens": 512,
+    }
+    data.update(overrides)
+    return AgentConfig(**data)  # type: ignore[arg-type]
+
+
+@pytest.fixture
+def harness(
+    mock_ai_settings: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]:
+    """AIService with provider, contexts, and recorder faked out."""
+    service = AIService(mock_ai_settings)
+
+    async def no_health(self: AIService) -> tuple[None, None]:
+        return (None, None)
+
+    monkeypatch.setattr(AIService, "_build_health_context", no_health)
+    monkeypatch.setattr(AIService, "_build_usage_context", lambda self: None)
+    monkeypatch.setattr(AIService, "_build_catalog_context", lambda self: None)
+
+    # The user-memory block opens the app's REAL async engine. Left unstubbed
+    # it binds that engine's pool to whichever test loop touches it first,
+    # after which any later test on a fresh loop dies inside asyncpg.
+    async def no_memory(user_id: str, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(chat_module, "build_user_memory_context", no_memory)
+    monkeypatch.setattr(streaming_module, "build_user_memory_context", no_memory)
+
+    recorder = MagicMock()
+    monkeypatch.setattr(service, "_record_usage", recorder)
+
+    captured: dict[str, Any] = {}
+
+    def fake_get_agent(
+        config: Any, settings: Any, system_prompt: str, **kwargs: Any
+    ) -> _FakeAgent:
+        captured["config"] = config
+        captured["system_prompt"] = system_prompt
+        captured["tools"] = kwargs.get("tools", [])
+        captured["capabilities"] = kwargs.get("capabilities", [])
+        captured["agent_name"] = kwargs.get("agent_name")
+        return _FakeAgent()
+
+    monkeypatch.setattr(prompt_module, "get_agent", fake_get_agent)
+    return service, recorder, captured, monkeypatch
+
+
+def _stub_resolve(monkeypatch: pytest.MonkeyPatch, config: AgentConfig) -> None:
+    async def resolve(slug: str = "assistant", **kwargs: object) -> AgentConfig:
+        return config
+
+    monkeypatch.setattr(chat_module, "resolve_agent", resolve)
+    monkeypatch.setattr(streaming_module, "resolve_agent", resolve)
+
+
+class TestTheTurnCarriesItsUser:
+    """``save_memory`` resolves its user from a ContextVar the runtime sets
+    for the turn. Unset, the tool declines and returns a plain string the
+    model reports as a successful save - so the user is told a fact was
+    stored while nothing was written. Both runtimes must set it.
+    """
+
+    async def test_chat_path_sets_the_user_for_the_turn(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        from app.services.ai.domains.chat.user_memory import current_user_id
+
+        service, _recorder, _captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, _custom_config())
+        seen: dict[str, Any] = {}
+
+        class _RecordingAgent(_FakeAgent):
+            async def run(self, prompt: str) -> Any:
+                seen["user_id"] = current_user_id.get()
+                return await super().run(prompt)
+
+        monkeypatch.setattr(
+            prompt_module,
+            "get_agent",
+            lambda *a, **k: _RecordingAgent(),
+        )
+
+        await service.chat("remember something", user_id="u42")
+
+        assert seen["user_id"] == "u42"
+        assert current_user_id.get() is None  # restored after the turn
+
+    async def test_streaming_path_sets_the_user_for_the_turn(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        from app.services.ai.domains.chat.user_memory import current_user_id
+
+        service, _recorder, _captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, _custom_config())
+        seen: dict[str, Any] = {}
+
+        class _RecordingAgent(_FakeAgent):
+            @asynccontextmanager
+            async def run_stream_events(self, prompt: str) -> AsyncIterator[Any]:
+                seen["user_id"] = current_user_id.get()
+                yield _FakeEventStream()
+
+        monkeypatch.setattr(
+            prompt_module,
+            "get_agent",
+            lambda *a, **k: _RecordingAgent(),
+        )
+
+        async for _chunk in service.stream_chat("remember something", user_id="u42"):
+            pass
+
+        assert seen["user_id"] == "u42"
+        assert current_user_id.get() is None
+
+
+class TestAgentGrantsReachTheApiChatPath:
+    """The service chat path attaches the agent's tools and code mode.
+
+    The chat_kit path gets these via ``build_chat_agent``; the API path
+    builds through ``get_agent`` and must carry the same grants, or a
+    code-mode agent answers with prose instead of computation.
+    """
+
+    async def test_code_mode_agent_gets_capability_and_tools(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        from app.services.ai.domains.chat.tools import register_tool, unregister_tool
+
+        service, _recorder, captured, monkeypatch = harness
+
+        async def lookup(key: str) -> str:
+            """Look up a value."""
+            return f"val-{key}"
+
+        register_tool("lookup", lookup, replace=True)
+        try:
+            _stub_resolve(
+                monkeypatch,
+                _custom_config(code_mode=True, tool_names=("lookup",)),
+            )
+            await service.chat("hello")
+
+            assert captured["tools"] == [lookup]
+            by_type = {
+                base.__name__: cap
+                for cap in captured["capabilities"]
+                for base in type(cap).__mro__
+            }
+            assert list(by_type["CodeMode"].tools) == ["lookup"]
+            assert "ToolOutputLimits" in by_type
+        finally:
+            unregister_tool("lookup")
+
+    async def test_plain_agent_gets_no_grants(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _recorder, captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, _custom_config())
+
+        await service.chat("hello")
+
+        assert captured["tools"] == []
+        assert captured["capabilities"] == []
+
+
+class TestAgentTelemetryName:
+    """The provider Agent is named after its row, so traces carry
+    gen_ai.agent.name and the agent shows on observability agent views."""
+
+    async def test_agent_slug_reaches_the_provider_as_the_agent_name(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _recorder, captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, _custom_config())
+
+        await service.chat("hello")
+
+        assert captured["agent_name"] == "support"
+
+
+class TestAgentSlugSelection:
+    """chat() and stream_chat() resolve the caller-requested agent row."""
+
+    async def test_chat_agent_slug_reaches_the_resolver(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _recorder, _captured, monkeypatch = harness
+        seen: list[str] = []
+
+        async def resolve(slug: str = "assistant", **kwargs: object) -> AgentConfig:
+            seen.append(slug)
+            return default_agent_config()
+
+        monkeypatch.setattr(chat_module, "resolve_agent", resolve)
+
+        await service.chat("hello", agent_slug="support")
+
+        assert seen == ["support"]
+
+    async def test_stream_chat_agent_slug_reaches_the_resolver(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _recorder, _captured, monkeypatch = harness
+        seen: list[str] = []
+
+        async def resolve(slug: str = "assistant", **kwargs: object) -> AgentConfig:
+            seen.append(slug)
+            return default_agent_config()
+
+        monkeypatch.setattr(streaming_module, "resolve_agent", resolve)
+
+        async for _chunk in service.stream_chat("hello", agent_slug="support"):
+            pass
+
+        assert seen == ["support"]
+
+
+class _FakeUsageContext:
+    def format_for_prompt(self, compact: bool = False) -> str:
+        return "USAGE-BLOCK"
+
+
+class TestOpsContextScoping:
+    """The usage/model-catalog self-awareness blocks belong to the default
+    ops assistant; a custom agent (a finance analyst, say) pays their
+    token cost every turn without ever using them."""
+
+    async def test_custom_agent_prompt_skips_usage_and_catalog(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _recorder, captured, monkeypatch = harness
+        monkeypatch.setattr(
+            AIService, "_build_catalog_context", lambda self: "CATALOG-BLOCK"
+        )
+        monkeypatch.setattr(
+            AIService, "_build_usage_context", lambda self: _FakeUsageContext()
+        )
+        _stub_resolve(monkeypatch, _custom_config())
+
+        await service.chat("hello")
+
+        assert "CATALOG-BLOCK" not in captured["system_prompt"]
+        assert "USAGE-BLOCK" not in captured["system_prompt"]
+
+    async def test_default_agent_keeps_usage_and_catalog(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _recorder, captured, monkeypatch = harness
+        monkeypatch.setattr(
+            AIService, "_build_catalog_context", lambda self: "CATALOG-BLOCK"
+        )
+        monkeypatch.setattr(
+            AIService, "_build_usage_context", lambda self: _FakeUsageContext()
+        )
+        _stub_resolve(monkeypatch, default_agent_config())
+
+        await service.chat("hello")
+
+        assert "CATALOG-BLOCK" in captured["system_prompt"]
+        assert "USAGE-BLOCK" in captured["system_prompt"]
+
+
+class TestHistoryBudget:
+    """History is budgeted by size, not message count: one agent's answers
+    run 1k+ tokens each, so ten of them re-prefill the whole essay
+    collection on every model call."""
+
+    def test_long_history_is_clipped_to_the_char_budget(
+        self, mock_ai_settings: MagicMock
+    ) -> None:
+        from app.services.ai.models import AIProvider, Conversation, MessageRole
+
+        service = AIService(mock_ai_settings)
+        conversation = Conversation(id="c1", provider=AIProvider.OLLAMA, model="test")
+        for i in range(9):
+            conversation.add_message(MessageRole.USER, f"question {i}")
+            conversation.add_message(MessageRole.ASSISTANT, f"answer {i} " + "x" * 2000)
+        conversation.add_message(MessageRole.USER, "the current question")
+
+        # The budget itself scales with the model (see
+        # test_history_budget.py); here a fixed one proves the clipping.
+        context = service._build_conversation_context(
+            conversation, history_budget=6_000
+        )
+
+        assert len(context) <= 6_000 + len("\n\nUser: the current question")
+        # Newest history survives; the oldest essays are the ones dropped.
+        assert "answer 8" in context
+        assert "answer 0" not in context
+        assert context.endswith("User: the current question")
+
+    def test_short_history_is_untouched(self, mock_ai_settings: MagicMock) -> None:
+        from app.services.ai.models import AIProvider, Conversation, MessageRole
+
+        service = AIService(mock_ai_settings)
+        conversation = Conversation(id="c2", provider=AIProvider.OLLAMA, model="test")
+        conversation.add_message(MessageRole.USER, "hi")
+        conversation.add_message(MessageRole.ASSISTANT, "hello")
+        conversation.add_message(MessageRole.USER, "how are you?")
+
+        context = service._build_conversation_context(conversation)
+
+        assert "User: hi" in context
+        assert "Assistant: hello" in context
+        assert context.endswith("User: how are you?")
+
+
+class TestChatAttribution:
+    async def test_default_agent_keeps_builtin_persona_and_tags_usage(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, recorder, captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, default_agent_config())
+
+        await service.chat("hello")
+
+        assert captured["system_prompt"].startswith("I'm Illiana.")
+        action = recorder.call_args.args[0]
+        assert action == "chat:assistant"
+
+    async def test_custom_agent_persona_and_sampling_reach_the_provider(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, recorder, captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, _custom_config())
+
+        await service.chat("hello")
+
+        assert captured["system_prompt"].startswith("You are Support.")
+        assert captured["config"].temperature == 0.2
+        assert captured["config"].max_tokens == 512
+        action = recorder.call_args.args[0]
+        assert action == "chat:support"
+
+    async def test_custom_agent_model_pin_overrides_active_model(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _, captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, _custom_config(model_id="gpt-4o"))
+
+        await service.chat("hello")
+
+        assert captured["config"].model == "gpt-4o"
+
+
+class TestUserMemoryInjection:
+    async def test_saved_memory_lands_in_the_system_prompt(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        """A fact saved earlier is injected (guarded) into the next chat."""
+        service, _, captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, default_agent_config())
+
+        async def fake_memory(user_id: str) -> str:
+            assert user_id == "u9"
+            return "<user_memory>\n- [food] allergic to peanuts\n</user_memory>"
+
+        monkeypatch.setattr(chat_module, "build_user_memory_context", fake_memory)
+        monkeypatch.setattr(streaming_module, "build_user_memory_context", fake_memory)
+
+        await service.chat("hello", user_id="u9")
+
+        prompt = captured["system_prompt"]
+        assert "<user_memory>" in prompt
+        assert "allergic to peanuts" in prompt
+
+
+def test_call_args_preview_summarizes_scripts() -> None:
+    """A run_code call previews as its first meaningful code line; plain
+    tool calls keep their (clipped) arguments."""
+    from app.services.ai.service.trace import call_args_preview
+
+    preview = call_args_preview('{"code": "# fetch\\nled = await ledger()\\nx"}')
+    assert preview == '{"code": "led = await ledger()"}'
+    assert call_args_preview('{"months": 3}') == '{"months": 3}'
+
+
+class TestToolUseSurfacing:
+    """A tool call mid-stream yields a content-free tool chunk, so the
+    frontend can show which tool is running while tokens pause."""
+
+    async def test_stream_emits_a_tool_event_chunk(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, _recorder, _captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, default_agent_config())
+
+        chunks = [chunk async for chunk in service.stream_chat("hello")]
+
+        tool_chunks = [
+            chunk for chunk in chunks if (chunk.metadata or {}).get("event") == "tool"
+        ]
+        # The direct call, then run_code's nested dispatches in call order.
+        assert [chunk.metadata["tool"] for chunk in tool_chunks] == [
+            "lookup",
+            "ledger",
+            "accounts",
+        ]
+        assert tool_chunks[1].metadata["args"] == '{"months": 3}'
+        assert all(chunk.content == "" for chunk in tool_chunks)
+
+    async def test_final_chunk_carries_the_full_tool_trace(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        """The trace (full scripts, results, nested dispatches) rides the
+        final chunk and the saved message, so a conversation reopened from
+        history can still expand what each run actually did."""
+        service, _recorder, _captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, default_agent_config())
+
+        chunks = [chunk async for chunk in service.stream_chat("hello")]
+
+        finals = [chunk for chunk in chunks if chunk.is_final]
+        trace = finals[-1].metadata.get("tool_trace")
+        assert trace is not None
+        assert trace[0]["tool"] == "lookup"
+        run_code = next(entry for entry in trace if entry["tool"] == "run_code")
+        assert "42" in run_code["result"]
+        assert [n["tool"] for n in run_code["nested"]] == ["ledger", "accounts"]
+
+    async def test_pre_tool_narration_is_dropped_from_the_answer(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        """Text streamed before a tool call is running commentary, not the
+        answer; each tool call resets accumulation so the final message is
+        only what follows the last tool call."""
+        service, _recorder, _captured, monkeypatch = harness
+        _stub_resolve(monkeypatch, default_agent_config())
+
+        chunks = [chunk async for chunk in service.stream_chat("hello")]
+
+        finals = [chunk for chunk in chunks if chunk.is_final]
+        assert finals and finals[-1].content == "ok"
+
+
+class TestStreamChatAttribution:
+    async def test_stream_usage_carries_agent_slug(
+        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
+    ) -> None:
+        service, recorder, _, monkeypatch = harness
+        _stub_resolve(monkeypatch, default_agent_config())
+
+        async for _chunk in service.stream_chat("hello"):
+            pass
+
+        action = recorder.call_args.args[0]
+        assert action == "stream_chat:assistant"

@@ -1,0 +1,404 @@
+"""Tests for AI service API endpoints."""
+
+import importlib
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+from fastapi.testclient import TestClient
+import pytest
+
+from app.integrations.main import create_integrated_app
+from app.services.ai.models import ConversationMessage, MessageRole
+
+
+@pytest.fixture
+def client() -> TestClient:
+    """Create test client."""
+    app = create_integrated_app()
+    return TestClient(app)
+
+
+@pytest.fixture
+def mock_usage_stats() -> dict[str, Any]:
+    """Sample usage stats response."""
+    return {
+        "total_tokens": 1500,
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "total_cost": 0.015,
+        "total_requests": 10,
+        "success_rate": 95.0,
+        "models": [
+            {
+                "model_id": "gpt-4o",
+                "model_title": "GPT-4o",
+                "vendor": "openai",
+                "vendor_color": "#10A37F",
+                "requests": 10,
+                "tokens": 1500,
+                "cost": 0.015,
+                "percentage": 100.0,
+            }
+        ],
+        "recent_activity": [
+            {
+                "timestamp": "2024-01-01T12:00:00",
+                "model": "GPT-4o",
+                # Response schema split ``tokens`` into ``input_tokens`` +
+                # ``output_tokens`` so the UI can colorize prompt vs
+                # completion spend separately.
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cost": 0.0015,
+                "success": True,
+                "action": "chat",
+            }
+        ],
+    }
+
+
+class TestUsageStatsEndpoint:
+    """Tests for /api/v1/ai/usage/stats endpoint."""
+
+    def test_get_usage_stats_success(
+        self, client: TestClient, mock_usage_stats: dict[str, Any]
+    ) -> None:
+        """Test successful usage stats retrieval."""
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            return_value=mock_usage_stats,
+        ):
+            response = client.get("/api/v1/ai/usage/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_tokens"] == 1500
+        assert data["total_requests"] == 10
+        assert len(data["models"]) == 1
+        assert len(data["recent_activity"]) == 1
+
+    def test_get_usage_stats_with_filters(
+        self, client: TestClient, mock_usage_stats: dict[str, Any]
+    ) -> None:
+        """Test usage stats with query parameters."""
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            return_value=mock_usage_stats,
+        ) as mock_get:
+            response = client.get(
+                "/api/v1/ai/usage/stats",
+                params={
+                    "user_id": "test-user",
+                    "recent_limit": 5,
+                },
+            )
+
+        assert response.status_code == 200
+        mock_get.assert_called_once()
+        call_kwargs = mock_get.call_args.kwargs
+        assert call_kwargs["user_id"] == "test-user"
+        assert call_kwargs["recent_limit"] == 5
+
+    def test_get_usage_stats_error_handling(self, client: TestClient) -> None:
+        """Test error handling when service fails."""
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            side_effect=Exception("Database error"),
+        ):
+            response = client.get("/api/v1/ai/usage/stats")
+
+        assert response.status_code == 500
+        assert "Failed to get usage stats" in response.json()["detail"]
+
+    def test_get_usage_stats_response_schema(
+        self, client: TestClient, mock_usage_stats: dict[str, Any]
+    ) -> None:
+        """Test response matches Pydantic schema."""
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            return_value=mock_usage_stats,
+        ):
+            response = client.get("/api/v1/ai/usage/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all required fields present
+        required_fields = [
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+            "total_cost",
+            "total_requests",
+            "success_rate",
+            "models",
+            "recent_activity",
+        ]
+        for field in required_fields:
+            assert field in data
+
+        # Verify model stats structure
+        if data["models"]:
+            model = data["models"][0]
+            assert "model_id" in model
+            assert "vendor" in model
+            assert "percentage" in model
+
+    def test_get_usage_stats_empty_response(self, client: TestClient) -> None:
+        """Test handling of empty usage data."""
+        empty_stats = {
+            "total_tokens": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_cost": 0.0,
+            "total_requests": 0,
+            "success_rate": 100.0,
+            "models": [],
+            "recent_activity": [],
+        }
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            return_value=empty_stats,
+        ):
+            response = client.get("/api/v1/ai/usage/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_tokens"] == 0
+        assert data["models"] == []
+        assert data["recent_activity"] == []
+
+
+class TestChatAgentSlug:
+    """The chat endpoints thread agent_slug through to the service."""
+
+    def _reply(self) -> ConversationMessage:
+        return ConversationMessage(
+            id="m1",
+            role=MessageRole.ASSISTANT,
+            content="hi",
+            metadata={"conversation_id": "c1", "response_time_ms": 1.0},
+        )
+
+    def test_chat_passes_agent_slug(self, client: TestClient) -> None:
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.chat",
+            new=AsyncMock(return_value=self._reply()),
+        ) as mock_chat:
+            response = client.post(
+                "/api/v1/ai/chat",
+                json={"message": "hello", "agent_slug": "support"},
+            )
+
+        assert response.status_code == 200
+        assert mock_chat.call_args.kwargs["agent_slug"] == "support"
+
+    def test_chat_defaults_agent_slug_to_none(self, client: TestClient) -> None:
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.chat",
+            new=AsyncMock(return_value=self._reply()),
+        ) as mock_chat:
+            response = client.post("/api/v1/ai/chat", json={"message": "hello"})
+
+        assert response.status_code == 200
+        assert mock_chat.call_args.kwargs["agent_slug"] is None
+
+    def test_chat_threads_attachments_to_the_service(self, client: TestClient) -> None:
+        """Image parts ride the same request body as the message - one
+        generic surface for every agent, not a per-surface upload."""
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.chat",
+            new=AsyncMock(return_value=self._reply()),
+        ) as mock_chat:
+            response = client.post(
+                "/api/v1/ai/chat",
+                json={
+                    "message": "split this",
+                    "attachments": [
+                        {
+                            "media_type": "image/png",
+                            "data_b64": "aGk=",
+                            "name": "order.png",
+                        }
+                    ],
+                },
+            )
+
+        assert response.status_code == 200
+        (attachment,) = mock_chat.call_args.kwargs["attachments"]
+        assert attachment.media_type == "image/png"
+        assert attachment.data_b64 == "aGk="
+        assert attachment.name == "order.png"
+
+    def test_chat_defaults_attachments_to_empty(self, client: TestClient) -> None:
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.chat",
+            new=AsyncMock(return_value=self._reply()),
+        ) as mock_chat:
+            response = client.post("/api/v1/ai/chat", json={"message": "hello"})
+
+        assert response.status_code == 200
+        assert mock_chat.call_args.kwargs["attachments"] == []
+
+
+class TestLLMPickerGating:
+    """The picker's usable filter: no key, no models."""
+
+    def _vendor_rows(self) -> list[Any]:
+        from app.services.ai.domains.llm.llm_service import VendorListResult
+
+        return [
+            VendorListResult(name="ollama", model_count=26),
+            VendorListResult(name="openai", model_count=96),
+            VendorListResult(name="fireworks", model_count=296),
+        ]
+
+    def test_usable_vendors_hide_unkeyed_and_uncallable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """fireworks has no provider at all; openai has one but no key
+        is configured - only keyless ollama survives."""
+        # The llm package re-exports its APIRouter under the same name,
+        # shadowing the module attribute - import the module directly.
+        llm_router = importlib.import_module("app.components.backend.api.llm.router")
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
+        monkeypatch.setattr(llm_router, "list_vendors", lambda: self._vendor_rows())
+
+        response = client.get("/api/v1/llm/vendors", params={"usable": True})
+
+        assert response.status_code == 200
+        assert [v["name"] for v in response.json()] == ["ollama"]
+
+    def test_usable_vendors_include_keyed_ones_with_icons(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The llm package re-exports its APIRouter under the same name,
+        # shadowing the module attribute - import the module directly.
+        llm_router = importlib.import_module("app.components.backend.api.llm.router")
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test")
+        monkeypatch.setattr(llm_router, "list_vendors", lambda: self._vendor_rows())
+
+        async def fake_icons(names: list[str]) -> dict[str, str]:
+            return {"openai": "iVBORfake"}
+
+        monkeypatch.setattr(llm_router, "_vendor_icons", fake_icons)
+
+        response = client.get("/api/v1/llm/vendors", params={"usable": True})
+
+        assert response.status_code == 200
+        by_name = {v["name"]: v for v in response.json()}
+        assert set(by_name) == {"ollama", "openai"}
+        assert by_name["openai"]["icon_b64"] == "iVBORfake"
+        assert by_name["ollama"]["icon_b64"] is None
+
+    def test_usable_models_come_per_callable_vendor(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The limit applies per vendor, and only callable vendors are
+        queried at all."""
+        # The llm package re-exports its APIRouter under the same name,
+        # shadowing the module attribute - import the module directly.
+        llm_router = importlib.import_module("app.components.backend.api.llm.router")
+        from app.core.config import settings
+        from app.services.ai.domains.llm.llm_service import LLMListResult
+
+        monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test")
+        for key in (
+            "ANTHROPIC_API_KEY",
+            "GOOGLE_API_KEY",
+            "GROQ_API_KEY",
+            "MISTRAL_API_KEY",
+            "COHERE_API_KEY",
+        ):
+            monkeypatch.setattr(settings, key, None)
+        calls: list[list[str]] = []
+
+        async def fake_list_models(**kwargs: Any) -> list[LLMListResult]:
+            calls.append(kwargs["vendors"])
+            return [
+                LLMListResult(
+                    model_id=f"{name}-model",
+                    title=name.title(),
+                    vendor=name,
+                    family=None,
+                    color="",
+                    context_window=8192,
+                    input_price=None,
+                    output_price=None,
+                    released_on=None,
+                )
+                for name in kwargs["vendors"]
+            ]
+
+        monkeypatch.setattr(llm_router, "list_models", fake_list_models)
+
+        response = client.get(
+            "/api/v1/llm/models", params={"usable": True, "limit": 200}
+        )
+
+        assert response.status_code == 200
+        # ONE catalog call carrying every callable vendor - the old
+        # per-vendor loop opened a session per vendor (confirmed slow).
+        assert calls == [["ollama", "openai"]]
+        assert [m["model_id"] for m in response.json()] == [
+            "ollama-model",
+            "openai-model",
+        ]
+
+
+class TestUserMemoryEndpoints:
+    """The dashboard's window on what the assistant saved about you."""
+
+    def test_list_returns_saved_facts(self, client: TestClient) -> None:
+        facts = [
+            {"index": 0, "category": "finance", "fact": "house is worth $711,200"},
+        ]
+        with patch(
+            "app.services.ai.domains.chat.user_memory.list_user_facts",
+            AsyncMock(return_value=facts),
+        ):
+            response = client.get("/api/v1/ai/user-memory")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["facts"] == facts
+        assert body["user_id"] == "0"  # the standalone default, as elsewhere
+
+    def test_update_rewrites_a_fact(self, client: TestClient) -> None:
+        updated = {"index": 0, "category": "finance", "fact": "corrected"}
+        with patch(
+            "app.services.ai.domains.chat.user_memory.update_user_fact",
+            AsyncMock(return_value=updated),
+        ) as mock_update:
+            response = client.patch(
+                "/api/v1/ai/user-memory/0",
+                json={"fact": "corrected", "category": "finance"},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == updated
+        assert mock_update.await_count == 1
+
+    def test_delete_removes_a_fact(self, client: TestClient) -> None:
+        with patch(
+            "app.services.ai.domains.chat.user_memory.delete_user_fact",
+            AsyncMock(),
+        ) as mock_delete:
+            response = client.delete("/api/v1/ai/user-memory/0")
+
+        assert response.status_code == 200
+        assert response.json()["deleted"] is True
+        assert mock_delete.await_count == 1
+
+    def test_missing_fact_is_a_404(self, client: TestClient) -> None:
+        with patch(
+            "app.services.ai.domains.chat.user_memory.delete_user_fact",
+            AsyncMock(side_effect=IndexError("no fact at index 7")),
+        ):
+            response = client.delete("/api/v1/ai/user-memory/7")
+
+        assert response.status_code == 404

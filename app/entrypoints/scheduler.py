@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""
+Scheduler entrypoint for aegis-steward.
+
+This entrypoint starts the scheduler component.
+"""
+
+import asyncio
+
+# Observability bootstrap BEFORE the app imports: auto-tracing installs an
+# import hook, so it must run while app.services is still unimported.
+try:
+    from app.components.backend.middleware.logfire_tracing import (
+        install_auto_tracing,
+    )
+except ImportError:  # observability component not installed
+    pass
+else:
+    install_auto_tracing()
+
+from app.components.scheduler.main import run_scheduler  # noqa: E402
+from app.core.log import setup_logging  # noqa: E402
+
+
+async def main() -> None:
+    """Main scheduler entry point"""
+    setup_logging()
+    await run_scheduler()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

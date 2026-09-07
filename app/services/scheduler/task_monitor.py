@@ -1,0 +1,258 @@
+"""Task health monitoring service for scheduler health checks."""
+
+from typing import Any
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from app.core.log import logger
+
+from .models import SchedulerHealthMetadata, UpcomingTask
+from .scheduled_task_manager import ScheduledTaskManager
+
+
+class TaskHealthMonitor:
+    """
+    Service for providing rich task health data for scheduler health checks.
+
+    Works with both persistent and non-persistent scheduler modes:
+    - Persistent mode: Uses ScheduledTaskManager for detailed task info
+    - Non-persistent mode: Uses scheduler.get_jobs() directly
+    """
+
+    def __init__(self) -> None:
+        self.task_manager = ScheduledTaskManager()
+
+    async def get_health_metadata(
+        self, scheduler: AsyncIOScheduler | None
+    ) -> SchedulerHealthMetadata:
+        """
+        Get comprehensive health metadata for scheduler component.
+
+        Args:
+            scheduler: The AsyncIOScheduler instance, or None if not available
+
+        Returns:
+            SchedulerHealthMetadata with task statistics and upcoming task information
+        """
+        try:
+            # First, try to get enhanced data if persistence is available
+
+            if await self.task_manager.has_persistence():
+                return await self._get_persistent_metadata()
+
+            # If no persistence, we need a scheduler instance for direct inspection
+            if scheduler is None:
+                return SchedulerHealthMetadata(
+                    total_tasks=0,
+                    active_tasks=0,
+                    paused_tasks=0,
+                    upcoming_tasks=[],
+                    scheduler_state="not_initialized",
+                )
+
+            # Fallback to direct scheduler inspection
+            return await self._get_direct_scheduler_metadata(scheduler)
+
+        except Exception as e:
+            logger.error("Error getting scheduler health metadata", error=str(e))
+            # Return basic fallback data - only if we have a scheduler instance
+            if scheduler is not None:
+                return await self._get_direct_scheduler_metadata(scheduler)
+            else:
+                return SchedulerHealthMetadata(
+                    total_tasks=0,
+                    active_tasks=0,
+                    paused_tasks=0,
+                    upcoming_tasks=[],
+                    scheduler_state="error",
+                )
+
+    async def _get_persistent_metadata(self) -> SchedulerHealthMetadata:
+        """Get detailed metadata using ScheduledTaskManager (persistent mode)."""
+        try:
+            # Single list_tasks() call -- compute stats inline instead of
+            # calling get_statistics() (which internally calls list_tasks() again)
+            tasks = await self.task_manager.list_tasks()
+
+            active_count = sum(1 for t in tasks if t.status == "active")
+            paused_count = sum(1 for t in tasks if t.status == "paused")
+
+            upcoming_tasks = []
+
+            for task in tasks:
+                if task.next_run_time and task.status == "active":
+                    # Try to get docstring from function reference
+                    description = self._get_docstring_from_func_ref(task.function)
+                    upcoming_tasks.append(
+                        UpcomingTask(
+                            job_id=task.job_id,
+                            name=task.name,
+                            next_run=task.next_run_time.isoformat(),
+                            schedule=task.schedule,
+                            function=task.function,
+                            description=description,
+                        )
+                    )
+
+            # Sort by next run time
+            upcoming_tasks.sort(key=lambda x: x.next_run)
+
+            return SchedulerHealthMetadata(
+                total_tasks=len(tasks),
+                active_tasks=active_count,
+                paused_tasks=paused_count,
+                upcoming_tasks=upcoming_tasks,
+                scheduler_state="running_persistent",
+            )
+
+        except Exception as e:
+            logger.error("Error getting persistent metadata", error=str(e))
+            raise
+
+    async def _get_direct_scheduler_metadata(
+        self, scheduler: AsyncIOScheduler
+    ) -> SchedulerHealthMetadata:
+        """Get basic metadata by inspecting scheduler directly (non-persistent mode)."""
+        try:
+            jobs = scheduler.get_jobs()
+            total_tasks = len(jobs)
+
+            # Count active jobs (those with next_run_time)
+            active_tasks = sum(1 for job in jobs if job.next_run_time is not None)
+            paused_tasks = total_tasks - active_tasks
+
+            upcoming_tasks = []
+            active_jobs = [job for job in jobs if job.next_run_time is not None]
+            active_jobs.sort(key=lambda x: x.next_run_time)
+
+            for job in active_jobs:
+                # Get function info
+                func_path = self._get_function_path(job)
+                func_doc = self._get_function_docstring(job)
+
+                upcoming_tasks.append(
+                    UpcomingTask(
+                        job_id=job.id,
+                        name=job.name or job.id,
+                        next_run=job.next_run_time.isoformat(),
+                        schedule=self._format_trigger_simple(job.trigger),
+                        function=func_path,
+                        description=func_doc,
+                    )
+                )
+
+            return SchedulerHealthMetadata(
+                total_tasks=total_tasks,
+                active_tasks=active_tasks,
+                paused_tasks=paused_tasks,
+                upcoming_tasks=upcoming_tasks,
+                scheduler_state="running_memory",
+            )
+
+        except Exception as e:
+            logger.error("Error getting direct scheduler metadata", error=str(e))
+            return SchedulerHealthMetadata(
+                total_tasks=0,
+                active_tasks=0,
+                paused_tasks=0,
+                upcoming_tasks=[],
+                scheduler_state="error",
+            )
+
+    def _format_trigger_simple(self, trigger: Any) -> str:
+        """Simple trigger formatting for non-persistent mode."""
+        if not trigger:
+            return "Unknown"
+
+        trigger_type = type(trigger).__name__
+
+        if trigger_type == "IntervalTrigger":
+            if hasattr(trigger, "interval"):
+                seconds = trigger.interval.total_seconds()
+                if seconds < 60:
+                    return f"Every {int(seconds)}s"
+                elif seconds < 3600:
+                    minutes = int(seconds / 60)
+                    return f"Every {minutes}m"
+                elif seconds < 86400:
+                    hours = seconds / 3600
+                    if hours == int(hours):
+                        return f"Every {int(hours)}h"
+                    else:
+                        return f"Every {hours:.1f}h"
+                else:
+                    days = int(seconds / 86400)
+                    return f"Every {days}d"
+
+        elif trigger_type == "CronTrigger":
+            # Simple cron description
+            return "Cron schedule"
+
+        elif trigger_type == "DateTrigger":
+            if hasattr(trigger, "run_date"):
+                return f"Once at {trigger.run_date.strftime('%Y-%m-%d %H:%M')}"
+
+        return trigger_type.replace("Trigger", "")
+
+    def _get_function_path(self, job: Any) -> str:
+        """Get the function path from an APScheduler job."""
+        try:
+            if hasattr(job, "func_ref") and job.func_ref:
+                return job.func_ref
+            if hasattr(job, "func") and job.func:
+                func = job.func
+                module = getattr(func, "__module__", "")
+                name = getattr(
+                    func,
+                    "__qualname__",
+                    getattr(func, "__name__", "unknown"),
+                )
+                if module:
+                    return f"{module}.{name}"
+                return name
+        except Exception:
+            pass
+        return "unknown"
+
+    def _get_function_docstring(self, job: Any) -> str | None:
+        """Get the function docstring from an APScheduler job."""
+        try:
+            if hasattr(job, "func") and job.func:
+                doc = getattr(job.func, "__doc__", None)
+                if doc:
+                    # Get first line of docstring, cleaned up
+                    first_line = doc.strip().split("\n")[0].strip()
+                    return first_line if first_line else None
+        except Exception:
+            pass
+        return None
+
+    def _get_docstring_from_func_ref(self, func_ref: str) -> str | None:
+        """Get docstring by importing the function from its reference string.
+
+        Args:
+            func_ref: Function reference like 'module:function' or 'module.function'
+
+        Returns:
+            First line of docstring, or None if not found
+        """
+        import importlib
+
+        try:
+            # Handle APScheduler format 'module:function'
+            if ":" in func_ref:
+                module_path, func_name = func_ref.rsplit(":", 1)
+            elif "." in func_ref:
+                module_path, func_name = func_ref.rsplit(".", 1)
+            else:
+                return None
+
+            module = importlib.import_module(module_path)
+            func = getattr(module, func_name, None)
+
+            if func and func.__doc__:
+                first_line = func.__doc__.strip().split("\n")[0].strip()
+                return first_line if first_line else None
+        except Exception:
+            pass
+        return None

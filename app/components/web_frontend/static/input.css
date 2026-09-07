@@ -1,0 +1,26 @@
+/* Tailwind source entry.
+ *
+ * Compiled into static/dist/app.css by the Tailwind CLI (`make
+ * build-static`, the dev watcher service, or the Docker css-build stage).
+ * base.html loads the compiled output, never this file.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Project-level classes live here.
+   *
+   * Reach for this layer when a pattern repeats across templates and a
+   * Jinja macro would be overkill — it keeps the class list in the markup
+   * short without inventing a component. Anything here can still be
+   * overridden by a utility class at the call site, because utilities are
+   * emitted after this layer.
+   *
+   * Example:
+   *   .card-surface {
+   *     @apply bg-aegis-card border border-aegis-border rounded-lg;
+   *   }
+   */
+}

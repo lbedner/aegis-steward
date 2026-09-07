@@ -1,0 +1,259 @@
+"""Tests for the Plaid webhook tunnel wiring: the runtime webhook-URL override,
+quick-tunnel hostname discovery, and the /item/webhook/update reconciliation.
+
+Offline: cloudflared's metrics endpoint and the Plaid API are both faked.
+"""
+
+import asyncio
+
+import httpx
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.components.backend.shutdown.finance_webhook_tunnel import (
+    shutdown_finance_webhook_tunnel,
+)
+from app.components.backend.startup import finance_webhook_tunnel as tunnel
+from app.services.finance.adapters.providers import connections
+from app.services.finance.adapters.providers import plaid as plaid_mod
+from app.services.finance.adapters.providers.plaid import (
+    get_webhook_url,
+    set_runtime_webhook_url,
+)
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime_webhook_url():
+    yield
+    set_runtime_webhook_url(None)
+
+
+class _RecordingClient:
+    environment = "sandbox"
+
+    def __init__(self, *, fail_tokens: set[str] | None = None) -> None:
+        self.updated: list[tuple[str, str]] = []
+        self._fail_tokens = fail_tokens or set()
+
+    async def update_item_webhook(self, access_token: str, webhook_url: str) -> None:
+        if access_token in self._fail_tokens:
+            raise plaid_mod.PlaidError("INTERNAL_SERVER_ERROR", "boom")
+        self.updated.append((access_token, webhook_url))
+
+
+class TestRuntimeWebhookUrl:
+    def test_runtime_url_overrides_settings(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            plaid_mod.settings, "PLAID_WEBHOOK_URL", "https://static.example/wh"
+        )
+        assert get_webhook_url() == "https://static.example/wh"
+        set_runtime_webhook_url("https://abc.trycloudflare.com/wh")
+        assert get_webhook_url() == "https://abc.trycloudflare.com/wh"
+        set_runtime_webhook_url(None)
+        assert get_webhook_url() == "https://static.example/wh"
+
+    @pytest.mark.asyncio
+    async def test_link_token_carries_the_resolved_webhook(self, monkeypatch) -> None:
+        set_runtime_webhook_url("https://abc.trycloudflare.com/wh")
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json
+
+            captured.update(json.loads(request.content))
+            return httpx.Response(200, json={"link_token": "lt-1"})
+
+        real_async_client = httpx.AsyncClient
+
+        def fake_async_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real_async_client(*args, **kwargs)
+
+        monkeypatch.setattr(plaid_mod.httpx, "AsyncClient", fake_async_client)
+        client = plaid_mod.PlaidClient(
+            client_id="id", secret="sec", environment="sandbox"
+        )
+        await client.create_link_token(user_id=1)
+        assert captured["webhook"] == "https://abc.trycloudflare.com/wh"
+
+
+class TestTunnelDiscovery:
+    def _patch_transport(self, monkeypatch, handler) -> None:
+        real_async_client = httpx.AsyncClient
+
+        def fake_async_client(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real_async_client(*args, **kwargs)
+
+        monkeypatch.setattr(tunnel.httpx, "AsyncClient", fake_async_client)
+
+    @pytest.mark.asyncio
+    async def test_reads_hostname_from_quicktunnel_endpoint(self, monkeypatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/quicktunnel"
+            return httpx.Response(200, json={"hostname": "abc.trycloudflare.com"})
+
+        self._patch_transport(monkeypatch, handler)
+        hostname = await tunnel.discover_tunnel_hostname("http://plaid-tunnel:20241")
+        assert hostname == "abc.trycloudflare.com"
+
+    @pytest.mark.asyncio
+    async def test_unreachable_or_bad_response_returns_none(self, monkeypatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("no tunnel")
+
+        self._patch_transport(monkeypatch, handler)
+        assert (
+            await tunnel.discover_tunnel_hostname("http://plaid-tunnel:20241")
+        ) is None
+
+        def empty_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={})
+
+        self._patch_transport(monkeypatch, empty_handler)
+        assert (
+            await tunnel.discover_tunnel_hostname("http://plaid-tunnel:20241")
+        ) is None
+
+
+class TestRefreshWebhookUrls:
+    @pytest.mark.asyncio
+    async def test_updates_every_plaid_connection(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        for item in ("item-1", "item-2"):
+            await connections.create_plaid_connection(
+                async_db_session,
+                owner_user_id=1,
+                access_token=f"tok-{item}",
+                item_id=item,
+            )
+        client = _RecordingClient()
+        updated = await connections.refresh_webhook_urls(
+            async_db_session,
+            webhook_url="https://abc.trycloudflare.com/wh",
+            client=client,
+        )
+        assert updated == 2
+        assert sorted(client.updated) == [
+            ("tok-item-1", "https://abc.trycloudflare.com/wh"),
+            ("tok-item-2", "https://abc.trycloudflare.com/wh"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_one_failing_item_does_not_stop_the_rest(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        for item in ("item-1", "item-2"):
+            await connections.create_plaid_connection(
+                async_db_session,
+                owner_user_id=1,
+                access_token=f"tok-{item}",
+                item_id=item,
+            )
+        client = _RecordingClient(fail_tokens={"tok-item-1"})
+        updated = await connections.refresh_webhook_urls(
+            async_db_session,
+            webhook_url="https://abc.trycloudflare.com/wh",
+            client=client,
+        )
+        assert updated == 1
+        assert client.updated == [("tok-item-2", "https://abc.trycloudflare.com/wh")]
+
+
+class TestStartupHookGating:
+    @pytest.mark.asyncio
+    async def test_no_metrics_url_is_a_noop(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            tunnel.settings, "PLAID_TUNNEL_METRICS_URL", None, raising=False
+        )
+        called = False
+
+        async def fake_discover(metrics_url: str):
+            nonlocal called
+            called = True
+            return None
+
+        monkeypatch.setattr(tunnel, "discover_tunnel_hostname", fake_discover)
+        await tunnel.startup_finance_webhook_tunnel()
+        assert called is False
+        assert get_webhook_url() is None
+
+
+class TestTaskLifetime:
+    """The discovery task must not outlive the app that started it.
+
+    It polls for up to ~20s, then sets a module-global webhook URL and
+    opens a database session. Nothing cancelled it, so after the app it
+    belonged to went away the task kept running and did both of those
+    things inside whatever was running by then - a leaked task holding a
+    connection in production, and in the test suite an unrelated test
+    watching its own globals get rewritten under it.
+
+    The paired startup/shutdown hook is the house pattern for exactly
+    this; the payment webhook forwarder has had both halves all along.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_task_left_behind(self):
+        yield
+        tunnel._tunnel_task = None
+
+    async def _start_a_polling_tunnel(self, monkeypatch) -> None:
+        """Start the hook against a tunnel that never answers, so the task
+        is parked mid-poll - the state it is in for most of its life."""
+        monkeypatch.setattr(
+            tunnel.settings,
+            "PLAID_TUNNEL_METRICS_URL",
+            "http://tunnel:1234",
+            raising=False,
+        )
+
+        async def never_answers(metrics_url: str) -> str | None:
+            return None
+
+        monkeypatch.setattr(tunnel, "discover_tunnel_hostname", never_answers)
+        await tunnel.startup_finance_webhook_tunnel()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cancels_a_tunnel_still_polling(self, monkeypatch) -> None:
+        await self._start_a_polling_tunnel(monkeypatch)
+        task = tunnel._tunnel_task
+        assert task is not None and not task.done()
+
+        await shutdown_finance_webhook_tunnel()
+
+        assert task.done(), "the discovery task survived shutdown"
+        assert tunnel._tunnel_task is None
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_tunnel_never_sets_the_webhook_url(
+        self, monkeypatch
+    ) -> None:
+        """The leak that actually bit: a task resolving after its app is
+        gone still rewrote the global every other caller reads."""
+        await self._start_a_polling_tunnel(monkeypatch)
+        await shutdown_finance_webhook_tunnel()
+        await asyncio.sleep(0)
+        assert get_webhook_url() is None
+
+    @pytest.mark.asyncio
+    async def test_shutdown_clears_a_url_the_tunnel_had_already_set(self) -> None:
+        """The tunnel is going away, so the URL pointing at it has to go
+        too - otherwise link tokens keep carrying a dead hostname."""
+        set_runtime_webhook_url("https://abc.trycloudflare.com/wh")
+        await shutdown_finance_webhook_tunnel()
+        assert get_webhook_url() is None
+
+    @pytest.mark.asyncio
+    async def test_shutdown_without_a_tunnel_is_a_noop(self) -> None:
+        """The gate fails on prod and plain compose, so most shutdowns
+        have no task to cancel. That must not raise on the way down."""
+        tunnel._tunnel_task = None
+        await shutdown_finance_webhook_tunnel()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_is_idempotent(self, monkeypatch) -> None:
+        await self._start_a_polling_tunnel(monkeypatch)
+        await shutdown_finance_webhook_tunnel()
+        await shutdown_finance_webhook_tunnel()

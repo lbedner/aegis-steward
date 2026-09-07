@@ -1,0 +1,543 @@
+"""Finance service CLI commands.
+
+``status`` prints the net-worth summary; the ``accounts`` sub-app lists and
+creates manual accounts. Mirrors ``app/cli/payment.py``: sync command wrappers
+call ``asyncio.run`` on an async impl that opens its own session and constructs
+``FinanceService``. Services never commit, so CLI writes commit explicitly.
+"""
+
+import asyncio
+from typing import Any
+
+import typer
+
+from app.cli import theme
+from app.i18n import lazy_t, t
+
+app = typer.Typer(help="Finance service commands.")
+accounts_app = typer.Typer(help="Manage manual finance accounts.")
+app.add_typer(accounts_app, name="accounts")
+console = theme.console()
+
+# Shared across commands: on auth-enabled stacks finance rows are owned by a
+# user, so CLI writes/reads must be attributed to one. Omit for standalone
+# (single-user) stacks, where the owner is NULL.
+_OWNER_OPT = typer.Option(
+    None,
+    "--owner-user-id",
+    "-u",
+    help="Owner user id (required on auth-enabled stacks; omit for standalone).",
+)
+
+
+def _usd(cents: int | None) -> str:
+    return f"${(cents or 0) / 100:,.2f}"
+
+
+@app.command()
+def status(owner_user_id: int | None = _OWNER_OPT) -> None:
+    """Show the finance summary (net worth, account/connection counts)."""
+    asyncio.run(_status(owner_user_id))
+
+
+async def _status(owner_user_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.service import FinanceService
+
+    async with get_async_session() as session:
+        summary = await FinanceService(session).get_status_summary(
+            owner_user_id=owner_user_id
+        )
+    console.print(f"Net worth:   [bold]{_usd(summary.net_worth_amount)}[/]")
+    console.print(f"  Assets:      {_usd(summary.total_assets_amount)}")
+    console.print(f"  Liabilities: {_usd(summary.total_liabilities_amount)}")
+    console.print(
+        f"Accounts: {summary.account_count}   Connections: {summary.connection_count}"
+    )
+
+
+@accounts_app.command("list")
+def accounts_list(owner_user_id: int | None = _OWNER_OPT) -> None:
+    """List accounts."""
+    asyncio.run(_accounts_list(owner_user_id))
+
+
+async def _accounts_list(owner_user_id: int | None) -> None:
+    from rich.table import Table
+
+    from app.core.db import get_async_session
+    from app.services.finance.service import FinanceService
+
+    async with get_async_session() as session:
+        accounts, total = await FinanceService(session).list_accounts(
+            owner_user_id=owner_user_id
+        )
+
+    table = Table(title=f"Finance Accounts ({total})")
+    table.add_column("ID", justify="right")
+    table.add_column("Name")
+    table.add_column("Type")
+    table.add_column("Class")
+    table.add_column("Balance", justify="right")
+    for account in accounts:
+        table.add_row(
+            str(account.id),
+            account.name,
+            account.account_type,
+            account.classification,
+            _usd(account.current_balance),
+        )
+    console.print(table)
+
+
+@accounts_app.command("create")
+def accounts_create(
+    name: str = typer.Option(..., "--name", "-n", help="Account name."),
+    account_type: str = typer.Option(
+        ...,
+        "--type",
+        "-t",
+        help="checking | savings | credit_card | property | vehicle | ...",
+    ),
+    classification: str = typer.Option(
+        "asset", "--class", "-c", help="asset | liability"
+    ),
+    currency: str = typer.Option("usd", "--currency", help="ISO-4217, lowercase."),
+    owner_user_id: int | None = _OWNER_OPT,
+) -> None:
+    """Create a manual account."""
+    asyncio.run(
+        _accounts_create(name, account_type, classification, currency, owner_user_id)
+    )
+
+
+async def _accounts_create(
+    name: str,
+    account_type: str,
+    classification: str,
+    currency: str,
+    owner_user_id: int | None,
+) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.service import FinanceService
+
+    async with get_async_session() as session:
+        account = await FinanceService(session).create_manual_account(
+            owner_user_id=owner_user_id,
+            name=name,
+            account_type=account_type,
+            classification=classification,
+            currency=currency,
+        )
+        await session.commit()
+    console.print(f"[green]Created account #{account.id}: {name}[/]")
+
+
+@app.command("recompute-snapshots")
+def recompute_snapshots(
+    days: int = typer.Option(35, "--days", help="Recompute window in days."),
+) -> None:
+    """Rebuild balance + net-worth snapshots over the recent window."""
+    asyncio.run(_recompute_snapshots(days))
+
+
+async def _recompute_snapshots(days: int) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from sqlmodel import select
+
+    from app.core.db import get_async_session
+    from app.services.finance.domains.ledger import networth
+    from app.services.finance.models import FinanceAccount
+
+    start = datetime.now(UTC).date() - timedelta(days=max(days, 1) - 1)
+    async with get_async_session() as session:
+        owners = (
+            await session.exec(
+                select(FinanceAccount.owner_user_id)
+                .where(FinanceAccount.deleted_at.is_(None))
+                .distinct()
+            )
+        ).all()
+        total = 0
+        for owner_user_id in owners:
+            total += await networth.recompute_snapshots(
+                session, owner_user_id=owner_user_id, start_date=start
+            )
+        await session.commit()
+    console.print(
+        f"[green]Recomputed {total} net-worth day(s) across {len(owners)} owner(s).[/]"
+    )
+
+
+@app.command("seed-demo", help=lazy_t("finance.help_seed_demo"))
+def seed_demo(
+    owner_user_id: int | None = _OWNER_OPT,
+    reset: bool = typer.Option(
+        False, "--reset", help=lazy_t("finance.opt_seed_demo_reset")
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help=lazy_t("finance.opt_seed_demo_clear")
+    ),
+    months: int = typer.Option(
+        8, "--months", min=1, max=24, help=lazy_t("finance.opt_seed_demo_months")
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help=lazy_t("finance.opt_seed_demo_yes")
+    ),
+) -> None:
+    if clear:
+        asyncio.run(_clear_demo(owner_user_id))
+        return
+    asyncio.run(_seed_demo(owner_user_id, reset, months, yes))
+
+
+async def _clear_demo(owner_user_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.seeds import demo_seed
+
+    async with get_async_session() as session:
+        removed = await demo_seed.clear_demo(session, owner_user_id=owner_user_id)
+        await session.commit()
+    if not removed:
+        console.print(t("finance.seed_demo_nothing_to_clear"))
+        return
+    console.print(t("finance.seed_demo_cleared", accounts=removed))
+
+
+async def _seed_demo(
+    owner_user_id: int | None, reset: bool, months: int, yes: bool
+) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.seeds import demo_seed
+
+    async with get_async_session() as session:
+        if not yes:
+            foreign = await demo_seed.count_foreign_accounts(
+                session, owner_user_id=owner_user_id
+            )
+            if foreign and not typer.confirm(
+                t("finance.seed_demo_confirm_existing", accounts=foreign)
+            ):
+                console.print(t("finance.seed_demo_aborted"))
+                raise typer.Exit(code=1)
+        result = await demo_seed.seed_demo(
+            session, owner_user_id=owner_user_id, reset=reset, months=months
+        )
+        await session.commit()
+
+    if result.skipped:
+        console.print(t("finance.seed_demo_skipped"))
+        return
+    console.print(f"[green]{t('finance.seed_demo_done')}[/]")
+    console.print(
+        t(
+            "finance.seed_demo_counts_ledger",
+            accounts=result.accounts,
+            transactions=result.transactions,
+            imported=result.imported_rows,
+            splits=result.splits,
+        )
+    )
+    console.print(
+        t(
+            "finance.seed_demo_counts_derived",
+            transfers=result.transfers,
+            recurring=result.recurring,
+            trades=result.trades,
+            days=result.net_worth_days,
+        )
+    )
+
+
+@app.command("import")
+def import_file(
+    path: str = typer.Argument(..., help="Path to an OFX/QFX/QIF/CSV file."),
+    account_id: int | None = typer.Option(
+        None, "--account-id", "-a", help="Target account (required for QIF/CSV)."
+    ),
+    owner_user_id: int | None = _OWNER_OPT,
+) -> None:
+    """Import a bank / credit-card / Quicken file into an account."""
+    asyncio.run(_import_file(path, account_id, owner_user_id))
+
+
+async def _import_file(
+    path: str, account_id: int | None, owner_user_id: int | None
+) -> None:
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from app.core.db import get_async_session
+    from app.services.finance.adapters.importers import imports
+
+    file_path = Path(path)
+    data = file_path.read_bytes()
+    async with get_async_session() as session:
+        try:
+            result = await imports.import_file(
+                session,
+                owner_user_id=owner_user_id,
+                file_name=file_path.name,
+                file_bytes=data,
+                account_id=account_id,
+            )
+            await session.commit()
+        except Exception as exc:
+            console.print(f"[red]Import failed:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+
+    table = Table(title=f"Imported {file_path.name}")
+    table.add_column("Result")
+    table.add_column("Count", justify="right")
+    table.add_row("Total rows", str(result.rows_total))
+    table.add_row("Inserted", str(result.rows_inserted))
+    table.add_row("Updated", str(result.rows_updated))
+    table.add_row("Duplicate", str(result.rows_duplicate))
+    table.add_row("Skipped (scheduled)", str(result.rows_skipped))
+    table.add_row("Errors", str(result.rows_error))
+    table.add_row("Batch ID", str(result.batch_id))
+    console.print(table)
+
+
+_INVESTMENT_PROFILES = ("optum",)
+
+
+@app.command("import-investments")
+def import_investments(
+    path: str = typer.Argument(..., help="Path to a custodian activity export."),
+    account_id: int = typer.Option(
+        ..., "--account-id", "-a", help="Target brokerage account."
+    ),
+    profile: str = typer.Option(
+        "optum", "--profile", "-p", help=f"One of: {', '.join(_INVESTMENT_PROFILES)}."
+    ),
+    ticker: list[str] = typer.Option(
+        [],
+        "--ticker",
+        help="NAME=SYMBOL, repeatable. Maps a fund name to its ticker; "
+        "unmapped funds get a placeholder MANUAL: ticker.",
+    ),
+    owner_user_id: int | None = _OWNER_OPT,
+) -> None:
+    """Import a custodian's investment-activity ledger (trades, dividends,
+    fees) into a brokerage account. Unlike ``import``, this writes
+    ``FinanceTrade``/``FinanceHolding`` rows, not cash transactions."""
+    asyncio.run(_import_investments(path, account_id, profile, ticker, owner_user_id))
+
+
+async def _import_investments(
+    path: str,
+    account_id: int,
+    profile: str,
+    ticker_pairs: list[str],
+    owner_user_id: int | None,
+) -> None:
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from app.core.db import get_async_session
+    from app.services.finance.domains.investments.loader import (
+        import_investment_activities,
+    )
+    from app.services.finance.domains.investments.optum import (
+        parse_optum_settled_transactions,
+    )
+
+    if profile != "optum":
+        console.print(f"[red]Unknown profile:[/] {profile!r}. Known: optum.")
+        raise typer.Exit(code=1)
+    tickers: dict[str, str] = {}
+    for pair in ticker_pairs:
+        name, _, symbol = pair.partition("=")
+        tickers[name.strip()] = symbol.strip()
+
+    file_path = Path(path)
+    text = file_path.read_text()
+    try:
+        activities = parse_optum_settled_transactions(text)
+    except ValueError as exc:
+        console.print(f"[red]Parse failed:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    async with get_async_session() as session:
+        result = await import_investment_activities(
+            session,
+            owner_user_id=owner_user_id,
+            account_id=account_id,
+            activities=activities,
+            security_tickers=tickers,
+        )
+        await session.commit()
+
+    table = Table(title=f"Imported {file_path.name}")
+    table.add_column("Result")
+    table.add_column("Count", justify="right")
+    table.add_row("Activities parsed", str(len(activities)))
+    table.add_row("Trades inserted", str(result.trades_inserted))
+    table.add_row("Trades updated", str(result.trades_updated))
+    table.add_row("Securities created", str(result.securities_created))
+    table.add_row("Securities matched", str(result.securities_matched))
+    console.print(table)
+
+
+@app.command()
+def sync(
+    owner_user_id: int | None = _OWNER_OPT,
+    connection_id: int | None = typer.Option(
+        None,
+        "--connection-id",
+        "-c",
+        help="Sync one connection only (does not skip needs-attention ones).",
+    ),
+) -> None:
+    """Refresh every provider connection (accounts, holdings, transactions)."""
+    asyncio.run(_sync(owner_user_id, connection_id))
+
+
+def _print_sync_result(result: Any) -> None:
+    console.print(
+        f"Connection #{result.connection_id}: {result.accounts} account(s), "
+        f"+{result.added} txn(s), {result.holdings} holding(s), "
+        f"{result.trades} trade(s)"
+    )
+
+
+async def _sync(owner_user_id: int | None, connection_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.adapters.providers import connections
+    from app.services.finance.adapters.providers.plaid import PlaidError
+    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+
+    async with get_async_session() as session:
+        try:
+            if connection_id is not None:
+                result = await connections.sync_one_connection(
+                    session, connection_id, owner_user_id=owner_user_id
+                )
+                await session.commit()
+                if result is None:
+                    console.print(f"Connection #{connection_id} not found.")
+                    raise typer.Exit(code=1)
+                _print_sync_result(result)
+                return
+            results = await connections.sync_owner_connections(
+                session, owner_user_id=owner_user_id
+            )
+            await session.commit()
+        except (PlaidError, SnapTradeError) as exc:
+            console.print(f"[red]Sync failed:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+    if not results:
+        console.print("No provider connections to sync.")
+        return
+    for result in results:
+        _print_sync_result(result)
+
+
+@app.command("fire-webhook")
+def fire_webhook(
+    owner_user_id: int | None = _OWNER_OPT,
+    connection_id: int | None = typer.Option(
+        None, "--connection-id", "-c", help="Fire for one connection only."
+    ),
+    code: str = typer.Option(
+        "SYNC_UPDATES_AVAILABLE",
+        "--code",
+        help="Plaid webhook code to fire (e.g. DEFAULT_UPDATE).",
+    ),
+) -> None:
+    """Sandbox only: make Plaid deliver a real signed webhook.
+
+    End-to-end test of PLAID_WEBHOOK_URL, JWT verification, and dispatch
+    without waiting for new bank data. The URL must be reachable from the
+    internet (a tunnel in local dev - see .env.example).
+    """
+    asyncio.run(_fire_webhook(owner_user_id, connection_id, code))
+
+
+async def _fire_webhook(
+    owner_user_id: int | None, connection_id: int | None, code: str
+) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.adapters.providers import connections
+    from app.services.finance.adapters.providers.plaid import PlaidError
+
+    async with get_async_session() as session:
+        try:
+            fired = await connections.fire_sandbox_webhook(
+                session,
+                owner_user_id=owner_user_id,
+                connection_id=connection_id,
+                webhook_code=code,
+            )
+        except PlaidError as exc:
+            console.print(f"[red]Webhook fire failed:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+    if not fired:
+        console.print("No Plaid connections to fire a webhook for.")
+        return
+    for fired_id in fired:
+        console.print(f"Fired {code} for connection #{fired_id}")
+
+
+snaptrade_app = typer.Typer(help="SnapTrade brokerage connections.")
+app.add_typer(snaptrade_app, name="snaptrade")
+
+
+@snaptrade_app.command("connect")
+def snaptrade_connect(owner_user_id: int | None = _OWNER_OPT) -> None:
+    """Start a SnapTrade connect and print the portal URL (expires in ~5 min)."""
+    asyncio.run(_snaptrade_connect(owner_user_id))
+
+
+async def _snaptrade_connect(owner_user_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.adapters.providers import connections
+    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+
+    async with get_async_session() as session:
+        try:
+            _connection, url = await connections.start_snaptrade_connect(
+                session, owner_user_id=owner_user_id
+            )
+            await session.commit()
+        except SnapTradeError as exc:
+            console.print(f"[red]Connect failed:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+    console.print("Open the SnapTrade portal to link your brokerage:")
+    console.print(url, soft_wrap=True)
+    console.print("Then run: [bold]finance snaptrade complete[/]")
+
+
+@snaptrade_app.command("complete")
+def snaptrade_complete(owner_user_id: int | None = _OWNER_OPT) -> None:
+    """Adopt authorizations finished in the portal and run the first sync."""
+    asyncio.run(_snaptrade_complete(owner_user_id))
+
+
+async def _snaptrade_complete(owner_user_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.adapters.providers import connections
+    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+
+    async with get_async_session() as session:
+        try:
+            results = await connections.complete_snaptrade_connect(
+                session, owner_user_id=owner_user_id
+            )
+            await session.commit()
+        except SnapTradeError as exc:
+            console.print(f"[red]Connect failed:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+    if not results:
+        console.print("No new authorization yet - finish the portal flow, then re-run.")
+        raise typer.Exit(code=1)
+    for result in results:
+        console.print(
+            f"[green]Connected #{result.connection_id}:[/] "
+            f"{result.accounts} account(s), {result.holdings} holding(s), "
+            f"{result.trades} trade(s)"
+        )

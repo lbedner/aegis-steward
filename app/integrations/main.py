@@ -1,0 +1,181 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from pathlib import Path
+import secrets
+
+import flet.fastapi as flet_fastapi
+
+# Observability bootstrap BEFORE the app imports: auto-tracing installs an
+# import hook, so it must run while app.services is still unimported. This
+# module is uvicorn's factory target, so reload workers pass through here.
+try:
+    from app.components.backend.middleware.logfire_tracing import (
+        install_auto_tracing,
+    )
+except ImportError:  # observability component not installed
+    pass
+else:
+    install_auto_tracing()
+
+from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html  # noqa: E402
+from fastapi.openapi.utils import get_openapi  # noqa: E402
+from fastapi.responses import HTMLResponse  # noqa: E402
+from fastapi.security import HTTPBasic, HTTPBasicCredentials  # noqa: E402
+
+from app.components.backend.hooks import backend_hooks  # noqa: E402
+from app.components.backend.main import create_backend_app  # noqa: E402
+from app.components.backend.middleware.paste_capture import (  # noqa: E402
+    PasteCaptureMiddleware,
+)
+from app.components.frontend.main import create_frontend_app  # noqa: E402
+from app.components.web_frontend.main import (  # noqa: E402
+    CachedStaticFiles,
+    create_web_frontend_app,
+)
+from app.core.config import settings  # noqa: E402
+from app.core.constants import dashboard_upload_dir  # noqa: E402
+from app.core.log import logger, setup_logging  # noqa: E402
+
+_docs_security = HTTPBasic(auto_error=False)
+
+
+def require_docs_auth(
+    credentials: HTTPBasicCredentials | None = Depends(_docs_security),
+) -> None:
+    """Gate for OpenAPI docs endpoints.
+
+    Unset creds -> open in dev (DX), 404 elsewhere (fail-closed).
+    Set creds -> HTTP Basic required, constant-time compared.
+    """
+    expected_user = settings.DOCS_USERNAME
+    expected_pass = settings.DOCS_PASSWORD
+
+    if not expected_user or not expected_pass:
+        if settings.APP_ENV == "dev":
+            return
+        raise HTTPException(status_code=404)
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    user_ok = secrets.compare_digest(credentials.username, expected_user)
+    pass_ok = secrets.compare_digest(credentials.password, expected_pass)
+    if not (user_ok and pass_ok):
+        raise HTTPException(
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    """
+    Application lifespan manager.
+    Handles startup/shutdown concerns using component-specific hooks.
+    """
+    # Ensure logging is configured (required for uvicorn reload mode)
+    setup_logging()
+
+    # --- STARTUP ---
+    logger.info("--- Running application startup ---")
+
+    # Discover startup and shutdown hooks
+    await backend_hooks.discover_lifespan_hooks()
+
+    # Start Flet app manager
+    await flet_fastapi.app_manager.start()
+
+    # Execute backend startup hooks
+    await backend_hooks.execute_startup_hooks()
+
+    logger.info("--- Application startup complete ---")
+
+    yield
+
+    # --- SHUTDOWN ---
+    logger.info("--- Running application shutdown ---")
+
+    # Execute backend shutdown hooks
+    await backend_hooks.execute_shutdown_hooks()
+
+    # Stop Flet app manager
+    await flet_fastapi.app_manager.shutdown()
+
+    logger.info("--- Application shutdown complete ---")
+
+
+def create_integrated_app() -> FastAPI:
+    """
+    Creates the integrated Flet+FastAPI application using the officially
+    recommended pattern and component-specific hooks.
+    """
+    app = FastAPI(
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    @app.get("/openapi.json", include_in_schema=False)
+    def _openapi_json(_: None = Depends(require_docs_auth)) -> dict:
+        return get_openapi(title=app.title, version=app.version, routes=app.routes)
+
+    @app.get("/docs", include_in_schema=False)
+    def _swagger_ui(_: None = Depends(require_docs_auth)) -> HTMLResponse:
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json",
+            title=f"{app.title} - Swagger UI",
+        )
+
+    @app.get("/redoc", include_in_schema=False)
+    def _redoc_ui(_: None = Depends(require_docs_auth)) -> HTMLResponse:
+        return get_redoc_html(
+            openapi_url="/openapi.json",
+            title=f"{app.title} - ReDoc",
+        )
+
+    create_backend_app(app)
+    # Server-rendered pages at /. Registered as routes rather than a mount so
+    # API paths (/health, /docs) keep resolving; Flet still owns /dashboard.
+    app.include_router(create_web_frontend_app())
+    # CachedStaticFiles applies the fingerprint-aware cache policy: hashed
+    # build output is immutable for a year, plain sources get an hour.
+    web_static = Path(__file__).resolve().parents[2] / settings.WEB_STATIC_DIR
+    app.mount(
+        "/static",
+        CachedStaticFiles(directory=str(web_static)),
+        name="static",
+    )
+    # Create and mount the Flet app using the flet.fastapi module
+    # First, get the actual session handler function from the factory
+    session_handler = create_frontend_app()
+    # ``assets_dir`` MUST be absolute. ``flet_web/fastapi/flet_static_files.py``
+    # silently nulls relative paths (logs a warning, then falls back to the
+    # bundled stock web dir). Resolve from the project root so anything in
+    # the assets dir (custom favicon, app-icon, override index.html) actually
+    # wins over the bundled defaults.
+    flet_assets = Path(__file__).resolve().parents[2] / settings.FLET_ASSETS_DIR
+    # FilePicker uploads (browser -> server) need a landing directory and a
+    # signing key for the upload URLs; without both, pick-and-upload flows
+    # (the finance file import) cannot work in web mode.
+    flet_uploads = dashboard_upload_dir()
+    flet_uploads.mkdir(parents=True, exist_ok=True)
+    flet_app = flet_fastapi.app(
+        session_handler,
+        assets_dir=str(flet_assets),
+        upload_dir=str(flet_uploads),
+        max_upload_size=10 * 1024 * 1024,  # matches the finance import cap
+        secret_key=settings.SECRET_KEY,
+    )
+    # Mount Flet at /dashboard to avoid intercepting FastAPI routes like /health
+    app.mount("/dashboard", flet_app)
+    # Splice the paste-capture script into the dashboard page: pasted
+    # images post to /api/v1/pastebox, where consumer surfaces (chat's
+    # attachment bar) drain them. Flet has no clipboard-image API of its
+    # own, so this is caught in the browser.
+    app.add_middleware(PasteCaptureMiddleware)
+    return app

@@ -1,0 +1,243 @@
+"""The database handoff: agent + memory-module seed rows and their loader."""
+
+from typing import Any
+
+from sqlmodel import (
+    Session,
+    select,
+)
+
+from app.core.log import logger
+from app.services.ai.models.agents import (
+    Agent,
+    AgentTool,
+    MemoryModule,
+    Tool,
+)
+
+# Registers the finance host tools (ledger/accounts/quote) by import, so a
+# bare seeding process gets their ``tool`` rows and the grants below
+# resolve. Same reason the ai fixtures import their built-ins.
+import app.services.finance.ai_tools  # noqa: F401
+from app.services.finance.domains.detection.analyst.prompts import (
+    ANALYST_MAX_TOKENS,
+    ANALYST_SYSTEM_PROMPT,
+    ANALYST_TEMPERATURE,
+    DEEP_DIVE_MAX_TOKENS,
+    DEEP_DIVE_SYSTEM_PROMPT,
+    DEEP_DIVE_TEMPERATURE,
+    FINANCE_CHAT_MAX_TOKENS,
+    FINANCE_CHAT_SYSTEM_PROMPT,
+    FINANCE_CHAT_TEMPERATURE,
+)
+from app.services.finance.domains.detection.analyst.shared import (
+    ANALYST_AGENT_SLUG,
+    DEEP_DIVE_AGENT_SLUG,
+    FINANCE_CHAT_AGENT_SLUG,
+    SNAPSHOT_MODULE_SLUG,
+)
+
+SNAPSHOT_TOKEN_ESTIMATE = 1_200
+
+
+def snapshot_module_definition() -> dict[str, Any]:
+    """The seed row for the snapshot memory module."""
+    return {
+        "slug": SNAPSHOT_MODULE_SLUG,
+        "name": "Finance snapshot",
+        "description": (
+            "Balances, net-worth trend, credit card and loan detail, portfolio "
+            "positions, monthly cashflow, category spend against its norm, "
+            "recent transactions, open anomalies, the cash forecast, and what "
+            "is due next."
+        ),
+        "category": "finance",
+        "prompt_content": None,
+        "fetch_function": SNAPSHOT_MODULE_SLUG,
+        "context_key": SNAPSHOT_MODULE_SLUG,
+        "priority": 10,
+        "token_estimate": SNAPSHOT_TOKEN_ESTIMATE,
+        "is_active": True,
+    }
+
+
+def analyst_agent_definition() -> dict[str, Any]:
+    """The seed row for the finance analyst agent.
+
+    ``model_id`` is None so the agent follows whatever model the AI service is
+    configured with. Point it at one pulled Ollama tag by setting that column.
+    """
+    return {
+        "slug": ANALYST_AGENT_SLUG,
+        "name": "Finance Analyst",
+        "description": "Writes the daily finance note from detected findings",
+        "category": "finance",
+        "model_id": None,
+        "system_prompt": ANALYST_SYSTEM_PROMPT,
+        "temperature": ANALYST_TEMPERATURE,
+        "max_tokens": ANALYST_MAX_TOKENS,
+        "memory_modules": [SNAPSHOT_MODULE_SLUG],
+        "knowledge_base_ids": [],
+        "is_active": True,
+    }
+
+
+def deep_dive_agent_definition() -> dict[str, Any]:
+    """The seed row for the on-request deep dive.
+
+    A SEPARATE agent row rather than a mode on the daily one, so it can be
+    pointed at a bigger model and given a larger token budget without
+    changing what runs nightly. Both read the same memory module.
+    """
+    return {
+        "slug": DEEP_DIVE_AGENT_SLUG,
+        "name": "Finance Analyst (deep dive)",
+        "description": "On-request full review: situation, causes, findings triage, options",
+        "category": "finance",
+        "model_id": None,
+        "system_prompt": DEEP_DIVE_SYSTEM_PROMPT,
+        "temperature": DEEP_DIVE_TEMPERATURE,
+        "max_tokens": DEEP_DIVE_MAX_TOKENS,
+        "memory_modules": [SNAPSHOT_MODULE_SLUG],
+        "knowledge_base_ids": [],
+        "is_active": True,
+    }
+
+
+# The chat agent's data surface: the finance host tools registered by
+# ``app.services.finance.ai_tools``. Attachment is by name against the
+# tool rows the fixture sync seeds; a missing row is skipped, never an
+# error, so seed order cannot brick the chat tab.
+FINANCE_CHAT_TOOL_NAMES = (
+    "ledger",
+    "accounts",
+    "quote",
+    # The ids a proposal's payload takes - names alone cannot propose.
+    "categories",
+    # The bill surface: live streams, and the ranked shortlist of
+    # unclaimed payments the app's own match picker uses - matches are
+    # proposed FROM the shortlist, never from lookalike guessing.
+    "bills",
+    "bill_candidates",
+    # The tag directory: the label axis a transaction.tag payload
+    # names; listed so spellings are reused, not coined per turn.
+    "tags",
+    # The one memory write: durable facts the user states about their
+    # money (a property value, a bill no connection reports) outlive
+    # the conversation.
+    "save_memory",
+    # The one LEDGER write, and it does not write: it files a pending
+    # change the user approves in the app (FW-05). Registered
+    # native_write, so it surfaces as its own visible call.
+    "propose",
+    # Same contract, many rows, one approval card with per-row veto.
+    "propose_many",
+    # Propose's cleanup half: see your OWN open cards, and retract the
+    # ones a new proposal supersedes, instead of asking the user to.
+    "pending",
+    "withdraw",
+    "withdraw_batch",
+    # Durable extraction: what was read out of an ephemeral image must
+    # be recorded before it is answered from - the recording is what
+    # later turns get instead of the pixels.
+    "record_reading",
+)
+
+
+def finance_chat_agent_definition() -> dict[str, Any]:
+    """The seed row for the conversational finance assistant.
+
+    Same snapshot briefing as the analyst, warmer sampling, and
+    ``code_mode`` on: chat questions that need arithmetic are computed in
+    the sandbox over the finance tools rather than estimated in prose.
+    """
+    return {
+        "slug": FINANCE_CHAT_AGENT_SLUG,
+        "name": "Finance Assistant",
+        "description": "Conversational finance chat with computed answers",
+        "category": "finance",
+        "model_id": None,
+        "system_prompt": FINANCE_CHAT_SYSTEM_PROMPT,
+        "temperature": FINANCE_CHAT_TEMPERATURE,
+        "max_tokens": FINANCE_CHAT_MAX_TOKENS,
+        "memory_modules": [SNAPSHOT_MODULE_SLUG],
+        "knowledge_base_ids": [],
+        "is_active": True,
+        "code_mode": True,
+    }
+
+
+def _attach_chat_tools(session: Session) -> int:
+    """Link the chat agent to the finance tool rows, idempotently."""
+    agent = session.exec(
+        select(Agent).where(Agent.slug == FINANCE_CHAT_AGENT_SLUG)
+    ).first()
+    if agent is None or agent.id is None:
+        return 0
+    linked = {
+        link.tool_id
+        for link in session.exec(
+            select(AgentTool).where(AgentTool.agent_id == agent.id)
+        ).all()
+    }
+    attached = 0
+    for name in FINANCE_CHAT_TOOL_NAMES:
+        tool = session.exec(select(Tool).where(Tool.name == name)).first()
+        if tool is None or tool.id is None:
+            logger.warning(f"Finance chat tool row missing, skipping: {name}")
+            continue
+        if tool.id in linked:
+            continue
+        session.add(AgentTool(agent_id=agent.id, tool_id=tool.id))
+        attached += 1
+    return attached
+
+
+def load_finance_agent_fixtures(session: Session) -> dict[str, int]:
+    """Seed the finance agents and their memory module, skipping existing rows.
+
+    Idempotent, and never mutates a row that is already there: all of it is
+    editable from the dashboard, and a re-seed must not undo that. Tool
+    attachments for the chat agent are additive by name.
+    """
+    counts = {
+        "finance_agents": 0,
+        "finance_memory_modules": 0,
+        "finance_tool_links": 0,
+    }
+
+    module = snapshot_module_definition()
+    if (
+        session.exec(
+            select(MemoryModule).where(MemoryModule.slug == module["slug"])
+        ).first()
+        is None
+    ):
+        session.add(MemoryModule(**module))
+        counts["finance_memory_modules"] = 1
+        logger.info(f"Seeded memory module '{module['slug']}'")
+
+    for definition in (
+        analyst_agent_definition(),
+        deep_dive_agent_definition(),
+        finance_chat_agent_definition(),
+    ):
+        if (
+            session.exec(select(Agent).where(Agent.slug == definition["slug"])).first()
+            is not None
+        ):
+            continue
+        session.add(Agent(**definition))
+        counts["finance_agents"] += 1
+        logger.info(f"Seeded agent '{definition['slug']}'")
+
+    if any(counts.values()):
+        session.commit()
+
+    counts["finance_tool_links"] = _attach_chat_tools(session)
+    if counts["finance_tool_links"]:
+        session.commit()
+        logger.info(
+            f"Attached {counts['finance_tool_links']} tool(s) to the chat agent"
+        )
+    return counts

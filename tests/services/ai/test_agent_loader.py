@@ -1,0 +1,245 @@
+"""Tests for the agent config loader (DB source, fallback, cache)."""
+
+from collections.abc import Generator
+
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.services.ai.domains.chat.agent_loader import (
+    DEFAULT_AGENT_SLUG,
+    AgentConfig,
+    agent_capabilities,
+    default_agent_config,
+    invalidate_agent_cache,
+    resolve_agent,
+)
+from app.services.ai.models import Agent, AgentTool, Tool
+
+
+@pytest.fixture(autouse=True)
+def clean_cache() -> Generator[None]:
+    """Loader cache is module-global; keep tests independent."""
+    invalidate_agent_cache()
+    yield
+    invalidate_agent_cache()
+
+
+@pytest.fixture
+def session(async_db_session: AsyncSession) -> AsyncSession:
+    """The root conftest's transactional async session (rolled back per
+    test). A bare local engine cannot create this project's schema-qualified
+    tables (finance, scheduler, ...)."""
+    return async_db_session
+
+
+async def _add_agent(session: AsyncSession, **overrides: object) -> Agent:
+    data: dict[str, object] = {
+        "slug": "support",
+        "name": "Support",
+        "system_prompt": "You are support.",
+        "temperature": 0.2,
+        "max_tokens": 512,
+    }
+    data.update(overrides)
+    agent = Agent(**data)  # type: ignore[arg-type]
+    session.add(agent)
+    await session.commit()
+    await session.refresh(agent)
+    return agent
+
+
+class TestResolveFromDb:
+    async def test_resolves_row_to_config(self, session: AsyncSession) -> None:
+        await _add_agent(session)
+
+        config = await resolve_agent("support", session=session)
+
+        assert config == AgentConfig(
+            slug="support",
+            name="Support",
+            system_prompt="You are support.",
+            model_id=None,
+            temperature=0.2,
+            max_tokens=512,
+        )
+
+    async def test_code_mode_flag_survives_resolution(
+        self, session: AsyncSession
+    ) -> None:
+        await _add_agent(session, code_mode=True)
+
+        config = await resolve_agent("support", session=session)
+
+        assert config.code_mode is True
+
+    async def test_code_mode_defaults_off(self, session: AsyncSession) -> None:
+        await _add_agent(session)
+
+        config = await resolve_agent("support", session=session)
+
+        assert config.code_mode is False
+
+    async def test_only_active_tools_are_exposed(self, session: AsyncSession) -> None:
+        agent = await _add_agent(session)
+        active = Tool(name="lookup")
+        disabled = Tool(name="dangerous", is_active=False)
+        session.add(active)
+        session.add(disabled)
+        await session.commit()
+        # Commit expires instances; re-load before touching .id in async land.
+        await session.refresh(agent)
+        await session.refresh(active)
+        await session.refresh(disabled)
+        session.add(AgentTool(agent_id=agent.id, tool_id=active.id))
+        session.add(AgentTool(agent_id=agent.id, tool_id=disabled.id))
+        await session.commit()
+
+        config = await resolve_agent("support", session=session)
+
+        assert config.tool_names == ("lookup",)
+
+
+class TestCodeModeSplitsReadsFromWrites:
+    """Code mode sandboxes the data tools, never the memory writes.
+
+    A tool inside the sandbox is called by generated Python; a write the
+    user should be able to see in the tool trail has to stay a native
+    call. This is also the seam the propose/approve queue needs later.
+    """
+
+    def _code_mode_tools(self, config: AgentConfig) -> list[str]:
+        capabilities = agent_capabilities(config)
+        code_mode = next(
+            cap for cap in capabilities if type(cap).__name__ == "CodeMode"
+        )
+        return list(code_mode.tools)
+
+    def test_write_tools_stay_native(self) -> None:
+        config = AgentConfig(
+            slug="finance-assistant",
+            name="Finance Assistant",
+            system_prompt="...",
+            model_id=None,
+            temperature=0.4,
+            max_tokens=900,
+            tool_names=("ledger", "accounts", "save_memory"),
+            code_mode=True,
+        )
+
+        sandboxed = self._code_mode_tools(config)
+
+        assert "ledger" in sandboxed
+        assert "accounts" in sandboxed
+        assert "save_memory" not in sandboxed
+
+    def test_a_registry_declared_native_write_stays_out_of_the_sandbox(
+        self,
+    ) -> None:
+        """The tool declares its own nature at registration
+        (native_write=True); the loader asks the registry instead of
+        keeping a hardcoded list. This is how ``propose`` - the queue's
+        one write tool - stays a visible native call."""
+        from app.services.ai.domains.chat.tools import (
+            register_tool,
+            unregister_tool,
+        )
+
+        register_tool(
+            "propose_test_tool",
+            lambda: None,
+            native_write=True,
+            replace=True,
+        )
+        try:
+            config = AgentConfig(
+                slug="finance-assistant",
+                name="Finance Assistant",
+                system_prompt="...",
+                model_id=None,
+                temperature=0.4,
+                max_tokens=900,
+                tool_names=("ledger", "propose_test_tool"),
+                code_mode=True,
+            )
+            sandboxed = self._code_mode_tools(config)
+        finally:
+            unregister_tool("propose_test_tool")
+
+        assert "ledger" in sandboxed
+        assert "propose_test_tool" not in sandboxed
+
+    def test_read_only_agent_sandboxes_everything(self) -> None:
+        config = AgentConfig(
+            slug="reader",
+            name="Reader",
+            system_prompt="...",
+            model_id=None,
+            temperature=0.4,
+            max_tokens=900,
+            tool_names=("ledger", "accounts"),
+            code_mode=True,
+        )
+
+        assert self._code_mode_tools(config) == ["ledger", "accounts"]
+
+
+class TestFallback:
+    async def test_missing_row_falls_back_to_default(
+        self, session: AsyncSession
+    ) -> None:
+        """Empty DB (memory-mode parity): the code default is the agent."""
+        config = await resolve_agent(DEFAULT_AGENT_SLUG, session=session)
+
+        assert config == default_agent_config()
+
+    async def test_missing_row_is_not_cached(self, session: AsyncSession) -> None:
+        """A row seeded after a fallback resolve must win the next resolve."""
+        first = await resolve_agent("support", session=session)
+        assert first == default_agent_config()
+
+        await _add_agent(session)
+        second = await resolve_agent("support", session=session)
+
+        assert second.system_prompt == "You are support."
+
+    async def test_inactive_agent_falls_back(self, session: AsyncSession) -> None:
+        await _add_agent(session, is_active=False)
+
+        config = await resolve_agent("support", session=session)
+
+        assert config == default_agent_config()
+
+
+class TestCache:
+    async def test_config_is_cached_until_invalidated(
+        self, session: AsyncSession
+    ) -> None:
+        agent = await _add_agent(session)
+
+        first = await resolve_agent("support", session=session)
+        assert first.system_prompt == "You are support."
+
+        agent.system_prompt = "Updated."
+        session.add(agent)
+        await session.commit()
+
+        stale = await resolve_agent("support", session=session)
+        assert stale.system_prompt == "You are support."
+
+        invalidate_agent_cache("support")
+        fresh = await resolve_agent("support", session=session)
+        assert fresh.system_prompt == "Updated."
+
+    async def test_invalidate_all_clears_every_slug(
+        self, session: AsyncSession
+    ) -> None:
+        agent = await _add_agent(session)
+        await resolve_agent("support", session=session)
+
+        agent.name = "Renamed"
+        session.add(agent)
+        await session.commit()
+
+        invalidate_agent_cache()
+        fresh = await resolve_agent("support", session=session)
+        assert fresh.name == "Renamed"

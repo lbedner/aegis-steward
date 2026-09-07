@@ -1,0 +1,30 @@
+{# Landing page served at /.
+
+   Composed from components/landing/*. Every string comes from the
+   project's own copier answers, so a fresh project reads as itself
+   rather than as a template. #}
+{% extends "base.html" %}
+
+{% block title %}{{ project_name }}{% endblock %}
+
+{% block head_extra %}
+  <meta name="description" content="{{ project_description }}">
+  {# Open Graph — controls the preview when someone pastes the link. #}
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ project_name }}">
+  <meta property="og:description" content="{{ project_description }}">
+  <meta name="twitter:card" content="summary">
+{% endblock %}
+
+{% block navbar %}
+{% include "components/landing/navbar.html" %}
+{% endblock %}
+
+{% block content %}
+{% include "components/landing/hero.html" %}
+{% include "components/landing/features.html" %}
+{% endblock %}
+
+{% block footer %}
+{% include "components/landing/footer.html" %}
+{% endblock %}

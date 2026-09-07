@@ -1,0 +1,219 @@
+"""Tests for worker busy heartbeat used by the rolling-deploy drain check."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import socket
+import time
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from app.components.worker import heartbeat
+from app.components.worker.heartbeat import (
+    busy_key,
+    mark_busy,
+    mark_busy_sync,
+    mark_idle,
+    mark_idle_sync,
+    worker_id,
+)
+
+
+@pytest.fixture(autouse=True)
+def _reset_state():
+    heartbeat._worker_id = None
+    heartbeat._refresh_task = None
+    heartbeat._busy_count = 0
+    heartbeat._busy_count_sync = 0
+    if heartbeat._refresh_stop is not None:
+        heartbeat._refresh_stop.set()
+    heartbeat._refresh_thread = None
+    heartbeat._refresh_stop = None
+    yield
+    task = heartbeat._refresh_task
+    if task is not None and not task.done():
+        task.cancel()
+    if heartbeat._refresh_stop is not None:
+        heartbeat._refresh_stop.set()
+    thread = heartbeat._refresh_thread
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=2.0)
+    heartbeat._worker_id = None
+    heartbeat._refresh_task = None
+    heartbeat._busy_count = 0
+    heartbeat._busy_count_sync = 0
+    heartbeat._refresh_stop = None
+    heartbeat._refresh_thread = None
+
+
+def test_busy_key_format() -> None:
+    expected = f"worker:{socket.gethostname()}:{os.getpid()}:busy"
+    assert busy_key() == expected
+    assert worker_id() == f"{socket.gethostname()}:{os.getpid()}"
+
+
+# ---------------------------------------------------------------------------
+# Async variant
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mark_busy_sets_key_with_ttl() -> None:
+    redis = AsyncMock()
+    await mark_busy(redis, ttl_seconds=30)
+
+    redis.set.assert_called_once_with(busy_key(), "1", ex=30)
+    assert heartbeat._refresh_task is not None
+    await mark_idle(redis)
+
+
+@pytest.mark.asyncio
+async def test_mark_idle_deletes_key_and_cancels_refresh() -> None:
+    redis = AsyncMock()
+    await mark_busy(redis, ttl_seconds=30)
+    refresh = heartbeat._refresh_task
+    assert refresh is not None
+
+    await mark_idle(redis)
+
+    redis.delete.assert_called_once_with(busy_key())
+    assert refresh.cancelled() or refresh.done()
+    assert heartbeat._refresh_task is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_jobs_keep_key_until_last_idle() -> None:
+    """Two overlapping jobs: the key survives until BOTH mark idle.
+
+    taskiq runs many coroutines per process (one pid -> one busy key),
+    so the first job finishing must not delete the key out from under a
+    sibling that is still running.
+    """
+    redis = AsyncMock()
+    await mark_busy(redis, ttl_seconds=30)
+    await mark_busy(redis, ttl_seconds=30)
+    refresh = heartbeat._refresh_task
+    assert refresh is not None
+
+    # First job done: key stays, refresh keeps running.
+    await mark_idle(redis)
+    redis.delete.assert_not_called()
+    assert heartbeat._refresh_task is refresh
+    assert not refresh.done()
+
+    # Last job done: now the key is deleted and refresh stops.
+    await mark_idle(redis)
+    redis.delete.assert_called_once_with(busy_key())
+    assert refresh.cancelled() or refresh.done()
+    assert heartbeat._refresh_task is None
+
+
+@pytest.mark.asyncio
+async def test_refresh_loop_resets_ttl_while_running() -> None:
+    """The refresh task should call set() again after the interval elapses."""
+    redis = AsyncMock()
+    # ttl=2 → refresh interval clamps to max(1.0, 1.0) = 1s
+    await mark_busy(redis, ttl_seconds=2)
+
+    await asyncio.sleep(1.2)
+
+    assert redis.set.call_count >= 2
+    for call in redis.set.call_args_list:
+        args, kwargs = call
+        assert args[0] == busy_key()
+        assert args[1] == "1"
+        assert kwargs.get("ex") == 2
+
+    await mark_idle(redis)
+
+
+@pytest.mark.asyncio
+async def test_mark_busy_swallows_redis_error() -> None:
+    redis = AsyncMock()
+    redis.set.side_effect = ConnectionError("redis down")
+    await mark_busy(redis)
+    assert heartbeat._refresh_task is None
+
+
+@pytest.mark.asyncio
+async def test_mark_idle_swallows_redis_error() -> None:
+    redis = AsyncMock()
+    redis.delete.side_effect = ConnectionError("redis down")
+    await mark_idle(redis)
+
+
+# ---------------------------------------------------------------------------
+# Sync variant (dramatiq)
+# ---------------------------------------------------------------------------
+
+
+def test_mark_busy_sync_sets_key_and_starts_thread() -> None:
+    redis = MagicMock()
+    mark_busy_sync(redis, ttl_seconds=30)
+
+    redis.set.assert_called_once_with(busy_key(), "1", ex=30)
+    assert heartbeat._refresh_thread is not None
+    assert heartbeat._refresh_thread.is_alive()
+    mark_idle_sync(redis)
+
+
+def test_mark_idle_sync_stops_thread_and_deletes_key() -> None:
+    redis = MagicMock()
+    mark_busy_sync(redis, ttl_seconds=30)
+    thread = heartbeat._refresh_thread
+    assert thread is not None
+
+    mark_idle_sync(redis)
+
+    redis.delete.assert_called_once_with(busy_key())
+    assert not thread.is_alive()
+    assert heartbeat._refresh_thread is None
+
+
+def test_concurrent_threads_keep_key_until_last_idle_sync() -> None:
+    """dramatiq runs N threads per process sharing one busy key.
+
+    The first thread finishing must not delete the key or stop the
+    refresh thread while a sibling thread is still processing.
+    """
+    redis = MagicMock()
+    mark_busy_sync(redis, ttl_seconds=30)
+    mark_busy_sync(redis, ttl_seconds=30)
+    thread = heartbeat._refresh_thread
+    assert thread is not None and thread.is_alive()
+
+    # First thread done: key stays, refresh thread keeps running.
+    mark_idle_sync(redis)
+    redis.delete.assert_not_called()
+    assert heartbeat._refresh_thread is thread
+    assert thread.is_alive()
+
+    # Last thread done: key deleted, refresh thread joined.
+    mark_idle_sync(redis)
+    redis.delete.assert_called_once_with(busy_key())
+    assert not thread.is_alive()
+    assert heartbeat._refresh_thread is None
+
+
+def test_refresh_loop_sync_resets_ttl_while_running() -> None:
+    redis = MagicMock()
+    mark_busy_sync(redis, ttl_seconds=2)
+    time.sleep(1.2)
+
+    assert redis.set.call_count >= 2
+    mark_idle_sync(redis)
+
+
+def test_mark_busy_sync_swallows_redis_error() -> None:
+    redis = MagicMock()
+    redis.set.side_effect = ConnectionError("redis down")
+    mark_busy_sync(redis)
+    assert heartbeat._refresh_thread is None
+
+
+def test_mark_idle_sync_swallows_redis_error() -> None:
+    redis = MagicMock()
+    redis.delete.side_effect = ConnectionError("redis down")
+    mark_idle_sync(redis)

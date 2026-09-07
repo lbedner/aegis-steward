@@ -1,0 +1,180 @@
+"""
+AI service health check functions.
+
+Health monitoring for AI service functionality including provider configuration,
+API connectivity, and service-specific metrics.
+"""
+
+from app.core.log import logger
+from app.services.system.models import ComponentStatus, ComponentStatusType
+
+# Default Ollama URL for auto-discovery (local development)
+OLLAMA_LOCAL_DISCOVERY_URL = "http://localhost:11434"
+
+
+async def check_ai_service_health() -> ComponentStatus:
+    """
+    Check AI service health including provider configuration and dependencies.
+
+    Returns:
+        ComponentStatus indicating AI service health
+    """
+    try:
+        # Import the shared AI service instance from the API router
+        # This ensures health checks reflect actual API conversation state
+        from app.components.backend.api.ai.router import ai_service
+
+        # Read FRESH config for provider/model (not cached from server startup)
+        from app.core.config import settings
+        from app.services.ai.config import get_ai_config
+
+        current_config = get_ai_config(settings)
+
+        # Get conversation statistics once (get_service_status() also calls
+        # get_stats() internally, so we skip it and use conversation_stats directly)
+        conversation_stats = ai_service.conversation_manager.get_stats()
+        validation_errors = current_config.validate_configuration(settings)
+
+        # Determine overall health using fresh config
+        if not current_config.enabled:
+            status = ComponentStatusType.DEGRADED
+            message = "AI service is disabled"
+        elif validation_errors:
+            status = ComponentStatusType.UNHEALTHY
+            message = (
+                f"AI service configuration issues: {'; '.join(validation_errors[:2])}"
+            )
+        else:
+            status = ComponentStatusType.HEALTHY
+            message = f"AI service ready - {current_config.provider.value} provider"
+
+        # Get usage statistics (includes total cost) - only with database backend
+        usage_stats = ai_service.get_usage_stats()
+
+        # Collect comprehensive metadata using FRESH config for provider/model
+        metadata = {
+            "service_type": "ai",
+            "engine": "pydantic-ai",
+            "enabled": current_config.enabled,
+            "provider": current_config.provider.value,
+            "model": current_config.model,
+            "agent_ready": True,  # Agents created per request, always available
+            "total_conversations": conversation_stats["total_conversations"],
+            "total_messages": conversation_stats["total_messages"],
+            "unique_users": conversation_stats["unique_users"],
+            "avg_messages_per_conversation": conversation_stats[
+                "average_messages_per_conversation"
+            ],
+            "configuration_valid": len(validation_errors) == 0,
+            "validation_errors": validation_errors,
+            "validation_errors_count": len(validation_errors),
+            "persistence": "sqlite",
+            "storage": "database (conversations persist across restarts)",
+            # Usage tracking (requires database)
+            "total_cost": usage_stats.get("total_cost", 0.0),
+            "total_tokens": usage_stats.get("total_tokens", 0),
+            "usage_tracking_available": True,
+        }
+
+        # Add dependency status
+        metadata["dependencies"] = {
+            "backend": "required",
+            "pydantic_ai": "required",
+            "database": "required",
+        }
+
+        # Add provider-specific info using fresh config
+        if current_config.enabled:
+            from .models import (
+                AIProvider,
+                get_free_providers,
+                get_provider_capabilities,
+            )
+
+            provider_caps = get_provider_capabilities(current_config.provider)
+            free_providers = get_free_providers()
+
+            metadata.update(
+                {
+                    "provider_supports_streaming": provider_caps.supports_streaming,
+                    "provider_free_tier": current_config.provider in free_providers,
+                }
+            )
+
+            # Add Ollama-specific health info when using Ollama provider
+            # NOTE: Detailed model/VRAM info is reported by
+            # check_ollama_health() (component check). Here we only do a
+            # lightweight availability check to avoid redundant timeout
+            # costs.
+            if current_config.provider == AIProvider.OLLAMA:
+                try:
+                    from app.services.ai.domains.llm.ollama import OllamaClient
+
+                    ollama_url = settings.ollama_base_url_effective
+                    ollama_client = OllamaClient(base_url=ollama_url)
+                    ollama_available = await ollama_client.is_available()
+
+                    metadata["ollama_available"] = ollama_available
+                    metadata["ollama_base_url"] = ollama_url
+
+                    if not ollama_available:
+                        status = ComponentStatusType.WARNING
+                        message = (
+                            "AI service configured for Ollama but server not reachable"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to check Ollama availability: {e}")
+                    metadata["ollama_error"] = str(e)
+            else:
+                # Auto-discovery: Check if Ollama is running even when
+                # not configured as provider. Uses the configured base
+                # URL (respects Docker vs local environment).
+                try:
+                    import httpx
+
+                    ollama_url = settings.ollama_base_url_effective
+                    discovery_url = f"{ollama_url}/api/tags"
+                    async with httpx.AsyncClient(timeout=2.0) as client:
+                        response = await client.get(discovery_url)
+                        if response.status_code == 200:
+                            data = response.json()
+                            models = data.get("models", [])
+                            metadata["ollama_detected"] = True
+                            metadata["ollama_detected_url"] = ollama_url
+                            metadata["ollama_detected_models_count"] = len(models)
+                            if models:
+                                # Show first 3 model names as preview
+                                model_names = [
+                                    m.get("name", "unknown") for m in models[:3]
+                                ]
+                                metadata["ollama_detected_models_preview"] = model_names
+                            logger.debug(
+                                "Ollama auto-discovered at "
+                                f"{ollama_url} with {len(models)} models"
+                            )
+                except Exception:
+                    # Ollama not running - that's fine, just skip
+                    metadata["ollama_detected"] = False
+
+        return ComponentStatus(
+            name="ai",
+            status=status,
+            message=message,
+            response_time_ms=None,  # Will be set by caller
+            metadata=metadata,
+        )
+
+    except Exception as e:
+        logger.error(f"AI service health check failed: {e}")
+        return ComponentStatus(
+            name="ai",
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"AI service health check failed: {str(e)}",
+            response_time_ms=None,
+            metadata={
+                "service_type": "ai",
+                "engine": "pydantic-ai",
+                "error": str(e),
+                "error_type": "health_check_failure",
+            },
+        )

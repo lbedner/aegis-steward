@@ -1,0 +1,170 @@
+
+x-app: &app
+  image: ${AEGIS_STACK_TAG:-aegis-stack:latest}
+  build:
+    context: .
+    args:
+      - AEGIS_STACK_VERSION=${AEGIS_STACK_VERSION:-dev}
+      - PORT=${PORT:-8000}
+  env_file:
+    - ${AEGIS_STACK_ENV_FILE:-.env}
+  environment:
+    # Docker container marker for entrypoint script
+    - DOCKER_CONTAINER=1
+    - PORT=${PORT:-8000}
+    - STORAGE_ROOT=/data/storage
+  volumes:
+    # Every process that runs the app shares one object store. Compose
+    # merges volume lists across override files by target path, so the
+    # dev overlay's code mount adds to this rather than replacing it.
+    - storage-data:/data/storage
+  labels:
+    logging: "aegis-stack"
+
+services:
+  # DEVELOPMENT PROFILE
+
+  webserver:
+    <<: *app
+    command:
+      - webserver
+    ports:
+      # Host port auto-selected by `make serve` (WEBSERVER_HOST_PORT);
+      # falls back to PORT for a raw `docker compose up`.
+      - "${WEBSERVER_HOST_PORT:-${PORT:-8000}}:${PORT:-8000}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Docker container marker
+      - DOCKER_CONTAINER=1
+      # Redis connection for health checks
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8000}/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.5'
+    profiles:
+      - dev
+      - prod
+  # Scheduler service (runs scheduler tasks independently)
+  scheduler:
+    <<: *app
+    command:
+      - scheduler
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Docker container marker
+      - DOCKER_CONTAINER=1
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    profiles:
+      - dev
+      - prod
+  # Load Test Worker (high-performance load testing tasks)
+  worker-load-test:
+    <<: *app
+    command:
+      - worker
+      - load_test
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    tty: true
+    environment:
+      # Docker container marker for entrypoint script
+      - DOCKER_CONTAINER=1
+      # Load test worker configuration
+      - WORKER_QUEUE_TYPE=load_test
+      - WORKER_TIMEOUT_SECONDS=${LOAD_TEST_WORKER_TIMEOUT:-60}
+      - WORKER_MAX_TRIES=${LOAD_TEST_WORKER_MAX_TRIES:-1}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '1.0'
+    profiles:
+      - dev
+      - prod
+
+
+  # System Worker (maintenance and administrative tasks)
+  worker-system:
+    <<: *app
+    command:
+      - worker
+      - system
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    tty: true
+    environment:
+      # Docker container marker for entrypoint script
+      - DOCKER_CONTAINER=1
+      # System worker configuration (high reliability)
+      - WORKER_QUEUE_TYPE=system
+      - WORKER_TIMEOUT_SECONDS=${SYSTEM_WORKER_TIMEOUT:-1800}
+      - WORKER_MAX_TRIES=${SYSTEM_WORKER_MAX_TRIES:-5}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    profiles:
+      - dev
+      - prod
+  # REDIS SERVICE
+
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+    profiles:
+      - dev
+      - prod
+
+  # TEST PROFILE
+
+  test_runner:
+    <<: *app
+    command:
+      - test
+    env_file:
+      - ${AEGIS_STACK_ENV_FILE:-.env}
+    profiles:
+      - test
+
+volumes:
+  aegis-data:
+  storage-data:

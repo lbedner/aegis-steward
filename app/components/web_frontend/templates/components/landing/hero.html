@@ -1,0 +1,27 @@
+{# Hero. Name, one-line description, and the two things a visitor can
+   actually do. Both strings come from the project's copier answers. #}
+<section class="pt-20 pb-16 lg:pt-28 lg:pb-20">
+  <div class="inline-flex items-center gap-2 text-xxs uppercase tracking-widest text-aegis-teal mb-5">
+    <span class="w-1.5 h-1.5 rounded-full bg-aegis-teal"></span>
+    Built with Aegis Stack
+  </div>
+
+  <h1 class="text-4xl lg:text-6xl font-semibold text-white tracking-tight leading-[1.05]">
+    {{ project_name }}
+  </h1>
+
+  <p class="mt-6 text-base lg:text-lg text-aegis-muted max-w-2xl leading-relaxed">
+    {{ project_description }}
+  </p>
+
+  <div class="mt-10 flex flex-wrap items-center gap-4">
+    <a href="/dashboard"
+       class="text-sm text-white border border-aegis-teal bg-aegis-teal/10 rounded-lg px-5 py-2.5 hover:bg-aegis-teal/20 transition-colors">
+      Open the dashboard
+    </a>
+    <a href="#next"
+       class="text-sm text-aegis-muted hover:text-white transition-colors">
+      Where to go next →
+    </a>
+  </div>
+</section>

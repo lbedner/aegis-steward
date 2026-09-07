@@ -1,0 +1,42 @@
+"""AI fixture/seed data system.
+
+Provides seed data for LLM vendors, models, pricing, and the default
+agent registry row.
+"""
+
+from sqlmodel import Session
+
+from app.services.ai.fixtures.agent_fixtures import load_agent_fixtures
+from app.services.ai.fixtures.llm_fixtures import load_all_llm_fixtures
+from app.services.finance.domains.detection.analyst import load_finance_agent_fixtures
+
+
+def load_agent_registry_fixtures(session: Session) -> dict[str, int]:
+    """The agent registry alone: agents, memory modules, and tool rows.
+
+    Split out from the full set because startup runs it on every boot: the
+    LLM catalog fixtures are a much larger static seed and belong to their
+    own (rarer) path.
+    """
+    counts = load_agent_fixtures(session)
+
+    # Service-owned agents seed alongside the default one: a project that has
+    # the finance service gets its analyst without a second seeding step.
+    counts.update(load_finance_agent_fixtures(session))
+
+    return counts
+
+
+def load_all_ai_fixtures(session: Session) -> dict[str, int]:
+    """Load every AI seed set (LLM catalog + agent registry)."""
+    counts = load_all_llm_fixtures(session)
+    counts.update(load_agent_registry_fixtures(session))
+    return counts
+
+
+__all__ = [
+    "load_agent_fixtures",
+    "load_agent_registry_fixtures",
+    "load_all_ai_fixtures",
+    "load_all_llm_fixtures",
+]

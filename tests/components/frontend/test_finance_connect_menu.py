@@ -1,0 +1,90 @@
+"""The finance Connect menu gates on built-in provider capability, not on
+credentials.
+
+Regression: the menu used to appear only when credentials were set, so a
+fresh project with an empty ``.env`` showed no way to connect a provider at
+all - the feature's front door was invisible. It must show whenever a
+provider is built into the stack; missing credentials are handled at click
+time by the connect flow instead.
+"""
+
+from unittest.mock import patch
+
+from app.components.frontend.dashboard.modals.finance_modal import (
+    connect,
+    import_summary,
+)
+
+
+def _noop(_e: object) -> None:
+    return None
+
+
+def _menu_labels(menu) -> list[str]:
+    """Every text value in an ActionDropdown's panel, labels and captions.
+
+    Recursive because a row nests: Row(Icon, Text) plainly, or
+    Row(Icon, Column(Text, SecondaryText)) when it carries a caption.
+    """
+    if menu is None:
+        return []
+
+    def _texts(control) -> list[str]:
+        if control is None:
+            return []
+        if hasattr(control, "value") and isinstance(control.value, str):
+            return [control.value]
+        found: list[str] = []
+        # Rows/Columns hold ``controls``; a Container holds one ``content``.
+        for child in getattr(control, "controls", None) or []:
+            found.extend(_texts(child))
+        found.extend(_texts(getattr(control, "content", None)))
+        return found
+
+    # ActionDropdown builds its rows into Dropdown's overlay panel frame.
+    return _texts(menu._panel_frame.content)
+
+
+def test_menu_shows_built_in_providers_without_credentials() -> None:
+    with (
+        patch.object(connect.settings, "FINANCE_PLAID", True, create=True),
+        patch.object(connect.settings, "FINANCE_SNAPTRADE", True, create=True),
+    ):
+        menu = connect._build_connect_menu(_noop, _noop)
+    labels = _menu_labels(menu)
+    assert "Connect a bank" in labels
+    assert "Connect a brokerage" in labels
+
+
+def test_menu_omits_providers_not_built_in() -> None:
+    with (
+        patch.object(connect.settings, "FINANCE_PLAID", True, create=True),
+        patch.object(connect.settings, "FINANCE_SNAPTRADE", False, create=True),
+    ):
+        menu = connect._build_connect_menu(_noop, _noop)
+    labels = _menu_labels(menu)
+    assert labels == ["Connect a bank"]
+
+
+def test_no_menu_when_no_provider_built_in() -> None:
+    with (
+        patch.object(connect.settings, "FINANCE_PLAID", False, create=True),
+        patch.object(connect.settings, "FINANCE_SNAPTRADE", False, create=True),
+    ):
+        menu = connect._build_connect_menu(_noop, _noop)
+    assert menu is None
+
+
+def test_import_menu_names_both_lanes_and_their_formats() -> None:
+    """The Import dropdown replaced a single button that GUESSED the file
+    kind from the selected account. Both lanes must be offered explicitly,
+    each naming what it accepts, so the format is known before the file
+    dialog opens."""
+    menu = import_summary._import_menu(_noop, _noop)
+    labels = _menu_labels(menu)
+
+    assert "Transactions" in labels
+    assert "Investments" in labels
+    # Captions ride the same items, naming the accepted extensions.
+    assert any("OFX" in label for label in labels)
+    assert any("CSV" in label for label in labels)

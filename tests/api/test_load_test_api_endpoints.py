@@ -1,0 +1,148 @@
+"""HTTP-surface tests for ``/api/v1/load-tests/api/*``.
+
+Each endpoint has two branches that need independent coverage:
+
+1. **No store** — Redis isn't configured; the endpoint's ``op`` closure
+   gets ``None`` and must degrade (empty list for ``/recent``; 404 for
+   ``/{test_id}``).
+2. **With store** — Redis is configured; the closure calls
+   ``store.list_recent`` / ``store.get`` and the endpoint serializes the
+   return value.
+
+Earlier versions of these tests bypassed the closure entirely by patching
+``_with_store`` to return a canned value; that hid regressions in the
+branching. ``_patch_store_op`` now actually invokes the closure against a
+controllable store argument so both branches are pinned.
+
+Mirrors the auth-gating pattern of ``test_metrics_endpoints.py``.
+"""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from fastapi import status
+from fastapi.testclient import TestClient
+
+from app.services.load_test.api.models import (
+    APILoadTestConfiguration,
+    APILoadTestMetrics,
+    APILoadTestResult,
+)
+
+
+def _result(test_id: str = "t1", failures: int = 0) -> APILoadTestResult:
+    sent = 10
+    completed = sent - failures
+    return APILoadTestResult(
+        status="completed",
+        test_id=test_id,
+        configuration=APILoadTestConfiguration(
+            test_id=test_id,
+            method="GET",
+            path="/health",
+            requests=sent,
+            clients=2,
+        ),
+        metrics=APILoadTestMetrics(
+            tasks_sent=sent,
+            tasks_completed=completed,
+            tasks_failed=failures,
+            total_duration_seconds=1.0,
+            overall_throughput=float(sent),
+            failure_rate_percent=(failures / sent * 100),
+            completion_percentage=(completed / sent * 100),
+            latency_ms_p50=10.0,
+            latency_ms_p95=25.0,
+            latency_ms_p99=40.0,
+            latency_ms_max=50.0,
+            status_codes={200: completed, **({500: failures} if failures else {})},
+        ),
+        start_time="2026-05-17T14:00:00+00:00",
+        end_time="2026-05-17T14:00:01+00:00",
+    )
+
+
+def _patch_store_op(store_value):
+    """Patch ``_with_store`` so it invokes the endpoint's ``op`` closure
+    against ``store_value``.
+
+    - Pass ``None`` to exercise the no-store branch (handlers must
+      tolerate a missing store).
+    - Pass a fake store with ``list_recent`` / ``get`` configured (as
+      ``AsyncMock``) to exercise the with-store branch.
+
+    This deliberately calls the real ``op`` so the closure's branching is
+    part of what's being tested.
+    """
+
+    async def _runner(op):
+        return await op(store_value)
+
+    return patch(
+        "app.components.backend.api.load_test_api._with_store",
+        side_effect=_runner,
+    )
+
+
+def _fake_store_for_recent(items: list[APILoadTestResult]) -> MagicMock:
+    store = MagicMock()
+    store.list_recent = AsyncMock(return_value=items)
+    return store
+
+
+def _fake_store_for_get(item: APILoadTestResult | None) -> MagicMock:
+    store = MagicMock()
+    store.get = AsyncMock(return_value=item)
+    return store
+
+
+class TestLoadTestAPIEndpointsOpen:
+    """Auth service not enabled — endpoints are open, like ``/health/``."""
+
+    def test_recent_with_store_returns_list(self, client: TestClient) -> None:
+        fake = _fake_store_for_recent([_result("a"), _result("b")])
+        with _patch_store_op(fake):
+            response = client.get("/api/v1/load-tests/api/recent")
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 2
+        assert body[0]["test_id"] == "a"
+        fake.list_recent.assert_awaited_once()
+
+    def test_recent_no_store_returns_empty_list(self, client: TestClient) -> None:
+        """No Redis configured -> closure gets ``None`` -> returns ``[]``."""
+        with _patch_store_op(None):
+            response = client.get("/api/v1/load-tests/api/recent")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_get_with_store_returns_run(self, client: TestClient) -> None:
+        fake = _fake_store_for_get(_result("findme"))
+        with _patch_store_op(fake):
+            response = client.get("/api/v1/load-tests/api/findme")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["test_id"] == "findme"
+        fake.get.assert_awaited_once_with("findme")
+
+    def test_get_with_store_404_when_missing(self, client: TestClient) -> None:
+        fake = _fake_store_for_get(None)
+        with _patch_store_op(fake):
+            response = client.get("/api/v1/load-tests/api/missing")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_get_no_store_returns_404(self, client: TestClient) -> None:
+        """No Redis configured -> closure gets ``None`` -> 404."""
+        with _patch_store_op(None):
+            response = client.get("/api/v1/load-tests/api/anything")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_recent_respects_limit_query_param(self, client: TestClient) -> None:
+        fake = _fake_store_for_recent([])
+        with _patch_store_op(fake):
+            response = client.get("/api/v1/load-tests/api/recent?limit=5")
+        assert response.status_code == status.HTTP_200_OK
+        # The closure forwarded the requested limit to the store.
+        fake.list_recent.assert_awaited_once_with(5)
+
+    def test_recent_rejects_invalid_limit(self, client: TestClient) -> None:
+        response = client.get("/api/v1/load-tests/api/recent?limit=0")
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

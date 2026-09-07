@@ -1,0 +1,286 @@
+"""Agent config loader - one runtime, two config sources.
+
+Every chat surface resolves an ``AgentConfig`` through ``resolve_agent``
+and hydrates the runtime from it. Where the config comes from depends on
+the storage backend:
+
+- Persistence backend (sqlite/postgres): the ``agent`` table row for the
+  slug, cached warm per process. A missing or inactive row falls back to
+  the code default, so a half-seeded database never bricks chat.
+- Memory backend: the code default, always. Same shape, same behavior,
+  no tables involved.
+
+CRUD paths that edit agent rows must call ``invalidate_agent_cache`` so
+the next request sees the change.
+"""
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic_ai.settings import ModelSettings
+from sqlalchemy.orm import selectinload
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.core.config import settings
+from app.core.db import get_async_session
+from app.core.log import logger
+from app.services.ai.domains.chat.chat_kit import ContextProvider, ToolChatAgent
+from app.services.ai.domains.chat.module_context import MemoryModuleContextProvider
+from app.services.ai.domains.chat.prompts import get_default_system_prompt
+from app.services.ai.domains.chat.tools import resolve_tools
+from app.services.ai.models.agents import Agent
+from app.services.ai.usage_recording import record_usage
+
+DEFAULT_AGENT_SLUG = "assistant"
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    """A resolved agent definition, source-agnostic.
+
+    ``model_id`` of ``None`` means "use the service's active model", so
+    the default agent tracks the project's configured provider/model.
+    """
+
+    slug: str
+    name: str
+    system_prompt: str
+    model_id: str | None
+    temperature: float
+    max_tokens: int
+    tool_names: tuple[str, ...] = ()
+    memory_modules: tuple[str, ...] = ()
+    knowledge_base_ids: tuple[str, ...] = ()
+    code_mode: bool = False
+
+
+def default_agent_config() -> AgentConfig:
+    """The in-code default agent - the memory-mode and fallback config.
+
+    Sampling parameters come from settings so a memory-backend project
+    keeps its env-driven behavior; the seeded DB row copies these same
+    values at generation time.
+    """
+    return AgentConfig(
+        slug=DEFAULT_AGENT_SLUG,
+        name="Assistant",
+        system_prompt=get_default_system_prompt(),
+        model_id=None,
+        temperature=settings.AI_TEMPERATURE,
+        max_tokens=settings.AI_MAX_TOKENS,
+    )
+
+
+_cache: dict[str, AgentConfig] = {}
+
+
+def invalidate_agent_cache(slug: str | None = None) -> None:
+    """Drop cached config for one slug, or all when ``slug`` is None."""
+    if slug is None:
+        _cache.clear()
+    else:
+        _cache.pop(slug, None)
+
+
+def _to_config(row: Agent) -> AgentConfig:
+    return AgentConfig(
+        slug=row.slug,
+        name=row.name,
+        system_prompt=row.system_prompt,
+        model_id=row.model_id,
+        temperature=row.temperature,
+        max_tokens=row.max_tokens,
+        tool_names=tuple(t.name for t in row.tools if t.is_active),
+        memory_modules=tuple(row.memory_modules),
+        knowledge_base_ids=tuple(row.knowledge_base_ids),
+        code_mode=row.code_mode,
+    )
+
+
+async def _fetch_agent(session: AsyncSession, slug: str) -> Agent | None:
+    stmt = (
+        select(Agent).where(Agent.slug == slug).options(selectinload(Agent.tools))  # type: ignore[arg-type]
+    )
+    result = await session.exec(stmt)
+    return result.first()
+
+
+async def resolve_agent(
+    slug: str = DEFAULT_AGENT_SLUG,
+    *,
+    session: AsyncSession | None = None,
+) -> AgentConfig:
+    """Resolve an agent config by slug: warm cache -> DB row -> fallback.
+
+    Only DB-sourced configs are cached; a fallback for a missing row is
+    returned uncached so a row seeded later wins the next resolve.
+    """
+    cached = _cache.get(slug)
+    if cached is not None:
+        return cached
+
+    if session is not None:
+        row = await _fetch_agent(session, slug)
+    else:
+        async with get_async_session() as owned_session:
+            row = await _fetch_agent(owned_session, slug)
+
+    if row is None or not row.is_active:
+        logger.warning(
+            "Agent not found or inactive; using code default",
+            agent_slug=slug,
+        )
+        return default_agent_config()
+
+    config = _to_config(row)
+    _cache[slug] = config
+    return config
+
+
+# Per-turn tool-call budgets. Chat stays briefing-first and snappy; code
+# mode's loop is script -> observe -> script, so its budget must cover a
+# real investigation without letting a runaway loop stack latency forever.
+DEFAULT_TOOL_CALLS_LIMIT = 4
+CODE_MODE_TOOL_CALLS_LIMIT = 16
+
+
+# A tool return (or a sandbox print) larger than this is clamped before it
+# reaches the model, with an elision marker telling it to slice instead.
+# ~4k tokens: a dumped payload once flooded a 32k local model past its HTTP
+# read timeout.
+TOOL_OUTPUT_CHAR_LIMIT = 16_000
+
+
+def agent_capabilities(config: AgentConfig) -> list[Any]:
+    """The pydantic-ai capabilities a config grants; shared by BOTH chat
+    runtimes (chat_kit's ``build_chat_agent`` and the service's
+    ``get_agent`` path) so a grant can never work in one and not the other.
+
+    The harness (and the Monty interpreter it embeds) imports lazily:
+    unflagged agents never load or pay for the sandbox.
+    """
+    capabilities: list[Any] = []
+    if config.code_mode:
+        from pydantic_ai_harness import CodeMode
+
+        from app.services.ai.domains.chat.tools import native_write_tool_names
+
+        # Reads go in the sandbox (slicing a payload in code is the point);
+        # writes stay native so they surface as their own tool call. A
+        # tool declares its own nature at registration (native_write) -
+        # memory saves and queue proposals both ride this, and the next
+        # write tool just declares itself.
+        native = native_write_tool_names()
+        capabilities.append(
+            CodeMode(tools=[name for name in config.tool_names if name not in native])
+        )
+    if config.code_mode or config.tool_names:
+        capabilities.append(_tool_output_limits(code_mode=config.code_mode))
+    return capabilities
+
+
+def _tool_output_limits(*, code_mode: bool = False) -> Any:
+    """An output cap that degrades safely on unmeasurable returns.
+
+    In code mode the cap scopes to ``run_code`` alone: the sandbox must
+    receive every dispatched tool's FULL payload (slicing it in code is
+    the whole point), and only the printed/returned surface that reaches
+    the model gets clamped. Reducing an inner tool would hand the script
+    a truncated string where it expects a dict.
+
+    A sandbox script can also end on an expression like ``type(result)``,
+    making the tool return a live Python class; the harness's size
+    measurement raises on such values, which would kill the whole turn.
+    Those returns are coerced to their ``repr`` instead.
+    """
+    from pydantic_ai_harness import ToolOutputLimits
+    from pydantic_ai_harness.tool_output_limits import Band, Truncate
+
+    class _SafeToolOutputLimits(ToolOutputLimits):  # type: ignore[misc]
+        async def after_tool_execute(self, ctx: Any, **kwargs: Any) -> Any:
+            try:
+                return await super().after_tool_execute(ctx, **kwargs)
+            except Exception as exc:
+                # Coerce, don't pass through: a live class would go on to
+                # crash every downstream serializer (observability
+                # instrumentation, message history) the same way it
+                # crashed the measurement here.
+                logger.warning(
+                    "tool_output_limits.unmeasurable_return",
+                    tool=kwargs.get("call") and kwargs["call"].tool_name,
+                    error=str(exc),
+                )
+                return repr(kwargs.get("result"))[:TOOL_OUTPUT_CHAR_LIMIT]
+
+    return _SafeToolOutputLimits(
+        bands=[
+            Band(
+                over=TOOL_OUTPUT_CHAR_LIMIT,
+                action=Truncate(max_chars=TOOL_OUTPUT_CHAR_LIMIT),
+            )
+        ],
+        tool_filter=["run_code"] if code_mode else "all",
+    )
+
+
+def build_chat_agent(
+    config: AgentConfig,
+    *,
+    model: Any,
+    model_name: str,
+    deps_type: type[Any],
+    context_providers: Sequence[ContextProvider[Any]] = (),
+    module_token_budget: int | None = None,
+    tool_calls_limit: int | None = None,
+    recorder: Callable[..., float] = record_usage,
+    capabilities: Sequence[Any] = (),
+) -> ToolChatAgent[Any]:
+    """Hydrate a ``ToolChatAgent`` from a resolved agent config.
+
+    The config supplies the persona (``system_prompt``), sampling
+    settings, the DB-granted tool list (resolved through the tool
+    registry, unknown names skipped), and the memory-module scope (wired
+    in as a context provider when non-empty; deps must expose
+    ``user_id`` for module fetchers to see the user). The caller
+    supplies the runtime pieces the config doesn't know about (model
+    instance, deps type, extra context providers, capabilities).
+
+    A ``code_mode`` config additionally grants a ``CodeMode`` capability
+    scoped to exactly the agent's granted tool names: the model writes
+    Python that calls those tools as functions, executed in the Monty
+    sandbox. ``tool_calls_limit=None`` means "pick the right default" -
+    4 for chat, 16 for code mode; an explicit value always wins.
+    """
+    providers: list[ContextProvider[Any]] = list(context_providers)
+    if config.memory_modules:
+        providers.append(
+            MemoryModuleContextProvider(
+                config.memory_modules, token_budget=module_token_budget
+            )
+        )
+    effective_capabilities: list[Any] = list(capabilities)
+    effective_capabilities.extend(agent_capabilities(config))
+    effective_limit = tool_calls_limit
+    if config.code_mode and effective_limit is None:
+        effective_limit = CODE_MODE_TOOL_CALLS_LIMIT
+    if effective_limit is None:
+        effective_limit = DEFAULT_TOOL_CALLS_LIMIT
+    return ToolChatAgent(
+        model=model,
+        model_name=model_name,
+        instructions=config.system_prompt,
+        deps_type=deps_type,
+        tools=resolve_tools(config.tool_names),
+        context_providers=providers,
+        model_settings=ModelSettings(
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+        ),
+        tool_calls_limit=effective_limit,
+        action=f"chat:{config.slug}",
+        recorder=recorder,
+        capabilities=effective_capabilities,
+        name=config.slug,
+    )
