@@ -1,0 +1,60 @@
+"""The finance API: one router, assembled from per-resource sub-routers.
+
+Each submodule owns one resource's endpoints and defines its own
+``APIRouter``; this aggregator mounts them all under ``/finance``. The
+wiring registry imports ``router`` from exactly here, so the split is
+invisible to routing - and to every caller, since sub-routers carry no
+prefix of their own and the paths are unchanged.
+
+Each include carries its own tag, so ``/docs`` renders one titled
+section per resource instead of a single 101-route wall. Tags are an
+OpenAPI-only concern - paths and behavior are unchanged - and the shared
+``finance:`` prefix keeps the sections contiguous when the docs UI sorts
+them alphabetically.
+
+Provider connectivity and the analyst ride their own copier flags, which
+is why their two includes are the only conditional lines.
+"""
+
+from fastapi import APIRouter
+
+from app.components.backend.api.finance import (
+    accounts,
+    budgets,
+    categories,
+    changes,
+    declare,
+    goals,
+    imports,
+    insights,
+    investments,
+    overview,
+    payees,
+    planning,
+    recurring,
+    register,
+)
+
+router = APIRouter(prefix="/finance")
+router.include_router(overview.router, tags=["finance: overview"])
+router.include_router(accounts.router, tags=["finance: accounts"])
+router.include_router(investments.router, tags=["finance: investments"])
+router.include_router(imports.router, tags=["finance: imports"])
+router.include_router(register.router, tags=["finance: register"])
+router.include_router(budgets.router, tags=["finance: budgets"])
+router.include_router(planning.router, tags=["finance: envelopes"])
+router.include_router(goals.router, tags=["finance: goals"])
+router.include_router(payees.router, tags=["finance: payees"])
+router.include_router(categories.router, tags=["finance: categories"])
+router.include_router(changes.router, tags=["finance: changes"])
+router.include_router(recurring.router, tags=["finance: recurring"])
+router.include_router(declare.router, tags=["finance: recurring"])
+router.include_router(insights.router, tags=["finance: insights"])
+
+from app.components.backend.api.finance import connections  # noqa: E402
+
+router.include_router(connections.router, tags=["finance: providers"])
+
+from app.components.backend.api.finance import analyst  # noqa: E402
+
+router.include_router(analyst.router, tags=["finance: analyst"])

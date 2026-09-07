@@ -1,0 +1,97 @@
+"""Server-Sent Events endpoint for real-time worker event streaming."""
+
+import asyncio
+from collections.abc import AsyncGenerator
+import json
+
+from fastapi import APIRouter, Request
+import redis.asyncio as aioredis
+from starlette.responses import StreamingResponse
+
+from app.components.worker.events import WORKER_EVENT_STREAM, read_queue_totals
+from app.core.config import settings
+from app.core.log import logger
+
+router = APIRouter()
+
+# XREAD block timeout in milliseconds (5 seconds)
+_XREAD_BLOCK_MS = 5000
+
+# Maximum messages to read per XREAD call — high enough to drain the stream
+# faster than workers produce events during load tests
+_XREAD_COUNT = 500
+
+
+@router.get("/worker/stream")
+async def worker_event_stream(request: Request) -> StreamingResponse:
+    """
+    Stream real-time worker events via Server-Sent Events (SSE).
+
+    On connect, sends a "totals" event with absolute counters read from
+    arq's Redis keys. Then tails the Redis Stream and forwards individual
+    events as deltas. The frontend is responsible for batching UI updates.
+    """
+
+    async def event_generator() -> AsyncGenerator[str]:
+        redis_url = (
+            settings.redis_url_effective
+            if hasattr(settings, "redis_url_effective")
+            else settings.REDIS_URL
+        )
+        redis_client: aioredis.Redis = aioredis.from_url(
+            redis_url, decode_responses=True
+        )
+        try:
+            # Send initial baseline totals (read from Redis ONCE)
+            totals = await read_queue_totals(redis_client)
+            yield f"data: {json.dumps({'type': 'totals', 'queues': totals})}\n\n"
+            logger.debug(f"SSE: sent initial totals baseline: {totals}")
+
+            # Start from latest entries only (no replay of old events)
+            last_id = "$"
+
+            while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+
+                results = await redis_client.xread(
+                    {WORKER_EVENT_STREAM: last_id},
+                    block=_XREAD_BLOCK_MS,
+                    count=_XREAD_COUNT,
+                )
+
+                if not results:
+                    # No events within the block timeout — send keepalive
+                    yield ": heartbeat\n\n"
+                    continue
+
+                # Forward every stream event as-is
+                msg_count = 0
+                for _stream_name, messages in results:
+                    last_id = messages[-1][0]
+                    msg_count += len(messages)
+                    for _msg_id, data in messages:
+                        yield f"data: {json.dumps(data)}\n\n"
+
+                logger.debug(f"SSE: forwarded {msg_count} events")
+
+                # No sleep needed — XREAD(block=5s) naturally waits
+                # when the stream is empty. Events are forwarded instantly.
+
+        except asyncio.CancelledError:
+            # Client disconnected — normal SSE lifecycle
+            pass
+        except Exception as e:
+            logger.warning(f"SSE stream error: {e}")
+        finally:
+            await redis_client.aclose()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

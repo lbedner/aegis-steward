@@ -1,0 +1,153 @@
+"""Shared fixtures for AI service tests."""
+
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
+
+import pytest
+from sqlmodel import Session
+
+from app.services.ai.models import AIProvider, Conversation, MessageRole
+from app.services.ai.models.llm import LargeLanguageModel, LLMOrg, LLMPrice
+from app.services.ai.service import AIService
+
+
+@pytest.fixture
+def mock_ai_settings():
+    """Create mock settings for AI service testing."""
+    settings = MagicMock()
+    settings.AI_ENABLED = True
+    settings.AI_PROVIDER = "public"
+    settings.AI_MODEL = "gpt-3.5-turbo"
+    settings.AI_TEMPERATURE = 0.7
+    settings.AI_MAX_TOKENS = 1000
+    settings.AI_TIMEOUT_SECONDS = 30.0
+
+    # Provider API keys (None for PUBLIC)
+    settings.OPENAI_API_KEY = None
+    settings.ANTHROPIC_API_KEY = None
+    settings.GOOGLE_API_KEY = None
+    settings.GROQ_API_KEY = None
+    settings.MISTRAL_API_KEY = None
+    settings.COHERE_API_KEY = None
+
+    # RAG-Chat integration defaults. Needed because ``AIServiceConfig``
+    # now pulls these through ``getattr(settings, "RAG_CHAT_*", default)``
+    # and a plain ``MagicMock()`` auto-creates Mock attrs (not the
+    # defaults), which Pydantic then rejects as the wrong type.
+    settings.RAG_CHAT_DEFAULT_COLLECTION = "default"
+    settings.RAG_CHAT_TOP_K = 10
+    settings.RAG_CHAT_MIN_SCORE = 0.1
+
+    return settings
+
+
+@pytest.fixture
+def ai_service(mock_ai_settings):
+    """Create AI service instance for testing."""
+    return AIService(mock_ai_settings)
+
+
+@pytest.fixture
+def sample_conversation():
+    """Create a sample conversation for testing."""
+    return Conversation(
+        id="test-conversation-123",
+        provider=AIProvider.PUBLIC,
+        model="gpt-3.5-turbo",
+        title="Test Conversation",
+    )
+
+
+@pytest.fixture
+def conversation_with_messages(sample_conversation):
+    """Create a conversation with sample messages."""
+    sample_conversation.add_message(MessageRole.USER, "Hello, how are you?")
+    sample_conversation.add_message(MessageRole.ASSISTANT, "I'm doing well, thank you!")
+    sample_conversation.add_message(MessageRole.USER, "What's the weather like?")
+    return sample_conversation
+
+
+@pytest.fixture
+def free_provider_settings(mock_ai_settings):
+    """Create settings with a free provider."""
+    mock_ai_settings.AI_PROVIDER = "public"
+    return mock_ai_settings
+
+
+@pytest.fixture
+def paid_provider_settings(mock_ai_settings):
+    """Create settings with a paid provider (no API key)."""
+    mock_ai_settings.AI_PROVIDER = "openai"
+    mock_ai_settings.OPENAI_API_KEY = None  # Missing API key
+    return mock_ai_settings
+
+
+@pytest.fixture
+def paid_provider_with_key_settings(mock_ai_settings):
+    """Create settings with a paid provider and API key."""
+    mock_ai_settings.AI_PROVIDER = "openai"
+    mock_ai_settings.OPENAI_API_KEY = "sk-test-key-123"
+    return mock_ai_settings
+
+
+# Database fixtures for LLM usage tracking tests
+#
+# ``db_session`` deliberately comes from the root conftest: its engine attaches
+# an in-memory database for every non-default schema the project's models
+# declare (SQLite has no schemas), which a bare ``create_engine`` cannot do. A
+# local engine here would fail ``create_all`` outright on any stack whose other
+# services put tables in their own schema.
+
+
+@pytest.fixture
+def sample_vendor(db_session: Session) -> LLMOrg:
+    """Create a sample LLM vendor (OpenAI) in the database."""
+    vendor = LLMOrg(
+        slug="openai",
+        name="openai",
+        description="OpenAI API",
+        color="#10A37F",
+        api_base="https://api.openai.com/v1",
+        auth_method="api-key",
+    )
+    db_session.add(vendor)
+    db_session.commit()
+    db_session.refresh(vendor)
+    return vendor
+
+
+@pytest.fixture
+def sample_llm(db_session: Session, sample_vendor: LLMOrg) -> LargeLanguageModel:
+    """Create a sample LLM (gpt-4o) in the database."""
+    llm = LargeLanguageModel(
+        model_id="gpt-4o",
+        title="GPT-4o",
+        description="OpenAI's most advanced multimodal model",
+        context_window=128000,
+        streamable=True,
+        enabled=True,
+        color="#10A37F",
+        served_by_org_id=sample_vendor.id,
+    )
+    db_session.add(llm)
+    db_session.commit()
+    db_session.refresh(llm)
+    return llm
+
+
+@pytest.fixture
+def sample_price(
+    db_session: Session, sample_vendor: LLMOrg, sample_llm: LargeLanguageModel
+) -> LLMPrice:
+    """Create sample pricing for gpt-4o in the database."""
+    price = LLMPrice(
+        org_id=sample_vendor.id,
+        llm_id=sample_llm.id,
+        input_cost_per_token=0.000005,  # $5.00 per 1M tokens
+        output_cost_per_token=0.000015,  # $15.00 per 1M tokens
+        effective_date=datetime.now(UTC),
+    )
+    db_session.add(price)
+    db_session.commit()
+    db_session.refresh(price)
+    return price

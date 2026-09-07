@@ -1,0 +1,169 @@
+"""Tool-call trace assembly for streamed chat turns.
+
+The trace is the UI's expandable run trail: one entry per tool call
+(full script kept, result clipped), persisted on the message row and
+carried on the final SSE event.
+"""
+
+import json
+from typing import Any
+
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+)
+
+
+def call_args_preview(args: Any) -> str:
+    """A compact, display-ready summary of a tool call's arguments.
+
+    A code-mode script call is summarized by its first meaningful code
+    line - the UI trail should say what each script was FOR, not dump
+    the program. Ordinary calls keep their (clipped) arguments.
+    """
+    parsed: Any = args
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+        except ValueError:
+            parsed = args
+    if isinstance(parsed, dict) and isinstance(parsed.get("code"), str):
+        for line in parsed["code"].splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                return json.dumps({"code": stripped[:80]})
+        return ""
+    text = args if isinstance(args, str) else json.dumps(parsed)
+    return (text or "")[:120]
+
+
+# Trace-entry size caps: the trace persists on the message row and rides
+# the final SSE event, so a pathological payload must not bloat either.
+_TRACE_CODE_CAP = 6_000
+_TRACE_RESULT_CAP = 2_000
+
+
+def record_tool_call(trace: list[dict[str, Any]], event: FunctionToolCallEvent) -> None:
+    """Append a trace entry for a starting tool call (full code kept)."""
+    entry: dict[str, Any] = {"tool": event.part.tool_name}
+    args = event.part.args
+    parsed: Any = None
+    if isinstance(args, str):
+        try:
+            parsed = json.loads(args)
+        except ValueError:
+            parsed = None
+    elif isinstance(args, dict):
+        parsed = args
+    if isinstance(parsed, dict) and isinstance(parsed.get("code"), str):
+        entry["code"] = parsed["code"][:_TRACE_CODE_CAP]
+    else:
+        text = args if isinstance(args, str) else json.dumps(args)
+        entry["args"] = (text or "")[:_TRACE_RESULT_CAP]
+    trace.append(entry)
+
+
+def record_tool_result(
+    trace: list[dict[str, Any]], event: FunctionToolResultEvent
+) -> None:
+    """Attach a completing call's result (and nested dispatches) to its
+    trace entry, creating one if the call event was never seen."""
+    name = event.part.tool_name
+    entry = next(
+        (e for e in reversed(trace) if e["tool"] == name and "result" not in e),
+        None,
+    )
+    if entry is None:
+        entry = {"tool": name}
+        trace.append(entry)
+    content = event.part.content
+    text = content if isinstance(content, str) else json.dumps(content, default=str)
+    entry["result"] = text[:_TRACE_RESULT_CAP]
+    marker = _component_marker(name, content, text)
+    if marker is not None:
+        entry["component"] = marker
+    nested = nested_tool_calls(event)
+    if nested:
+        entry["nested"] = [{"tool": n, "args": a} for n, a in nested]
+
+
+def _component_marker(
+    name: str, content: Any, text: str
+) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """A compact, parse-safe payload for results the UI must RENDER.
+
+    The result field above is clipped for display; a large proposal
+    batch truncates to invalid JSON, and a card built by parsing it
+    silently vanished. The card needs only identity - the queue is
+    fetched for the rows - so identity rides here, under any cap. A
+    ``pending`` listing carries one identity per card it holds.
+    """
+    if name not in ("propose", "propose_many", "pending"):
+        return None
+    data: Any = content
+    if isinstance(content, str):
+        try:
+            data = json.loads(text if len(text) < _TRACE_RESULT_CAP else content)
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(data, dict) or data.get("error"):
+        return None
+    if name == "pending":
+        rows = (data.get("pending") or []) + (data.get("decided") or [])
+        return _pending_markers(rows) or None
+    return _identity_marker(data)
+
+
+def _pending_markers(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One marker per listed card, in listing order."""
+    identities = [
+        {
+            **card,
+            "count": card.get("rows"),
+            "pending_change_id": (card.get("pending_change_ids") or [None])[0],
+        }
+        for card in cards
+    ]
+    return [m for m in map(_identity_marker, identities) if m is not None]
+
+
+def _identity_marker(data: dict[str, Any]) -> dict[str, Any] | None:
+    if data.get("batch_id"):
+        return {
+            "kind": "pending_change_batch",
+            "batch_id": data["batch_id"],
+            "change_type": data.get("change_type"),
+            "title": data.get("title"),
+            "count": data.get("count"),
+        }
+    if data.get("pending_change_id"):
+        return {
+            "kind": "pending_change",
+            "pending_change_id": data["pending_change_id"],
+            "change_type": data.get("change_type"),
+            "title": data.get("title"),
+            "status": data.get("status", "pending"),
+        }
+    return None
+
+
+def nested_tool_calls(event: FunctionToolResultEvent) -> list[tuple[str, str]]:
+    """(name, compact args) per sandbox-dispatched call, in call order.
+
+    A completing ``run_code`` carries its nested dispatches in the return
+    part's metadata keyed ``<parent_id>__<n>``; other tool results have no
+    such metadata and yield nothing.
+    """
+    metadata = getattr(event.part, "metadata", None) or {}
+    calls = metadata.get("tool_calls") or {}
+
+    def order(call_id: str) -> int:
+        _, _, suffix = call_id.rpartition("__")
+        return int(suffix) if suffix.isdigit() else 0
+
+    out: list[tuple[str, str]] = []
+    for call_id in sorted(calls, key=order):
+        part = calls[call_id]
+        args = part.args if isinstance(part.args, str) else json.dumps(part.args)
+        out.append((part.tool_name, (args or "")[:120]))
+    return out

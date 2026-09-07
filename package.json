@@ -1,0 +1,16 @@
+{
+  "name": "aegis-steward-css",
+  "private": true,
+  "description": "Tailwind + DaisyUI build for the htmx web frontend. Not a JS app: this package.json exists only so npm install can pull the Tailwind CLI and its DaisyUI plugin at build time.",
+  "scripts": {
+    "build": "tailwindcss -i ./app/components/web_frontend/static/input.css -o ./app/components/web_frontend/static/dist/app.css --minify",
+    "watch": "tailwindcss -i ./app/components/web_frontend/static/input.css -o ./app/components/web_frontend/static/dist/app.css --watch",
+    "lint": "biome lint ./app/components/web_frontend/static/js",
+    "format": "biome format --write ./app/components/web_frontend/static/js"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.1",
+    "daisyui": "4.12.23",
+    "tailwindcss": "3.4.15"
+  }
+}

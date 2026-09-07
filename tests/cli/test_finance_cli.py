@@ -1,0 +1,355 @@
+"""Tests for the finance CLI commands.
+
+Offline: the services and DB session are patched, so these tests cover command
+registration, argument plumbing, and console output only - the behavior itself
+is covered by the service-layer tests.
+"""
+
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+from typer.testing import CliRunner
+
+from app.cli.finance import app
+
+runner = CliRunner()
+
+
+def _fake_session_cm() -> tuple[AsyncMock, Any]:
+    """A stand-in for ``get_async_session`` yielding a mock session."""
+    session = AsyncMock()
+
+    @asynccontextmanager
+    async def cm() -> Any:
+        yield session
+
+    return session, cm
+
+
+def _seed_result(**overrides: Any) -> SimpleNamespace:
+    base: dict[str, Any] = {
+        "accounts": 6,
+        "transactions": 247,
+        "imported_rows": 32,
+        "splits": 1,
+        "transfers": 15,
+        "recurring": 7,
+        "valuations": 40,
+        "trades": 24,
+        "net_worth_days": 213,
+        "skipped": False,
+        "reset": False,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+class TestSeedDemo:
+    def test_reports_what_it_seeded(self) -> None:
+        session, cm = _fake_session_cm()
+        mock_seed = AsyncMock(return_value=_seed_result())
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
+        ):
+            result = runner.invoke(app, ["seed-demo", "--owner-user-id", "1", "--yes"])
+        assert result.exit_code == 0
+        assert "247" in result.output
+        assert "213" in result.output
+        assert mock_seed.await_args.kwargs["owner_user_id"] == 1
+        assert mock_seed.await_args.kwargs["reset"] is False
+        session.commit.assert_awaited_once()
+
+    def test_already_seeded_says_so_without_failing(self) -> None:
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.seeds.demo_seed.seed_demo",
+                new=AsyncMock(return_value=_seed_result(skipped=True)),
+            ),
+        ):
+            result = runner.invoke(app, ["seed-demo", "--yes"])
+        assert result.exit_code == 0
+        assert "--reset" in result.output
+
+    def test_reset_flag_reaches_the_seeder(self) -> None:
+        _session, cm = _fake_session_cm()
+        mock_seed = AsyncMock(return_value=_seed_result(reset=True))
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
+        ):
+            result = runner.invoke(
+                app, ["seed-demo", "--reset", "--months", "6", "--yes"]
+            )
+        assert result.exit_code == 0
+        assert mock_seed.await_args.kwargs["reset"] is True
+        assert mock_seed.await_args.kwargs["months"] == 6
+
+    def test_months_out_of_range_is_rejected(self) -> None:
+        result = runner.invoke(app, ["seed-demo", "--months", "0"])
+        assert result.exit_code != 0
+
+    def test_existing_accounts_prompt_before_seeding(self) -> None:
+        """Seeding into real data is the risky case, so it asks first."""
+        _session, cm = _fake_session_cm()
+        mock_seed = AsyncMock(return_value=_seed_result())
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.seeds.demo_seed.count_foreign_accounts",
+                new=AsyncMock(return_value=3),
+            ),
+            patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
+        ):
+            declined = runner.invoke(app, ["seed-demo"], input="n\n")
+            accepted = runner.invoke(app, ["seed-demo"], input="y\n")
+        assert declined.exit_code == 1
+        assert "3" in declined.output
+        assert accepted.exit_code == 0
+        assert mock_seed.await_count == 1
+
+    def test_yes_skips_the_prompt(self) -> None:
+        _session, cm = _fake_session_cm()
+        mock_count = AsyncMock(return_value=3)
+        mock_seed = AsyncMock(return_value=_seed_result())
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.seeds.demo_seed.count_foreign_accounts",
+                new=mock_count,
+            ),
+            patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
+        ):
+            result = runner.invoke(app, ["seed-demo", "--yes"])
+        assert result.exit_code == 0
+        mock_count.assert_not_awaited()
+        mock_seed.assert_awaited_once()
+
+    def test_empty_install_does_not_prompt(self) -> None:
+        _session, cm = _fake_session_cm()
+        mock_seed = AsyncMock(return_value=_seed_result())
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.seeds.demo_seed.count_foreign_accounts",
+                new=AsyncMock(return_value=0),
+            ),
+            patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
+        ):
+            result = runner.invoke(app, ["seed-demo"])
+        assert result.exit_code == 0
+        mock_seed.assert_awaited_once()
+
+    def test_clear_removes_without_reseeding(self) -> None:
+        session, cm = _fake_session_cm()
+        mock_clear = AsyncMock(return_value=6)
+        mock_seed = AsyncMock(return_value=_seed_result())
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch("app.services.finance.seeds.demo_seed.clear_demo", new=mock_clear),
+            patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
+        ):
+            result = runner.invoke(app, ["seed-demo", "--clear"])
+        assert result.exit_code == 0
+        assert "6" in result.output
+        mock_seed.assert_not_awaited()
+        assert mock_clear.await_args.kwargs["owner_user_id"] is None
+        session.commit.assert_awaited_once()
+
+    def test_clear_with_nothing_seeded_says_so(self) -> None:
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.seeds.demo_seed.clear_demo",
+                new=AsyncMock(return_value=0),
+            ),
+        ):
+            result = runner.invoke(app, ["seed-demo", "--clear"])
+        assert result.exit_code == 0
+        assert "No demo" in result.output
+
+
+def _sync_result(**overrides: Any) -> SimpleNamespace:
+    base: dict[str, Any] = {
+        "connection_id": 7,
+        "accounts": 2,
+        "added": 3,
+        "updated": 0,
+        "removed": 0,
+        "holdings": 1,
+        "trades": 2,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+class TestSync:
+    def test_sync_reports_each_connection(self) -> None:
+        session, cm = _fake_session_cm()
+        mock_sync = AsyncMock(return_value=[_sync_result()])
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.sync_owner_connections",
+                new=mock_sync,
+            ),
+        ):
+            result = runner.invoke(app, ["sync", "--owner-user-id", "1"])
+        assert result.exit_code == 0
+        assert "Connection #7" in result.output
+        assert mock_sync.await_args.kwargs["owner_user_id"] == 1
+        session.commit.assert_awaited_once()
+
+    def test_sync_without_connections_is_a_noop(self) -> None:
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.sync_owner_connections",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = runner.invoke(app, ["sync"])
+        assert result.exit_code == 0
+        assert "No provider connections" in result.output
+
+    def test_sync_single_connection(self) -> None:
+        _session, cm = _fake_session_cm()
+        mock_one = AsyncMock(return_value=_sync_result())
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.sync_one_connection",
+                new=mock_one,
+            ),
+        ):
+            result = runner.invoke(app, ["sync", "--connection-id", "7"])
+        assert result.exit_code == 0
+        assert "Connection #7" in result.output
+        assert mock_one.await_args.args[1] == 7
+
+    def test_sync_single_connection_not_found_exits_nonzero(self) -> None:
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.sync_one_connection",
+                new=AsyncMock(return_value=None),
+            ),
+        ):
+            result = runner.invoke(app, ["sync", "--connection-id", "42"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+
+class TestFireWebhook:
+    def test_fires_and_reports_each_connection(self) -> None:
+        _session, cm = _fake_session_cm()
+        mock_fire = AsyncMock(return_value=[7])
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.fire_sandbox_webhook",
+                new=mock_fire,
+            ),
+        ):
+            result = runner.invoke(app, ["fire-webhook", "--owner-user-id", "1"])
+        assert result.exit_code == 0
+        assert "connection #7" in result.output
+        assert mock_fire.await_args.kwargs["owner_user_id"] == 1
+        assert mock_fire.await_args.kwargs["webhook_code"] == ("SYNC_UPDATES_AVAILABLE")
+
+    def test_no_connections_is_a_noop(self) -> None:
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.fire_sandbox_webhook",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = runner.invoke(app, ["fire-webhook"])
+        assert result.exit_code == 0
+        assert "No Plaid connections" in result.output
+
+    def test_provider_error_maps_to_exit_1(self) -> None:
+        from app.services.finance.adapters.providers.plaid import PlaidError
+
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.fire_sandbox_webhook",
+                new=AsyncMock(side_effect=PlaidError("sandbox_only", "not in sandbox")),
+            ),
+        ):
+            result = runner.invoke(app, ["fire-webhook"])
+        assert result.exit_code == 1
+        assert "sandbox_only" in result.output
+
+
+class TestSnapTradeConnect:
+    def test_connect_prints_the_portal_url(self) -> None:
+        session, cm = _fake_session_cm()
+        connection = SimpleNamespace(id=3)
+        portal_url = "https://app.snaptrade.com/connect?token=abc"
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.start_snaptrade_connect",
+                new=AsyncMock(return_value=(connection, portal_url)),
+            ),
+        ):
+            result = runner.invoke(app, ["snaptrade", "connect", "-u", "1"])
+        assert result.exit_code == 0
+        assert portal_url in result.output
+        session.commit.assert_awaited_once()
+
+    def test_complete_adopts_and_reports(self) -> None:
+        session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.complete_snaptrade_connect",
+                new=AsyncMock(return_value=[_sync_result(connection_id=3)]),
+            ),
+        ):
+            result = runner.invoke(app, ["snaptrade", "complete", "-u", "1"])
+        assert result.exit_code == 0
+        assert "Connected #3" in result.output
+        session.commit.assert_awaited_once()
+
+    def test_complete_before_portal_finish_exits_nonzero(self) -> None:
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.complete_snaptrade_connect",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = runner.invoke(app, ["snaptrade", "complete"])
+        assert result.exit_code == 1
+        assert "No new authorization" in result.output
+
+    def test_connect_maps_provider_error_to_exit_1(self) -> None:
+        from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+
+        _session, cm = _fake_session_cm()
+        with (
+            patch("app.core.db.get_async_session", new=cm),
+            patch(
+                "app.services.finance.adapters.providers.connections.start_snaptrade_connect",
+                new=AsyncMock(
+                    side_effect=SnapTradeError("missing_credentials", "not set")
+                ),
+            ),
+        ):
+            result = runner.invoke(app, ["snaptrade", "connect"])
+        assert result.exit_code == 1
+        assert "missing_credentials" in result.output

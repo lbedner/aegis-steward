@@ -1,0 +1,979 @@
+"""Finance host tools: the data surface code-mode agents compute over.
+
+Each tool opens its own session in production; tests point that at the
+transactional test session so factory-seeded rows are visible and rolled
+back per test.
+"""
+
+from contextlib import asynccontextmanager
+from datetime import date, timedelta
+
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.services.ai.domains.chat.tools import registered_tool_names
+import app.services.finance.ai_tools as ai_tools
+from app.services.finance.domains.ledger.properties import set_property_metadata
+from app.services.finance.domains.planning.envelopes import create_envelope
+from app.services.finance.domains.planning.goals import set_goal_metadata
+from app.services.finance.models.accounts import FinanceLiabilityDetail
+from app.services.finance.models.investments import (
+    FinanceHolding,
+    FinanceSecurity,
+    FinanceSecurityPrice,
+)
+from app.services.finance.models.reference import FinanceCurrency
+from app.services.finance.service import FinanceService
+from tests.services._finance_factories import (
+    seed_account,
+    seed_category,
+    seed_stream,
+    seed_txn,
+)
+
+EXPECTED_TOOLS = {"ledger", "accounts", "quote"}
+
+
+@pytest.fixture
+def session(async_db_session: AsyncSession) -> AsyncSession:
+    return async_db_session
+
+
+@pytest.fixture
+def svc(session: AsyncSession) -> FinanceService:
+    return FinanceService(session)
+
+
+@pytest.fixture(autouse=True)
+def _tools_use_test_session(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @asynccontextmanager
+    async def test_session():
+        yield session
+
+    monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+    # The write tools live in their own module with their own import.
+    from app.services.finance import ai_write_tools
+
+    monkeypatch.setattr(ai_write_tools, "get_async_session", test_session)
+
+
+def test_finance_tools_register_on_import() -> None:
+    """Importing the module makes every finance tool grantable by name."""
+    assert EXPECTED_TOOLS <= set(registered_tool_names())
+
+
+async def test_ledger_monthly_detail_reports_cashflow(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    account = await seed_account(svc)
+    today = date.today()
+    await seed_txn(svc, account.id, 250_00, today)
+    await seed_txn(svc, account.id, -100_00, today)
+
+    summary = await ai_tools.ledger(months=1)
+
+    assert len(summary["months"]) == 1
+    month = summary["months"][0]
+    assert month["income_cents"] == 250_00
+    assert month["spend_cents"] == 100_00
+    assert month["net_cents"] == 150_00
+
+
+async def test_ledger_transactions_detail_lists_line_items(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    account = await seed_account(svc)
+    category = await seed_category(session, "Coffee")
+    today = date.today()
+    await seed_txn(
+        svc, account.id, -4_50, today, name="Starbucks", category_id=category.id
+    )
+    await seed_txn(svc, account.id, 250_00, today, name="Paycheck")
+
+    result = await ai_tools.ledger(months=1, detail="transactions")
+
+    assert result["total"] == 2
+    starbucks = next(t for t in result["transactions"] if t["payee"] == "Starbucks")
+    assert starbucks["amount_cents"] == -4_50
+    assert starbucks["category"] == "Coffee"
+    assert starbucks["account"] == "Checking"
+    assert starbucks["date"] == today.isoformat()
+
+
+async def test_ledger_transactions_use_the_curated_payee(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A merchant the user named (a curated FinanceMerchant row) wins over
+    the raw bank descriptor - what the register shows is what the AI sees.
+    A renamed payee was invisible to the assistant's searches."""
+    account = await seed_account(svc)
+    today = date.today()
+    txn = await seed_txn(
+        svc, account.id, -108_50, today, name="NON-CHASE ATM WITHDRAW XX2488"
+    )
+    merchant = await svc.create_merchant("Hudson Valley Grounded", owner_user_id=1)
+    txn.merchant_id = merchant.id
+    session.add(txn)
+    await session.commit()
+
+    result = await ai_tools.ledger(months=1, detail="transactions")
+
+    payees = [t["payee"] for t in result["transactions"]]
+    assert payees == ["Hudson Valley Grounded"]
+
+
+async def test_ledger_rejects_unknown_detail() -> None:
+    with pytest.raises(ValueError):
+        await ai_tools.ledger(detail="weekly")
+
+
+async def test_accounts_returns_the_full_balance_sheet(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """One call: cash balances, holdings, envelope and goal metadata."""
+    await seed_account(svc, current_balance=5_000_00)
+    brokerage = await seed_account(svc, name="Brokerage", account_type="investment")
+    security = FinanceSecurity(ticker="NVDA", name="NVIDIA Corp")
+    session.add(security)
+    await session.flush()
+    session.add(
+        FinanceHolding(
+            owner_user_id=1,
+            account_id=brokerage.id,
+            security_id=security.id,
+            as_of_date=date.today(),
+            quantity_e8=4 * 10**8,
+            price=100_00,
+        )
+    )
+    await create_envelope(
+        session, owner_user_id=1, name="Groceries", monthly_credit=300_00
+    )
+    goal_account = await seed_account(
+        svc, name="Emergency Fund", account_type="savings"
+    )
+    goal_account.metadata_ = set_goal_metadata(
+        goal_account.metadata_, target_amount=10_000_00
+    )
+    session.add(goal_account)
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    by_name = {a["name"]: a for a in result["accounts"]}
+    assert by_name["Checking"]["balance_cents"] == 5_000_00
+    assert by_name["Checking"]["account_type"] == "checking"
+    assert by_name["Groceries"]["envelope"]["credit_cents"] == 300_00
+    assert by_name["Emergency Fund"]["goal"]["target_cents"] == 10_000_00
+    holdings = by_name["Brokerage"]["holdings"]
+    assert holdings[0]["ticker"] == "NVDA"
+    assert holdings[0]["quantity"] == 4.0
+    assert holdings[0]["market_value_cents"] == 400_00
+
+
+async def test_accounts_carries_property_provenance(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A property's value is only as good as where it came from. The entry
+    carries the provenance so the model can say "$711,200, your estimate as
+    of August 2026" instead of stating a guess as fact."""
+    house = await seed_account(
+        svc,
+        name="House Bedner",
+        account_type="property",
+        current_balance=711_200_00,
+    )
+    house.metadata_ = set_property_metadata(
+        house.metadata_,
+        purchase_price=285_000_00,
+        purchase_date=date(2016, 8, 1),
+        valuation_source="user",
+        valuation_as_of=date(2026, 8, 1),
+    )
+    session.add(house)
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    entry = {a["name"]: a for a in result["accounts"]}["House Bedner"]
+    assert entry["property"]["valuation_source"] == "user"
+    assert entry["property"]["valuation_as_of"] == "2026-08-01"
+    assert entry["property"]["purchase_price_cents"] == 285_000_00
+    assert entry["property"]["include_in_net_worth"] is True
+
+
+async def test_the_valuation_row_outranks_the_typed_provenance(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """When a dated series drives the balance, the entry must say where THAT
+    number came from. Reporting the metadata's label while the balance comes
+    from a Zestimate is how a model ends up calling an estimate an appraisal.
+    """
+    house = await seed_account(svc, name="House Bedner", account_type="property")
+    house.metadata_ = set_property_metadata(
+        house.metadata_, valuation_source="appraisal", valuation_as_of=date(2024, 1, 1)
+    )
+    session.add(house)
+    await session.flush()
+    await svc.ingest_valuations(
+        house.id,
+        owner_user_id=1,
+        rows=[(date(2026, 8, 1), 711_200_00)],
+        source="zillow",
+        is_estimate=True,
+    )
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    entry = {a["name"]: a for a in result["accounts"]}["House Bedner"]
+    assert entry["property"]["valuation_source"] == "zillow"
+    assert entry["property"]["valuation_as_of"] == "2026-08-01"
+    assert entry["property"]["is_estimate"] is True
+
+
+async def test_accounts_uses_register_balance_when_none_was_written(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A CSV-imported account carries current_balance=0 with no stamp; its
+    real balance is the transaction sum - the same rule the accounts tab
+    renders. A liability's balance reads negative (amount owed)."""
+    checking = await seed_account(svc)
+    today = date.today()
+    await seed_txn(svc, checking.id, 250_00, today)
+    await seed_txn(svc, checking.id, -100_00, today)
+    await seed_account(
+        svc,
+        name="AMEX",
+        account_type="credit_card",
+        classification="liability",
+        current_balance=29_090_86,
+    )
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    by_name = {a["name"]: a for a in result["accounts"]}
+    assert by_name["Checking"]["balance_cents"] == 150_00
+    assert by_name["AMEX"]["balance_cents"] == -29_090_86
+
+
+async def test_accounts_carries_upcoming_scheduled_flows(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Each account lists its scheduled flows inside the planning window,
+    signed like the briefing (inflows positive) - a transfer plan can
+    check every touched account's near-term debits without guessing."""
+    checking = await seed_account(svc)
+    await seed_stream(
+        svc,
+        name="Eleanor Care",
+        expected_amount=2_200_00,
+        next_expected_date=date.today() + timedelta(days=9),
+        account_id=checking.id,
+    )
+    await seed_stream(
+        svc,
+        name="NYS Deposit",
+        direction="inflow",
+        expected_amount=1_004_93,
+        next_expected_date=date.today() + timedelta(days=60),
+        account_id=checking.id,
+    )
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    entry = next(a for a in result["accounts"] if a["name"] == "Checking")
+    assert entry["upcoming"] == [
+        {
+            "name": "Eleanor Care",
+            "date": (date.today() + timedelta(days=9)).isoformat(),
+            "amount_cents": -2_200_00,
+        }
+    ]
+
+
+async def test_accounts_carries_liability_card_terms(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Interest rate, minimum payment and statement figures ride the
+    liability entry, so interest-cost math computes instead of estimating."""
+    amex = await seed_account(
+        svc,
+        name="AMEX",
+        account_type="credit_card",
+        classification="liability",
+        current_balance=29_090_86,
+    )
+    session.add(
+        FinanceLiabilityDetail(
+            owner_user_id=1,
+            account_id=amex.id,
+            liability_type="credit",
+            interest_rate_bps=2_899,
+            minimum_payment_amount=580_00,
+            next_payment_due_date=date(2026, 9, 5),
+            last_statement_balance=28_500_00,
+            ytd_interest_paid=1_240_55,
+        )
+    )
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    amex_entry = next(a for a in result["accounts"] if a["name"] == "AMEX")
+    liability = amex_entry["liability"]
+    assert liability["interest_rate_bps"] == 2_899
+    assert liability["minimum_payment_cents"] == 580_00
+    assert liability["next_payment_due"] == "2026-09-05"
+    assert liability["last_statement_balance_cents"] == 28_500_00
+    assert liability["ytd_interest_paid_cents"] == 1_240_55
+
+
+async def test_quote_returns_latest_stored_price(session: AsyncSession) -> None:
+    session.add(FinanceCurrency(code="usd", name="USD", decimals=2, kind="fiat"))
+    security = FinanceSecurity(ticker="VTI", name="Vanguard Total")
+    session.add(security)
+    await session.commit()
+    await session.refresh(security)
+    session.add(
+        FinanceSecurityPrice(
+            security_id=security.id,
+            price_date=date(2026, 1, 2),
+            close_price=200_00,
+            source="manual",
+        )
+    )
+    session.add(
+        FinanceSecurityPrice(
+            security_id=security.id,
+            price_date=date(2026, 2, 2),
+            close_price=210_00,
+            source="manual",
+        )
+    )
+    await session.commit()
+
+    result = await ai_tools.quote("vti")
+
+    assert result["found"] is True
+    assert result["ticker"] == "VTI"
+    assert result["close_cents"] == 210_00
+    assert result["as_of"] == "2026-02-02"
+
+
+async def test_quote_normalizes_sub_cent_scales_in_integer_math(
+    session: AsyncSession,
+) -> None:
+    """A scale-8 (crypto-style) price reaches cents without float drift."""
+    session.add(FinanceCurrency(code="usd", name="USD", decimals=2, kind="fiat"))
+    security = FinanceSecurity(ticker="SATS", name="Sub-cent Asset")
+    session.add(security)
+    await session.commit()
+    await session.refresh(security)
+    session.add(
+        FinanceSecurityPrice(
+            security_id=security.id,
+            price_date=date(2026, 3, 1),
+            close_price=123_456_789,  # 1.23456789 units at scale 8
+            price_scale=8,
+            source="manual",
+        )
+    )
+    await session.commit()
+
+    result = await ai_tools.quote("SATS")
+
+    assert result["close_cents"] == 123  # 123.456789 cents, rounded half up
+
+
+async def test_quote_unknown_ticker_reports_not_found(
+    session: AsyncSession,
+) -> None:
+    result = await ai_tools.quote("ZZZZ")
+
+    assert result["found"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_linked_property_reports_equity_and_ltv(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """FW-04 gate: link the mortgage as first lien and the property entry
+    carries equity and LTV matching the hand calculation; the liability
+    entry names what it secures."""
+    house = await seed_account(
+        svc,
+        name="House Bedner",
+        account_type="property",
+        current_balance=71_120_000,
+    )
+    await svc.set_property_details(house.id, owner_user_id=1, property_kind="primary")
+    mortgage = await seed_account(
+        svc,
+        name="Citizens Mortgage",
+        account_type="loan",
+        classification="liability",
+        current_balance=-18_700_000,
+    )
+    session.add(
+        FinanceLiabilityDetail(
+            owner_user_id=1,
+            account_id=mortgage.id,
+            secured_by_account_id=house.id,
+            lien_position=1,
+        )
+    )
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    entry = next(a for a in result["accounts"] if a["name"] == "House Bedner")
+    assert entry["property"]["equity_cents"] == 52_420_000
+    assert entry["property"]["ltv_bps"] == 2629
+    assert entry["property"]["liens"] == [
+        {"account": "Citizens Mortgage", "lien_position": 1}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_unlinked_property_shows_no_lending_figures(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The gate's unlink case: no link, no equity/LTV keys at all."""
+    house = await seed_account(
+        svc,
+        name="House Bedner",
+        account_type="property",
+        current_balance=71_120_000,
+    )
+    await svc.set_property_details(house.id, owner_user_id=1, property_kind="primary")
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    entry = next(a for a in result["accounts"] if a["name"] == "House Bedner")
+    assert "equity_cents" not in entry["property"]
+    assert "ltv_bps" not in entry["property"]
+    assert "liens" not in entry["property"]
+
+
+@pytest.mark.asyncio
+async def test_propose_is_the_only_write_and_moves_nothing(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """FW-05: the sandbox's one write tool records a pending change with
+    the turn's attribution and touches nothing in the ledger."""
+    from sqlmodel import select
+
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.models import FinancePendingChange
+
+    account = await seed_account(svc)
+    from app.services.finance.models import FinanceCategory
+
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Food & Dining:Groceries",
+        slug="pc-groceries",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    txn = await svc.create_transaction(
+        account_id=account.id,
+        amount=-897,
+        txn_date=date(2026, 6, 10),
+        owner_user_id=1,
+        name="Shelly's Deli",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="conv-9"):
+        result = await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": cat.id},
+        )
+
+    assert result["status"] == "pending"
+    assert result["change_type"] == "transaction.categorize"
+    row = (
+        await session.exec(
+            select(FinancePendingChange).where(
+                FinancePendingChange.id == result["pending_change_id"]
+            )
+        )
+    ).one()
+    assert row.proposed_by_agent == "finance-assistant"
+    assert row.conversation_id == "conv-9"
+    await session.refresh(txn)
+    assert txn.category_id is None  # proposing moved nothing
+
+
+@pytest.mark.asyncio
+async def test_propose_registers_as_a_native_write_tool() -> None:
+    """Code mode must dispatch propose as a visible native call - a
+    write from inside the sandbox is invisible in the tool trail."""
+    from app.services.ai.domains.chat.tools import native_write_tool_names
+
+    assert "propose" in native_write_tool_names()
+
+
+@pytest.mark.asyncio
+async def test_pending_hands_the_model_a_line_per_row_not_a_table(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A local model retypes whatever rows it is handed. The card draws
+    its own rows, so the listing carries one flat line per row and says
+    so, and never the label/value table the card is built from."""
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Auto:Transportation",
+        slug="pc-transport",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    txn = await svc.create_transaction(
+        account_id=account.id,
+        amount=-16840,
+        txn_date=date(2026, 9, 5),
+        owner_user_id=1,
+        name="State Farm Auto",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="conv-9"):
+        await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": cat.id},
+        )
+        result = await ai_tools.pending()
+
+    (entry,) = result["pending"]
+    assert "display" not in entry
+    assert "State Farm Auto" in entry["summary"]
+    assert "Transportation" in entry["summary"]
+    assert "redrawn" in result["note"]
+
+
+@pytest.mark.asyncio
+async def test_pending_also_shows_what_the_user_decided(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """ "Show me the card" after a rejection must show the rejection, so
+    recently decided cards ride along under ``decided`` with their
+    status, and the chat redraws them in their resolved state."""
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.domains import writes
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Auto:Transportation",
+        slug="pc-transport-2",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    txn = await svc.create_transaction(
+        account_id=account.id,
+        amount=-16840,
+        txn_date=date(2026, 8, 5),
+        owner_user_id=1,
+        name="State Farm Auto",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="conv-9"):
+        filed = await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": cat.id},
+        )
+        await writes.reject(session, filed["pending_change_id"], owner_user_id=None)
+        await session.commit()
+        result = await ai_tools.pending()
+
+    assert result["pending"] == []
+    (entry,) = result["decided"]
+    assert entry["pending_change_ids"] == [filed["pending_change_id"]]
+    assert entry["status"] == "rejected"
+    assert entry["decided_at"]
+
+
+@pytest.mark.asyncio
+async def test_pending_narrows_to_the_card_asked_about(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """ "What happened to the State Farm card" must not redraw every card
+    ever decided: ``about`` keeps the rows whose summary mentions it."""
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Auto:Transportation",
+        slug="pc-transport-3",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    farm = await svc.create_transaction(
+        account_id=account.id,
+        amount=-16840,
+        txn_date=date(2026, 7, 5),
+        owner_user_id=1,
+        name="State Farm Auto",
+    )
+    deli = await svc.create_transaction(
+        account_id=account.id,
+        amount=-897,
+        txn_date=date(2026, 7, 6),
+        owner_user_id=1,
+        name="Shelly's Deli",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="conv-9"):
+        for txn in (farm, deli):
+            await ai_tools.propose(
+                "transaction.categorize",
+                {"transaction_id": txn.id, "category_id": cat.id},
+            )
+        result = await ai_tools.pending(about="state farm")
+
+    assert [e["summary"].split(" /")[0] for e in result["pending"]] == [
+        "Transaction: State Farm Auto ($168.40 on Jul 5, 2026)"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pending_reports_a_withdrawal_as_withdrawn(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A card the assistant retracted itself is not one the user said no
+    to; the listing must not let it retell its own cleanup as a rejection."""
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Auto:Transportation",
+        slug="pc-transport-4",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    txn = await svc.create_transaction(
+        account_id=account.id,
+        amount=-16840,
+        txn_date=date(2026, 6, 5),
+        owner_user_id=1,
+        name="State Farm Auto",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="conv-9"):
+        filed = await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": cat.id},
+        )
+        await ai_tools.withdraw(filed["pending_change_id"], reason="Superseded.")
+        result = await ai_tools.pending(about="state farm")
+
+    (entry,) = result["decided"]
+    assert entry["status"] == "withdrawn"
+
+
+@pytest.mark.asyncio
+async def test_pending_lists_cards_not_rows(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A batch is one entry: its row count, its ids, and ONE example line.
+    Handed five row lines, a local model retypes them as a table under
+    the card that already shows them."""
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Auto:Transportation",
+        slug="pc-transport-5",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    payloads = []
+    for month in (5, 6, 7):
+        txn = await svc.create_transaction(
+            account_id=account.id,
+            amount=-16840,
+            txn_date=date(2026, month, 5),
+            owner_user_id=1,
+            name="State Farm Auto",
+        )
+        payloads.append({"transaction_id": txn.id, "category_id": cat.id})
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="conv-9"):
+        filed = await ai_tools.propose_many("transaction.categorize", payloads)
+        result = await ai_tools.pending(about="state farm")
+
+    (card,) = result["pending"]
+    assert card["batch_id"] == filed["batch_id"]
+    assert card["rows"] == 3
+    assert sorted(card["pending_change_ids"]) == sorted(
+        i["pending_change_id"] for i in filed["items"]
+    )
+    assert card["summary"].count("State Farm Auto") == 1
+
+
+@pytest.mark.asyncio
+async def test_pending_is_a_visible_native_call() -> None:
+    """The listing is how a card is shown again: the UI rebuilds cards
+    from the trail's marker, and only a native call leaves one."""
+    from app.services.ai.domains.chat.tools import native_write_tool_names
+
+    assert "pending" in native_write_tool_names()
+
+
+@pytest.mark.asyncio
+async def test_transaction_detail_carries_the_ids_a_proposal_needs(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A model cannot propose transaction.categorize without the
+    transaction's id and the current category_id - names alone made the
+    write tool ungrantable in practice."""
+    account = await seed_account(svc)
+    txn = await svc.create_transaction(
+        account_id=account.id,
+        amount=-1_296,
+        txn_date=date(2026, 8, 21),
+        owner_user_id=1,
+        name="Target",
+    )
+    await session.commit()
+
+    result = await ai_tools.ledger(months=3, detail="transactions")
+
+    row = next(r for r in result["transactions"] if r["payee"] == "Target")
+    assert row["id"] == txn.id
+    assert row["category_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_categories_lists_the_assignable_targets(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The other half of a categorize payload: the target category's id."""
+    from app.services.finance.models import FinanceCategory
+
+    session.add(
+        FinanceCategory(
+            owner_user_id=1,
+            name="Food & Dining:Groceries",
+            slug="cat-tool-groceries",
+            classification="expense",
+        )
+    )
+    await session.commit()
+
+    result = await ai_tools.categories()
+
+    match = next(
+        c for c in result["categories"] if c["name"] == "Food & Dining:Groceries"
+    )
+    assert isinstance(match["id"], int)
+    assert match["classification"] == "expense"
+
+
+@pytest.mark.asyncio
+async def test_ledger_rows_say_uncategorized_outright(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """ "Uncategorized" in this ledger is usually a REAL category (the
+    import catch-all), not a NULL - a model filtering category is None
+    burned four sandbox runs discovering that. The row states it."""
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    catchall = FinanceCategory(
+        owner_user_id=1,
+        name="Uncategorized",
+        slug="ai-tools-uncat",
+        classification="expense",
+    )
+    groceries = FinanceCategory(
+        owner_user_id=1,
+        name="Food & Dining:Groceries",
+        slug="ai-tools-groc",
+        classification="expense",
+    )
+    session.add(catchall)
+    session.add(groceries)
+    await session.flush()
+    await svc.create_transaction(
+        account_id=account.id,
+        amount=-100,
+        txn_date=date(2026, 8, 1),
+        owner_user_id=1,
+        name="Bare",
+    )
+    bucketed = await svc.create_transaction(
+        account_id=account.id,
+        amount=-200,
+        txn_date=date(2026, 8, 2),
+        owner_user_id=1,
+        name="Bucketed",
+    )
+    await svc.categorize_transaction(bucketed.id, catchall.id, owner_user_id=1)
+    filed = await svc.create_transaction(
+        account_id=account.id,
+        amount=-300,
+        txn_date=date(2026, 8, 3),
+        owner_user_id=1,
+        name="Filed",
+    )
+    await svc.categorize_transaction(filed.id, groceries.id, owner_user_id=1)
+    await session.commit()
+
+    result = await ai_tools.ledger(months=3, detail="transactions")
+
+    by_name = {r["payee"]: r for r in result["transactions"]}
+    assert by_name["Bare"]["uncategorized"] is True
+    assert (
+        by_name["Bucketed"]["uncategorized"] is True
+    )  # the catch-all IS uncategorized
+    assert by_name["Filed"]["uncategorized"] is False
+
+
+@pytest.mark.asyncio
+async def test_bills_lists_the_recurring_surface(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The agent cannot discuss (or match) bills it cannot see: every
+    live stream, both directions, with the ids proposals need."""
+    await seed_stream(
+        svc,
+        name="Eleanor Nursing Care",
+        expected_amount=100_000,
+        next_expected_date=date(2026, 7, 31),
+    )
+    await seed_stream(
+        svc,
+        name="Paycheck",
+        expected_amount=250_000,
+        next_expected_date=date(2026, 8, 1),
+        direction="inflow",
+        frequency="biweekly",
+    )
+    await session.commit()
+
+    result = await ai_tools.bills()
+
+    rows = {b["name"]: b for b in result["bills"]}
+    eleanor = rows["Eleanor Nursing Care"]
+    assert eleanor["direction"] == "outflow"
+    assert eleanor["frequency"] == "monthly"
+    assert eleanor["expected_amount"] == 100_000
+    assert eleanor["next_expected_date"] == "2026-07-31"
+    assert isinstance(eleanor["id"], int)
+    assert rows["Paycheck"]["direction"] == "inflow"
+
+
+@pytest.mark.asyncio
+async def test_bill_candidates_returns_the_ranked_shortlist(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The same shortlist the Bills tab's picker shows - the agent
+    proposes matches from the real heuristic, never from its own guess
+    about what looks similar."""
+    account = await seed_account(svc)
+    stream = await seed_stream(
+        svc,
+        name="Eleanor Nursing Care",
+        expected_amount=100_000,
+        next_expected_date=date(2026, 7, 31),
+    )
+    # The tools read under the standalone convention (owner NULL) -
+    # the matching heuristic scopes candidate rows to it.
+    payment = await seed_txn(
+        svc,
+        account.id,
+        -100_000,
+        date(2026, 7, 31),
+        name="Recurring Withdrawal CK *Eleanor Nursing Ca",
+        owner_user_id=None,
+    )
+    await seed_txn(  # wrong direction: never a candidate
+        svc,
+        account.id,
+        100_000,
+        date(2026, 7, 30),
+        name="Deposit",
+        owner_user_id=None,
+    )
+    await session.commit()
+
+    result = await ai_tools.bill_candidates(stream.id)
+
+    ids = [c["id"] for c in result["candidates"]]
+    assert payment.id in ids
+    top = result["candidates"][0]
+    assert top["amount"] == -100_000
+    assert top["date"] == "2026-07-31"
+    assert result["stream_id"] == stream.id
+
+
+@pytest.mark.asyncio
+async def test_bill_tools_register_for_granting() -> None:
+    assert {"bills", "bill_candidates"} <= set(registered_tool_names())
+
+
+@pytest.mark.asyncio
+async def test_ledger_rows_carry_their_tags(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The label axis must be visible where the agent reads - a tag it
+    cannot see is a rollup it cannot compute."""
+    from app.services.finance.domains.ledger.transactions import tag_transactions
+
+    account = await seed_account(svc)
+    txn = await seed_txn(svc, account.id, -900, date(2026, 8, 24), name="Link.com")
+    await tag_transactions(session, [txn.id], "Business", owner_user_id=None)
+    await session.commit()
+
+    result = await ai_tools.ledger(months=3, detail="transactions")
+
+    row = next(r for r in result["transactions"] if r["id"] == txn.id)
+    assert row["tags"] == ["Business"]
+
+
+@pytest.mark.asyncio
+async def test_tags_tool_lists_the_directory_with_counts(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    from app.services.finance.domains.ledger.transactions import tag_transactions
+
+    account = await seed_account(svc)
+    a = await seed_txn(svc, account.id, -900, date(2026, 8, 24), name="Link.com")
+    b = await seed_txn(svc, account.id, -800, date(2026, 8, 23), name="X Corp")
+    await tag_transactions(session, [a.id, b.id], "Business", owner_user_id=None)
+    await session.commit()
+
+    result = await ai_tools.tags()
+
+    assert {"name": "Business", "count": 2} in [
+        {"name": t["name"], "count": t["count"]} for t in result["tags"]
+    ]

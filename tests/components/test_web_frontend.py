@@ -1,0 +1,341 @@
+"""Tests for the web frontend scaffolding.
+
+Covers the two pieces with real logic: ``static()`` asset resolution
+(manifest present vs absent, and its mtime cache) and the two-tier
+``Cache-Control`` policy on fingerprinted vs plain assets.
+"""
+
+import json
+from pathlib import Path
+import re
+
+from fastapi.testclient import TestClient
+import pytest
+
+from app.components.web_frontend import main as web_main
+
+
+@pytest.fixture(autouse=True)
+def _reset_manifest_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test starts with an empty, unprimed manifest cache."""
+    monkeypatch.setattr(web_main, "_manifest", {})
+    monkeypatch.setattr(web_main, "_manifest_mtime", -1.0)
+
+
+def _write_manifest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, data: dict
+) -> Path:
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(data))
+    monkeypatch.setattr(web_main, "MANIFEST_PATH", manifest)
+    return manifest
+
+
+class TestStaticUrl:
+    def test_falls_back_to_source_path_without_manifest(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Dev renders with no build step, so a missing manifest is normal."""
+        monkeypatch.setattr(web_main, "MANIFEST_PATH", tmp_path / "absent.json")
+        assert web_main.static_url("css/app.css") == "/static/css/app.css"
+
+    def test_resolves_hashed_path_from_manifest(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _write_manifest(
+            monkeypatch, tmp_path, {"css/app.css": "dist/css/app-a1b2c3d4.css"}
+        )
+        assert web_main.static_url("css/app.css") == "/static/dist/css/app-a1b2c3d4.css"
+
+    def test_unknown_asset_falls_back_to_source_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        _write_manifest(
+            monkeypatch, tmp_path, {"css/app.css": "dist/css/app-a1b2c3d4.css"}
+        )
+        assert web_main.static_url("js/nope.js") == "/static/js/nope.js"
+
+    def test_corrupt_manifest_does_not_raise(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A half-written manifest must not take pages down."""
+        manifest = tmp_path / "manifest.json"
+        manifest.write_text("{not json")
+        monkeypatch.setattr(web_main, "MANIFEST_PATH", manifest)
+        assert web_main.static_url("css/app.css") == "/static/css/app.css"
+
+    def test_rebuilt_manifest_is_picked_up(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The mtime cache must not pin the first read forever, or a watcher
+        rebuild would leave the browser loading stale assets."""
+        manifest = _write_manifest(
+            monkeypatch, tmp_path, {"css/app.css": "dist/css/app-aaaaaaaa.css"}
+        )
+        assert web_main.static_url("css/app.css") == "/static/dist/css/app-aaaaaaaa.css"
+
+        manifest.write_text(json.dumps({"css/app.css": "dist/css/app-bbbbbbbb.css"}))
+        # Force a distinct mtime: same-second writes can otherwise collide.
+        stat = manifest.stat()
+        import os
+
+        os.utime(manifest, (stat.st_atime, stat.st_mtime + 10))
+
+        assert web_main.static_url("css/app.css") == "/static/dist/css/app-bbbbbbbb.css"
+
+
+class TestAssetFingerprinting:
+    """``build.py`` — the manifest ``static()`` reads.
+
+    Sources are globbed rather than listed, so a project adding its own JS
+    gets fingerprinting for free; these pin that, and the idempotence the
+    Docker build depends on.
+    """
+
+    @pytest.fixture
+    def static_tree(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """A throwaway static/ tree wired into the build module."""
+        from app.components.web_frontend import build as build_mod
+
+        (tmp_path / "css").mkdir()
+        (tmp_path / "js" / "pages").mkdir(parents=True)
+        (tmp_path / "dist").mkdir()
+        (tmp_path / "css" / "app.css").write_text("body{color:red}")
+        (tmp_path / "js" / "app.js").write_text("console.log(1)")
+        (tmp_path / "js" / "pages" / "extra.js").write_text("console.log(2)")
+        (tmp_path / "dist" / "app.css").write_text(".x{}")
+
+        monkeypatch.setattr(build_mod, "STATIC_DIR", tmp_path)
+        monkeypatch.setattr(build_mod, "DIST_DIR", tmp_path / "dist")
+        monkeypatch.setattr(
+            build_mod, "MANIFEST_PATH", tmp_path / "dist" / "manifest.json"
+        )
+        return tmp_path
+
+    def test_maps_logical_paths_to_hashed_copies(self, static_tree: Path) -> None:
+        from app.components.web_frontend.build import build_assets
+
+        manifest = build_assets()
+
+        assert re.fullmatch(r"dist/css/app-[0-9a-f]{8}\.css", manifest["css/app.css"])
+        assert re.fullmatch(r"dist/js/app-[0-9a-f]{8}\.js", manifest["js/app.js"])
+        # Tailwind output is fingerprinted beside itself, not nested.
+        assert re.fullmatch(r"dist/app-[0-9a-f]{8}\.css", manifest["dist/app.css"])
+        for built in manifest.values():
+            assert (static_tree / built).is_file(), built
+
+    def test_globs_nested_sources_without_a_list_to_maintain(
+        self, static_tree: Path
+    ) -> None:
+        from app.components.web_frontend.build import build_assets
+
+        manifest = build_assets()
+        assert re.fullmatch(
+            r"dist/js/pages/extra-[0-9a-f]{8}\.js", manifest["js/pages/extra.js"]
+        )
+
+    def test_never_fingerprints_its_own_output(self, static_tree: Path) -> None:
+        """Everything in dist/ except the Tailwind output is this script's
+        own work; hashing it would compound on every run."""
+        from app.components.web_frontend.build import build_assets
+
+        build_assets()
+        manifest = build_assets()  # second pass sees the first pass's output
+
+        for source in manifest:
+            assert source == "dist/app.css" or not source.startswith("dist/"), source
+        assert "dist/manifest.json" not in manifest
+
+    def test_is_idempotent(self, static_tree: Path) -> None:
+        from app.components.web_frontend.build import build_assets
+
+        first = build_assets()
+        second = build_assets()
+        assert first == second
+
+    def test_rehashes_when_a_source_changes(self, static_tree: Path) -> None:
+        from app.components.web_frontend.build import build_assets
+
+        before = build_assets()["css/app.css"]
+        (static_tree / "css" / "app.css").write_text("body{color:blue}")
+        after = build_assets()["css/app.css"]
+        assert before != after
+
+    def test_writes_a_manifest_static_can_read(self, static_tree: Path) -> None:
+        from app.components.web_frontend.build import build_assets
+
+        built = build_assets()
+        on_disk = json.loads((static_tree / "dist" / "manifest.json").read_text())
+        assert on_disk == built
+
+    def test_missing_tailwind_output_is_not_fatal(self, static_tree: Path) -> None:
+        """Dev runs before any Tailwind build; the rest must still hash."""
+        from app.components.web_frontend.build import build_assets
+
+        (static_tree / "dist" / "app.css").unlink()
+        manifest = build_assets()
+        assert "dist/app.css" not in manifest
+        assert "css/app.css" in manifest
+
+
+class TestBuildWatchSourceFilter:
+    """The watcher must react to sources and ignore its own output — the
+    difference between a working watcher and an infinite rebuild loop."""
+
+    def test_reacts_to_sources(self) -> None:
+        from app.components.web_frontend.build import STATIC_DIR
+        from app.components.web_frontend.build_watch import _is_source
+
+        assert _is_source(str(STATIC_DIR / "dist" / "app.css"))
+        assert _is_source(str(STATIC_DIR / "css" / "app.css"))
+        assert _is_source(str(STATIC_DIR / "js" / "app.js"))
+
+    def test_ignores_generated_output_and_noise(self) -> None:
+        from app.components.web_frontend.build import STATIC_DIR
+        from app.components.web_frontend.build_watch import _is_source
+
+        assert not _is_source(str(STATIC_DIR / "dist" / "manifest.json"))
+        assert not _is_source(str(STATIC_DIR / "dist" / "app-a1b2c3d4.css"))
+        assert not _is_source(str(STATIC_DIR / "dist" / "css" / "app-a1b2c3d4.css"))
+        assert not _is_source(str(STATIC_DIR / "css" / "app.css.swp"))
+        assert not _is_source("/etc/passwd")
+
+
+class TestCachedStaticFiles:
+    def _client(self, tmp_path: Path) -> TestClient:
+        from fastapi import FastAPI
+
+        (tmp_path / "dist").mkdir()
+        (tmp_path / "plain.css").write_text("body{}")
+        (tmp_path / "dist" / "app-a1b2c3d4.css").write_text("body{}")
+
+        app = FastAPI()
+        app.mount("/static", web_main.CachedStaticFiles(directory=str(tmp_path)))
+        return TestClient(app)
+
+    def test_fingerprinted_asset_is_immutable(self, tmp_path: Path) -> None:
+        response = self._client(tmp_path).get("/static/dist/app-a1b2c3d4.css")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == (
+            "public, max-age=31536000, immutable"
+        )
+
+    def test_plain_asset_gets_short_cache(self, tmp_path: Path) -> None:
+        response = self._client(tmp_path).get("/static/plain.css")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "public, max-age=3600"
+
+
+class TestLanding:
+    """The landing page served at /.
+
+    It is rendered by the real app, mounted alongside the Flet dashboard,
+    so these cover the wiring as well as the page.
+    """
+
+    @pytest.fixture
+    def page(self) -> str:
+        from app.integrations.main import create_integrated_app
+
+        with TestClient(create_integrated_app()) as client:
+            response = client.get("/")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        return response.text
+
+    def test_renders_through_the_template(self, page: str) -> None:
+        # Rendered through the template, so static() resolved the stylesheet.
+        assert "/static/css/app.css" in page
+
+    def test_names_this_project(self, page: str) -> None:
+        """The project's own name, not a placeholder."""
+        from app.core.config import settings
+
+        assert f"<title>{settings.PROJECT_DISPLAY_NAME}</title>" in page
+        # And in the hero, not just the tab.
+        assert page.count(settings.PROJECT_DISPLAY_NAME) >= 2
+
+    def test_describes_this_project(self, page: str) -> None:
+        from app.core.config import settings
+
+        assert settings.PROJECT_DESCRIPTION in page
+
+    def test_seo_head_is_parameterized(self, page: str) -> None:
+        from app.core.config import settings
+
+        assert (
+            f'<meta name="description" content="{settings.PROJECT_DESCRIPTION}">'
+            in (page)
+        )
+        assert (
+            f'<meta property="og:title" content="{settings.PROJECT_DISPLAY_NAME}">'
+            in (page)
+        )
+        assert 'property="og:description"' in page
+
+    def test_every_destination_it_offers_exists(self) -> None:
+        """No dead links: each in-project href the landing advertises
+        actually resolves."""
+        from app.integrations.main import create_integrated_app
+
+        with TestClient(create_integrated_app()) as client:
+            for path in ("/docs", "/health", "/dashboard"):
+                response = client.get(path, follow_redirects=True)
+                assert response.status_code == 200, path
+
+    def test_carries_no_template_placeholder_copy(self, page: str) -> None:
+        for banned in ("lorem", "TODO", "FIXME", "placeholder", "Your Name"):
+            assert banned.lower() not in page.lower(), banned
+
+
+class TestBaseLayout:
+    """The base layout's load-bearing head details.
+
+    These are behaviours a browser depends on, not styling choices: get any
+    of them wrong and pages break in ways unit tests elsewhere won't catch.
+    """
+
+    @pytest.fixture
+    def page(self) -> str:
+        from app.integrations.main import create_integrated_app
+
+        with TestClient(create_integrated_app()) as client:
+            return client.get("/").text
+
+    def test_htmx_history_cache_is_disabled(self, page: str) -> None:
+        """htmx history snapshots duplicate Alpine-expanded DOM and re-run
+        inline scripts on back/forward. The config meta tag is what stops
+        that, so it must reach the browser."""
+        assert '"historyCacheSize": 0' in page
+        assert '"refreshOnHistoryMiss": true' in page
+
+    def test_alpine_collapse_plugin_loads_before_core(self, page: str) -> None:
+        """Alpine registers plugin directives at init: if core runs first,
+        x-collapse is silently dead."""
+        assert page.index("@alpinejs/collapse") < page.index("alpinejs@"), (
+            "collapse plugin must be loaded before Alpine core"
+        )
+
+    def test_alpine_scripts_are_deferred(self, page: str) -> None:
+        for src in ("@alpinejs/collapse", "alpinejs@"):
+            tag = page[page.index(src) - 200 : page.index(src) + 200]
+            assert "defer" in tag, src
+
+    def test_snackbar_surface_is_present_on_every_page(self, page: str) -> None:
+        assert "appFlashSnackbar" in page
+        assert "__app_snackbar" in page
+
+    def test_app_js_is_loaded(self, page: str) -> None:
+        assert "/static/js/app.js" in page
+
+    def test_favicon_is_served(self) -> None:
+        from app.integrations.main import create_integrated_app
+
+        with TestClient(create_integrated_app()) as client:
+            assert client.get("/static/favicon.svg").status_code == 200
+
+    def test_no_pulse_only_assets(self, page: str) -> None:
+        """The port dropped Pulse's chart/date-picker stack; nothing should
+        still reference it."""
+        for banned in ("chart.js", "chartjs-chart-geo", "world-atlas", "flatpickr"):
+            assert banned not in page.lower(), banned

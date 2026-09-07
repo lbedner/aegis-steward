@@ -1,0 +1,45 @@
+"""Load test service package.
+
+Provides shared load-test infrastructure under ``common/`` plus
+variant-specific subservices: ``worker/`` (when the worker component is
+installed) and ``api/`` (always).
+
+Worker-side public names are re-exported here for back-compat with the
+pre-package import surface (``from app.services.load_test import
+LoadTestService``). The re-export block is gated on ``include_worker`` so
+projects without the worker component don't fail to import the package.
+"""
+
+from app.services.load_test.worker.models import (
+    LoadTestAnalysis,
+    LoadTestConfiguration,
+    LoadTestErrorModel,
+    LoadTestMetrics,
+    LoadTestResult,
+    OrchestratorRawResult,
+    PerformanceAnalysis,
+    TestTypeInfo,
+    ValidationStatus,
+)
+from app.services.load_test.worker.service import (
+    LoadTestService,
+    quick_cpu_test,
+    quick_io_test,
+    quick_memory_test,
+)
+
+__all__ = [
+    "LoadTestAnalysis",
+    "LoadTestConfiguration",
+    "LoadTestErrorModel",
+    "LoadTestMetrics",
+    "LoadTestResult",
+    "LoadTestService",
+    "OrchestratorRawResult",
+    "PerformanceAnalysis",
+    "TestTypeInfo",
+    "ValidationStatus",
+    "quick_cpu_test",
+    "quick_io_test",
+    "quick_memory_test",
+]

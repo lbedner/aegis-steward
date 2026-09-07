@@ -1,0 +1,535 @@
+"""
+AI service API router.
+
+FastAPI router for AI chat endpoints implementing core chat functionality,
+conversation management, and service status.
+"""
+
+from collections.abc import AsyncIterator
+from datetime import datetime
+import json
+from typing import Any
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+)
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from app.components.backend.api.ai import memory as memory_routes
+from app.core.config import settings
+from app.core.log import logger
+from app.services.ai.domains.chat.attachments import ChatAttachment
+from app.services.ai.service import (
+    AIService,
+    AIServiceError,
+    ConversationError,
+    ProviderError,
+)
+
+# Initialize AI service
+ai_service = AIService(settings)
+
+
+async def sync_active_model() -> None:
+    """Adopt the stored model selection before serving a request.
+
+    The selection is a database row, so it can be written by a different
+    process than this one - the CLI, or another worker. Re-reading it here is
+    what makes ``llm use`` and the Cloud Catalog tab take effect on the
+    running server without a restart.
+    """
+    from app.core.db import get_async_session
+    from app.services.ai.domains.llm import active_model
+
+    try:
+        async with get_async_session() as session:
+            applied = await active_model.load_into_settings(session, settings)
+    except Exception:
+        return  # No catalog table yet; the .env default is already in effect.
+    if applied and (
+        ai_service.config.model != settings.AI_MODEL
+        or ai_service.config.provider.value != settings.AI_PROVIDER
+    ):
+        ai_service.refresh_config()
+
+
+router = APIRouter(prefix="/ai", tags=["ai"], dependencies=[Depends(sync_active_model)])
+
+
+# Request/Response models
+class ChatRequest(BaseModel):
+    """Request model for chat messages."""
+
+    message: str
+    conversation_id: str | None = None
+    user_id: str = "api-user"
+    agent_slug: str | None = None
+    surface: str | None = None
+    # Image parts riding this turn (screenshots, receipts) - generic
+    # across every agent and surface; see domains/chat/attachments.py.
+    attachments: list[ChatAttachment] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    """Response model for chat messages."""
+
+    message_id: str
+    content: str
+    conversation_id: str
+    response_time_ms: float | None = None
+
+
+class ConversationSummary(BaseModel):
+    """Summary model for conversation listing."""
+
+    id: str
+    title: str | None
+    message_count: int
+    last_activity: str
+    provider: str
+    model: str
+
+
+class ModelUsageStats(BaseModel):
+    """Usage statistics for a single model."""
+
+    model_id: str
+    model_title: str
+    vendor: str
+    vendor_color: str
+    requests: int
+    tokens: int
+    cost: float
+    percentage: float
+
+
+class RecentActivity(BaseModel):
+    """A single recent usage activity entry."""
+
+    timestamp: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost: float
+    success: bool
+    action: str
+
+
+class UsageStatsResponse(BaseModel):
+    """Aggregated LLM usage statistics response."""
+
+    total_tokens: int
+    input_tokens: int
+    output_tokens: int
+    total_cost: float
+    total_requests: int
+    success_rate: float
+    models: list[ModelUsageStats]
+    recent_activity: list[RecentActivity]
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    """
+    Send a chat message and get AI response.
+
+    Args:
+        request: Chat request with message and optional conversation ID
+
+    Returns:
+        ChatResponse: AI response with conversation details
+
+    Raises:
+        HTTPException: If chat processing fails
+    """
+    try:
+        response_message = await ai_service.chat(
+            message=request.message,
+            conversation_id=request.conversation_id,
+            user_id=request.user_id,
+            agent_slug=request.agent_slug,
+            surface=request.surface,
+            attachments=request.attachments,
+        )
+
+        # Get updated conversation for metadata
+        conversation_id = response_message.metadata.get("conversation_id")
+        conversation = (
+            ai_service.get_conversation(conversation_id) if conversation_id else None
+        )
+        response_time = None
+        if conversation and "last_response_time_ms" in conversation.metadata:
+            response_time = conversation.metadata["last_response_time_ms"]
+
+        return ChatResponse(
+            message_id=response_message.id,
+            content=response_message.content,
+            conversation_id=conversation.id if conversation else "unknown",
+            response_time_ms=response_time,
+        )
+
+    except AIServiceError as e:
+        raise HTTPException(status_code=503, detail=f"AI service error: {e}")
+    except ProviderError as e:
+        raise HTTPException(status_code=502, detail=f"AI provider error: {e}")
+    except ConversationError as e:
+        raise HTTPException(status_code=400, detail=f"Conversation error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """
+    Stream a chat message with real-time Server-Sent Events.
+
+    Args:
+        request: Chat request with message and optional conversation ID
+
+    Returns:
+        StreamingResponse: SSE stream with real-time AI response
+
+    Raises:
+        HTTPException: If streaming fails
+    """
+
+    async def generate_sse_stream() -> AsyncIterator[str]:
+        """Generate Server-Sent Events stream for chat response."""
+        try:
+            # Send initial connection event
+            connect_data = {"status": "connected", "message": "Streaming started"}
+            yield f"event: connect\ndata: {json.dumps(connect_data)}\n\n"
+
+            # Stream the AI response
+            async for chunk in ai_service.stream_chat(
+                message=request.message,
+                conversation_id=request.conversation_id,
+                user_id=request.user_id,
+                stream_delta=True,
+                agent_slug=request.agent_slug,
+                surface=request.surface,
+                attachments=request.attachments,
+            ):
+                # Tool-use notice: no content, just which tool started, so
+                # the frontend can caption the pause in the token stream.
+                if (chunk.metadata or {}).get("event") == "tool":
+                    tool_data = {
+                        "tool": chunk.metadata.get("tool", ""),
+                        "args": chunk.metadata.get("args", ""),
+                    }
+                    yield f"event: tool\ndata: {json.dumps(tool_data)}\n\n"
+                    continue
+
+                # Format chunk as SSE event
+                event_data = {
+                    "content": chunk.content,
+                    "is_final": chunk.is_final,
+                    "is_delta": chunk.is_delta,
+                    "message_id": chunk.message_id,
+                    "conversation_id": chunk.conversation_id,
+                    "timestamp": chunk.timestamp.isoformat(),
+                }
+
+                # Add metadata for final chunk
+                if chunk.is_final:
+                    event_data.update(chunk.metadata)
+
+                # Send chunk as SSE event
+                event_type = "final" if chunk.is_final else "chunk"
+                yield f"event: {event_type}\ndata: {json.dumps(event_data)}\n\n"
+
+                # Break after final chunk
+                if chunk.is_final:
+                    break
+
+            # Send stream complete event
+            complete_data = {"status": "completed", "message": "Stream finished"}
+            yield f"event: complete\ndata: {json.dumps(complete_data)}\n\n"
+
+        except AIServiceError as e:
+            error_data = {"error": "AI service error", "detail": str(e)}
+            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+        except ProviderError as e:
+            error_data = {"error": "AI provider error", "detail": str(e)}
+            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+        except ConversationError as e:
+            error_data = {"error": "Conversation error", "detail": str(e)}
+            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+        except Exception as e:
+            error_data = {"error": "Unexpected error", "detail": str(e)}
+            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+
+    # Create streaming response with proper SSE headers
+    return StreamingResponse(
+        generate_sse_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type",
+        },
+    )
+
+
+@router.get("/conversations", response_model=list[ConversationSummary])
+async def list_conversations(
+    user_id: str = "api-user", surface: str | None = None, limit: int = 50
+) -> list[ConversationSummary]:
+    """
+    List conversations for a user, optionally scoped to one chat surface.
+
+    Args:
+        user_id: User identifier
+        surface: Originating surface to filter by (e.g. "finance")
+        limit: Maximum number of conversations to return
+
+    Returns:
+        List of conversation summaries
+    """
+    try:
+        conversations = ai_service.list_conversations(user_id, surface=surface)[:limit]
+
+        return [
+            ConversationSummary(
+                id=conv.id,
+                title=conv.title,
+                message_count=conv.get_message_count(),
+                last_activity=conv.updated_at.isoformat(),
+                provider=conv.provider.value,
+                model=conv.model,
+            )
+            for conv in conversations
+        ]
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list conversations: {e}"
+        )
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str, user_id: str = "api-user"
+) -> dict[str, Any]:
+    """
+    Get a specific conversation with full message history.
+
+    Args:
+        conversation_id: The conversation identifier
+        user_id: User identifier for access control
+
+    Returns:
+        Full conversation details with messages
+
+    Raises:
+        HTTPException: If conversation not found or access denied
+    """
+    try:
+        conversation = ai_service.get_conversation(conversation_id)
+
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Check access (basic user matching)
+        if conversation.metadata.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        return {
+            "id": conversation.id,
+            "title": conversation.title,
+            "provider": conversation.provider.value,
+            "model": conversation.model,
+            "created_at": conversation.created_at.isoformat(),
+            "updated_at": conversation.updated_at.isoformat(),
+            "message_count": conversation.get_message_count(),
+            "messages": [
+                {
+                    "id": msg.id,
+                    "role": msg.role.value,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat(),
+                    "metadata": msg.metadata,
+                }
+                for msg in conversation.messages
+            ],
+            "metadata": conversation.metadata,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get conversation: {e}")
+
+
+@router.get("/health")
+async def ai_health() -> dict[str, Any]:
+    """
+    AI service health endpoint.
+
+    Returns comprehensive health status including configuration,
+    conversation count, and service availability.
+    """
+    try:
+        status = ai_service.get_service_status()
+        validation_errors = ai_service.validate_service()
+
+        return {
+            "service": "ai",
+            "status": "healthy" if not validation_errors else "unhealthy",
+            "enabled": status["enabled"],
+            "provider": status["provider"],
+            "model": status["model"],
+            "agent_ready": status["agent_initialized"],
+            "total_conversations": status["total_conversations"],
+            "configuration_valid": status["configuration_valid"],
+            "validation_errors": validation_errors,
+        }
+
+    except Exception as e:
+        return {
+            "service": "ai",
+            "status": "error",
+            "error": str(e),
+        }
+
+
+@router.get("/version")
+async def ai_version() -> dict[str, Any]:
+    """AI service version and feature information."""
+    return {
+        "service": "ai",
+        "engine": "pydantic-ai",
+        "version": "1.0",
+        "features": [
+            "chat",
+            "conversation_management",
+            "multi_provider_support",
+            "health_monitoring",
+            "api_endpoints",
+            "cli_commands",
+        ],
+        "providers_supported": [
+            "openai",
+            "anthropic",
+            "google",
+            "groq",
+            "mistral",
+            "cohere",
+        ],
+    }
+
+
+@router.get("/usage/stats", response_model=UsageStatsResponse)
+async def get_usage_stats(
+    user_id: str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    recent_limit: int = 10,
+) -> UsageStatsResponse:
+    """
+    Get aggregated LLM usage statistics.
+
+    All aggregations are performed at the SQL level for scalability.
+    Supports filtering by user and time range.
+
+    Args:
+        user_id: Optional filter by user
+        start_time: Optional start of time range (ISO format)
+        end_time: Optional end of time range (ISO format)
+        recent_limit: Number of recent activities to return (default: 10)
+
+    Returns:
+        Usage statistics including totals, model breakdown, and recent activity
+    """
+    try:
+        stats = ai_service.get_usage_stats(
+            user_id=user_id,
+            start_time=start_time,
+            end_time=end_time,
+            recent_limit=recent_limit,
+        )
+        return UsageStatsResponse(**stats)
+
+    except Exception as e:
+        logger.exception("Failed to get usage stats")
+        raise HTTPException(status_code=500, detail="Failed to get usage stats") from e
+
+
+@router.get("/sentiment/stats")
+async def get_sentiment_stats() -> dict[str, Any]:
+    """
+    Get aggregated conversation sentiment statistics.
+
+    Returns the sentiment/performance distributions, average score, and
+    the most recent negative conversations, plus whether the scoring job
+    is enabled. Zero-filled when nothing has been scored yet.
+    """
+    from app.services.ai.domains.chat.sentiment import sentiment_stats
+
+    try:
+        return await sentiment_stats()
+    except Exception as e:
+        logger.exception("Failed to get sentiment stats")
+        raise HTTPException(
+            status_code=500, detail="Failed to get sentiment stats"
+        ) from e
+
+
+class AgentUpdateRequest(BaseModel):
+    """Partial update of an agent's editable fields."""
+
+    name: str | None = None
+    description: str | None = None
+    category: str | None = None
+    model_id: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    system_prompt: str | None = None
+    is_active: bool | None = None
+
+
+@router.get("/agents")
+async def list_registry_agents() -> list[dict[str, Any]]:
+    """List all agents in the registry with their tool/module grants."""
+    from app.services.ai.domains.chat.agent_registry import list_agents, serialize_agent
+
+    try:
+        return [serialize_agent(agent) for agent in await list_agents()]
+    except Exception as e:
+        logger.exception("Failed to list agents")
+        raise HTTPException(status_code=500, detail="Failed to list agents") from e
+
+
+@router.patch("/agents/{slug}")
+async def update_registry_agent(
+    slug: str, request: AgentUpdateRequest
+) -> dict[str, Any]:
+    """Apply a partial agent update (invalidates its cached config)."""
+    from app.services.ai.domains.chat.agent_registry import (
+        AgentNotFoundError,
+        InvalidAgentUpdateError,
+        serialize_agent,
+        update_agent,
+    )
+
+    changes = request.model_dump(exclude_unset=True)
+    try:
+        agent = await update_agent(slug, changes)
+    except AgentNotFoundError:
+        raise HTTPException(
+            status_code=404, detail=f"Agent '{slug}' not found"
+        ) from None
+    except InvalidAgentUpdateError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    except Exception as e:
+        logger.exception("Failed to update agent")
+        raise HTTPException(status_code=500, detail="Failed to update agent") from e
+    return serialize_agent(agent)
+
+
+# Memory modules and saved facts both live in their own module.
+router.include_router(memory_routes.router, tags=["ai: memory"])

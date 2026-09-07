@@ -1,0 +1,283 @@
+"""
+Symmetric encryption helper for sensitive column values.
+
+Used to protect at-rest secrets like per-project API keys and OAuth
+tokens, stored in the database alongside their metadata. A DB dump
+should never reveal a usable token.
+
+Threat model
+------------
+We protect against:
+
+* Read-only DB compromise (pg_dump, replica access, backup theft).
+* Misrouting attacks within the DB (an attacker swapping ciphertext
+  from row A into row B to fool the app into using A's token for B's
+  context) — when callers opt into AAD via the ``context`` arg.
+
+We do NOT protect against:
+
+* App-server compromise — the running process holds the encryption
+  key and can read everything. Mitigate with KMS-backed keys if the
+  threat model grows.
+
+How it works (v2 — current format)
+----------------------------------
+Each ciphertext is tagged with a version prefix and a base64 blob:
+
+    v2:<base64_url(nonce || ciphertext_with_tag)>
+
+* Cipher: AES-256-GCM (AEAD — confidentiality + integrity in one).
+* Key:    SHA-256 of ``settings.ENCRYPTION_KEY`` (or ``SECRET_KEY``
+          as a backward-compat fallback). 32-byte AES-256 key.
+* Nonce:  12 random bytes per call. Same plaintext + same key + same
+          context = different ciphertext (so equality across rows
+          leaks nothing).
+* AAD:    Optional. When the caller passes ``context``, the ciphertext
+          is bound to that context (typically ``"project:7:github_token"``)
+          and an attacker who copies row 7's ciphertext into row 12
+          will see decrypt fail because the AAD no longer matches.
+          When ``context`` is omitted, no AAD binding is applied —
+          useful for ad-hoc encryption that doesn't have a stable row
+          identity.
+
+Legacy support (v1 — Fernet)
+----------------------------
+Pre-existing rows (from this template's earlier Fernet-only version)
+decrypt transparently when the ciphertext lacks the ``v2:`` prefix.
+The legacy key derivation (SHA-256 of ``SECRET_KEY`` → urlsafe-b64) is
+preserved so existing data stays readable. Re-saves rewrite to v2 with
+the active key. No explicit migration step required — every row
+migrates on next write.
+
+Why versioning matters
+----------------------
+Rotating the encryption secret (or the cipher) means re-encrypting
+every row. With a version prefix we can identify "old ciphertexts
+that still need migration" deterministically. Without it, rotation
+is a guessing game.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import hashlib
+import logging
+import secrets
+
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+_V2_PREFIX = "v2:"
+_NONCE_LEN = 12  # AES-GCM standard; do not change
+
+_cached_aesgcm: AESGCM | None = None
+_cached_fernet: Fernet | None = None
+_fallback_warned = False
+
+
+def _encryption_key_material() -> bytes:
+    """Return the raw bytes the AESGCM key is derived from.
+
+    Prefers ``settings.ENCRYPTION_KEY``; falls back to ``settings.SECRET_KEY``
+    with a one-time warning so legacy deploys keep working. ``settings`` is
+    the single source of truth — tests rotate the key by
+    ``monkeypatch.setattr(settings, "ENCRYPTION_KEY", ...)`` plus a
+    ``_reset_cache()`` call.
+    """
+    global _fallback_warned
+    explicit = getattr(settings, "ENCRYPTION_KEY", None)
+    if explicit:
+        return explicit.encode("utf-8")
+    if not _fallback_warned:
+        logger.warning(
+            "ENCRYPTION_KEY not set; falling back to SECRET_KEY for at-rest "
+            "encryption. Set ENCRYPTION_KEY to a distinct value to split "
+            "JWT-signing and credential-encryption blast radii.",
+        )
+        _fallback_warned = True
+    return settings.SECRET_KEY.encode("utf-8")
+
+
+def _aesgcm() -> AESGCM:
+    """Return the per-process AESGCM cipher, building it on first use.
+
+    Key derivation: SHA-256 of the encryption secret → 32-byte AES-256
+    key. Deterministic so the same secret across restarts decrypts the
+    same rows.
+    """
+    global _cached_aesgcm
+    if _cached_aesgcm is None:
+        key = hashlib.sha256(_encryption_key_material()).digest()
+        _cached_aesgcm = AESGCM(key)
+    return _cached_aesgcm
+
+
+def _legacy_fernet() -> Fernet:
+    """Per-process Fernet for decrypting pre-v2 ciphertexts.
+
+    Keyed off ``SECRET_KEY`` (the original template derivation) so
+    existing rows stay readable until they're re-saved and migrated
+    to v2.
+    """
+    global _cached_fernet
+    if _cached_fernet is None:
+        digest = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
+        key = base64.urlsafe_b64encode(digest)
+        _cached_fernet = Fernet(key)
+    return _cached_fernet
+
+
+def _reset_cache() -> None:
+    """Drop cached cipher instances so the next call re-derives keys.
+
+    Test-only — production code should never need this. Mutating
+    ``settings.ENCRYPTION_KEY`` / ``settings.SECRET_KEY`` mid-run
+    without resetting will use a stale key.
+    """
+    global _cached_aesgcm, _cached_fernet, _fallback_warned
+    _cached_aesgcm = None
+    _cached_fernet = None
+    _fallback_warned = False
+
+
+def encrypt_secret(plaintext: str, *, context: str | None = None) -> str:
+    """Encrypt a plaintext string. Returns the ``v2:...`` ciphertext.
+
+    ``context`` (optional) is the AEAD associated data — when passed,
+    binds the ciphertext to its location (row + column) so it can't be
+    swapped between rows. Recommended shape:
+    ``"project:{id}:{column_name}"``. When omitted, no AAD binding is
+    applied. Pass an explicit context for any value that has a stable
+    row identity; leave unset for ad-hoc encryption.
+    """
+    aad = context.encode("utf-8") if context else b""
+    nonce = secrets.token_bytes(_NONCE_LEN)
+    ct = _aesgcm().encrypt(nonce, plaintext.encode("utf-8"), aad)
+    return _V2_PREFIX + base64.urlsafe_b64encode(nonce + ct).decode("ascii")
+
+
+def decrypt_secret(ciphertext: str, *, context: str | None = None) -> str:
+    """Decrypt a ciphertext produced by ``encrypt_secret`` (any version).
+
+    ``context`` must match the value used at encrypt time for v2
+    tokens — including ``None``/omitted on both sides. Mismatched
+    context = decryption fails with ``InvalidToken``, by design.
+
+    For legacy v1 (Fernet) ciphertexts the context is ignored on
+    decrypt (Fernet has no AAD support); the next encrypt of the same
+    secret upgrades the row to v2.
+    """
+    if ciphertext.startswith(_V2_PREFIX):
+        try:
+            blob = base64.urlsafe_b64decode(
+                ciphertext[len(_V2_PREFIX) :].encode("ascii")
+            )
+        except (ValueError, binascii.Error) as e:
+            raise InvalidToken("malformed v2 ciphertext") from e
+        if len(blob) < _NONCE_LEN + 16:  # nonce + min tag size
+            raise InvalidToken("v2 ciphertext too short")
+        nonce, ct = blob[:_NONCE_LEN], blob[_NONCE_LEN:]
+        aad = context.encode("utf-8") if context else b""
+        try:
+            return _aesgcm().decrypt(nonce, ct, aad).decode("utf-8")
+        except Exception as e:
+            # AESGCM raises cryptography.exceptions.InvalidTag; surface
+            # as our existing InvalidToken so callers don't have to
+            # special-case the v1/v2 exception type.
+            raise InvalidToken(str(e)) from e
+    # Legacy v1: Fernet token (no version prefix, starts with "gAAAA...").
+    return _legacy_fernet().decrypt(ciphertext.encode("utf-8")).decode("utf-8")
+
+
+def is_legacy_ciphertext(ciphertext: str) -> bool:
+    """True if the value still uses the v1 (Fernet) format.
+
+    Surfaced for migration scripts / dashboards that want to count
+    how many rows still need re-encryption. Not used by the hot path.
+    """
+    return not ciphertext.startswith(_V2_PREFIX)
+
+
+# ---------------------------------------------------------------------------
+# Key-aware helpers — used by the rotation CLI, not the hot path.
+#
+# Normal app code uses ``encrypt_secret`` / ``decrypt_secret`` which read
+# the active key from settings. Rotation needs to operate with TWO
+# distinct keys at once (decrypt with old, encrypt with new), so these
+# helpers take the key material as an explicit argument and don't touch
+# the module singletons.
+# ---------------------------------------------------------------------------
+
+
+def _build_aesgcm(key_material: bytes) -> AESGCM:
+    """Build an AESGCM cipher from raw secret bytes (SHA-256 → 32B key)."""
+    return AESGCM(hashlib.sha256(key_material).digest())
+
+
+def _build_fernet(key_material: bytes) -> Fernet:
+    """Build a Fernet cipher (v1 format) from raw secret bytes."""
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(key_material).digest()))
+
+
+def decrypt_with_key(
+    ciphertext: str,
+    *,
+    key_material: bytes,
+    context: str | None = None,
+) -> str:
+    """Decrypt with an explicit key (rotation-only).
+
+    Detects v1 vs v2 from the prefix and uses the matching cipher.
+    """
+    if ciphertext.startswith(_V2_PREFIX):
+        try:
+            blob = base64.urlsafe_b64decode(
+                ciphertext[len(_V2_PREFIX) :].encode("ascii"),
+            )
+        except (ValueError, binascii.Error) as e:
+            raise InvalidToken("malformed v2 ciphertext") from e
+        if len(blob) < _NONCE_LEN + 16:
+            raise InvalidToken("v2 ciphertext too short")
+        nonce, ct = blob[:_NONCE_LEN], blob[_NONCE_LEN:]
+        aad = context.encode("utf-8") if context else b""
+        try:
+            return (
+                _build_aesgcm(key_material)
+                .decrypt(
+                    nonce,
+                    ct,
+                    aad,
+                )
+                .decode("utf-8")
+            )
+        except Exception as e:
+            raise InvalidToken(str(e)) from e
+    return (
+        _build_fernet(key_material)
+        .decrypt(
+            ciphertext.encode("utf-8"),
+        )
+        .decode("utf-8")
+    )
+
+
+def encrypt_with_key(
+    plaintext: str,
+    *,
+    key_material: bytes,
+    context: str | None = None,
+) -> str:
+    """Encrypt with an explicit key (rotation-only). Always produces v2."""
+    nonce = secrets.token_bytes(_NONCE_LEN)
+    aad = context.encode("utf-8") if context else b""
+    ct = _build_aesgcm(key_material).encrypt(
+        nonce,
+        plaintext.encode("utf-8"),
+        aad,
+    )
+    return _V2_PREFIX + base64.urlsafe_b64encode(nonce + ct).decode("ascii")

@@ -1,0 +1,49 @@
+"""Scheduled jobs for AI service."""
+
+from app.core.log import logger
+
+
+async def sync_llm_catalog_job() -> None:
+    """Scheduled job for syncing LLM catalog from public APIs.
+
+    Runs every 6 hours to keep the LLM catalog up-to-date with
+    the latest models, pricing, and capabilities from vendors.
+    """
+    from sqlmodel import Session
+
+    from app.core.db import engine
+    from app.services.ai.domains.llm.etl import sync_llm_catalog
+
+    try:
+        with Session(engine) as session:
+            result = await sync_llm_catalog(session, mode="chat")
+            logger.info(
+                f"LLM catalog sync complete: "
+                f"{result.models_added} added, {result.models_updated} updated"
+            )
+    except Exception as e:
+        logger.error(f"LLM catalog sync failed: {e}")
+
+
+async def analyze_sentiment_job() -> None:
+    """Scheduled batch sentiment scoring of conversations.
+
+    Present but OFF by default: every scored conversation costs model
+    tokens, so the job early-returns until AI_SENTIMENT_ENABLED is set.
+    """
+    from app.core.config import settings
+
+    if not settings.AI_SENTIMENT_ENABLED:
+        logger.debug("Sentiment analysis disabled; skipping job")
+        return
+
+    from app.services.ai.domains.chat.sentiment import score_unscored_conversations
+
+    try:
+        counts = await score_unscored_conversations()
+        logger.info(
+            f"Sentiment job complete: {counts['scored']} scored, "
+            f"{counts['skipped']} skipped, {counts['failed']} failed"
+        )
+    except Exception as e:
+        logger.error(f"Sentiment job failed: {e}")

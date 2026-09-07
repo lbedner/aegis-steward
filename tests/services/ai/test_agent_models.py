@@ -1,0 +1,206 @@
+"""Tests for the agent registry models and seed fixtures."""
+
+import subprocess
+import sys
+
+import pytest
+from sqlmodel import Session, select
+
+from app.services.ai.domains.chat.prompts import get_default_system_prompt
+from app.services.ai.domains.chat.tools import (
+    register_tool,
+    resolve_tools,
+    unregister_tool,
+)
+from app.services.ai.fixtures.agent_fixtures import (
+    DEFAULT_AGENT_SLUG,
+    load_agent_fixtures,
+)
+from app.services.ai.models import Agent, AgentTool, Tool
+
+
+@pytest.fixture
+def session(db_session: Session) -> Session:
+    """The root conftest's transactional session (rolled back per test).
+
+    A bare local engine cannot ``create_all`` this project's metadata: the
+    root conftest imports every service's models, so tables live in named
+    schemas (finance, scheduler, ...) only the shared engine attaches.
+    """
+    return db_session
+
+
+class TestAgentSeed:
+    """The default agent seed is present, correct, and idempotent."""
+
+    def test_seeds_default_agent(self, session: Session) -> None:
+        counts = load_agent_fixtures(session)
+
+        assert counts["agents"] == 1
+        agent = session.exec(
+            select(Agent).where(Agent.slug == DEFAULT_AGENT_SLUG)
+        ).one()
+        assert agent.is_active
+        assert agent.system_prompt == get_default_system_prompt()
+        # None = "use the service's active model".
+        assert agent.model_id is None
+
+    def test_seed_is_idempotent(self, session: Session) -> None:
+        load_agent_fixtures(session)
+        counts = load_agent_fixtures(session)
+
+        assert counts["agents"] == 0
+        assert counts["tools"] == 0
+        agents = session.exec(select(Agent)).all()
+        assert len(agents) == 1
+
+    def test_registered_tools_get_grantable_rows(self, session: Session) -> None:
+        """Every name in the Python tool registry gets a ``tool`` row."""
+
+        async def probe() -> str:
+            """Probe tool."""
+            return "ok"
+
+        register_tool("cm_probe", probe, description="Probe tool", replace=True)
+        try:
+            counts = load_agent_fixtures(session)
+            assert counts["tools"] >= 1
+            rows = {t.name: t for t in session.exec(select(Tool)).all()}
+            assert "cm_probe" in rows
+            assert rows["cm_probe"].description == "Probe tool"
+        finally:
+            unregister_tool("cm_probe")
+
+    def test_seed_never_overwrites_edited_agent(self, session: Session) -> None:
+        load_agent_fixtures(session)
+        agent = session.exec(
+            select(Agent).where(Agent.slug == DEFAULT_AGENT_SLUG)
+        ).one()
+        agent.system_prompt = "Customized prompt"
+        session.add(agent)
+        session.commit()
+
+        load_agent_fixtures(session)
+
+        refreshed = session.exec(
+            select(Agent).where(Agent.slug == DEFAULT_AGENT_SLUG)
+        ).one()
+        assert refreshed.system_prompt == "Customized prompt"
+
+
+class TestStartupSeedsTheRegistry:
+    """Nothing in a running project used to call the fixture loaders, so a
+    deployed stack had agents without tools (or no agents at all). Startup
+    owns it now."""
+
+    def test_startup_helper_seeds_agents_and_tool_rows(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from contextlib import contextmanager
+
+        from app.components.backend.startup.agent_registry import seed_agent_registry
+        import app.core.db as core_db
+
+        @contextmanager
+        def _test_session(autocommit: bool = True):  # type: ignore[no-untyped-def]
+            yield session
+
+        monkeypatch.setattr(core_db, "db_session", _test_session)
+
+        counts = seed_agent_registry()
+
+        assert counts["agents"] >= 1
+        assert (
+            session.exec(select(Tool).where(Tool.name == "save_memory")).first()
+            is not None
+        )
+
+    def test_reseeding_changes_nothing(
+        self, session: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from contextlib import contextmanager
+
+        from app.components.backend.startup.agent_registry import seed_agent_registry
+        import app.core.db as core_db
+
+        @contextmanager
+        def _test_session(autocommit: bool = True):  # type: ignore[no-untyped-def]
+            yield session
+
+        monkeypatch.setattr(core_db, "db_session", _test_session)
+
+        seed_agent_registry()
+        again = seed_agent_registry()
+
+        assert again["agents"] == 0
+        assert again["tools"] == 0
+
+
+class TestBuiltinToolRowsSeed:
+    """A grant is by NAME against a ``tool`` row, so a tool the registry
+    never saw cannot be granted to anything."""
+
+    def test_seeding_alone_registers_the_builtin_tools(self) -> None:
+        """Seeding runs in processes that never build a chat agent (a CLI,
+        a startup hook), and the registry only holds tools whose module was
+        imported. Without the fixtures module importing the built-ins, the
+        sync writes no rows and every later grant silently no-ops.
+
+        Subprocess on purpose: in-process the test suite has already
+        imported half the runtime, which hides exactly this failure.
+        """
+        script = (
+            "from app.services.ai.fixtures import agent_fixtures\n"
+            "from app.services.ai.domains.chat.tools import registered_tool_names\n"
+            "names = set(registered_tool_names())\n"
+            "missing = {'save_memory', 'replace_memory'} - names\n"
+            "assert not missing, f'unregistered: {sorted(missing)}'\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True
+        )
+
+        assert result.returncode == 0, result.stderr
+
+
+class TestAgentToolLink:
+    """Tools attach to agents through the agent_tool link table."""
+
+    def test_tool_attachment_round_trips(self, session: Session) -> None:
+        load_agent_fixtures(session)
+        agent = session.exec(
+            select(Agent).where(Agent.slug == DEFAULT_AGENT_SLUG)
+        ).one()
+        # The registry sync seeded the row; attaching reuses it by name.
+        tool = session.exec(select(Tool).where(Tool.name == "save_memory")).one()
+        session.add(AgentTool(agent_id=agent.id, tool_id=tool.id))
+        session.commit()
+
+        session.refresh(agent)
+        assert [t.name for t in agent.tools] == ["save_memory"]
+
+    def test_attached_tool_resolves_to_registered_callable(
+        self, session: Session
+    ) -> None:
+        """DB attachment (agent_tool) + registry = the loop's tool list."""
+
+        def greet(name: str) -> str:
+            """Greet someone by name."""
+            return f"hi {name}"
+
+        register_tool("greet", greet)
+        try:
+            load_agent_fixtures(session)
+            agent = session.exec(
+                select(Agent).where(Agent.slug == DEFAULT_AGENT_SLUG)
+            ).one()
+            # Registered before the seed ran, so the sync created its row.
+            tool = session.exec(select(Tool).where(Tool.name == "greet")).one()
+            session.add(AgentTool(agent_id=agent.id, tool_id=tool.id))
+            session.commit()
+
+            session.refresh(agent)
+            names = [t.name for t in agent.tools if t.is_active]
+            assert resolve_tools(names) == [greet]
+        finally:
+            unregister_tool("greet")

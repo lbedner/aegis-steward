@@ -1,0 +1,22 @@
+/* Custom styles layered on top of Tailwind + DaisyUI.
+ *
+ * Served unhashed in dev (one-hour browser cache) and fingerprinted in
+ * production, where the asset build rewrites it into static/dist/ and
+ * static() points templates at the hashed URL.
+ */
+
+/* Alpine x-cloak — hide elements until Alpine initializes them.
+ * Load-bearing: without it, every x-show="false" element flashes visible
+ * on first paint and on each htmx swap before Alpine re-binds. */
+[x-cloak] {
+  display: none !important;
+}
+
+:root {
+  /* Tell the browser to render native controls (scrollbars, date and
+     select pickers, form fields) dark, so they don't punch a white hole
+     through the dark UI. */
+  color-scheme: dark;
+  /* Native accent for checkboxes, radios and range inputs. */
+  accent-color: #17ccbf;
+}

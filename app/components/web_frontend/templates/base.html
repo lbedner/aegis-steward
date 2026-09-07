@@ -1,0 +1,70 @@
+{# Base layout every page extends.
+
+   Blocks: title, favicon, head_extra, navbar, page_body, content, footer,
+   scripts. Override ``content`` for an ordinary page; reach for
+   ``page_body`` only when a page needs to replace the whole main wrapper.
+#}
+<!DOCTYPE html>
+<html lang="en" data-theme="aegis">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ project_name }}{% endblock %}</title>
+
+  {# Favicon: SVG only. Modern browsers handle it natively (auto-scales,
+     respects prefers-color-scheme inside the SVG, and the bytes are
+     smaller than maintaining a multi-resolution ICO). Older browsers and
+     bots that auto-request /favicon.ico will 404 — harmless. #}
+  {% block favicon %}<link rel="icon" type="image/svg+xml" href="{{ static('favicon.svg') }}">{% endblock %}
+
+  {# Tailwind + DaisyUI, precompiled — no runtime JIT, no CDN. Built into
+     static/dist by the asset pipeline; static() returns the fingerprinted
+     URL once a build exists and the raw source path before then. #}
+  <link rel="stylesheet" href="{{ static('dist/app.css') }}">
+
+  {# htmx. History snapshots are disabled deliberately: htmx's default
+     back-button behavior saves the live DOM to localStorage and re-injects
+     it on history navigation. This DOM is full of Alpine-expanded
+     templates (x-if/x-for clones, x-teleport copies) and script tags —
+     restoring a snapshot re-runs scripts ("identifier already declared")
+     and makes Alpine re-expand already-expanded templates, duplicating the
+     whole page once per back/forward press. historyCacheSize 0 makes every
+     restore a cache miss; refreshOnHistoryMiss turns a miss into a clean
+     full-page load instead of an AJAX restore. #}
+  <meta name="htmx-config" content='{"historyCacheSize": 0, "refreshOnHistoryMiss": true}'>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+
+  {# Alpine.js — the collapse plugin MUST load before core so its directive
+     is registered when Alpine inits. Both deferred, plugin first. #}
+  <script src="https://unpkg.com/@alpinejs/collapse@3.14.8/dist/cdn.min.js" defer></script>
+  <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+
+  {# Custom styles #}
+  <link rel="stylesheet" href="{{ static('css/app.css') }}">
+
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="min-h-screen bg-aegis-bg text-aegis-text {% block body_class %}{% endblock %}">
+
+  {% block navbar %}
+  <div class="max-w-screen-xl mx-auto px-6 lg:px-16 py-3 flex items-center justify-between border-b border-aegis-border">
+    <a href="/" class="text-sm font-semibold text-aegis-teal tracking-wide">{{ project_name }}</a>
+    <a href="/dashboard" class="text-xs text-aegis-muted border border-aegis-border rounded px-3 py-1 hover:text-white hover:border-aegis-muted">Dashboard</a>
+  </div>
+  {% endblock %}
+
+  {% block page_body %}
+  <main class="max-w-screen-xl mx-auto px-6 lg:px-16 py-6">
+    {% block content %}{% endblock %}
+  </main>
+  {% endblock %}
+
+  {% block footer %}{% endblock %}
+
+  {% include "components/snackbar.html" %}
+
+  <script src="{{ static('js/app.js') }}"></script>
+  {% if auth_enabled %}<script src="{{ static('js/auth.js') }}"></script>{% endif %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

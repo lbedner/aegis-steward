@@ -1,0 +1,46 @@
+!Type:Bank
+D07/01/2026
+T-45.99
+PBlue Bottle Coffee
+Mmorning
+LDining
+^
+D07/03/2026
+T3200.00
+PACME Payroll
+LIncome
+^
+D07/04/2026
+T-12.00
+PParking Garage
+^
+D07/04/2026
+T-12.00
+PParking Garage
+^
+D07/05/2026
+T-100.00
+PSupermarket
+SGroceries
+$-60.00
+SHousehold
+$-30.00
+SMisc
+$-10.00
+^
+D07/06/2026
+T-500.00
+PTransfer to Savings
+L[Savings]
+^
+D07/07/2026
+T-89.99
+PComcast
+N1055
+LUtilities
+^
+D07/08/2026
+T-25.00
+PGym Membership
+LDining
+^

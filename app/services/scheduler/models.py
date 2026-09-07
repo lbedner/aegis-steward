@@ -1,0 +1,145 @@
+"""Models for scheduled task management - both database and service layer."""
+
+from datetime import datetime
+import pickle
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+from sqlalchemy import Column, DateTime, Float, LargeBinary, String, Text
+from sqlmodel import Field as SQLField
+from sqlmodel import SQLModel
+
+# ============================================================================
+# DATABASE MODELS (SQLModel)
+# ============================================================================
+
+
+class APSchedulerJob(SQLModel, table=True):
+    """
+    Mirror of APScheduler's job persistence table.
+    This model allows us to read APScheduler data using SQLModel's async capabilities.
+
+    Note: APScheduler creates this table, we only read from it.
+    The table structure matches APScheduler 3.x exactly.
+    """
+
+    __tablename__ = "apscheduler_jobs"
+
+    # Use SA Column types for exact compatibility with APScheduler's table structure
+    id: str = SQLField(sa_column=Column(String(191), primary_key=True))
+    next_run_time: float | None = SQLField(
+        sa_column=Column(Float(25), nullable=True, index=True)
+    )
+    job_state: bytes = SQLField(sa_column=Column(LargeBinary, nullable=False))
+
+    def get_job_data(self) -> dict[str, Any]:
+        """
+        Deserialize the pickled job state.
+
+        Returns:
+            dict: Job data with standard APScheduler keys.
+
+        Note:
+            This is safe because we're reading APScheduler's own data format.
+            APScheduler writes pickled job data to this table - we're just reading it.
+        """
+        return pickle.loads(self.job_state)  # type: ignore[no-any-return]
+
+
+class JobExecution(SQLModel, table=True):
+    """One row per scheduled-job run (success, failure, or in-flight).
+
+    Written by the scheduler's APScheduler event listeners; read by the
+    backend API for the dashboard History view. ``job_id`` is APScheduler's
+    job id (not an FK) and ``job_name`` is denormalized so history survives
+    a job being removed from the schedule.
+    """
+
+    __tablename__ = "job_execution"
+
+    id: int | None = SQLField(default=None, primary_key=True)
+    job_id: str = SQLField(sa_column=Column(String(191), index=True, nullable=False))
+    job_name: str = SQLField(default="", sa_column=Column(String(255), nullable=False))
+    scheduled_run_time: datetime | None = SQLField(default=None)
+    started_at: datetime = SQLField(
+        sa_column=Column(DateTime, index=True, nullable=False)
+    )
+    finished_at: datetime | None = SQLField(default=None)
+    duration_ms: float | None = SQLField(default=None)
+    # running | success | failed | missed
+    status: str = SQLField(
+        default="running", sa_column=Column(String(16), index=True, nullable=False)
+    )
+    error_message: str | None = SQLField(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
+    traceback: str | None = SQLField(
+        default=None, sa_column=Column(Text, nullable=True)
+    )
+
+
+# ============================================================================
+# SERVICE LAYER MODELS (Pydantic)
+# ============================================================================
+
+
+class ScheduledTask(BaseModel):
+    """
+    Represents a scheduled task with all relevant information.
+    This is the clean data model used by CLI/API consumers.
+    """
+
+    job_id: str = Field(..., description="Unique task identifier")
+    name: str = Field(..., description="Human-readable task name")
+    function: str = Field(..., description="Function reference (module:function)")
+    schedule: str = Field(..., description="Human-readable schedule (e.g., 'Every 5m')")
+    trigger_type: Literal["interval", "cron", "date", "unknown"] = Field(
+        ..., description="Type of scheduling trigger"
+    )
+    next_run_time: datetime | None = Field(
+        None, description="Next scheduled execution time"
+    )
+    status: Literal["active", "paused"] = Field(..., description="Current task status")
+    max_instances: int = Field(1, description="Maximum concurrent instances allowed")
+    coalesce: bool = Field(True, description="Whether to coalesce missed runs")
+
+    @property
+    def is_active(self) -> bool:
+        """Check if the task is currently active."""
+        return self.status == "active"
+
+
+class TaskStatistics(BaseModel):
+    """Statistics about scheduled tasks in the system."""
+
+    total_tasks: int = Field(0, description="Total number of scheduled tasks")
+    active_tasks: int = Field(0, description="Number of active tasks")
+    paused_tasks: int = Field(0, description="Number of paused tasks")
+
+
+# ============================================================================
+# HEALTH MONITORING MODELS (Available for all scheduler modes)
+# ============================================================================
+
+
+class UpcomingTask(BaseModel):
+    """Information about an upcoming scheduled task."""
+
+    job_id: str = Field(..., description="Task identifier")
+    name: str = Field(..., description="Human-readable task name")
+    next_run: str = Field(..., description="ISO datetime string of next execution")
+    schedule: str = Field(..., description="Human-readable schedule description")
+    function: str = Field("", description="Function reference (module.function)")
+    description: str | None = Field(None, description="Function docstring")
+
+
+class SchedulerHealthMetadata(BaseModel):
+    """Health metadata for scheduler components."""
+
+    total_tasks: int = Field(0, description="Total number of scheduled tasks")
+    active_tasks: int = Field(0, description="Number of active tasks")
+    paused_tasks: int = Field(0, description="Number of paused tasks")
+    upcoming_tasks: list[UpcomingTask] = Field(
+        default_factory=list, description="List of upcoming tasks (max 5)"
+    )
+    scheduler_state: str = Field("unknown", description="Scheduler state description")

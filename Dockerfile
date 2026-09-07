@@ -1,0 +1,97 @@
+
+# ---------------------------------------------------------------------------
+# css-build — compile Tailwind + DaisyUI ahead of time. The output ships in
+# the final image as a plain static file; Node and npm never run at runtime.
+# ---------------------------------------------------------------------------
+FROM node:22-alpine AS css-build
+WORKDIR /build
+
+# npm deps first so the layer caches across source changes.
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+# The config, entry stylesheet, and every source Tailwind scans for class
+# usage. A class that lives outside these paths is not emitted.
+COPY tailwind.config.js ./
+COPY app/components/web_frontend/static/input.css \
+     ./app/components/web_frontend/static/input.css
+COPY app/components/web_frontend/templates \
+     ./app/components/web_frontend/templates
+COPY app/components/web_frontend/static/js \
+     ./app/components/web_frontend/static/js
+
+RUN npx tailwindcss \
+    -i ./app/components/web_frontend/static/input.css \
+    -o ./app/components/web_frontend/static/dist/app.css \
+    --minify
+
+
+FROM python:3.14-slim
+
+# Install system dependencies and clean up
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      curl \
+    && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Install uv with specific version for reproducibility
+RUN pip install --no-cache-dir uv==0.10.0
+
+# Set environment variables
+# Use /opt/venv for virtual environment to avoid conflicts with volume mounts
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/code \
+    UV_CACHE_DIR=/tmp/uv-cache \
+    UV_HTTP_TIMEOUT=300 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /code
+
+# Copy dependency files and README (needed by pyproject.toml)
+COPY pyproject.toml uv.lock README.md /code/
+
+# Install dependencies
+RUN uv sync --all-extras && \
+    rm -rf /tmp/uv-cache
+
+# Copy application code
+COPY . /code
+
+# Overlay the compiled stylesheet from the css-build stage. It is gitignored,
+# so it is absent from the build context; this is the only thing that puts it
+# in the image. Dev compose runs a tailwind watcher instead.
+COPY --from=css-build /build/app/components/web_frontend/static/dist/app.css \
+     /code/app/components/web_frontend/static/dist/app.css
+
+# Fingerprint static assets (writes dist/<name>-<hash>.<ext> + manifest.json).
+# Pure stdlib, so it runs without the venv. Unlocks Cache-Control:
+# max-age=1y, immutable at runtime.
+RUN python -m app.components.web_frontend.build
+
+# Make entrypoint executable
+RUN chmod +x /code/scripts/entrypoint.sh
+
+# Set default port as an environment variable
+ARG PORT=8000
+ENV PORT=$PORT
+
+# Expose the port
+EXPOSE $PORT
+
+# Add health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:$PORT/health || exit 1
+
+
+# Labels for better container management
+LABEL maintainer="contact@aegis-stack.dev" \
+      version="0.1.0" \
+      description="Aegis Stack - Production-ready async Python foundation"
+
+ENTRYPOINT ["uv", "run", "/code/scripts/entrypoint.sh"]

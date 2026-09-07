@@ -1,0 +1,325 @@
+"""Async scheduled task manager using SQLModel for database abstraction."""
+
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import func, inspect
+from sqlmodel import col, select
+
+from app.core.db import async_engine, get_async_session
+from app.core.log import logger
+
+from .models import APSchedulerJob, JobExecution, ScheduledTask, TaskStatistics
+
+
+class ScheduledTaskManager:
+    """
+    Manages scheduled tasks via async database operations.
+
+    Uses SQLModel for database abstraction, supporting SQLite, PostgreSQL, MySQL.
+    Only available when scheduler persistence is enabled - reads from
+    apscheduler_jobs table.
+    """
+
+    async def has_persistence(self) -> bool:
+        """Check if apscheduler_jobs table exists."""
+        try:
+            async with async_engine.begin() as conn:
+                # Use inspector to check tables
+                tables = await conn.run_sync(
+                    lambda sync_conn: inspect(sync_conn).get_table_names()
+                )
+                return "apscheduler_jobs" in tables
+        except Exception as e:
+            logger.error(f"Error checking persistence: {e}")
+            return False
+
+    async def list_tasks(self) -> list[ScheduledTask]:
+        """
+        List all scheduled tasks from the database.
+
+        Returns:
+            list[ScheduledTask]: List of all scheduled tasks with their details.
+
+        Raises:
+            RuntimeError: If persistence is not available.
+        """
+        if not await self.has_persistence():
+            raise RuntimeError(
+                "Scheduled task listing requires persistence. "
+                "The apscheduler_jobs table was not found in the database."
+            )
+
+        async with get_async_session() as session:
+            # Query all jobs ordered by next run time (nulls last)
+            result = await session.exec(
+                select(APSchedulerJob).order_by(
+                    APSchedulerJob.next_run_time.desc().nulls_last()  # type: ignore[union-attr]
+                )
+            )
+            jobs = result.all()
+
+            tasks = []
+            for job in jobs:
+                try:
+                    job_data = job.get_job_data()
+                    task = ScheduledTask(
+                        job_id=job.id,
+                        name=job_data.get("name", job.id),
+                        function=job_data.get("func", "unknown"),
+                        schedule=self._format_trigger(job_data.get("trigger")),
+                        trigger_type=self._get_trigger_type(job_data.get("trigger")),
+                        next_run_time=(
+                            datetime.fromtimestamp(job.next_run_time)
+                            if job.next_run_time
+                            else None
+                        ),
+                        status="active" if job.next_run_time else "paused",
+                        max_instances=job_data.get("max_instances", 1),
+                        coalesce=job_data.get("coalesce", True),
+                    )
+                    tasks.append(task)
+                except Exception as e:
+                    logger.error(f"Error processing job {job.id}: {e}")
+                    continue
+
+            return tasks
+
+    async def get_task(self, task_id: str) -> ScheduledTask | None:
+        """
+        Get a specific task by ID.
+
+        Args:
+            task_id: The unique identifier of the task.
+
+        Returns:
+            ScheduledTask | None: The task if found, None otherwise.
+        """
+        async with get_async_session() as session:
+            result = await session.exec(
+                select(APSchedulerJob).where(APSchedulerJob.id == task_id)
+            )
+            job = result.first()
+
+            if not job:
+                return None
+
+            try:
+                job_data = job.get_job_data()
+                return ScheduledTask(
+                    job_id=job.id,
+                    name=job_data.get("name", job.id),
+                    function=job_data.get("func", "unknown"),
+                    schedule=self._format_trigger(job_data.get("trigger")),
+                    trigger_type=self._get_trigger_type(job_data.get("trigger")),
+                    next_run_time=(
+                        datetime.fromtimestamp(job.next_run_time)
+                        if job.next_run_time
+                        else None
+                    ),
+                    status="active" if job.next_run_time else "paused",
+                    max_instances=job_data.get("max_instances", 1),
+                    coalesce=job_data.get("coalesce", True),
+                )
+            except Exception as e:
+                logger.error(f"Error processing job {task_id}: {e}")
+                return None
+
+    async def get_statistics(self) -> TaskStatistics:
+        """
+        Get task statistics.
+
+        Returns:
+            TaskStatistics: Summary statistics about all scheduled tasks.
+        """
+        # TODO: Optimize with SQL aggregation queries instead of fetching all tasks
+        tasks = await self.list_tasks()
+        active = sum(1 for t in tasks if t.status == "active")
+        paused = sum(1 for t in tasks if t.status == "paused")
+
+        return TaskStatistics(
+            total_tasks=len(tasks),
+            active_tasks=active,
+            paused_tasks=paused,
+        )
+
+    def _format_trigger(self, trigger: Any) -> str:
+        """
+        Convert APScheduler trigger to human-readable string.
+
+        Args:
+            trigger: APScheduler trigger object (IntervalTrigger, CronTrigger, etc.)
+
+        Returns:
+            str: Human-readable schedule description.
+        """
+        if not trigger:
+            return "Unknown"
+
+        trigger_type = type(trigger).__name__
+
+        if trigger_type == "IntervalTrigger":
+            if hasattr(trigger, "interval"):
+                seconds = trigger.interval.total_seconds()
+                if seconds < 60:
+                    return f"Every {int(seconds)}s"
+                elif seconds < 3600:
+                    minutes = int(seconds / 60)
+                    return f"Every {minutes}m"
+                elif seconds < 86400:
+                    hours = seconds / 3600
+                    if hours == int(hours):
+                        return f"Every {int(hours)}h"
+                    else:
+                        return f"Every {hours:.1f}h"
+                else:
+                    days = int(seconds / 86400)
+                    return f"Every {days}d"
+
+        elif trigger_type == "CronTrigger":
+            if hasattr(trigger, "fields"):
+                parts = []
+                for field in trigger.fields:
+                    field_str = str(field)
+                    if field_str != "*":
+                        parts.append(f"{field.name}={field_str}")
+                if parts:
+                    return "Cron: " + ", ".join(parts)
+                return "Cron: * * * * *"
+
+        elif trigger_type == "DateTrigger":
+            if hasattr(trigger, "run_date"):
+                return f"Once at {trigger.run_date.strftime('%Y-%m-%d %H:%M:%S')}"
+
+        return trigger_type.replace("Trigger", "")
+
+    def _get_trigger_type(self, trigger: Any) -> str:
+        """
+        Extract trigger type as string.
+
+        Args:
+            trigger: APScheduler trigger object.
+
+        Returns:
+            str: Trigger type name (interval, cron, date, unknown).
+        """
+        if not trigger:
+            return "unknown"
+
+        trigger_name = type(trigger).__name__
+        if "Interval" in trigger_name:
+            return "interval"
+        elif "Cron" in trigger_name:
+            return "cron"
+        elif "Date" in trigger_name:
+            return "date"
+        return "unknown"
+
+    async def list_executions(
+        self,
+        offset: int = 0,
+        limit: int = 25,
+        status: str | None = None,
+        job_id: str | None = None,
+        order: str = "desc",
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List job execution records, newest first by default.
+
+        Args:
+            offset: Pagination offset (clamped to >= 0).
+            limit: Page size (clamped to 1-100).
+            status: Optional status filter (running/success/failed/missed).
+            job_id: Optional filter to a single job.
+            order: ``"desc"`` (default) or ``"asc"`` by start time.
+
+        Returns:
+            ``(records, total)`` where total is the count matching the
+            filters. ``traceback`` is omitted from records to keep payloads
+            small.
+        """
+        limit = min(max(limit, 1), 100)
+        offset = max(offset, 0)
+
+        async with get_async_session() as session:
+            count_stmt = select(func.count()).select_from(JobExecution)
+            list_stmt = select(JobExecution)
+            if status:
+                count_stmt = count_stmt.where(JobExecution.status == status)
+                list_stmt = list_stmt.where(JobExecution.status == status)
+            if job_id:
+                count_stmt = count_stmt.where(JobExecution.job_id == job_id)
+                list_stmt = list_stmt.where(JobExecution.job_id == job_id)
+
+            total = (await session.exec(count_stmt)).one()
+
+            ordering = (
+                col(JobExecution.started_at).asc()
+                if order == "asc"
+                else col(JobExecution.started_at).desc()
+            )
+            list_stmt = list_stmt.order_by(ordering).offset(offset).limit(limit)
+            rows = (await session.exec(list_stmt)).all()
+
+        records = [
+            {
+                "id": row.id,
+                "job_id": row.job_id,
+                "job_name": row.job_name,
+                "scheduled_run_time": row.scheduled_run_time,
+                "started_at": row.started_at,
+                "finished_at": row.finished_at,
+                "duration_ms": row.duration_ms,
+                "status": row.status,
+                "error_message": row.error_message,
+            }
+            for row in rows
+        ]
+        return records, int(total)
+
+    async def get_job_stats(self, job_id: str) -> dict[str, Any]:
+        """Aggregate execution stats for one job.
+
+        Retention keeps at most ~100 rows per job, so computing in Python
+        over the job's rows is a single bounded query (no N+1).
+        """
+        async with get_async_session() as session:
+            stmt = (
+                select(JobExecution)
+                .where(JobExecution.job_id == job_id)
+                .order_by(col(JobExecution.started_at).desc())
+            )
+            rows = list((await session.exec(stmt)).all())
+
+        total = len(rows)
+        success = sum(1 for r in rows if r.status == "success")
+        failed = sum(1 for r in rows if r.status == "failed")
+        durations = [r.duration_ms for r in rows if r.duration_ms is not None]
+        avg_ms = round(sum(durations) / len(durations), 1) if durations else None
+        success_rate = round(success / total * 100, 1) if total else 0.0
+
+        last_run: dict[str, Any] | None = None
+        if rows:
+            last = rows[0]
+            last_run = {
+                "status": last.status,
+                "started_at": last.started_at,
+                "duration_ms": last.duration_ms,
+            }
+
+        return {
+            "total_runs": total,
+            "success_count": success,
+            "failure_count": failed,
+            "success_rate": success_rate,
+            "avg_duration_ms": avg_ms,
+            "last_run": last_run,
+        }
+
+    async def is_job_running(self, job_id: str) -> bool:
+        """Whether the job's most recent execution is still ``running``.
+
+        Guards manual triggers so a "Run Now" can't pile onto an in-flight
+        run. Reuses ``list_executions`` rather than re-querying.
+        """
+        records, _ = await self.list_executions(job_id=job_id, limit=1)
+        return bool(records) and records[0].get("status") == "running"

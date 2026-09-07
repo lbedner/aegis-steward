@@ -1,0 +1,232 @@
+"""Prompt assembly: agent config overlay, persona, and per-request
+agent construction.
+
+Sits between the context builders (below it in the mixin chain) and the
+chat/stream entrypoints (above it): everything here turns resolved
+contexts + the agent row into something the framework can run.
+"""
+
+from typing import Any
+
+from app.core.log import logger
+from app.services.ai.config import AIServiceConfig
+from app.services.ai.domains.chat.agent_loader import AgentConfig, agent_capabilities
+from app.services.ai.domains.chat.health_context import HealthContext
+from app.services.ai.domains.chat.prompts import (
+    DEFAULT_SYSTEM_PROMPT,
+    build_system_prompt,
+)
+from app.services.ai.domains.chat.readings import format_readings
+from app.services.ai.domains.chat.tools import resolve_tools
+from app.services.ai.domains.chat.usage_context import UsageContext
+from app.services.ai.domains.llm.providers import get_agent
+from app.services.ai.models import Conversation, MessageRole
+from app.services.ai.service.contexts import ContextsMixin
+
+# Conversation history carried into each model call, in characters
+# (~1.5k tokens). Newest messages first; the oldest drop when a thread
+# outgrows the budget - prefill cost is paid on EVERY call of a turn.
+# The replayed-history budget scales with the ACTIVE model's context
+# window: a fixed budget sized for small local models is how a
+# long-context agent "forgets" an allocation it computed minutes ago,
+# while an unbounded one re-bills the whole transcript every turn.
+_CHARS_PER_TOKEN = 4
+_HISTORY_CONTEXT_FRACTION = 0.05
+HISTORY_CHAR_BUDGET_MIN = 6_000
+HISTORY_CHAR_BUDGET_DEFAULT = 24_000  # model not in the catalog
+HISTORY_CHAR_BUDGET_MAX = 60_000
+
+
+def history_char_budget(context_window_tokens: int | None) -> int:
+    """Chars of history one turn replays, for a given context window."""
+    if not context_window_tokens:
+        return HISTORY_CHAR_BUDGET_DEFAULT
+    chars = int(context_window_tokens * _CHARS_PER_TOKEN * _HISTORY_CONTEXT_FRACTION)
+    return max(HISTORY_CHAR_BUDGET_MIN, min(HISTORY_CHAR_BUDGET_MAX, chars))
+
+
+class PromptMixin(ContextsMixin):
+    """Agent-config overlay and per-request prompt/runtime construction."""
+
+    def _apply_agent_config(
+        self, config: AIServiceConfig, agent_config: AgentConfig | None
+    ) -> AIServiceConfig:
+        """Overlay the resolved agent's sampling (and optional model pin).
+
+        The default agent carries the same values as settings, so this is
+        an identity transform until an agent row is edited. A ``model_id``
+        pin assumes the current provider serves that model.
+        """
+        if agent_config is None:
+            return config
+        update: dict[str, Any] = {
+            "temperature": agent_config.temperature,
+            "max_tokens": agent_config.max_tokens,
+        }
+        if agent_config.model_id:
+            update["model"] = agent_config.model_id
+        return config.model_copy(update=update)
+
+    def _agent_persona(self, agent_config: AgentConfig | None) -> str | None:
+        """The persona override for this request, or None for the built-in.
+
+        ``DEFAULT_SYSTEM_PROMPT`` is the seeded marker meaning "use the
+        service's dynamic persona"; any other prompt text (an edited agent
+        row) is used verbatim as the persona base.
+        """
+        if agent_config is None:
+            return None
+        if agent_config.system_prompt == DEFAULT_SYSTEM_PROMPT:
+            return None
+        return agent_config.system_prompt
+
+    def _prepare_agent_and_context(
+        self,
+        conversation: Conversation,
+        health_context: HealthContext | None = None,
+        health_warning: str | None = None,
+        usage_context: UsageContext | None = None,
+        catalog_context: str | None = None,
+        agent_config: AgentConfig | None = None,
+        memory_context: str | None = None,
+        agent_modules_context: str | None = None,
+        history_budget: int | None = None,
+    ) -> tuple[Any, str]:
+        """
+        Create agent for request and build conversation context.
+
+        Args:
+            conversation: The conversation to prepare context from
+
+            health_context: Optional health context to inject into system prompt
+            health_warning: Optional warning if server is down
+            usage_context: Optional usage context for self-awareness
+            catalog_context: Optional LLM catalog context for model awareness
+            agent_config: Resolved agent definition; supplies sampling
+                parameters, an optional model pin, and an optional persona
+
+        Returns:
+            tuple[Any, str]: (agent instance, conversation context string)
+        """
+        # Build system prompt with project context and optional contexts
+        # Get fresh config for current model/provider
+        config = self._apply_agent_config(self.config, agent_config)
+
+        # Use compact mode for Ollama (smaller context for better instruction following)
+        is_compact = config.provider.value == "ollama"
+        logger.debug(f"Compact mode: {is_compact} (provider={config.provider.value})")
+
+        formatted_rag = None
+
+        formatted_health = None
+        if health_context:
+            formatted_health = health_context.format_for_prompt(compact=is_compact)
+            logger.debug(f"Health context for prompt:\n{formatted_health}")
+
+        formatted_usage = None
+        if usage_context:
+            formatted_usage = usage_context.format_for_prompt(compact=is_compact)
+
+        system_prompt_override = build_system_prompt(
+            self.settings,
+            rag_context=formatted_rag,
+            health_context=formatted_health,
+            usage_context=formatted_usage,
+            catalog_context=catalog_context,
+            use_rag=formatted_rag is not None,
+            current_model=config.model,
+            current_provider=config.provider.value,
+            persona=self._agent_persona(agent_config),
+            memory_context=memory_context,
+        )
+
+        # Add server-down warning if applicable
+        if health_warning:
+            system_prompt_override += f"\n\n**NOTICE**: {health_warning}"
+
+        # The agent row's memory modules (e.g. the finance snapshot): the
+        # same briefing the chat_kit runtime injects via its provider.
+        if agent_modules_context:
+            system_prompt_override += f"\n\n{agent_modules_context}"
+
+        # Create agent for this request, carrying the agent row's grants:
+        # its attached tools resolve through the registry, and a code_mode
+        # row gets the sandboxed-execution capability. Same grants as the
+        # chat_kit path, so an agent behaves identically on both runtimes.
+        tools: list[Any] = []
+        capabilities: list[Any] = []
+
+        if agent_config is not None:
+            tools = resolve_tools(agent_config.tool_names)
+            capabilities = agent_capabilities(agent_config)
+
+        agent = get_agent(
+            config,
+            self.settings,
+            system_prompt_override,
+            tools=tools,
+            capabilities=capabilities,
+            agent_name=agent_config.slug if agent_config is not None else None,
+        )
+
+        # Build conversation context for AI
+        conversation_context = self._build_conversation_context(
+            conversation, history_budget=history_budget
+        )
+
+        return agent, conversation_context
+
+    def _build_conversation_context(
+        self, conversation: Conversation, history_budget: int | None = None
+    ) -> str:
+        """
+        Build conversation context for AI from message history.
+
+        Args:
+            conversation: The conversation with message history
+
+        Returns:
+            str: Formatted conversation context for AI
+        """
+        if not conversation.messages:
+            return ""
+
+        # Recorded readings (extractions from since-gone images) ride
+        # every turn, ahead of history - they are the durable record the
+        # ephemeral attachment left behind.
+        readings_block = format_readings(conversation.metadata)
+        prefix = f"{readings_block}\n\n" if readings_block else ""
+
+        # Budget history by SIZE, newest first, rather than by message
+        # count: one agent's answers can run 1k+ tokens each, so "last 10
+        # messages" re-prefills an essay collection on every model call.
+        # Oldest messages drop first; the current message always rides.
+        context_parts: list[str] = []
+        used = 0
+        for msg in reversed(conversation.messages[:-1]):
+            if msg.role == MessageRole.USER:
+                line = f"User: {msg.content}"
+            elif msg.role == MessageRole.ASSISTANT:
+                line = f"Assistant: {msg.content}"
+            else:
+                continue
+            if used + len(line) > (history_budget or HISTORY_CHAR_BUDGET_DEFAULT):
+                break
+            context_parts.insert(0, line)
+            used += len(line) + 1
+
+        # Add the current user message
+        latest_message = conversation.get_last_message()
+        if latest_message and latest_message.role == MessageRole.USER:
+            if context_parts:
+                # Include conversation history + current message
+                return (
+                    prefix
+                    + "\n".join(context_parts)
+                    + f"\n\nUser: {latest_message.content}"
+                )
+            else:
+                # First message in conversation
+                return prefix + latest_message.content
+
+        return ""

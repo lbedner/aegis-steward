@@ -1,0 +1,95 @@
+"""Task history API endpoints.
+
+Provides inspection of individual task records persisted in Redis.
+Backend-agnostic — reads directly from Redis Hashes and Sorted Sets
+written by the task_history module.
+"""
+
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+import redis.asyncio as aioredis
+
+from app.components.backend.api.models import (
+    TaskHistoryListResponse,
+    TaskHistoryRecord,
+)
+from app.components.worker.task_history import (
+    clear_queue_history,
+    get_task_record,
+    list_tasks_by_queue,
+)
+from app.core.config import settings
+from app.core.log import logger
+
+router = APIRouter(
+    prefix="/tasks/history",
+    tags=["task-history"],
+)
+
+# Lazy-initialized Redis client
+_redis: aioredis.Redis | None = None
+
+
+async def _get_redis() -> aioredis.Redis:
+    """Get or create an async Redis client."""
+    global _redis
+    if _redis is None:
+        redis_url = (
+            settings.redis_url_effective
+            if hasattr(settings, "redis_url_effective")
+            else settings.REDIS_URL
+        )
+        _redis = aioredis.from_url(redis_url, decode_responses=True)
+    return _redis
+
+
+@router.get("/{queue_name}", response_model=TaskHistoryListResponse)
+async def list_task_history(
+    queue_name: str,
+    offset: int = 0,
+    limit: int = 50,
+    order: str = "desc",
+    status: str | None = None,
+) -> TaskHistoryListResponse:
+    """List task history for a queue with pagination and optional status filter."""
+    if limit > 200:
+        limit = 200
+    if order not in ("asc", "desc"):
+        order = "desc"
+
+    r = await _get_redis()
+    tasks, total = await list_tasks_by_queue(
+        r, queue_name, offset, limit, order, status=status
+    )
+
+    records = [TaskHistoryRecord(**t) for t in tasks]
+    return TaskHistoryListResponse(
+        tasks=records,
+        total=total,
+        offset=offset,
+        limit=limit,
+        queue=queue_name,
+    )
+
+
+@router.get("/detail/{job_id}", response_model=TaskHistoryRecord)
+async def get_task_detail(job_id: str) -> TaskHistoryRecord:
+    """Get detailed information about a single task."""
+    r = await _get_redis()
+    record = await get_task_record(r, job_id)
+    if not record:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "task_not_found", "message": f"Task {job_id} not found"},
+        )
+    return TaskHistoryRecord(**record)
+
+
+@router.delete("/{queue_name}")
+async def delete_queue_history(queue_name: str) -> dict[str, Any]:
+    """Clear all task history for a queue."""
+    r = await _get_redis()
+    deleted = await clear_queue_history(r, queue_name)
+    logger.info(f"Cleared {deleted} task history records for queue: {queue_name}")
+    return {"deleted": deleted, "queue": queue_name}

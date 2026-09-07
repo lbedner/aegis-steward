@@ -1,0 +1,379 @@
+"""
+Tests for component health checks with controlled failure scenarios.
+
+These tests focus on integration between components and their health checks,
+testing various failure scenarios and component interactions.
+"""
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from app.services.system import (
+    ComponentStatus,
+    ComponentStatusType,
+    get_system_status,
+    register_health_check,
+)
+from app.services.system.health import (
+    _check_cpu_usage,
+    _check_disk_space,
+    _check_memory,
+    check_cache_health,
+)
+from app.services.system.health_worker import check_worker_health
+
+
+class TestComponentIntegration:
+    """Test component health checks with controlled failure scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_cache_health_redis_connection_failure(self) -> None:
+        """Test cache health check when Redis connection fails."""
+
+        # Mock Redis to raise connection error
+
+        with patch("redis.asyncio.from_url") as mock_from_url:
+            mock_redis = AsyncMock()
+            mock_redis.ping.side_effect = Exception("Connection failed")
+            mock_from_url.return_value = mock_redis
+
+            cache_status = await check_cache_health()
+
+            assert cache_status.name == "cache"
+            assert cache_status.healthy is False
+            assert "Cache health check failed" in cache_status.message
+            assert cache_status.metadata["implementation"] == "redis"
+            assert "error" in cache_status.metadata
+
+    # Skipping Redis ImportError test due to complex import mocking
+    # The ImportError handling is covered by the actual function implementation
+
+    @pytest.mark.asyncio
+    async def test_cache_health_successful_connection(self) -> None:
+        """Test cache health check with successful Redis connection."""
+
+        with patch("redis.asyncio.from_url") as mock_from_url:
+            # Mock successful Redis connection
+            mock_redis = AsyncMock()
+            mock_redis.ping.return_value = True
+            mock_redis.set.return_value = True
+
+            # Track the test value that gets set so we can return it on get
+            stored_values = {}
+
+            async def mock_set(key: str, value: str, ex: int | None = None) -> bool:
+                stored_values[key] = value
+                return True
+
+            async def mock_get(key: str) -> bytes:
+                return stored_values.get(key, "").encode()
+
+            mock_redis.set.side_effect = mock_set
+            mock_redis.get.side_effect = mock_get
+            mock_redis.delete.return_value = 1
+            mock_redis.info.return_value = {
+                "redis_version": "7.0.0",
+                "connected_clients": 2,
+                "used_memory_human": "1.5M",
+                "uptime_in_seconds": 3600,
+            }
+            mock_from_url.return_value = mock_redis
+
+            cache_status = await check_cache_health()
+
+            assert cache_status.name == "cache"
+            assert cache_status.healthy is True
+            assert (
+                "Redis cache connection and operations successful"
+                in cache_status.message
+            )
+            assert cache_status.metadata["implementation"] == "redis"
+            assert cache_status.metadata["version"] == "7.0.0"
+            assert cache_status.metadata["connected_clients"] == 2
+
+    @pytest.mark.asyncio
+    async def test_worker_health_redis_connection_failure(self) -> None:
+        """Test worker health check when Redis connection fails."""
+
+        with patch("redis.asyncio.from_url") as mock_from_url:
+            mock_redis = AsyncMock()
+            mock_redis.zcard.side_effect = Exception("Redis connection failed")
+            mock_redis.get.side_effect = Exception("Redis connection failed")
+            mock_from_url.return_value = mock_redis
+
+            worker_status = await check_worker_health()
+
+            assert worker_status.name == "worker"
+            assert worker_status.healthy is False
+            assert "No active workers" in worker_status.message
+
+            # Check that the Redis connection errors are propagated to sub-components
+            queues_component = worker_status.sub_components["queues"]
+            assert queues_component.healthy is False
+
+            # All queue checks should have failed due to Redis connection issues
+            for queue_name, queue_status in queues_component.sub_components.items():
+                assert queue_status.healthy is False
+                assert "Health check failed: Exception" in queue_status.message
+
+    @pytest.mark.asyncio
+    async def test_worker_health_with_mixed_queue_states(self) -> None:
+        """Test worker health with some queues active and others inactive."""
+
+        with patch("redis.asyncio.from_url") as mock_from_url:
+            mock_redis = AsyncMock()
+
+            # Mock queue lengths
+            def mock_zcard(queue_name: str) -> int:
+                if "load_test" in queue_name:
+                    return 5  # Some queued jobs
+                return 0  # Empty queues for media/system
+
+            # Mock health check data
+            def mock_get(key: str) -> bytes | None:
+                if "load_test" in key and "health-check" in key:
+                    return (
+                        b"Mar-01 17:41:22 j_complete=100 j_failed=5 "
+                        b"j_retried=2 j_ongoing=3"
+                    )
+                return None  # No health check data for media/system
+
+            mock_redis.zcard.side_effect = mock_zcard
+            mock_redis.get.side_effect = mock_get
+            mock_from_url.return_value = mock_redis
+
+            worker_status = await check_worker_health()
+
+            assert worker_status.name == "worker"
+            # Offline workers (no arq health-check key in Redis) now roll
+            # up to WARNING, not INFO — a worker that *should* be running
+            # but isn't is genuinely degraded, not merely informational.
+            # propagate_status escalates to WARNING if any child is WARN.
+            assert worker_status.healthy is False
+            assert worker_status.status == ComponentStatusType.WARNING
+
+            # Check sub-components
+            assert "queues" in worker_status.sub_components
+            queues_component = worker_status.sub_components["queues"]
+            assert queues_component.status == ComponentStatusType.WARNING
+
+            # Verify individual queue statuses. The template generates
+            # ``media`` with no registered functions (bare queue config)
+            # and ``system`` with functions — so ``media`` rolls up as
+            # ``INFO`` ("configured but nothing to do") while ``system``
+            # with functions but no live worker is a genuine ``WARNING``.
+            # Parent ``queues`` still aggregates to ``WARNING`` because
+            # any WARNING child escalates.
+            queue_sub_components = queues_component.sub_components
+            assert queue_sub_components["media"].status == ComponentStatusType.INFO
+            assert queue_sub_components["system"].status == ComponentStatusType.WARNING
+            assert (
+                queue_sub_components["load_test"].status == ComponentStatusType.HEALTHY
+            )
+
+    @pytest.mark.asyncio
+    async def test_system_metrics_high_thresholds(self) -> None:
+        """Test system metrics when resource usage exceeds thresholds."""
+
+        # Mock psutil to return high resource usage
+        with (
+            patch("psutil.virtual_memory") as mock_memory,
+            patch("psutil.disk_usage") as mock_disk,
+            patch("psutil.cpu_percent") as mock_cpu,
+        ):
+            # Mock high memory usage (above threshold)
+            mock_memory_result = type(
+                "MockMemory",
+                (),
+                {
+                    "percent": 95.0,  # High memory usage
+                    "total": 8 * 1024**3,  # 8GB
+                    "available": 0.4 * 1024**3,  # 400MB available
+                },
+            )()
+            mock_memory.return_value = mock_memory_result
+
+            # Mock high disk usage
+            mock_disk_result = type(
+                "MockDisk",
+                (),
+                {
+                    "total": 100 * 1024**3,  # 100GB
+                    "used": 95 * 1024**3,  # 95GB used
+                    "free": 5 * 1024**3,  # 5GB free
+                },
+            )()
+            mock_disk.return_value = mock_disk_result
+
+            # Mock high CPU usage (above 95% threshold)
+            mock_cpu.return_value = 96.0  # High CPU usage above threshold
+
+            # Test individual metric checks
+            memory_status = await _check_memory()
+            assert memory_status.healthy is False
+            assert "Memory usage: 95.0%" in memory_status.message
+
+            disk_status = await _check_disk_space()
+            assert disk_status.healthy is False
+            assert "Disk usage: 95.0%" in disk_status.message
+
+            cpu_status = await _check_cpu_usage()
+            assert cpu_status.healthy is False
+            assert "CPU usage: 96.0%" in cpu_status.message
+
+    @pytest.mark.asyncio
+    async def test_system_metrics_normal_thresholds(self) -> None:
+        """Test system metrics with normal resource usage."""
+
+        with (
+            patch("psutil.virtual_memory") as mock_memory,
+            patch("psutil.disk_usage") as mock_disk,
+            patch("psutil.cpu_percent") as mock_cpu,
+        ):
+            # Mock normal resource usage
+            mock_memory_result = type(
+                "MockMemory",
+                (),
+                {
+                    "percent": 45.0,  # Normal memory usage
+                    "total": 8 * 1024**3,
+                    "available": 4.4 * 1024**3,
+                },
+            )()
+            mock_memory.return_value = mock_memory_result
+
+            mock_disk_result = type(
+                "MockDisk",
+                (),
+                {
+                    "total": 100 * 1024**3,
+                    "used": 30 * 1024**3,
+                    "free": 70 * 1024**3,
+                },
+            )()
+            mock_disk.return_value = mock_disk_result
+
+            mock_cpu.return_value = 15.0  # Normal CPU usage
+
+            # Test individual metric checks
+            memory_status = await _check_memory()
+            assert memory_status.healthy is True
+            assert memory_status.status == ComponentStatusType.HEALTHY
+
+            disk_status = await _check_disk_space()
+            assert disk_status.healthy is True
+            assert disk_status.status == ComponentStatusType.HEALTHY
+
+            cpu_status = await _check_cpu_usage()
+            assert cpu_status.healthy is True
+            assert cpu_status.status == ComponentStatusType.HEALTHY
+
+    @pytest.mark.asyncio
+    async def test_scheduler_component_integration(self) -> None:
+        """Test scheduler component health check integration."""
+
+        # Test scheduler health check by temporarily registering a mock
+        async def mock_scheduler_check() -> ComponentStatus:
+            return ComponentStatus(
+                name="scheduler",
+                status=ComponentStatusType.HEALTHY,
+                message="APScheduler component activated",
+                metadata={"type": "component_status", "jobs": 2},
+            )
+
+        # Register mock scheduler check
+        register_health_check("scheduler", mock_scheduler_check)
+
+        try:
+            status = await get_system_status()
+
+            # Verify scheduler component is included in system status
+            assert "aegis" in status.components
+            aegis_component = status.components["aegis"]
+
+            # Navigate to scheduler component
+            if "components" in aegis_component.sub_components:
+                components_group = aegis_component.sub_components["components"]
+                assert "scheduler" in components_group.sub_components, (
+                    f"Scheduler component missing from health structure. "
+                    f"Available: {list(components_group.sub_components.keys())}"
+                )
+                scheduler_status = components_group.sub_components["scheduler"]
+            else:
+                # Legacy direct structure
+                assert "scheduler" in aegis_component.sub_components
+                scheduler_status = aegis_component.sub_components["scheduler"]
+            assert scheduler_status.healthy is True
+            assert scheduler_status.status == ComponentStatusType.HEALTHY
+            assert "APScheduler component activated" in scheduler_status.message
+
+        finally:
+            # Clean up the mock registration
+            from app.services.system.health import _health_checks
+
+            if "scheduler" in _health_checks:
+                del _health_checks["scheduler"]
+
+    @pytest.mark.asyncio
+    async def test_system_status_with_component_failures(self) -> None:
+        """Test overall system status calculation with various component failures."""
+
+        # Register mock components with different health states
+        async def healthy_component() -> ComponentStatus:
+            return ComponentStatus(
+                name="healthy_service",
+                status=ComponentStatusType.HEALTHY,
+                message="Service running normally",
+            )
+
+        async def warning_component() -> ComponentStatus:
+            return ComponentStatus(
+                name="warning_service",
+                status=ComponentStatusType.WARNING,
+                message="Service has warnings",
+            )
+
+        async def unhealthy_component() -> ComponentStatus:
+            return ComponentStatus(
+                name="unhealthy_service",
+                status=ComponentStatusType.UNHEALTHY,
+                message="Service is down",
+            )
+
+        # Register test components
+        register_health_check("healthy_service", healthy_component)
+        register_health_check("warning_service", warning_component)
+        register_health_check("unhealthy_service", unhealthy_component)
+
+        try:
+            status = await get_system_status()
+
+            # System should be unhealthy due to unhealthy component
+            assert status.overall_healthy is False
+
+            # Check health percentage calculation
+            assert status.health_percentage < 100.0
+
+            # Verify component categorization
+            assert len(status.unhealthy_components) > 0
+            assert "unhealthy_service" in [
+                comp.split(".")[-1] for comp in status.unhealthy_components
+            ]
+
+            # Aegis component should reflect unhealthy state
+            aegis_component = status.components["aegis"]
+            assert aegis_component.healthy is False
+            assert aegis_component.status == ComponentStatusType.UNHEALTHY
+
+        finally:
+            # Clean up test components
+            from app.services.system.health import _health_checks
+
+            for component_name in [
+                "healthy_service",
+                "warning_service",
+                "unhealthy_service",
+            ]:
+                if component_name in _health_checks:
+                    del _health_checks[component_name]

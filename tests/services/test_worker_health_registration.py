@@ -1,0 +1,257 @@
+"""
+Tests for worker health registration and integration.
+
+Tests that worker components are properly registered in the health system
+and appear in health check results.
+"""
+
+from unittest.mock import patch
+
+import pytest
+
+from app.services.system import ComponentStatus, ComponentStatusType
+from app.services.system.health import (
+    _health_checks,
+    get_system_status,
+    register_health_check,
+)
+
+
+class TestWorkerHealthRegistration:
+    """Test worker health registration mechanism."""
+
+    def test_worker_health_check_is_registered(self) -> None:
+        """Test that worker health check gets registered during startup."""
+        # This test verifies that the startup hook actually registers the worker
+        # In a real app, this would be done during startup
+
+        # Clear any existing registrations for clean test
+        original_checks = _health_checks.copy()
+        _health_checks.clear()
+
+        try:
+            # Import and register worker health check (simulating startup)
+            from app.services.system.health_worker import check_worker_health
+
+            register_health_check("worker", check_worker_health)
+
+            # Verify registration worked
+            assert "worker" in _health_checks
+            assert _health_checks["worker"] == check_worker_health
+
+        finally:
+            # Restore original state
+            _health_checks.clear()
+            _health_checks.update(original_checks)
+
+    @pytest.mark.asyncio
+    async def test_worker_appears_in_system_status(self) -> None:
+        """Test that registered worker appears in get_system_status results."""
+        # Mock worker health check to avoid Redis dependency
+        mock_worker_status = ComponentStatus(
+            name="worker",
+            status=ComponentStatusType.HEALTHY,
+            message="arq worker infrastructure: 2/2 workers active",
+            response_time_ms=50.0,
+            metadata={
+                "total_queued": 0,
+                "total_completed": 5,
+                "total_failed": 0,
+                "active_workers": 2,
+            },
+            sub_components={
+                "queues": ComponentStatus(
+                    name="queues",
+                    status=ComponentStatusType.HEALTHY,
+                    message="2 functional queues configured (2 active)",
+                    response_time_ms=None,
+                    metadata={"configured_queues": 2, "active_workers": 2},
+                    sub_components={
+                        "system": ComponentStatus(
+                            name="system",
+                            status=ComponentStatusType.HEALTHY,
+                            message="System maintenance: idle, 2 completed",
+                            response_time_ms=None,
+                            metadata={
+                                "queue_type": "system",
+                                "worker_alive": True,
+                                "jobs_completed": 2,
+                                "jobs_failed": 0,
+                            },
+                        ),
+                        "load_test": ComponentStatus(
+                            name="load_test",
+                            status=ComponentStatusType.HEALTHY,
+                            message="Performance testing: idle, 3 completed",
+                            response_time_ms=None,
+                            metadata={
+                                "queue_type": "load_test",
+                                "worker_alive": True,
+                                "jobs_completed": 3,
+                                "jobs_failed": 0,
+                            },
+                        ),
+                    },
+                )
+            },
+        )
+
+        # Clear and register mock worker
+        original_checks = _health_checks.copy()
+        _health_checks.clear()
+
+        try:
+            # Register mock worker health check
+            async def mock_worker_health() -> ComponentStatus:
+                return mock_worker_status
+
+            register_health_check("worker", mock_worker_health)
+
+            # Mock system metrics to avoid psutil dependency
+            with (
+                patch("app.services.system.health._service_health_checks", {}),
+                patch(
+                    "app.services.system.health._get_cached_system_metrics"
+                ) as mock_metrics,
+            ):
+                mock_metrics.return_value = {
+                    "memory": ComponentStatus(
+                        name="memory",
+                        message="Memory usage: 45.2%",
+                        response_time_ms=None,
+                    ),
+                    "disk": ComponentStatus(
+                        name="disk",
+                        message="Disk usage: 12.1%",
+                        response_time_ms=None,
+                    ),
+                    "cpu": ComponentStatus(
+                        name="cpu",
+                        message="CPU usage: 5.3%",
+                        response_time_ms=None,
+                    ),
+                }
+
+                # Get system status
+                system_status = await get_system_status()
+
+                # Verify worker appears in results
+                assert system_status.overall_healthy
+                assert "aegis" in system_status.components
+
+                # Use model's flat component list to check for worker
+                assert "aegis.components.worker" in system_status.healthy_components
+
+                # Also verify direct navigation
+                aegis_component = system_status.components["aegis"]
+                if "components" in aegis_component.sub_components:
+                    components_group = aegis_component.sub_components["components"]
+                    assert "worker" in components_group.sub_components
+                    worker_component = components_group.sub_components["worker"]
+                else:
+                    # Legacy direct structure
+                    assert "worker" in aegis_component.sub_components
+                    worker_component = aegis_component.sub_components["worker"]
+                assert worker_component.name == "worker"
+                assert worker_component.healthy
+                assert "workers active" in worker_component.message
+                assert "queues" in worker_component.sub_components
+
+                # Verify queue sub-components
+                queues_component = worker_component.sub_components["queues"]
+                assert "system" in queues_component.sub_components
+                assert "load_test" in queues_component.sub_components
+
+        finally:
+            # Restore original state
+            _health_checks.clear()
+            _health_checks.update(original_checks)
+
+    @pytest.mark.asyncio
+    async def test_system_status_without_worker_registration(self) -> None:
+        """Test that system status works when worker is not registered."""
+        # Clear registrations
+        original_checks = _health_checks.copy()
+        _health_checks.clear()
+
+        try:
+            # Register only basic components (no worker)
+            async def mock_backend_health() -> ComponentStatus:
+                return ComponentStatus(
+                    name="backend",
+                    message="FastAPI backend active",
+                    response_time_ms=25.0,
+                )
+
+            register_health_check("backend", mock_backend_health)
+
+            # Mock system metrics
+            with (
+                patch("app.services.system.health._service_health_checks", {}),
+                patch(
+                    "app.services.system.health._get_cached_system_metrics"
+                ) as mock_metrics,
+            ):
+                mock_metrics.return_value = {
+                    "memory": ComponentStatus(
+                        name="memory",
+                        message="Memory usage: 45.2%",
+                        response_time_ms=None,
+                    ),
+                }
+
+                # Get system status
+                system_status = await get_system_status()
+
+                # Verify worker does NOT appear in results
+                assert "aegis.components.worker" not in system_status.healthy_components
+                assert (
+                    "aegis.components.worker" not in system_status.unhealthy_components
+                )
+
+                # Verify backend DOES appear
+                assert "aegis.components.backend" in system_status.healthy_components
+
+                # Also verify direct navigation
+                aegis_component = system_status.components["aegis"]
+                if "components" in aegis_component.sub_components:
+                    components_group = aegis_component.sub_components["components"]
+                    assert "worker" not in components_group.sub_components
+                    assert "backend" in components_group.sub_components
+                else:
+                    # Legacy direct structure
+                    assert "worker" not in aegis_component.sub_components
+                    assert "backend" in aegis_component.sub_components
+
+        finally:
+            # Restore original state
+            _health_checks.clear()
+            _health_checks.update(original_checks)
+
+    def test_health_registration_is_idempotent(self) -> None:
+        """Test that registering the same health check multiple times works."""
+        original_checks = _health_checks.copy()
+        _health_checks.clear()
+
+        try:
+
+            async def dummy_health_check() -> ComponentStatus:
+                return ComponentStatus(
+                    name="test",
+                    message="Test",
+                    response_time_ms=None,
+                )
+
+            # Register same check multiple times
+            register_health_check("test", dummy_health_check)
+            register_health_check("test", dummy_health_check)
+            register_health_check("test", dummy_health_check)
+
+            # Should only be registered once
+            assert len(_health_checks) == 1
+            assert "test" in _health_checks
+
+        finally:
+            # Restore original state
+            _health_checks.clear()
+            _health_checks.update(original_checks)

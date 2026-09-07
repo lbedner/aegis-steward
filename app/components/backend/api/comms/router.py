@@ -1,0 +1,274 @@
+"""
+Communications service API router.
+
+FastAPI router for email, SMS, and voice call endpoints.
+"""
+
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from app.services.comms.call import (
+    CallConfigurationError,
+    CallError,
+    get_call_status,
+    make_call,
+    validate_call_config,
+)
+from app.services.comms.email import (
+    EmailConfigurationError,
+    EmailError,
+    get_email_status,
+    send_email,
+    validate_email_config,
+)
+from app.services.comms.models import (
+    CallResponse,
+    EmailResponse,
+    MakeCallRequest,
+    SendEmailRequest,
+    SendSMSRequest,
+    SMSResponse,
+)
+from app.services.comms.sms import (
+    SMSConfigurationError,
+    SMSError,
+    get_sms_status,
+    send_sms,
+    validate_sms_config,
+)
+
+router = APIRouter(prefix="/comms", tags=["communications"])
+
+
+# Request/Response models for API
+
+
+class EmailSendResponse(BaseModel):
+    """API response for email send."""
+
+    id: str
+    to: list[str]
+    status: str
+    message: str = "Email sent successfully"
+
+
+class SMSSendResponse(BaseModel):
+    """API response for SMS send."""
+
+    sid: str
+    to: str
+    status: str
+    segments: int
+    message: str = "SMS sent successfully"
+
+
+class CallMakeResponse(BaseModel):
+    """API response for call initiation."""
+
+    sid: str
+    to: str
+    status: str
+    message: str = "Call initiated successfully"
+
+
+# Email endpoints
+
+
+@router.post("/email/send", response_model=EmailSendResponse)
+async def send_email_endpoint(
+    request: SendEmailRequest,
+) -> EmailSendResponse:
+    """
+    Send an email via Resend.
+
+    Args:
+        request: Email request with recipients, subject, and content
+
+    Returns:
+        EmailSendResponse: Response with message ID and status
+
+    Raises:
+        HTTPException: If email sending fails
+    """
+    try:
+        result: EmailResponse = await send_email(request)
+
+        return EmailSendResponse(
+            id=result.id,
+            to=result.to,
+            status=result.status,
+        )
+
+    except EmailConfigurationError as e:
+        raise HTTPException(status_code=503, detail=f"Email not configured: {e}")
+    except EmailError as e:
+        raise HTTPException(status_code=502, detail=f"Email provider error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+
+
+# SMS endpoints
+
+
+@router.post("/sms/send", response_model=SMSSendResponse)
+async def send_sms_endpoint(
+    request: SendSMSRequest,
+) -> SMSSendResponse:
+    """
+    Send an SMS via Twilio.
+
+    Args:
+        request: SMS request with recipient and message body
+
+    Returns:
+        SMSSendResponse: Response with message SID and status
+
+    Raises:
+        HTTPException: If SMS sending fails
+    """
+    try:
+        result: SMSResponse = await send_sms(request)
+
+        return SMSSendResponse(
+            sid=result.sid,
+            to=result.to,
+            status=result.status,
+            segments=result.segments,
+        )
+
+    except SMSConfigurationError as e:
+        raise HTTPException(status_code=503, detail=f"SMS not configured: {e}")
+    except SMSError as e:
+        raise HTTPException(status_code=502, detail=f"SMS provider error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+
+
+# Voice call endpoints
+
+
+@router.post("/call/make", response_model=CallMakeResponse)
+async def make_call_endpoint(
+    request: MakeCallRequest,
+) -> CallMakeResponse:
+    """
+    Make a voice call via Twilio.
+
+    Args:
+        request: Call request with recipient and TwiML URL
+
+    Returns:
+        CallMakeResponse: Response with call SID and status
+
+    Raises:
+        HTTPException: If call initiation fails
+    """
+    try:
+        result: CallResponse = await make_call(request)
+
+        return CallMakeResponse(
+            sid=result.sid,
+            to=result.to,
+            status=result.status,
+        )
+
+    except CallConfigurationError as e:
+        raise HTTPException(status_code=503, detail=f"Voice not configured: {e}")
+    except CallError as e:
+        raise HTTPException(status_code=502, detail=f"Voice provider error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {e}")
+
+
+# Health and status endpoints
+
+
+@router.get("/health")
+async def comms_health() -> dict[str, Any]:
+    """
+    Communications service health endpoint.
+
+    Returns comprehensive health status for all communication channels.
+    """
+    email_status = get_email_status()
+    sms_status = get_sms_status()
+    call_status = get_call_status()
+
+    email_errors = validate_email_config()
+    sms_errors = validate_sms_config()
+    call_errors = validate_call_config()
+
+    all_errors = email_errors + sms_errors + call_errors
+    any_configured = (
+        email_status["configured"]
+        or sms_status["configured"]
+        or call_status["configured"]
+    )
+
+    return {
+        "service": "communications",
+        "status": "healthy" if any_configured else "unhealthy",
+        "channels": {
+            "email": {
+                "configured": email_status["configured"],
+                "provider": "resend",
+                "errors": email_errors,
+            },
+            "sms": {
+                "configured": sms_status["configured"],
+                "provider": "twilio",
+                "errors": sms_errors,
+            },
+            "voice": {
+                "configured": call_status["configured"],
+                "provider": "twilio",
+                "errors": call_errors,
+            },
+        },
+        "total_errors": len(all_errors),
+    }
+
+
+@router.get("/status")
+async def comms_status() -> dict[str, Any]:
+    """
+    Get current communications service status and configuration.
+    """
+    email_status = get_email_status()
+    sms_status = get_sms_status()
+    call_status = get_call_status()
+
+    return {
+        "email": email_status,
+        "sms": sms_status,
+        "voice": call_status,
+    }
+
+
+@router.get("/version")
+async def comms_version() -> dict[str, Any]:
+    """Communications service version and feature information."""
+    return {
+        "service": "communications",
+        "version": "1.0",
+        "features": [
+            "email_send",
+            "sms_send",
+            "voice_call",
+            "webhook_handlers",
+        ],
+        "providers": {
+            "email": "resend",
+            "sms": "twilio",
+            "voice": "twilio",
+        },
+        "endpoints": [
+            "POST /comms/email/send",
+            "POST /comms/sms/send",
+            "POST /comms/call/make",
+            "GET /comms/health",
+            "GET /comms/status",
+        ],
+    }

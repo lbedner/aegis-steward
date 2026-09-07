@@ -1,0 +1,15 @@
+All Transactions Report Created: 2026-07-07 14:26:54 -0400
+,
+Filter Criteria:,All Dates
+,All Accounts
+,Any Status
+,All Accounts
+,
+,"Split","Date","Payee/Security","Category","Tags","Amount","Account"
+,,"7/1/2026","Employer Payroll","Income:Salary","","5,000.00","CHECKING"
+,,"7/2/2026","Whole Foods","Groceries","","-85.40","CHECKING"
+,,"7/2/2026","Amex Payment","Transfer","","-200.00","AMEX CARD"
+,,"7/3/2026","Corner Bistro","Dining","","-45.00","AMEX CARD"
+,,"7/3/2026","Corner Bistro","Dining","","-45.00","AMEX CARD"
+Total Outflows:,,,,,,-375.40
+Net Total:, 4624.60

@@ -1,0 +1,308 @@
+"""
+Tests for ScheduledTaskManager service.
+
+Tests the service layer for scheduled task management, including database
+operations and task data transformations.
+"""
+
+from datetime import datetime
+import pickle
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.services.scheduler.models import APSchedulerJob, ScheduledTask, TaskStatistics
+from app.services.scheduler.scheduled_task_manager import ScheduledTaskManager
+
+
+class MockTrigger:
+    """Simple mock trigger that can be pickled for testing."""
+
+    def __init__(self):
+        self.__class__.__name__ = "IntervalTrigger"
+
+
+class TestScheduledTaskManager:
+    """Test the ScheduledTaskManager service layer."""
+
+    @pytest.fixture
+    def manager(self) -> ScheduledTaskManager:
+        """Create a ScheduledTaskManager instance for testing."""
+        return ScheduledTaskManager()
+
+    @pytest.fixture
+    def mock_job_data(self) -> dict[str, Any]:
+        """Mock job data as stored by APScheduler."""
+        return {
+            "name": "Test Job",
+            "func": "test.module.function",
+            "trigger": MockTrigger(),
+            "max_instances": 1,
+            "coalesce": True,
+        }
+
+    @pytest.fixture
+    def mock_apscheduler_job(self, mock_job_data: dict[str, Any]) -> APSchedulerJob:
+        """Create a mock APSchedulerJob for testing."""
+        # Create job state as APScheduler would pickle it
+        job_state = pickle.dumps(mock_job_data)
+
+        return APSchedulerJob(
+            id="test_job_id",
+            next_run_time=datetime.now().timestamp(),
+            job_state=job_state,
+        )
+
+    @pytest.mark.asyncio
+    async def test_has_persistence_table_exists(
+        self, manager: ScheduledTaskManager
+    ) -> None:
+        """Test has_persistence returns True when apscheduler_jobs table exists."""
+        with patch(
+            "app.services.scheduler.scheduled_task_manager.async_engine"
+        ) as mock_engine:
+            mock_conn = AsyncMock()
+            mock_conn.run_sync.return_value = ["apscheduler_jobs", "other_table"]
+
+            mock_engine.begin.return_value.__aenter__.return_value = mock_conn
+
+            result = await manager.has_persistence()
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_has_persistence_table_missing(
+        self, manager: ScheduledTaskManager
+    ) -> None:
+        """Test has_persistence returns False when apscheduler_jobs table missing."""
+        with patch(
+            "app.services.scheduler.scheduled_task_manager.async_engine"
+        ) as mock_engine:
+            mock_conn = AsyncMock()
+            mock_conn.run_sync.return_value = ["other_table"]
+
+            mock_engine.begin.return_value.__aenter__.return_value = mock_conn
+
+            result = await manager.has_persistence()
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_has_persistence_database_error(
+        self, manager: ScheduledTaskManager
+    ) -> None:
+        """Test has_persistence handles database errors gracefully."""
+        with patch(
+            "app.services.scheduler.scheduled_task_manager.async_engine"
+        ) as mock_engine:
+            mock_engine.begin.side_effect = Exception("Database error")
+
+            result = await manager.has_persistence()
+            assert result is False
+
+    @pytest.mark.asyncio
+    async def test_list_tasks_no_persistence(
+        self, manager: ScheduledTaskManager
+    ) -> None:
+        """Test list_tasks raises RuntimeError when persistence not available."""
+        with patch.object(manager, "has_persistence", return_value=False):
+            with pytest.raises(RuntimeError, match="persistence"):
+                await manager.list_tasks()
+
+    @pytest.mark.asyncio
+    async def test_list_tasks_with_jobs(
+        self, manager: ScheduledTaskManager, mock_apscheduler_job: APSchedulerJob
+    ) -> None:
+        """Test list_tasks returns properly formatted tasks."""
+        with (
+            patch.object(manager, "has_persistence", return_value=True),
+            patch(
+                "app.services.scheduler.scheduled_task_manager.get_async_session"
+            ) as mock_session,
+        ):
+            # Mock session and query result
+            mock_session_instance = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_session_instance
+
+            mock_result = MagicMock()
+            mock_result.all.return_value = [mock_apscheduler_job]
+            mock_session_instance.exec.return_value = mock_result
+
+            tasks = await manager.list_tasks()
+
+            assert len(tasks) == 1
+            task = tasks[0]
+            assert isinstance(task, ScheduledTask)
+            assert task.job_id == "test_job_id"
+            assert task.name == "Test Job"
+            assert task.status == "active"  # Has next_run_time
+
+    @pytest.mark.asyncio
+    async def test_list_tasks_empty_database(
+        self, manager: ScheduledTaskManager
+    ) -> None:
+        """Test list_tasks returns empty list when no jobs in database."""
+        with (
+            patch.object(manager, "has_persistence", return_value=True),
+            patch(
+                "app.services.scheduler.scheduled_task_manager.get_async_session"
+            ) as mock_session,
+        ):
+            mock_session_instance = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_session_instance
+
+            mock_result = MagicMock()
+            mock_result.all.return_value = []
+            mock_session_instance.exec.return_value = mock_result
+
+            tasks = await manager.list_tasks()
+            assert len(tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_get_task_found(
+        self, manager: ScheduledTaskManager, mock_apscheduler_job: APSchedulerJob
+    ) -> None:
+        """Test get_task returns task when found."""
+        with patch(
+            "app.services.scheduler.scheduled_task_manager.get_async_session"
+        ) as mock_session:
+            mock_session_instance = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_session_instance
+
+            mock_result = MagicMock()
+            mock_result.first.return_value = mock_apscheduler_job
+            mock_session_instance.exec.return_value = mock_result
+
+            task = await manager.get_task("test_job_id")
+
+            assert task is not None
+            assert isinstance(task, ScheduledTask)
+            assert task.job_id == "test_job_id"
+            assert task.name == "Test Job"
+
+    @pytest.mark.asyncio
+    async def test_get_task_not_found(self, manager: ScheduledTaskManager) -> None:
+        """Test get_task returns None when task not found."""
+        with patch(
+            "app.services.scheduler.scheduled_task_manager.get_async_session"
+        ) as mock_session:
+            mock_session_instance = AsyncMock()
+            mock_session.return_value.__aenter__.return_value = mock_session_instance
+
+            mock_result = MagicMock()
+            mock_result.first.return_value = None
+            mock_session_instance.exec.return_value = mock_result
+
+            task = await manager.get_task("non_existent_job")
+            assert task is None
+
+    @pytest.mark.asyncio
+    async def test_get_statistics(self, manager: ScheduledTaskManager) -> None:
+        """Test get_statistics returns proper TaskStatistics."""
+        # Mock list_tasks to return test data
+        mock_tasks = [
+            ScheduledTask(
+                job_id="job1",
+                name="Job 1",
+                function="test.func1",
+                schedule="Every 1m",
+                trigger_type="interval",
+                status="active",
+                max_instances=1,
+                coalesce=True,
+            ),
+            ScheduledTask(
+                job_id="job2",
+                name="Job 2",
+                function="test.func2",
+                schedule="Every 5m",
+                trigger_type="interval",
+                status="paused",
+                max_instances=1,
+                coalesce=True,
+            ),
+            ScheduledTask(
+                job_id="job3",
+                name="Job 3",
+                function="test.func3",
+                schedule="Daily",
+                trigger_type="cron",
+                status="active",
+                max_instances=1,
+                coalesce=True,
+            ),
+        ]
+
+        with patch.object(manager, "list_tasks", return_value=mock_tasks):
+            stats = await manager.get_statistics()
+
+            assert isinstance(stats, TaskStatistics)
+            assert stats.total_tasks == 3
+            assert stats.active_tasks == 2
+            assert stats.paused_tasks == 1
+
+    def test_format_trigger_interval(self, manager: ScheduledTaskManager) -> None:
+        """Test _format_trigger handles interval triggers correctly."""
+        # Mock IntervalTrigger
+        mock_trigger = MagicMock()
+        mock_trigger.__class__.__name__ = "IntervalTrigger"
+
+        # Test seconds
+        mock_trigger.interval.total_seconds.return_value = 30
+        result = manager._format_trigger(mock_trigger)
+        assert result == "Every 30s"
+
+        # Test minutes
+        mock_trigger.interval.total_seconds.return_value = 300  # 5 minutes
+        result = manager._format_trigger(mock_trigger)
+        assert result == "Every 5m"
+
+        # Test hours
+        mock_trigger.interval.total_seconds.return_value = 7200  # 2 hours
+        result = manager._format_trigger(mock_trigger)
+        assert result == "Every 2h"
+
+    def test_format_trigger_cron(self, manager: ScheduledTaskManager) -> None:
+        """Test _format_trigger handles cron triggers correctly."""
+        mock_trigger = MagicMock()
+        mock_trigger.__class__.__name__ = "CronTrigger"
+
+        # Mock fields
+        mock_field = MagicMock()
+        mock_field.name = "hour"
+        mock_field.__str__ = MagicMock(return_value="2")
+        mock_trigger.fields = [mock_field]
+
+        result = manager._format_trigger(mock_trigger)
+        assert result == "Cron: hour=2"
+
+    def test_format_trigger_unknown(self, manager: ScheduledTaskManager) -> None:
+        """Test _format_trigger handles unknown triggers."""
+        result = manager._format_trigger(None)
+        assert result == "Unknown"
+
+        mock_trigger = MagicMock()
+        mock_trigger.__class__.__name__ = "UnknownTrigger"
+        result = manager._format_trigger(mock_trigger)
+        assert result == "Unknown"
+
+    def test_get_trigger_type(self, manager: ScheduledTaskManager) -> None:
+        """Test _get_trigger_type extracts trigger types correctly."""
+        # Test interval
+        mock_trigger = MagicMock()
+        mock_trigger.__class__.__name__ = "IntervalTrigger"
+        result = manager._get_trigger_type(mock_trigger)
+        assert result == "interval"
+
+        # Test cron
+        mock_trigger.__class__.__name__ = "CronTrigger"
+        result = manager._get_trigger_type(mock_trigger)
+        assert result == "cron"
+
+        # Test date
+        mock_trigger.__class__.__name__ = "DateTrigger"
+        result = manager._get_trigger_type(mock_trigger)
+        assert result == "date"
+
+        # Test unknown
+        result = manager._get_trigger_type(None)
+        assert result == "unknown"
