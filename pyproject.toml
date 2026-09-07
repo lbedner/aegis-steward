@@ -61,6 +61,8 @@ aegis-steward = "app.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
+    "cssselect>=1.5.0",
+    "lxml>=6.1.3",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.1.0",
     "ruff==0.12.7",
