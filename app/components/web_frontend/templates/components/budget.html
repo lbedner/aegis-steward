@@ -1,0 +1,22 @@
+{# The budget page body: month pager, stats strip, tabs, the active tab.
+   The pager and the tab links re-request this section and swap it in
+   place (pattern 3). Needs the ``budget_context`` keys. #}
+{% from "components/macros/layout.html" import badge %}
+<section id="budget" class="flex flex-col gap-6">
+  <nav id="month-pager" aria-label="Months ahead" class="flex flex-wrap items-center gap-1 text-xs">
+    {% for chip in pager %}
+    <a href="{{ path }}?month={{ chip.index }}{{ query }}" {{ hx_replace(path ~ "?month=" ~ chip.index ~ "&tab=" ~ tab ~ query, "#budget") }}
+       {% if chip.index == month %}aria-current="page"{% endif %}
+       class="px-2 py-0.5 rounded border transition-colors {{ 'border-aegis-teal text-aegis-text' if chip.index == month else 'border-aegis-border text-aegis-muted hover:text-aegis-text' }}">{{ badge(chip.label, chip.tone) }}</a>
+    {% endfor %}
+  </nav>
+  {% include "partials/budget/stats.html" %}
+  <nav role="tablist" aria-label="Budget views" class="flex items-center gap-1">
+    {% for key, label in tabs %}
+    <a href="{{ path }}?tab={{ key }}{{ query }}" {{ hx_replace(path ~ "?tab=" ~ key ~ "&month=" ~ month ~ query, "#budget") }}
+       {% if key == tab %}aria-current="page"{% endif %}
+       class="px-2.5 py-1 text-xs rounded border transition-colors {{ 'border-aegis-teal text-aegis-text bg-aegis-teal/10' if key == tab else 'border-aegis-border text-aegis-muted hover:text-aegis-text' }}">{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% include "partials/budget/" ~ tab ~ ".html" %}
+</section>

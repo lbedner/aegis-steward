@@ -13,6 +13,7 @@
 <form id="filter" method="get" action="{{ action }}"
       hx-get="{{ action }}" hx-target="#app-content" hx-push-url="true" hx-trigger="change"
       class="flex flex-wrap items-center gap-3">
+  {% if ranges %}
   <fieldset class="flex items-center gap-1" aria-label="Time window">
     {% for value, label in ranges %}
     <label class="cursor-pointer">
@@ -23,6 +24,7 @@
     </label>
     {% endfor %}
   </fieldset>
+  {% endif %}
   {% if accounts %}
   <details class="relative">
     <summary class="list-none cursor-pointer select-none px-2.5 py-1 text-xxs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">

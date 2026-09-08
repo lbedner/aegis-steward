@@ -1,0 +1,10 @@
+{# The strip. Each cell opens its arithmetic in the dialog on the current
+   month; a future month's cells are figures only. Ships out of band with
+   every write (``strip_oob``). #}
+{% from "components/macros/layout.html" import stat_tile %}
+<dl id="budget-stats" {% if strip_oob %}hx-swap-oob="outerHTML"{% endif %} class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+  {% for cell in stats.cells %}
+  {{ stat_tile(cell.label, ("+" if cell.key == "month" and cell.value > 0) ~ cell.value|money, negative=cell.tone == "error", caption=cell.caption,
+               attrs=('hx-get="' ~ path ~ '/stats/' ~ cell.key ~ '" hx-target="#dialog-body" role="button" tabindex="0"') if stats.clickable else "") }}
+  {% endfor %}
+</dl>

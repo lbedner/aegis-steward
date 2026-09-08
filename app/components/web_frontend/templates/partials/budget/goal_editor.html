@@ -1,0 +1,36 @@
+{# Add or edit a goal (pattern 1). The target preview re-asks the server
+   on every change of the rule, factor or scope, without a submit. #}
+{% from "components/macros/form.html" import field, text_input, money_input, select, date_input, checkbox, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">{{ "Edit " ~ goal.name if goal else "New goal" }}</h2>
+<form hx-post="{{ path ~ '/goals/' ~ goal.account_id ~ '/edit' if goal else path ~ '/goals/new' }}" hx-target="#dialog-body" class="space-y-4">
+  {{ error_banner(errors) }}
+  {% call field("Name") %}{{ text_input("name", values.name, required=not goal, autofocus=True) }}{% endcall %}
+  {% if not goal %}
+  {% call field("Fund it how?") %}{{ select("linked_account_id", accounts, None, blank="Save toward it here (virtual)", block=True) }}{% endcall %}
+  {% endif %}
+  <div class="grid grid-cols-2 gap-4">
+    {% call field("Target") %}{{ select("target_rule", rules, values.target_rule, blank=None, block=True) }}{% endcall %}
+    {% call field("Amount") %}{{ money_input("target_amount", values.target_amount) }}{% endcall %}
+    {% call field("Months of expenses") %}{{ text_input("target_factor", values.target_factor, placeholder="e.g. 3") }}{% endcall %}
+    {% call field("Target date (optional)") %}{{ date_input("target_date", values.target_date, block=True) }}{% endcall %}
+  </div>
+  <p id="target-preview" hx-get="{{ path }}/goals/preview" hx-trigger="change from:closest form" hx-include="closest form" hx-swap="outerHTML" class="text-xs text-aegis-muted tabular-nums min-h-4"></p>
+  {% if accounts %}
+  <fieldset class="text-xs text-aegis-muted">
+    <legend class="text-xxs uppercase tracking-wider">Sized against (months of expenses)</legend>
+    <div class="flex flex-wrap gap-3 mt-1">
+      {% for account in accounts %}
+      <label class="inline-flex items-center gap-1"><input type="checkbox" name="scope" value="{{ account.id }}" {% if account.id in scope %}checked{% endif %} class="accent-aegis-teal">{{ account.name }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endif %}
+  <div class="grid grid-cols-2 gap-4">
+    {% call field("Contribute how?") %}{{ select("contribution_kind", kinds, values.contribution_kind, blank=None, block=True) }}{% endcall %}
+    {% call field("Monthly amount") %}{{ money_input("monthly_contribution", values.monthly_contribution) }}{% endcall %}
+    {% call field("Percent of income") %}{{ text_input("contribution_pct", values.contribution_pct, placeholder="e.g. 10") }}{% endcall %}
+  </div>
+  {{ checkbox("auto_contribute", values.auto_contribute == "on", label="Contribute automatically each month") }}
+  <div>{{ primary_button("Save", type="submit") }}</div>
+</form>

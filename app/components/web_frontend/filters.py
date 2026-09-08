@@ -72,6 +72,7 @@ def money_to_cents(raw: str | None) -> int | None:
 
 FILTERS: dict[str, Callable[..., str]] = {
     "money": money,
+    "cents_to_input": cents_to_input,
     "short_date": short_date,
     "pct": pct,
 }
