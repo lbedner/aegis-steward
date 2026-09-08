@@ -101,14 +101,17 @@ def render(
     return response
 
 
-def trigger(response: Response, event: str, detail: Any = None) -> Response:
-    """Add an htmx client event to ``response`` via ``HX-Trigger``.
+def trigger(
+    response: Response, event: str, detail: Any = None, header: str = "HX-Trigger"
+) -> Response:
+    """Add an htmx client event to ``response`` via ``HX-Trigger`` (or the
+    after-swap/after-settle variants named by ``header``).
 
     Merges with triggers already on the response; a bare event-name header
     is kept as an event with no detail. The toast region, the dialog and
     any page hook listen for these by name.
     """
-    existing = response.headers.get("HX-Trigger")
+    existing = response.headers.get(header)
     triggers: dict[str, Any] = {}
     if existing:
         try:
@@ -116,7 +119,7 @@ def trigger(response: Response, event: str, detail: Any = None) -> Response:
         except json.JSONDecodeError:
             triggers = {name.strip(): None for name in existing.split(",")}
     triggers[event] = detail
-    response.headers["HX-Trigger"] = json.dumps(triggers)
+    response.headers[header] = json.dumps(triggers)
     return response
 
 
@@ -127,8 +130,13 @@ def with_toast(response: Response, text: str, tone: str = "ok") -> Response:
 
 
 def close_dialog(response: Response) -> Response:
-    """Close the one modal from a successful in-dialog action (pattern 4)."""
-    return trigger(response, "dialog:close")
+    """Close the one modal from a successful in-dialog action (pattern 4).
+
+    After settle, not before the swap: a plain ``HX-Trigger`` fires first,
+    and the swap into ``#dialog-body`` that follows (rows out of band leave
+    nothing in it) would re-open the dialog, empty.
+    """
+    return trigger(response, "dialog:close", header="HX-Trigger-After-Settle")
 
 
 def navigate(response: Response, path: str, target: str = "#app-content") -> Response:

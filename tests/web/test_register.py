@@ -89,7 +89,8 @@ class TestFilters:
         account links) must swap outerHTML, or each click nests a copy."""
         page = client.get("/accounts?page_size=1").text
         selfish = [
-            el for el in select(page, "[hx-select]")
+            el
+            for el in select(page, "[hx-select]")
             if el.get("hx-select") == el.get("hx-target")
         ]
         assert len(selfish) >= 4

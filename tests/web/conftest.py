@@ -155,6 +155,67 @@ async def ledger(finance: FinanceService, async_db_session: AsyncSession) -> Led
     return Ledger(checking=ids["Checking"], savings=ids["Savings"], card=ids["Visa"])
 
 
+@dataclass(frozen=True)
+class Streams:
+    """Ids of the seeded recurring streams (see the ``streams`` fixture)."""
+
+    rent: int
+    payroll: int
+    netflix: int
+    water: int
+
+
+@pytest.fixture
+async def streams(
+    finance: FinanceService, async_db_session: AsyncSession, ledger: Ledger
+) -> Streams:
+    """Four streams on the ledger, one per state the Bills page shows.
+
+    Rent (bill, $1,500.00 monthly, due in 10 days, hand-entered), Payroll
+    (income, $2,500.00 every 2 weeks), Netflix (detected, $15.99, not yet
+    confirmed) and Water (bill, $45.00 monthly, due 10 days ago: overdue,
+    and with one unclaimed $46.00 "WATER CO" charge to match it to).
+    """
+    today = date.today()
+    ids: dict[str, int] = {}
+    for name, direction, frequency, amount, due in (
+        ("Rent", "outflow", "monthly", 150_000, today + timedelta(days=10)),
+        ("Payroll", "inflow", "biweekly", 250_000, today + timedelta(days=7)),
+        ("Netflix", "outflow", "monthly", 1_599, today + timedelta(days=3)),
+        ("Water", "outflow", "monthly", 4_500, today - timedelta(days=10)),
+    ):
+        stream = await finance.create_recurring_stream(
+            owner_user_id=None,
+            name=name,
+            direction=direction,
+            frequency=frequency,
+            expected_amount=amount,
+            next_expected_date=due,
+            account_id=ledger.checking,
+        )
+        assert stream.id is not None
+        ids[name] = stream.id
+    netflix = await finance.get_recurring(ids["Netflix"], None)
+    assert netflix is not None
+    netflix.source = "derived"
+    netflix.is_user_confirmed = False
+    netflix.expected_amount = None
+    async_db_session.add(netflix)
+    await finance.create_transaction(
+        account_id=ledger.checking,
+        amount=-4_600,
+        txn_date=today - timedelta(days=9),
+        name="WATER CO",
+    )
+    await async_db_session.commit()
+    return Streams(
+        rent=ids["Rent"],
+        payroll=ids["Payroll"],
+        netflix=ids["Netflix"],
+        water=ids["Water"],
+    )
+
+
 def await_job(client: TestClient, job_id: str, tries: int = 200) -> dict[str, object]:
     """Poll the API until the job is terminal. The test client runs the app
     loop only while a request is in flight, so a background job advances

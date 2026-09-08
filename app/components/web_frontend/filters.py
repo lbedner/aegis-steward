@@ -7,6 +7,8 @@ finance service as integer minor units with a currency code.
 from collections.abc import Callable
 from datetime import date, datetime
 
+from app.services.finance.utils import current_date
+
 # Symbols for the codes a household ledger actually sees; anything else
 # shows its code.
 _CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
@@ -39,7 +41,7 @@ def short_date(value: date | datetime | str | None, today: date | None = None) -
     if isinstance(value, datetime):
         value = value.date()
     label = f"{value:%b} {value.day}"
-    if value.year == (today or date.today()).year:
+    if value.year == (today or current_date()).year:
         return label
     return f"{label}, {value.year}"
 

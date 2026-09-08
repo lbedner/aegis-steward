@@ -1,7 +1,20 @@
 {% extends layout %}
+{% from "components/macros/form.html" import primary_button %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
 {% block app_content %}
-<h1 class="text-2xl font-semibold text-aegis-text">{{ section.label }}</h1>
+<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+  <h1 class="text-2xl font-semibold text-aegis-text">{{ section.label }}</h1>
+  <div class="flex items-center gap-2">
+    {% if review_ids %}
+    <button type="button" hx-get="{{ path }}/review" hx-target="#dialog-body"
+            class="px-3 py-1.5 text-xs rounded border border-aegis-amber/40 text-aegis-text hover:border-aegis-amber transition-colors">Review ({{ review_ids|length }})</button>
+    {% endif %}
+    <button type="button" hx-post="{{ path }}/rescan" hx-include="#stream-filters" hx-target="#streams" hx-swap="outerHTML"
+            class="px-3 py-1.5 text-xs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Rescan</button>
+    {{ primary_button("Add bill or income", attrs='hx-get="' ~ path ~ '/new" hx-target="#dialog-body"') }}
+  </div>
+</div>
+{% include "components/streams.html" %}
 {% endblock %}

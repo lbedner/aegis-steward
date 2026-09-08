@@ -6,12 +6,10 @@ send every touched row out of band, so one contract serves single and
 bulk alike.
 """
 
-import json
-
 from fastapi.testclient import TestClient
 
 from tests.web.conftest import Ledger
-from tests.web.dom import none, one, oob, select, text
+from tests.web.dom import none, one, oob, select, text, triggers
 from tests.web.test_row_actions import payee_cell, txn_id
 
 
@@ -92,7 +90,7 @@ class TestAssignPayee:
         row = one(response.text, f"tr#txn-{gas}")
         assert row.get("hx-swap-oob") == "outerHTML"
         assert payee_of(row) == "Shell"
-        assert "dialog:close" in json.loads(response.headers["HX-Trigger"])
+        assert "dialog:close" in triggers(response)
 
     def test_offers_the_similar_rows_after_a_single_assignment(
         self, client: TestClient, ledger: Ledger
@@ -110,7 +108,7 @@ class TestAssignPayee:
             "/transactions/payee",
             data={"transaction_ids": [first], "new_name": "Market Inc"},
         )
-        assert "dialog:close" not in response.headers.get("HX-Trigger", "")
+        assert "dialog:close" not in triggers(response)
         offer = one(response.text, "form#similar-offer")
         assert "1 similar transaction" in text(one(response.text, "p"))
         assert [
@@ -123,7 +121,7 @@ class TestAssignPayee:
             data={"transaction_ids": [other], "merchant_id": merchant},
         )
         assert payee_of(one(accepted.text, f"tr#txn-{other}")) == "Market"
-        assert "dialog:close" in json.loads(accepted.headers["HX-Trigger"])
+        assert "dialog:close" in triggers(accepted)
 
     def test_nothing_chosen_is_a_422(self, client: TestClient, ledger: Ledger) -> None:
         page = client.get("/accounts").text

@@ -50,26 +50,26 @@ bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-
 
 
 {# A native select. ``options`` are objects or dicts with ``id`` and
-   ``name``; ``blank`` is the "no filter" label; ``selected`` the current id. #}
-{% macro select(name, options, selected=None, blank="All", label=None) %}
-<label class="inline-flex items-center gap-2 text-xs text-aegis-muted">
-  {% if label %}<span>{{ label }}</span>{% endif %}
-  <select name="{{ name }}" class="{{ _control_classes }}">
-    <option value="">{{ blank }}</option>
-    {% for option in options %}
-    {% set oid = option["id"] if option is mapping else option.id %}
-    {% set oname = option["name"] if option is mapping else option.name %}
-    <option value="{{ oid }}" {% if selected is not none and oid == selected %}selected{% endif %}>{{ oname }}</option>
-    {% endfor %}
-  </select>
-</label>
+   ``name``; ``blank`` is the "no filter" label (``None`` for no blank
+   choice); ``selected`` the current id. ``label`` wraps it inline for a
+   filter bar; ``block`` lays it out full-width inside a ``field()``. #}
+{% macro select(name, options, selected=None, blank="All", label=None, block=False) %}
+{% if label %}<label class="inline-flex items-center gap-2 text-xs text-aegis-muted"><span>{{ label }}</span>{% endif %}
+<select name="{{ name }}" class="{{ _control_classes }}{% if block %} block w-full mt-1{% endif %}">
+  {% if blank is not none %}<option value="">{{ blank }}</option>{% endif %}
+  {% for option in options %}
+  {% set oid = option["id"] if option is mapping else option.id %}
+  {% set oname = option["name"] if option is mapping else option.name %}
+  <option value="{{ oid }}" {% if selected is not none and oid == selected %}selected{% endif %}>{{ oname }}</option>
+  {% endfor %}
+</select>
+{% if label %}</label>{% endif %}
 {% endmacro %}
 
-{% macro date_input(name, value=None, label=None) %}
-<label class="inline-flex items-center gap-2 text-xs text-aegis-muted">
-  {% if label %}<span>{{ label }}</span>{% endif %}
-  <input type="date" name="{{ name }}" {% if value %}value="{{ value.isoformat() if value.isoformat is defined else value }}"{% endif %} class="{{ _control_classes }}">
-</label>
+{% macro date_input(name, value=None, label=None, block=False) %}
+{% if label %}<label class="inline-flex items-center gap-2 text-xs text-aegis-muted"><span>{{ label }}</span>{% endif %}
+<input type="date" name="{{ name }}" {% if value %}value="{{ value.isoformat() if value.isoformat is defined else value }}"{% endif %} class="{{ _control_classes }}{% if block %} block w-full mt-1{% endif %}">
+{% if label %}</label>{% endif %}
 {% endmacro %}
 
 {% macro checkbox(name, checked=False, label=None) %}

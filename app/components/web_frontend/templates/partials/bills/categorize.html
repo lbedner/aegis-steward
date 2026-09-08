@@ -1,0 +1,7 @@
+{% from "components/macros/form.html" import field, select, primary_button %}
+<h2 class="text-lg font-semibold text-aegis-text mb-1">Categorize {{ stream.name }}</h2>
+<p class="text-xs text-aegis-muted mb-4">The bill only: its transactions keep the categories they have.</p>
+<form hx-post="/bills/{{ stream.id }}/categorize" hx-target="#dialog-body" class="space-y-4">
+  {% call field("Category") %}{{ select("category_id", categories, stream.category_id, blank="Uncategorized", block=True) }}{% endcall %}
+  {{ primary_button("Save", type="submit") }}
+</form>

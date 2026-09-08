@@ -1,12 +1,10 @@
 """Splits and declare-recurring: two more register actions through the
 dialog, answering with rows out of band."""
 
-import json
-
 from fastapi.testclient import TestClient
 
 from tests.web.conftest import Ledger
-from tests.web.dom import none, one, select, text
+from tests.web.dom import none, one, select, text, triggers
 from tests.web.test_row_actions import category_id, txn_id
 
 
@@ -38,7 +36,7 @@ class TestSplit:
         lines = select(row, ".split-line")
         assert len(lines) == 3  # two stated parts plus the remainder
         assert "$10.00" in text(lines[0]) and "produce" in text(lines[0])
-        assert "dialog:close" in json.loads(response.headers["HX-Trigger"])
+        assert "dialog:close" in triggers(response)
         one(row, f'[hx-delete="/transactions/{market}/split"]')
 
     def test_unsplit_returns_the_plain_row(
@@ -103,8 +101,8 @@ class TestDeclareRecurring:
             },
         )
         assert response.status_code == 200
-        triggers = json.loads(response.headers["HX-Trigger"])
-        assert "dialog:close" in triggers and "1" in triggers["toast"]["text"]
+        fired = triggers(response)
+        assert "dialog:close" in fired and "1" in fired["toast"]["text"]
         assert len(select(response.text, "tr[hx-swap-oob]")) == 2
         names = [
             s["name"] for s in client.get("/api/v1/finance/recurring").json()["items"]
