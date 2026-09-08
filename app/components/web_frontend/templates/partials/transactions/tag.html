@@ -1,0 +1,12 @@
+{# Dialog body: tag the selected transactions. A 422 re-renders here with
+   the errors; success sends the rows out of band and closes the dialog. #}
+{% from "components/macros/form.html" import field, text_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">Tag {{ title }}</h2>
+<form hx-post="/transactions/tag" hx-swap="none" class="space-y-4">
+  {{ error_banner(errors) }}
+  {% for id in transaction_ids %}<input type="hidden" name="transaction_ids" value="{{ id }}">{% endfor %}
+  {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
+  {% call field("Tag") %}{{ text_input("name", name, placeholder="trip, audit, follow up", required=True, autofocus=True) }}{% endcall %}
+  {{ primary_button("Add tag", type="submit") }}
+</form>

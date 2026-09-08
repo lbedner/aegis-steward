@@ -35,8 +35,10 @@ from sqlmodel import Field
 
 # Postgres schema for finance tables; None on SQLite (no schema support).
 _SCHEMA: str | None = None
-# Foreign-key target prefix ("finance." on Postgres, "" on SQLite).
-_FK = f"{_SCHEMA}." if _SCHEMA else ""
+# Foreign-key target prefix ("finance." on Postgres, "" on SQLite). Rendered
+# per engine rather than derived at runtime: a condition on a constant None
+# is a redundant-condition diagnostic on SQLite stacks.
+_FK = ""
 
 
 def _bigint(name: str, *, nullable: bool = True, default: Any = None) -> Any:

@@ -1,0 +1,6 @@
+{% from "components/macros/table.html" import data_table %}
+<section id="import-preview" class="space-y-3">
+  <h3 class="text-sm font-semibold text-aegis-text">{{ preview.activities_parsed }} activities, {{ preview.first_date|short_date }} to {{ preview.last_date|short_date }}</h3>
+  <p class="text-xs text-aegis-muted">Replays to {{ preview.positions|length }} positions worth {{ preview.total_value|money }}.</p>
+  <div class="px-5">{{ data_table([{"key": "ticker", "label": "Ticker"}, {"key": "quantity", "label": "Quantity", "align": "right"}, {"key": "value", "label": "Value", "kind": "money", "align": "right"}], preview.positions, empty="No positions") }}</div>
+</section>

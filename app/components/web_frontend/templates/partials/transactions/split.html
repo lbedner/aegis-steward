@@ -1,0 +1,20 @@
+{# Split one transaction into lines. State the parts you know; the
+   remainder line is filled by the service. #}
+{% from "components/macros/form.html" import money_input, text_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-1">Split "{{ txn.name }}"</h2>
+<p class="text-xs text-aegis-muted mb-4">{{ txn.amount|money(txn.currency) }} in total; anything left over becomes a remainder line.</p>
+<form hx-post="/transactions/{{ txn.id }}/split" hx-target="#dialog-body" class="space-y-3">
+  {{ error_banner(errors) }}
+  {% for part in parts %}
+  <div class="grid grid-cols-[8rem_1fr_1fr] gap-2 items-end">
+    {{ money_input("amount", part.amount) }}
+    <select name="category_id" aria-label="Category" class="bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text">
+      <option value="">Uncategorized</option>
+      {% for c in categories %}<option value="{{ c.id }}" {% if part.category_id and c.id|string == part.category_id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+    </select>
+    {{ text_input("memo", part.memo, placeholder="memo") }}
+  </div>
+  {% endfor %}
+  {{ primary_button("Split", type="submit") }}
+</form>

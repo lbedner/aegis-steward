@@ -65,8 +65,9 @@ dev = [
     "lxml>=6.1.3",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.1.0",
+    "pytest-xdist>=3.6.1",
     "ruff==0.12.7",
-    "ty",
+    "ty==0.0.79",
     "types-psutil==7.0.0.20250801",
     "pre-commit==4.2.0",
     "pip-audit==2.9.0",
@@ -192,6 +193,8 @@ exclude = [".venv", "venv", ".tox", "build", "dist"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Parallel by default; loadgroup keeps xdist_group-marked tests together.
+addopts = "-n auto --dist=loadgroup"
 
 # Windows-compatible mirror of the Makefile: `uv run poe <target>` means the
 # same thing as `make <target>` on any OS, since `make` isn't a native

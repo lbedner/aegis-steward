@@ -15,9 +15,11 @@ def create_web_frontend_app() -> APIRouter:
     router = APIRouter()
 
     from app.components.web_frontend.routes.finance import router as finance_router
+    from app.components.web_frontend.routes.jobs import router as jobs_router
     from app.components.web_frontend.routes.pages import router as pages_router
 
     router.include_router(pages_router)
     router.include_router(finance_router)
+    router.include_router(jobs_router)
 
     return router

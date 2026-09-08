@@ -25,7 +25,7 @@ Two properties make it safe to re-run:
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 import random
 
 from pydantic import BaseModel
@@ -80,6 +80,7 @@ from app.services.finance.seeds.demo_plan import (  # noqa: F401
     build_demo_ledger,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 # The household table moved modules; its address did not.
 __all__ = [
@@ -118,10 +119,6 @@ class DemoSeedResult(BaseModel):
     net_worth_days: int = 0
     skipped: bool = False
     reset: bool = False
-
-
-def _today() -> date:
-    return datetime.now(UTC).date()
 
 
 # --------------------------------------------------------------------- #
@@ -862,7 +859,7 @@ async def seed_demo(
         await _delete_demo_rows(db, owner_user_id)
 
     service = FinanceService(db)
-    anchor = _today()
+    anchor = current_date()
     window_start = _month_starts(anchor, months)[0]
     ledger = build_demo_ledger(anchor=anchor, months=months)
 

@@ -23,6 +23,7 @@ from app.services.finance.schemas import (
     CategoryUsageResponse,
 )
 from app.services.finance.utils import (
+    current_date,
     transaction_payee_key,
     utcnow,
 )
@@ -221,7 +222,7 @@ async def spending_by_category(
     ``account_ids`` narrows the breakdown to those accounts (still
     intersected with live accounts and the owner scope, so a stray id can
     never widen the view)."""
-    cutoff = date.today() - timedelta(days=days)
+    cutoff = current_date() - timedelta(days=days)
     rows = await queries.category_spend_totals(
         db, owner_user_id=owner_user_id, start=cutoff, account_ids=account_ids
     )
@@ -252,7 +253,7 @@ async def spending_transactions(
     too. Pass the full list of names folded into "Other" to drill into
     THAT slice the same way.
     """
-    cutoff = date.today() - timedelta(days=days)
+    cutoff = current_date() - timedelta(days=days)
     return await queries.spending_rows(
         db,
         owner_user_id=owner_user_id,
@@ -272,7 +273,7 @@ async def spending_summary(
         year, mon = (int(part) for part in month.split("-", 1))
         start = date(year, mon, 1)
     else:
-        today = date.today()
+        today = current_date()
         start = date(today.year, today.month, 1)
     end = (
         date(start.year + 1, 1, 1)
@@ -290,7 +291,7 @@ async def spending_summary(
 async def categorize_transaction(
     db: AsyncSession,
     transaction_id: int,
-    category_id: int,
+    category_id: int | None,
     *,
     owner_user_id: int | None = None,
     source: str = "user",

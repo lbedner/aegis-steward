@@ -26,7 +26,7 @@ from app.services.finance.domains.planning.budgets import queries
 from app.services.finance.domains.planning.budgets.lines import get_or_create_budget
 from app.services.finance.models import FinanceBudgetCategory
 from app.services.finance.schemas import BudgetSuggestion, DismissedBudgetSuggestion
-from app.services.finance.utils import current_period_month
+from app.services.finance.utils import current_date, current_period_month
 
 # Auto-budget gates. Deliberately mirror the recurring-detection ones:
 # a mean with no dispersion check invents a pattern, which is how a
@@ -85,7 +85,7 @@ async def suggest_budget_lines(
     billing it charges the forecast twice), and anything you have
     already set a line for.
     """
-    today = today or date.today()
+    today = today or current_date()
     current = today.year * 12 + today.month - 1
     first = current - _BUDGET_LOOKBACK_MONTHS
 

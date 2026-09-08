@@ -57,6 +57,15 @@ class TestResponseHandling:
         assert rule_for(config, 404)["swap"] is False
 
 
+class TestSettling:
+    def test_no_attribute_settling(self, config: dict[str, Any]) -> None:
+        """htmx's settle step copies ``class``/``style`` from the old
+        element onto a swapped one with the same id, which wipes what
+        Alpine's ``x-show`` set (the bulk bar reappeared as "0 selected"
+        after every register re-render). We do not animate on settle."""
+        assert config["attributesToSettle"] == []
+
+
 class TestHistory:
     def test_snapshots_stay_disabled(self, config: dict[str, Any]) -> None:
         """Restoring an Alpine-expanded DOM duplicates the page; a history

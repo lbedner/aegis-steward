@@ -26,6 +26,7 @@ from app.services.finance.models import (
 from app.services.finance.schemas import CashflowMonth, PayeeTotal
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
+    current_date,
     utcnow,
 )
 
@@ -352,7 +353,7 @@ async def monthly_cashflow(
     dialect-specific - and at a few thousand rows the loop costs less
     than a millisecond.
     """
-    today = today or date.today()
+    today = today or current_date()
     span = max(1, months)
     first_year, first_month = today.year, today.month - (span - 1)
     while first_month <= 0:

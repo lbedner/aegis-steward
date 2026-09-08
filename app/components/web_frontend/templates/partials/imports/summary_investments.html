@@ -1,0 +1,6 @@
+<section id="import-summary" class="space-y-3">
+  <h3 class="text-sm font-semibold text-aegis-text">Imported</h3>
+  <p class="text-sm text-aegis-text">{{ result.activities_parsed }} activities replayed.</p>
+  <button type="button" hx-get="/accounts" hx-target="#app-content" hx-push-url="true" @click="$el.closest('dialog').close()"
+          class="px-4 py-2 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Done</button>
+</section>

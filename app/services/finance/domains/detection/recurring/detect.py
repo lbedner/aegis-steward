@@ -48,6 +48,7 @@ from app.services.finance.models import (
     FinanceTransaction,
     FinanceTransfer,
 )
+from app.services.finance.utils import current_date
 
 
 def _payment_leg():
@@ -124,7 +125,7 @@ async def detect_recurring(
     """
     result = RecurringDetectionResult()
     store_owner = 0 if owner_user_id is None else owner_user_id
-    today = today or date.today()
+    today = today or current_date()
 
     accounts = await queries.account_rows_where(
         db,

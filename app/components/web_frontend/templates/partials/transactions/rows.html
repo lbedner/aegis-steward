@@ -1,0 +1,8 @@
+{# An action's answer: every touched row out of band, plus the counters.
+   The trigger itself swaps nothing (hx-swap="none"), so one contract
+   serves a single row and a selection alike. #}
+{% from "components/macros/feedback.html" import oob %}
+{% for row in rows %}
+{% with row_oob=(oob_rows is not defined or oob_rows) %}{% include "components/register_row.html" %}{% endwith %}
+{% endfor %}
+{% call oob("uncategorized-count") %}{{ uncategorized_total }} uncategorized{% endcall %}

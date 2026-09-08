@@ -182,3 +182,69 @@ def step_cadence(key: str, day: date) -> date:
 # A plain-column discriminator: the import pipeline's LANE-3 edit matching
 # and the source CHECK constraint both stay untouched by it.
 RECONCILE_MARKER = "reconcile"
+
+
+# How accounts group in any account list (sidebar, filter, report), in
+# display order. Keyed by ``account_type``; unknown types fall into "Other".
+ACCOUNT_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Banking", ("checking", "savings", "cash")),
+    ("Credit Cards", ("credit_card",)),
+    ("Investments", ("investment", "brokerage", "crypto")),
+    ("Property", ("property", "vehicle")),
+    ("Loans & Debt", ("loan", "other_liability")),
+    ("Other", ("other_asset",)),
+)
+
+PROPERTY_ACCOUNT_TYPE = "property"
+
+# Account types whose detail view is holdings (positions), not transactions.
+INVESTMENT_ACCOUNT_TYPES = frozenset({"brokerage", "investment", "crypto"})
+
+
+def account_group(account_type: str) -> str:
+    for label, types in ACCOUNT_GROUPS:
+        if account_type in types:
+            return label
+    return "Other"
+
+
+def account_actions(
+    *, account_type: str, classification: str, is_manual: bool
+) -> tuple[str, ...]:
+    """What a UI may offer to do to an account, in menu order.
+
+    Rename and reconcile always; property details and valuation history
+    only where there is a property to describe; the lien link only on a
+    debt; remove only for a manual account (a provider account belongs to
+    its bank connection). Both frontends map these keys to their labels.
+    """
+    actions = ["rename", "reconcile"]
+    if account_type == PROPERTY_ACCOUNT_TYPE:
+        actions.extend(("property", "valuations"))
+    if classification == "liability":
+        actions.append("secured_by")
+    if is_manual:
+        actions.append("remove")
+    return tuple(actions)
+
+
+# Curated (account_type, label) choices for a manual "Add account" form. Keys
+# are the DB-constrained account_type values; classification derives below.
+ADD_ACCOUNT_TYPES: tuple[tuple[str, str], ...] = (
+    ("checking", "Checking"),
+    ("savings", "Savings"),
+    ("cash", "Cash"),
+    ("credit_card", "Credit card"),
+    ("loan", "Loan"),
+    ("brokerage", "Brokerage"),
+    ("crypto", "Crypto"),
+    ("property", "Property"),
+    ("vehicle", "Vehicle"),
+    ("other_asset", "Other asset"),
+    ("other_liability", "Other liability"),
+)
+LIABILITY_ACCOUNT_TYPES = frozenset({"credit_card", "loan", "other_liability"})
+
+
+def account_classification(account_type: str) -> str:
+    return "liability" if account_type in LIABILITY_ACCOUNT_TYPES else "asset"

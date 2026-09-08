@@ -1,7 +1,7 @@
 {# Form macros. Native inputs with ``name`` attributes, so every form posts
    or re-queries through htmx without client-side state.
 
-       {% from "components/macros/form.html" import account_filter %}
+       {% from "components/macros/form.html" import select, date_input, checkbox, search_input %}
 #}
 
 
@@ -40,4 +40,109 @@
   </details>
   {% endif %}
 </form>
+{% endmacro %}
+
+
+{# Shared input styling; every control below uses it so the bar reads as one. #}
+{%- set _control_classes -%}
+bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text placeholder:text-aegis-muted/50 focus:border-aegis-teal focus:outline-none transition-colors
+{%- endset -%}
+
+
+{# A native select. ``options`` are objects or dicts with ``id`` and
+   ``name``; ``blank`` is the "no filter" label; ``selected`` the current id. #}
+{% macro select(name, options, selected=None, blank="All", label=None) %}
+<label class="inline-flex items-center gap-2 text-xs text-aegis-muted">
+  {% if label %}<span>{{ label }}</span>{% endif %}
+  <select name="{{ name }}" class="{{ _control_classes }}">
+    <option value="">{{ blank }}</option>
+    {% for option in options %}
+    {% set oid = option["id"] if option is mapping else option.id %}
+    {% set oname = option["name"] if option is mapping else option.name %}
+    <option value="{{ oid }}" {% if selected is not none and oid == selected %}selected{% endif %}>{{ oname }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% endmacro %}
+
+{% macro date_input(name, value=None, label=None) %}
+<label class="inline-flex items-center gap-2 text-xs text-aegis-muted">
+  {% if label %}<span>{{ label }}</span>{% endif %}
+  <input type="date" name="{{ name }}" {% if value %}value="{{ value.isoformat() if value.isoformat is defined else value }}"{% endif %} class="{{ _control_classes }}">
+</label>
+{% endmacro %}
+
+{% macro checkbox(name, checked=False, label=None) %}
+<label class="inline-flex items-center gap-2 text-xs text-aegis-muted cursor-pointer">
+  <input type="checkbox" name="{{ name }}" {% if checked %}checked{% endif %} class="accent-aegis-teal">
+  {% if label %}<span>{{ label }}</span>{% endif %}
+</label>
+{% endmacro %}
+
+{% macro search_input(name, value=None, placeholder="Search") %}
+<input type="search" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
+       aria-label="{{ placeholder }}" class="{{ _control_classes }} min-w-[12rem]">
+{% endmacro %}
+
+{# A labelled field. The control comes via {% call %}; ``error`` renders
+   under it (pattern 1's 422 re-render passes field errors here). #}
+{% macro field(label, error=None) %}
+<div class="space-y-1">
+  <label class="block text-xxs text-aegis-muted uppercase tracking-wider">{{ label }}
+    {{ caller() }}
+  </label>
+  {% if error %}<p class="text-xs text-error">{{ error }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro text_input(name, value=None, placeholder="", required=False, autofocus=False) %}
+<input type="text" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
+       {% if required %}required{% endif %} {% if autofocus %}autofocus{% endif %}
+       class="{{ _control_classes }} w-full mt-1">
+{% endmacro %}
+
+{%- set _primary_button_classes -%}
+text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 rounded px-4 py-2.5 hover:bg-aegis-teal/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2
+{%- endset -%}
+
+{# Inline primary button (no loading spinner). Defaults to ``type="button"``
+   so it doesn't accidentally submit a form it's nested inside — pass
+   ``type="submit"`` explicitly when you want submit semantics. ``attrs``
+   lets the caller pass arbitrary attributes (Alpine ``@click``,
+   ``:disabled``, ``aria-*``) without bloating the macro signature. #}
+{% macro primary_button(label, type="button", attrs="") %}
+<button type="{{ type }}" {{ attrs|safe }}
+  class="{{ _primary_button_classes }}">{{ label }}</button>
+{% endmacro %}
+
+{# Primary submit button with an inline loading spinner. Parent scope must
+   expose ``loading`` (bool) — typically flipped by ``@submit="loading = true"``
+   on the form. The button disables itself while loading so a double-click
+   can't double-submit. #}
+{% macro submit_button(idle_label, loading_label) %}
+<button type="submit" :disabled="loading"
+  class="{{ _primary_button_classes }} w-full">
+  <span x-show="!loading">{{ idle_label }}</span>
+  <span x-show="loading" x-cloak class="inline-flex items-center gap-2">
+    {# Tailwind's `animate-spin` + a minimal ring-quarter SVG. No deps. #}
+    <svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+    </svg>
+    {{ loading_label }}
+  </span>
+</button>
+{% endmacro %}
+
+{% macro money_input(name, value=None, placeholder="0.00") %}
+<div class="relative mt-1">
+  <span class="absolute inset-y-0 left-2.5 flex items-center text-sm text-aegis-muted" aria-hidden="true">$</span>
+  <input type="text" inputmode="decimal" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
+         class="{{ _control_classes }} w-full pl-6 tabular-nums">
+</div>
+{% endmacro %}
+
+{% macro textarea(name, value=None, rows=6, placeholder="") %}
+<textarea name="{{ name }}" rows="{{ rows }}" placeholder="{{ placeholder }}"
+          class="{{ _control_classes }} w-full mt-1 font-mono text-xs">{{ value or "" }}</textarea>
 {% endmacro %}

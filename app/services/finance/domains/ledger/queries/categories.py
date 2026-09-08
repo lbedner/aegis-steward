@@ -25,6 +25,7 @@ from app.services.finance.models import (
     FinanceTransaction,
     FinanceTransactionSplit,
 )
+from app.services.finance.utils import current_date
 
 
 async def category_alias_ids(
@@ -130,7 +131,9 @@ async def category_usage_rows(
     if owner_user_id is not None:
         filters.append(FinanceTransaction.owner_user_id == owner_user_id)
     if days is not None:
-        filters.append(FinanceTransaction.date_ >= date.today() - timedelta(days=days))
+        filters.append(
+            FinanceTransaction.date_ >= current_date() - timedelta(days=days)
+        )
     rows = (
         await db.exec(
             select(

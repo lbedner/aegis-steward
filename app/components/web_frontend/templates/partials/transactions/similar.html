@@ -1,0 +1,15 @@
+{# The follow-up after naming one transaction: its payee-less lookalikes,
+   offered, never applied on their own. Posting accepts them. #}
+{% from "components/macros/form.html" import primary_button %}
+<h2 class="text-lg font-semibold text-aegis-text mb-2">Also {{ merchant_name }}?</h2>
+<p class="text-sm text-aegis-muted mb-4">{{ similar|length }} similar transaction{{ "s" if similar|length != 1 }} without a payee look like this one.</p>
+<ul class="text-sm text-aegis-text space-y-1 mb-4">
+  {% for row in similar %}<li>{{ row.date|short_date }} · {{ row.name }} · {{ row.amount|money }}</li>{% endfor %}
+</ul>
+<form id="similar-offer" hx-post="/transactions/payee" hx-target="#dialog-body" class="flex items-center gap-3">
+  {% for row in similar %}<input type="hidden" name="transaction_ids" value="{{ row.id }}">{% endfor %}
+  <input type="hidden" name="merchant_id" value="{{ merchant_id }}">
+  {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
+  {{ primary_button("Yes, apply to " ~ similar|length, type="submit") }}
+  <button type="button" @click="$el.closest('dialog').close()" class="text-xs text-aegis-muted hover:text-aegis-text">No, just this one</button>
+</form>

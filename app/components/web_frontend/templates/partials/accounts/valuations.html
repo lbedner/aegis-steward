@@ -1,0 +1,22 @@
+{# Paste a value history; the service parses it all-or-nothing. The list
+   below is what is on record, newest first. #}
+{% from "components/macros/form.html" import field, textarea, select, checkbox, primary_button %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">Valuation history</h2>
+<form hx-post="/accounts/{{ account.id }}/valuations" hx-target="#dialog-body" class="space-y-4 mb-6">
+  {{ error_banner(errors) }}
+  {% call field("Paste the history") %}{{ textarea("text", text, placeholder="2026-01-01 400,000\n2026-06-01 415,000") }}{% endcall %}
+  <div class="flex items-center gap-4">
+    <label class="inline-flex items-center gap-2 text-xs text-aegis-muted">Source
+      <select name="source" class="bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text">
+        {% for key, label in sources %}<option value="{{ key }}" {% if key == source %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    {{ checkbox("is_estimate", False, label="Estimates") }}
+    {{ primary_button("Add", type="submit") }}
+  </div>
+</form>
+<div id="valuation-history" class="px-5">
+  {{ data_table([{"key": "as_of_date", "label": "Date", "kind": "date"}, {"key": "source", "label": "Source"}, {"key": "value", "label": "Value", "kind": "money", "align": "right"}], history, empty="No valuations yet") }}
+</div>

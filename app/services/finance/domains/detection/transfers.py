@@ -35,6 +35,7 @@ from app.services.finance.models import (
     FinanceTransaction,
     FinanceTransfer,
 )
+from app.services.finance.utils import current_date
 
 WINDOW_DAYS = 5
 AMOUNT_EXACT_TOLERANCE_CENTS = 200  # $2 fee tolerance -> full amount score
@@ -117,7 +118,7 @@ async def detect_transfers(
     """
     from app.core.config import settings
 
-    today = today or date.today()
+    today = today or current_date()
     if lookback_days is None:
         lookback_days = settings.FINANCE_RULES_LOOKBACK_DAYS
     result = await _pair_transfers(

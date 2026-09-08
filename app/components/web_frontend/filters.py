@@ -51,6 +51,23 @@ def pct(ratio: float | None, digits: int = 0) -> str:
     return f"{ratio * 100:.{digits}f}%"
 
 
+def cents_to_input(cents: int | None) -> str:
+    """The inverse of ``money_to_cents`` for form values: ``350,000.00``."""
+    return "" if cents is None else f"{cents / 100:,.2f}"
+
+
+def money_to_cents(raw: str | None) -> int | None:
+    """``"$1,200.50"`` / ``"3,000"`` / ``" 12 "`` -> cents; blank -> 0;
+    anything else -> ``None`` (the caller decides that is a 422)."""
+    cleaned = (raw or "").replace("$", "").replace(",", "").strip()
+    if not cleaned:
+        return 0
+    try:
+        return round(float(cleaned) * 100)
+    except ValueError:
+        return None
+
+
 FILTERS: dict[str, Callable[..., str]] = {
     "money": money,
     "short_date": short_date,

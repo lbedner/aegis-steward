@@ -40,6 +40,7 @@ from app.services.finance.schemas import (
     ProjectionResponse,
 )
 from app.services.finance.utils import (
+    current_date,
     current_period_month,
     display_cash_balance,
 )
@@ -82,7 +83,7 @@ async def project_balances(
     in flight); older ones are the insight rules' missed-payment
     chase, not the forecast's.
     """
-    today = today or date.today()
+    today = today or current_date()
     horizon = today + timedelta(days=days)
 
     account_rows, _ = await accounts.list_accounts(

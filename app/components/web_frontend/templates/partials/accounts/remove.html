@@ -1,0 +1,2 @@
+{% from "components/macros/layout.html" import confirm %}
+{{ confirm("Remove " ~ account.name ~ "?", "Its transactions leave the register, budgets and projections. A re-import of the same file will not bring them back.", "/accounts/" ~ account.id, label="Remove account") }}

@@ -1,0 +1,24 @@
+{# What the selection would become as recurring bills. Cadence, amount
+   and next date are measured; the name is the one thing to confirm. #}
+{% from "components/macros/form.html" import primary_button %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">Make recurring</h2>
+{% if note or not plan.items %}
+<p id="dialog-note" class="text-sm text-aegis-muted">{{ note or "No rhythm found in this selection yet; pick two or more payments of the same bill." }}</p>
+{% else %}
+<form hx-post="/transactions/declare" hx-swap="none" class="space-y-4">
+  {% for id in transaction_ids %}<input type="hidden" name="transaction_ids" value="{{ id }}">{% endfor %}
+  {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
+  {% for entry in plan.items %}
+  <div class="plan-entry bg-aegis-bg border border-aegis-border rounded p-3 space-y-2">
+    <input type="text" name="name:{{ entry.key }}" value="{{ entry.name }}" aria-label="Bill name"
+           class="w-full bg-transparent border-b border-aegis-border text-sm text-aegis-text focus:border-aegis-teal focus:outline-none">
+    <p class="text-xs text-aegis-muted">
+      {{ entry.frequency|replace("_", " ") }} · about {{ entry.average_amount|money }}{% if entry.amount_is_variable %} (varies){% endif %}
+      {% if entry.next_expected_date %} · next {{ entry.next_expected_date|short_date }}{% endif %}
+      {% if entry.account_name %} · {{ entry.account_name }}{% endif %}
+    </p>
+  </div>
+  {% endfor %}
+  {{ primary_button("Declare", type="submit") }}
+</form>
+{% endif %}

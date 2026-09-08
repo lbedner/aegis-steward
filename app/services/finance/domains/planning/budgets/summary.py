@@ -52,6 +52,7 @@ from app.services.finance.schemas import (
     StatDetailRow,
 )
 from app.services.finance.utils import (
+    current_date,
     current_period_month,
     monthly_income,
     transaction_payee_key,
@@ -190,7 +191,7 @@ async def budget_summary(
     be a spend lookup per line. Do not "simplify" steps 4/5 below into
     per-line queries - that is exactly the N+1 this was built to avoid.
     """
-    today = today or date.today()
+    today = today or current_date()
     month = period_month or current_period_month(today)
     start, end = queries.month_bounds(month)
     prior_start, prior_end = queries.month_bounds(_prior_period_month(month))
@@ -486,7 +487,7 @@ async def budget_stat_details(
     to the cell. Everything-else is the uncovered-spend bucket grouped
     by category, over the SAME filters as the rate.
     """
-    today = today or date.today()
+    today = today or current_date()
     # The same stream set the cells are computed from, filtered the same
     # way: a popup that explains a number has to be about that number.
     # Without this, narrowing to one account left the cell filtered and

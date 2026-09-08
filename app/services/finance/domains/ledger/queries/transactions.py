@@ -27,6 +27,7 @@ from app.services.finance.models import (
     FinanceTransactionSplit,
     FinanceTransactionTag,
 )
+from app.services.finance.utils import current_date
 
 
 async def dedup_match(
@@ -272,7 +273,7 @@ async def top_payees_over_window(
         FinanceTransaction.is_transfer.is_(False),
         FinanceTransaction.account_id.in_(live_account_ids()),
         FinanceTransaction.amount < 0,
-        FinanceTransaction.date_ >= date.today() - timedelta(days=days),
+        FinanceTransaction.date_ >= current_date() - timedelta(days=days),
         payee.is_not(None),
     ]
     if owner_user_id is not None:

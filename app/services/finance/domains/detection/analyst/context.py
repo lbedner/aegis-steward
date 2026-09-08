@@ -24,13 +24,14 @@ from app.services.finance.domains.planning.goals import (
     goal_rates,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 
 async def load_report_context(
     db: AsyncSession, *, owner_user_id: int | None, today: date | None = None
 ) -> ReportContext:
     """One pass over the batched reads; everything downstream is data."""
-    today = today or date.today()
+    today = today or current_date()
     service = FinanceService(db)
     live = await ledger_queries.live_accounts_for_owner(db, owner_user_id=owner_user_id)
     accounts = sorted(

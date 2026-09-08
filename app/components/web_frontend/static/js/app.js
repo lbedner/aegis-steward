@@ -61,3 +61,7 @@ document.body.addEventListener('htmx:afterSwap', (event) => {
     if (dialog && !dialog.open) dialog.showModal();
   }
 });
+document.body.addEventListener('dialog:close', () => {
+  const dialog = document.getElementById('dialog');
+  if (dialog && dialog.open) dialog.close();
+});

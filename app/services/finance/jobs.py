@@ -5,7 +5,6 @@ queue: APScheduler awaits the coroutine directly, so this is backend-agnostic.
 Each job opens its own session and commits (services never commit themselves).
 """
 
-from datetime import date
 import logging
 
 from sqlmodel import select
@@ -19,6 +18,7 @@ from app.services.finance.domains.detection import (
 from app.services.finance.domains.ledger import networth
 from app.services.finance.models import FinanceAccount, FinanceConnection
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ async def finance_goal_auto_contribute_job() -> None:
             booked = 0
             for owner_user_id in owners:
                 booked += await service.auto_contribute_goals(
-                    owner_user_id=owner_user_id, today=date.today()
+                    owner_user_id=owner_user_id, today=current_date()
                 )
             await session.commit()
         logger.info("Finance: auto-contributed to %d goal(s)", booked)
@@ -100,7 +100,7 @@ async def finance_envelope_credit_job() -> None:
             booked = 0
             for owner_user_id in owners:
                 booked += await service.auto_credit_envelopes(
-                    owner_user_id=owner_user_id, today=date.today()
+                    owner_user_id=owner_user_id, today=current_date()
                 )
             await session.commit()
         logger.info("Finance: auto-credited %d envelope(s)", booked)

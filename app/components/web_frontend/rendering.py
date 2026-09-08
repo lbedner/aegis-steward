@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 from starlette.responses import Response
 
 from app.components.web_frontend.assets import COMPONENT_DIR, static_url
@@ -31,6 +32,28 @@ templates.env.globals["auth_enabled"] = settings.AUTH_ENABLED
 templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
 # The sidebar loops this; see nav.py.
 templates.env.globals["nav"] = NAV
+
+
+def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
+    """The attributes for "re-request ``url`` and replace ``target`` with
+    the same element from the response" (filters, pagers, list links).
+
+    Selecting the element you target needs an outerHTML swap, or every
+    request nests a copy; keeping the recipe here means nobody forgets.
+    """
+    attrs = {
+        "hx-get": url,
+        "hx-target": target,
+        "hx-select": target,
+        "hx-swap": "outerHTML",
+        "hx-push-url": "true",
+    }
+    if oob:
+        attrs["hx-select-oob"] = oob
+    return Markup(" ".join(f'{k}="{escape(v)}"' for k, v in attrs.items()))
+
+
+templates.env.globals["hx_replace"] = hx_replace
 templates.env.filters.update(FILTERS)
 
 
@@ -78,12 +101,12 @@ def render(
     return response
 
 
-def with_toast(response: Response, text: str, tone: str = "ok") -> Response:
-    """Attach a toast to any response (pattern 6).
+def trigger(response: Response, event: str, detail: Any = None) -> Response:
+    """Add an htmx client event to ``response`` via ``HX-Trigger``.
 
-    Written into ``HX-Trigger`` so htmx raises a ``toast`` event that the
-    region in base.html shows. Merges with triggers already on the
-    response; a bare event-name header is kept as an event with no detail.
+    Merges with triggers already on the response; a bare event-name header
+    is kept as an event with no detail. The toast region, the dialog and
+    any page hook listen for these by name.
     """
     existing = response.headers.get("HX-Trigger")
     triggers: dict[str, Any] = {}
@@ -92,6 +115,25 @@ def with_toast(response: Response, text: str, tone: str = "ok") -> Response:
             triggers = json.loads(existing)
         except json.JSONDecodeError:
             triggers = {name.strip(): None for name in existing.split(",")}
-    triggers["toast"] = {"text": text, "tone": tone}
+    triggers[event] = detail
     response.headers["HX-Trigger"] = json.dumps(triggers)
+    return response
+
+
+def with_toast(response: Response, text: str, tone: str = "ok") -> Response:
+    """Attach a toast to any response (pattern 6): a ``toast`` event the
+    region in base.html shows."""
+    return trigger(response, "toast", {"text": text, "tone": tone})
+
+
+def close_dialog(response: Response) -> Response:
+    """Close the one modal from a successful in-dialog action (pattern 4)."""
+    return trigger(response, "dialog:close")
+
+
+def navigate(response: Response, path: str, target: str = "#app-content") -> Response:
+    """Send the browser to ``path`` the htmx way: a GET with HX-Request
+    swapped into ``target`` and pushed to the URL bar (``HX-Location``).
+    The usual close of a dialog form that made something new."""
+    response.headers["HX-Location"] = json.dumps({"path": path, "target": target})
     return response

@@ -21,26 +21,32 @@ from app.components.frontend.dashboard.modals.modal_sections import (
     headline_stat_color,
 )
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.constants import account_actions
 
-PROPERTY_ACCOUNT_TYPE = "property"
+_ACTION_LABELS = {
+    "rename": "Rename",
+    "reconcile": "Reconcile",
+    "property": "Property details",
+    "valuations": "Valuation history",
+    "secured_by": "Secured by",
+    "remove": "Remove",
+}
 
 
 def manage_menu_labels(account: dict[str, Any]) -> list[str]:
     """The Manage menu's items for one account, in order (pure).
 
-    Rename and Reconcile always; Remove only for manual accounts (a
-    provider account belongs to its bank connection); Property details
-    only where there is a property to describe.
+    The rule lives with the finance service (``account_actions``) and is
+    shared with the web frontend; this maps its keys to Flet's labels.
     """
-    labels = ["Rename", "Reconcile"]
-    if account.get("account_type") == PROPERTY_ACCOUNT_TYPE:
-        labels.extend(("Property details", "Valuation history"))
-    if account.get("classification") == "liability":
-        # FW-04: the lien link only means something on a debt.
-        labels.append("Secured by")
-    if account.get("is_manual", False):
-        labels.append("Remove")
-    return labels
+    return [
+        _ACTION_LABELS[key]
+        for key in account_actions(
+            account_type=account.get("account_type") or "",
+            classification=account.get("classification") or "",
+            is_manual=bool(account.get("is_manual", False)),
+        )
+    ]
 
 
 def _account_detail_header(

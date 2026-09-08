@@ -54,6 +54,7 @@ from app.services.finance.domains.planning.goals import goal_metadata
 from app.services.finance.domains.planning.recurring import (
     queries as recurring_queries,
 )
+from app.services.finance.utils import current_date
 
 # Sized for years of a personal ledger (a few thousand rows/year); rows
 # land in the code-mode sandbox, not the model's context, so the cost of
@@ -106,7 +107,7 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
         raise ValueError('detail must be "monthly" or "transactions"')
 
     span = max(1, min(int(months), 24))
-    from_date = _months_back_start(date.today(), span)
+    from_date = _months_back_start(current_date(), span)
     async with get_async_session() as session:
         rows, total = await transactions_window_with_payees(
             session,
@@ -212,7 +213,7 @@ async def accounts() -> dict[str, Any]:
         }
         streams = await recurring_queries.active_streams(session)
 
-    today = date.today()
+    today = current_date()
     horizon = today + timedelta(days=_UPCOMING_WINDOW_DAYS)
     upcoming_by_account: dict[int, list[dict[str, Any]]] = {}
     for stream in streams:

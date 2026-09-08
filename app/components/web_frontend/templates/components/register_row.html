@@ -1,0 +1,59 @@
+{# One register row. Rendered inside the register loop and, on its own,
+   as the answer to a row action (pattern 2: the action swaps
+   ``closest tr`` with this). Needs ``row``, ``categories`` and
+   ``show_account`` in context. #}
+{% from "components/macros/form.html" import select %}
+{% from "components/macros/layout.html" import dropdown %}
+<tr id="txn-{{ row.id }}" {% if row_oob %}hx-swap-oob="outerHTML"{% endif %} class="hover:bg-aegis-border/20 transition-colors">
+  <td class="pl-5 pr-2 py-2"><input type="checkbox" name="transaction_ids" value="{{ row.id }}" aria-label="Select" class="accent-aegis-teal"></td>
+  <td class="px-5 py-2 whitespace-nowrap text-aegis-text">{{ row.date|short_date }}</td>
+  {% if show_account %}<td class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
+  <td data-cell="payee" class="px-5 py-2 text-aegis-text">
+    <span>{{ row.payee }}</span>
+    {% if row.is_split %}
+    <ul class="mt-1 space-y-0.5 text-xxs text-aegis-muted">
+      {% for line in row.splits %}<li class="split-line">{{ line.amount|money(row.currency) }} · {{ line.category or "Uncategorized" }}{% if line.memo %} · {{ line.memo }}{% endif %}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% for tag in row.tags %}
+    <span class="tag inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 rounded text-xxs border border-aegis-border text-aegis-muted">
+      {{ tag.name }}
+      <button type="button" aria-label="Remove tag {{ tag.name }}"
+              hx-delete="/transactions/{{ row.id }}/tags/{{ tag.id }}{%- if show_account -%}?show_account=true{%- endif -%}"
+              hx-target="closest tr" hx-swap="outerHTML"
+              class="hover:text-aegis-text">×</button>
+    </span>
+    {% endfor %}
+  </td>
+  <td class="px-5 py-2 whitespace-nowrap">
+    <select name="category_id" aria-label="Category"
+            hx-post="/transactions/{{ row.id }}/categorize" hx-trigger="change"
+            hx-target="closest tr" hx-swap="outerHTML"
+            {% if show_account %}hx-vals='{"show_account": true}'{% endif %}
+            class="bg-transparent border border-transparent hover:border-aegis-border rounded px-1.5 py-1 text-sm text-aegis-text focus:border-aegis-teal focus:outline-none">
+      <option value="" {% if row.category_id is none %}selected{% endif %}>Uncategorized</option>
+      {% for category in categories %}
+      <option value="{{ category.id }}" {% if category.id == row.category_id %}selected{% endif %}>{{ category.name }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td class="px-5 py-2 whitespace-nowrap text-right tabular-nums {{ 'text-aegis-teal' if row.amount > 0 else 'text-aegis-text' }}">{{ row.amount|money(row.currency) }}</td>
+  <td class="px-2 py-2 text-right">
+    {% call dropdown("", align="right") %}
+      <li><button type="button" hx-get="/transactions/tag?transaction_ids={{ row.id }}{%- if show_account -%}&show_account=true{%- endif -%}" hx-target="#dialog-body"
+                  class="w-full text-left px-3 py-1.5 text-sm text-aegis-text hover:bg-aegis-border/30 rounded transition-colors">Tag</button></li>
+      {% if row.is_split %}
+      <li><button type="button" hx-delete="/transactions/{{ row.id }}/split" hx-swap="none"
+                  class="w-full text-left px-3 py-1.5 text-sm text-aegis-text hover:bg-aegis-border/30 rounded transition-colors">Unsplit</button></li>
+      {% else %}
+      <li><button type="button" hx-get="/transactions/{{ row.id }}/split" hx-target="#dialog-body"
+                  class="w-full text-left px-3 py-1.5 text-sm text-aegis-text hover:bg-aegis-border/30 rounded transition-colors">Split</button></li>
+      {% endif %}
+      <li><button type="button" hx-get="/transactions/declare?transaction_ids={{ row.id }}" hx-target="#dialog-body"
+                  class="w-full text-left px-3 py-1.5 text-sm text-aegis-text hover:bg-aegis-border/30 rounded transition-colors">Make recurring</button></li>
+      <li><button type="button" hx-delete="/transactions/{{ row.id }}" hx-target="closest tr" hx-swap="outerHTML"
+                  hx-confirm="Remove this transaction? A re-import will not bring it back."
+                  class="w-full text-left px-3 py-1.5 text-sm text-error hover:bg-aegis-border/30 rounded transition-colors">Remove</button></li>
+    {% endcall %}
+  </td>
+</tr>

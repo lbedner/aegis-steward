@@ -5,72 +5,14 @@ ways. Seeds go through ``finance`` (the service on the test session) and
 are committed before the page is requested, exactly as the API tests do.
 """
 
-from datetime import date, timedelta
-import json
+from datetime import date
 
 from fastapi.testclient import TestClient
-from lxml.html import HtmlElement
-import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
-from tests.web.dom import none, one, select, text
-
-
-def stat(page: str, label: str) -> str:
-    """The value shown under a stat tile label."""
-    for dt in select(page, "dl dt"):
-        if text(dt) == label:
-            return text(dt.getnext())
-    raise AssertionError(f"no stat tile {label!r}")
-
-
-def chart_data(page: str, kind: str) -> dict:
-    canvas = one(page, f'canvas[data-chart="{kind}"]')
-    return json.loads(one(page, f"#{canvas.get('data-chart-data')}").text or "")
-
-
-def card(page: str, title: str) -> HtmlElement:
-    for section in select(page, "section"):
-        headings = select(section, "h2")
-        if headings and text(headings[0]) == title:
-            return section
-    raise AssertionError(f"no card {title!r}")
-
-
-@pytest.fixture
-async def ledger(finance: FinanceService, async_db_session: AsyncSession) -> dict:
-    """A checking account and a card, three categorised outflows this
-    month, one uncategorised, one deposit."""
-    checking = await finance.create_manual_account(
-        name="Checking", account_type="checking", classification="asset"
-    )
-    card_ = await finance.create_manual_account(
-        name="Visa", account_type="credit_card", classification="liability"
-    )
-    await finance.update_account_balance(checking.id, current_balance=10_000)
-    await finance.update_account_balance(card_.id, current_balance=-2_500)
-    groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
-    fuel = await finance.get_or_create_category_from_hint("Auto:Fuel")
-    today = date.today()
-    rows = [
-        ("Market", -3_000, groceries, checking),
-        ("Market", -1_500, groceries, checking),
-        ("Gas", -2_000, fuel, card_),
-        ("Mystery charge", -700, None, card_),
-        ("Payroll", 50_000, None, checking),
-    ]
-    for offset, (name, amount, category, account) in enumerate(rows):
-        txn = await finance.create_transaction(
-            account_id=account.id,
-            amount=amount,
-            txn_date=today - timedelta(days=offset),
-            name=name,
-        )
-        txn.category_id = category.id if category is not None else None
-        async_db_session.add(txn)
-    await async_db_session.commit()
-    return {"checking": checking.id, "card": card_.id}
+from tests.web.conftest import Ledger
+from tests.web.dom import card, chart_data, none, one, select, stat, text
 
 
 class TestEmptyLedger:
@@ -91,29 +33,29 @@ class TestEmptyLedger:
 
 class TestSeededLedger:
     def test_stat_tiles_sum_the_accounts(
-        self, client: TestClient, ledger: dict
+        self, client: TestClient, ledger: Ledger
     ) -> None:
         page = client.get("/overview").text
-        assert stat(page, "Assets") == "$100.00"
+        assert stat(page, "Assets") == "$150.00"
         assert stat(page, "Liabilities") == "-$25.00"
-        assert stat(page, "Net worth") == "$75.00"
+        assert stat(page, "Net worth") == "$125.00"
 
     def test_spending_donut_groups_by_parent_category(
-        self, client: TestClient, ledger: dict
+        self, client: TestClient, ledger: Ledger
     ) -> None:
         data = chart_data(client.get("/overview").text, "doughnut")
         assert data["labels"] == ["Food", "Auto"]
         assert data["series"][0]["values"] == [45.0, 20.0]
 
     def test_donut_click_drills_into_a_dialog(
-        self, client: TestClient, ledger: dict
+        self, client: TestClient, ledger: Ledger
     ) -> None:
         page = client.get("/overview").text
         canvas = one(page, 'canvas[data-chart="doughnut"]')
         assert canvas.get("data-drilldown", "").startswith("/overview/spending?")
 
     def test_cashflow_bars_carry_income_and_spending(
-        self, client: TestClient, ledger: dict
+        self, client: TestClient, ledger: Ledger
     ) -> None:
         data = chart_data(client.get("/overview").text, "bar")
         labels = [s["label"] for s in data["series"]]
@@ -121,14 +63,16 @@ class TestSeededLedger:
         assert sum(data["series"][0]["values"]) == 500.0
         assert sum(data["series"][1]["values"]) == 72.0
 
-    def test_recent_transactions_table(self, client: TestClient, ledger: dict) -> None:
+    def test_recent_transactions_table(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
         table = one(card(client.get("/overview").text, "Recent transactions"), "table")
         names = [text(tr.getchildren()[1]) for tr in select(table, "tbody tr")]
         assert names[0] == "Market"
         assert len(names) == 5
 
     def test_uncategorized_preview_links_to_review(
-        self, client: TestClient, ledger: dict
+        self, client: TestClient, ledger: Ledger
     ) -> None:
         section = card(client.get("/overview").text, "Uncategorized")
         rows = select(section, "tbody tr")
@@ -138,7 +82,7 @@ class TestSeededLedger:
         ]
         assert one(section, 'a[href="/review/uncategorized"]') is not None
 
-    def test_top_payees(self, client: TestClient, ledger: dict) -> None:
+    def test_top_payees(self, client: TestClient, ledger: Ledger) -> None:
         section = card(client.get("/overview").text, "Top payees")
         first = select(section, "tbody tr")[0]
         assert text(first.getchildren()[0]) == "Market"
@@ -147,16 +91,16 @@ class TestSeededLedger:
 
 class TestFilters:
     def test_account_filter_narrows_the_windowed_figures(
-        self, client: TestClient, ledger: dict
+        self, client: TestClient, ledger: Ledger
     ) -> None:
-        page = client.get(f"/overview?account_ids={ledger['checking']}").text
+        page = client.get(f"/overview?account_ids={ledger.checking}").text
         data = chart_data(page, "doughnut")
         assert data["labels"] == ["Food"]
         checked = select(page, 'input[name="account_ids"]:checked')
-        assert [c.get("value") for c in checked] == [str(ledger["checking"])]
+        assert [c.get("value") for c in checked] == [str(ledger.checking)]
 
     def test_filter_form_re_renders_the_section_in_place(
-        self, client: TestClient, ledger: dict
+        self, client: TestClient, ledger: Ledger
     ) -> None:
         form = one(client.get("/overview").text, "form#filter")
         assert form.get("hx-get") == "/overview"
@@ -172,7 +116,7 @@ class TestFilters:
 
 class TestSpendingDrilldown:
     def test_returns_the_transactions_behind_a_slice(
-        self, hx: TestClient, ledger: dict
+        self, hx: TestClient, ledger: Ledger
     ) -> None:
         fragment = hx.get("/overview/spending?category=Food&days=180").text
         none(fragment, "aside")

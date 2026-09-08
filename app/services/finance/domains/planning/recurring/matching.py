@@ -8,7 +8,7 @@ be certain.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from sqlalchemy import func
 from sqlmodel import or_, select
@@ -21,6 +21,7 @@ from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
 )
+from app.services.finance.utils import current_date
 
 
 async def recurring_match_candidates(
@@ -91,7 +92,7 @@ async def recurring_match_candidates(
     # every coffee in the register, and the real payment (exact
     # amount, dated near the due date) must not drown under a page
     # of newer lookalikes (confirmed live).
-    today = date.today()
+    today = current_date()
 
     # Name affinity outranks the figures: a candidate carrying the
     # bill's own payee (or its name in the descriptor) is the answer

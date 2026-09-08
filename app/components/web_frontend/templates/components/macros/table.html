@@ -27,6 +27,15 @@
 {%- endif -%}
 {%- endmacro %}
 
+{# One row. ``id`` lets an action swap this row back by itself. #}
+{% macro table_row(columns, row, id=None) %}
+<tr {% if id %}id="{{ id }}"{% endif %} class="hover:bg-aegis-border/20 transition-colors">
+  {% for col in columns %}
+  <td class="px-5 py-2 whitespace-nowrap {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} text-aegis-text">{{ _cell(row, col) }}</td>
+  {% endfor %}
+</tr>
+{% endmacro %}
+
 {% macro data_table(columns, rows, empty="Nothing here yet") %}
 {% if rows %}
 <div class="overflow-x-auto -mx-5">
@@ -40,16 +49,28 @@
     </thead>
     <tbody class="divide-y divide-aegis-border/60">
       {% for row in rows %}
-      <tr class="hover:bg-aegis-border/20 transition-colors">
-        {% for col in columns %}
-        <td class="px-5 py-2 whitespace-nowrap {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ 'text-aegis-text' if loop.first else 'text-aegis-text' }}">{{ _cell(row, col) }}</td>
-        {% endfor %}
-      </tr>
+      {{ table_row(columns, row) }}
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% else %}
 {{ empty_state(empty) }}
+{% endif %}
+{% endmacro %}
+
+
+{# Page navigation for a listed table. ``pager`` is the route's
+   ``{start, end, total, prev, next}`` (``None`` when one page); the links
+   re-request the same URL and swap ``target`` in place. #}
+{% macro pager(pager, target) %}
+{% if pager %}
+<nav aria-label="Pagination" class="flex items-center justify-between px-5 pt-3 text-xs text-aegis-muted">
+  <span>{{ pager.start }}-{{ pager.end }} of {{ pager.total }}</span>
+  <span class="flex items-center gap-2">
+    {% if pager.prev %}<a rel="prev" href="{{ pager.prev }}" {{ hx_replace(pager.prev, target) }} class="hover:text-aegis-text transition-colors">Previous</a>{% endif %}
+    {% if pager.next %}<a rel="next" href="{{ pager.next }}" {{ hx_replace(pager.next, target) }} class="hover:text-aegis-text transition-colors">Next</a>{% endif %}
+  </span>
+</nav>
 {% endif %}
 {% endmacro %}
