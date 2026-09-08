@@ -1,0 +1,94 @@
+{# The account detail's body: the filtered, paged register, or holdings
+   and trades for an investment account. Included by pages/accounts.html
+   with ``register`` (see routes/finance/register.py) in context. #}
+{% from "components/macros/layout.html" import card %}
+{% from "components/macros/table.html" import data_table, pager %}
+{% from "components/macros/form.html" import select, date_input, checkbox, search_input %}
+{% from "components/macros/feedback.html" import empty_state %}
+
+{% if register.kind == "investment" %}
+<section id="register" class="space-y-6">
+  <div id="holdings">
+  {% call card("Holdings", (register.portfolio_value|money) ~ " total") %}
+  {{ data_table(register.holding_columns, register.holdings, empty="No positions yet") }}
+  {% endcall %}
+  </div>
+  <div id="trades">
+  {% call card("Activity") %}
+  {{ data_table(register.trade_columns, register.trades, empty="No trades yet") }}
+  {% endcall %}
+  </div>
+</section>
+{% else %}
+<section id="register" class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
+  {# Every control is a field on the same URL; a change re-requests this
+     section and swaps it in place, so the filter state lives in the URL. #}
+  <form id="register-filters" method="get" action="{{ register.path }}"
+        {{ hx_replace(register.path, "#register") }}
+        hx-trigger="change, keyup changed delay:300ms from:[name='q'], search from:[name='q']"
+        class="flex flex-wrap items-center gap-3">
+    {{ search_input("q", register.filters.q, placeholder="Search payee") }}
+    {{ select("category_id", register.categories, register.filters.category_id, blank="All categories") }}
+    {{ select("merchant_id", register.merchants, register.filters.merchant_id, blank="All payees") }}
+    {% if register.tags %}{{ select("tag_id", register.tags, register.filters.tag_id, blank="All tags") }}{% endif %}
+    {{ date_input("from", register.filters.from_date, label="From") }}
+    {{ date_input("to", register.filters.to_date, label="To") }}
+    {{ checkbox("include_transfers", register.filters.include_transfers, label="Show transfers") }}
+    {% if register.filters.page_size != 50 %}<input type="hidden" name="page_size" value="{{ register.filters.page_size }}">{% endif %}
+    <span id="uncategorized-count" class="text-xxs text-aegis-muted">{{ register.uncategorized_total }} uncategorized</span>
+    {% if register.filtered %}
+    <a href="{{ register.path }}" {{ hx_replace(register.path, "#register") }}
+       class="text-xs text-aegis-teal hover:text-aegis-text transition-colors">Clear</a>
+    {% endif %}
+  </form>
+
+  {% if register.rows %}
+  {# Selection is plain checkboxes; the bar counts them (local UI state)
+     and every action includes the checked ones. #}
+  <div x-data="{ selected: 0 }"
+       @change="selected = $el.querySelectorAll('input[name=transaction_ids]:checked').length"
+       class="-mx-5">
+  <div id="bulk-actions" x-show="selected > 0" x-cloak
+       class="flex flex-wrap items-center gap-3 px-5 pb-3 text-xs">
+    <span class="text-aegis-muted"><span x-text="selected"></span> selected</span>
+    <button type="button" hx-get="/transactions/payee" hx-include="[name='transaction_ids']:checked" hx-target="#dialog-body"
+            {% if register.show_account %}hx-vals='{"show_account": true}'{% endif %}
+            class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Set payee</button>
+    <button type="button" hx-get="/transactions/tag" hx-include="[name='transaction_ids']:checked" hx-target="#dialog-body"
+            {% if register.show_account %}hx-vals='{"show_account": true}'{% endif %}
+            class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Tag</button>
+    <button type="button" hx-get="/transactions/declare" hx-include="[name='transaction_ids']:checked" hx-target="#dialog-body"
+            class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Make recurring</button>
+    <button type="button" hx-post="/transactions/delete" hx-include="[name='transaction_ids']:checked" hx-swap="none"
+            hx-confirm="Remove the selected transactions? A re-import will not bring them back."
+            class="px-2.5 py-1 rounded border border-aegis-error/40 text-error hover:border-aegis-error transition-colors">Remove</button>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-xxs text-aegis-muted uppercase tracking-wider border-b border-aegis-border">
+          <th scope="col" class="pl-5 pr-2 py-2"><span class="sr-only">Select</span></th>
+          {% for col in register.columns %}
+          <th scope="col" class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.label }}</th>
+          {% endfor %}
+          <th scope="col" class="px-2 py-2"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-aegis-border/60">
+        {% for row in register.rows %}
+        {% with categories = register.categories, show_account = register.show_account %}
+        {% include "components/register_row.html" %}
+        {% endwith %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  </div>
+  {{ pager(register.pager, "#register") }}
+  {% elif register.filtered %}
+  {{ empty_state("No transactions match", "Clear a filter or widen the dates.") }}
+  {% else %}
+  {{ empty_state("No transactions yet", "Import a file or connect a bank to fill the register.") }}
+  {% endif %}
+</section>
+{% endif %}

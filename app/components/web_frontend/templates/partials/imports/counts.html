@@ -1,0 +1,10 @@
+{# The row counts an import preview or result reports; ``counts`` is a
+   model or a dict with the rows_* fields. #}
+<dl class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+  {% for key, label in (("rows_total", "Rows in file"), ("rows_inserted", "New"), ("rows_updated", "Updated"), ("rows_duplicate", "Already imported"), ("rows_skipped", "Not yet posted"), ("rows_ignored", "Removed accounts"), ("rows_error", "Errors")) %}
+  {% set value = counts[key] if counts is mapping else counts|attr(key) %}
+  {% if value or key in ("rows_total", "rows_inserted") %}
+  <dt class="text-aegis-muted">{{ label }}</dt><dd class="text-right tabular-nums text-aegis-text" data-count="{{ key }}">{{ value }}</dd>
+  {% endif %}
+  {% endfor %}
+</dl>

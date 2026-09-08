@@ -97,7 +97,7 @@ class CategoriesMixin(FinanceServiceBase):
     async def categorize_transaction(
         self,
         transaction_id: int,
-        category_id: int,
+        category_id: int | None,
         *,
         owner_user_id: int | None = None,
         source: str = "user",

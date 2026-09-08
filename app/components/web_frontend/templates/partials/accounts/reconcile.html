@@ -1,0 +1,28 @@
+{# Reconcile to a statement: Check previews the delta without writing;
+   Apply lands it (an adjustment transaction, or a valuation when the
+   account has no register). #}
+{% from "components/macros/form.html" import field, date_input, money_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">Reconcile {{ account.name }}</h2>
+<form hx-post="/accounts/{{ account.id }}/reconcile" hx-target="#dialog-body" class="space-y-4">
+  {{ error_banner(errors) }}
+  {% call field("Statement date") %}{{ date_input("statement_date", statement_date) }}{% endcall %}
+  {% call field("Statement balance") %}{{ money_input("statement_balance", statement_balance) }}{% endcall %}
+  {% if account.classification == "liability" %}<p class="text-xxs text-aegis-muted">Enter what you owe.</p>{% endif %}
+  {% if result %}
+  <dl id="reconcile-delta" class="text-sm bg-aegis-bg border border-aegis-border rounded p-3 grid grid-cols-2 gap-y-1">
+    <dt class="text-aegis-muted">Register</dt><dd class="text-right tabular-nums">{{ result.register_balance|money }}</dd>
+    <dt class="text-aegis-muted">Statement</dt><dd class="text-right tabular-nums">{{ result.statement_balance|money }}</dd>
+    <dt class="text-aegis-muted">Difference</dt><dd class="text-right tabular-nums {{ 'text-error' if result.delta else '' }}">{{ result.delta|money }}</dd>
+  </dl>
+  <p class="text-xxs text-aegis-muted">
+    {% if result.delta == 0 %}Already in balance; applying stamps the date.
+    {% elif result.route == "valuation" %}Applying posts the statement balance as a valuation.
+    {% else %}Applying adds one adjustment for the difference.{% endif %}
+  </p>
+  {% endif %}
+  <div class="flex items-center gap-3">
+    <button type="submit" name="preview" value="1" class="px-4 py-2 rounded text-sm border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Check</button>
+    {% if result %}<button type="submit" name="apply" value="1" class="px-4 py-2 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Apply</button>{% endif %}
+  </div>
+</form>

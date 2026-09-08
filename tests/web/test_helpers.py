@@ -91,3 +91,22 @@ class TestHxClient:
 
     def test_plain_client_does_not(self, client: TestClient) -> None:
         assert client.get("/echo").json() == {"hx": None}
+
+
+class TestOob:
+    def test_splits_primary_content_from_out_of_band_siblings(self) -> None:
+        from tests.web.dom import oob
+
+        primary, siblings = oob(
+            '<tr id="txn-1"><td>a</td></tr>'
+            '<span id="count" hx-swap-oob="true">3</span>'
+            '<div id="other" hx-swap-oob="innerHTML">x</div>'
+        )
+        assert [el.get("id") for el in primary] == ["txn-1"]
+        assert [el.get("id") for el in siblings] == ["count", "other"]
+
+    def test_empty_primary_when_only_siblings(self) -> None:
+        from tests.web.dom import oob
+
+        primary, siblings = oob('<span id="count" hx-swap-oob="true">0</span>')
+        assert primary == [] and len(siblings) == 1

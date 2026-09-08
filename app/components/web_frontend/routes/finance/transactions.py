@@ -1,0 +1,541 @@
+"""Actions on transactions (pattern 2), single or in bulk.
+
+Each action changes the given transactions and answers with every
+touched row out of band plus the counters that moved (the uncategorised
+count). The trigger swaps nothing itself, so a row's own menu and the
+selection bar share one contract. Dialog forms (tag, payee) re-render
+with a 422 on bad input and close on success.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from starlette.responses import Response
+
+from app.components.backend.api.finance.categories import list_category_options
+from app.components.backend.api.finance.declare import (
+    declare_recurring_transactions,
+    preview_declare_recurring,
+)
+from app.components.backend.api.finance.payees import (
+    assign_merchant,
+    create_merchant,
+    list_merchants,
+)
+from app.components.backend.api.finance.register import (
+    similar_transactions,
+    split_transaction,
+    unsplit_transaction,
+)
+from app.components.web_frontend.filters import money_to_cents
+from app.components.web_frontend.rendering import close_dialog, templates, with_toast
+from app.components.web_frontend.routes.finance.register import (
+    rows_context,
+    uncategorized_total,
+)
+from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.models import FinanceTransaction
+from app.services.finance.schemas import (
+    DeclareRecurring,
+    MerchantAssign,
+    MerchantCreate,
+    SplitPart,
+    TransactionSplitRequest,
+)
+from app.services.finance.service import FinanceService
+
+router = APIRouter(prefix="/transactions")
+
+
+async def _txns(
+    service: FinanceService, ids: list[int], owner_user_id: int | None
+) -> list[FinanceTransaction]:
+    if not ids:
+        raise HTTPException(status_code=422, detail="Select at least one transaction.")
+    by_id = await service.transactions_by_ids(list(set(ids)))
+    rows = [by_id[i] for i in ids if i in by_id]
+    if len(rows) != len(set(ids)) or any(
+        owner_user_id is not None and r.owner_user_id != owner_user_id for r in rows
+    ):
+        raise HTTPException(status_code=404)
+    return rows
+
+
+def _title(txns: list[FinanceTransaction]) -> str:
+    if len(txns) == 1:
+        return f'"{txns[0].name}"'
+    return f"{len(txns)} transactions"
+
+
+async def _rows_response(
+    request: Request,
+    service: FinanceService,
+    txns: list[FinanceTransaction],
+    owner_user_id: int | None,
+    show_account: bool,
+    name: str = "partials/transactions/rows.html",
+    extra: dict[str, Any] | None = None,
+) -> Response:
+    context = await rows_context(service, txns, owner_user_id)
+    return templates.TemplateResponse(
+        request=request,
+        name=name,
+        context={**context, "show_account": show_account, **(extra or {})},
+    )
+
+
+@router.post("/{transaction_id}/categorize", include_in_schema=False)
+async def categorize(
+    request: Request,
+    transaction_id: int,
+    category_id: Annotated[str, Form()] = "",
+    show_account: Annotated[bool, Form()] = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Set (or clear, with a blank value) the category from the row's
+    select. Swaps the row itself (closest tr), so the answer is the row."""
+    await _txns(service, [transaction_id], owner_user_id)
+    txn = await service.categorize_transaction(
+        transaction_id,
+        int(category_id) if category_id else None,
+        owner_user_id=owner_user_id,
+        source="user",
+    )
+    assert txn is not None
+    await service.db.commit()
+    context = await rows_context(service, [txn], owner_user_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/transactions/rows.html",
+        context={**context, "show_account": show_account, "oob_rows": False},
+    )
+
+
+@router.get("/tag", include_in_schema=False)
+async def tag_form(
+    request: Request,
+    transaction_ids: list[int] = Query(default=[]),
+    show_account: bool = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/transactions/tag.html",
+        context={
+            "title": _title(txns),
+            "transaction_ids": transaction_ids,
+            "show_account": show_account,
+            "errors": [],
+            "name": "",
+        },
+    )
+
+
+@router.post("/tag", include_in_schema=False)
+async def tag(
+    request: Request,
+    transaction_ids: Annotated[list[int], Form()] = [],
+    name: Annotated[str, Form()] = "",
+    show_account: Annotated[bool, Form()] = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    label = name.strip()
+    if not label:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/transactions/tag.html",
+            context={
+                "title": _title(txns),
+                "transaction_ids": transaction_ids,
+                "show_account": show_account,
+                "errors": ["Give the tag a name."],
+                "name": name,
+            },
+            status_code=422,
+        )
+    await service.tag_transactions(transaction_ids, label, owner_user_id=owner_user_id)
+    await service.db.commit()
+    response = await _rows_response(request, service, txns, owner_user_id, show_account)
+    return close_dialog(with_toast(response, f"Tagged {len(txns)} as {label}"))
+
+
+@router.delete("/{transaction_id}/tags/{tag_id}", include_in_schema=False)
+async def untag(
+    request: Request,
+    transaction_id: int,
+    tag_id: int,
+    show_account: bool = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    txns = await _txns(service, [transaction_id], owner_user_id)
+    await service.untag_transactions(
+        [transaction_id], tag_id, owner_user_id=owner_user_id
+    )
+    await service.db.commit()
+    return await _rows_response(
+        request, service, txns, owner_user_id, show_account, extra={"oob_rows": False}
+    )
+
+
+@router.get("/payee", include_in_schema=False)
+async def payee_form(
+    request: Request,
+    transaction_ids: list[int] = Query(default=[]),
+    show_account: bool = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    return await _payee_dialog(request, service, owner_user_id, txns, show_account)
+
+
+async def _payee_dialog(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    txns: list[FinanceTransaction],
+    show_account: bool,
+    errors: list[str] | None = None,
+    status_code: int = 200,
+    **values: Any,
+) -> Response:
+    from app.components.backend.api.finance.categories import list_category_options
+
+    merchants = await list_merchants(
+        account_ids=None, service=service, owner_user_id=owner_user_id
+    )
+    categories = await list_category_options(service=service)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/transactions/payee.html",
+        context={
+            "title": _title(txns),
+            "transaction_ids": [t.id for t in txns],
+            "show_account": show_account,
+            "merchants": merchants.items,
+            "categories": categories.items,
+            "errors": errors or [],
+            "merchant_id": values.get("merchant_id"),
+            "new_name": values.get("new_name", ""),
+            "category_id": values.get("category_id"),
+        },
+        status_code=status_code,
+    )
+
+
+@router.post("/payee", include_in_schema=False)
+async def payee(
+    request: Request,
+    transaction_ids: Annotated[list[int], Form()] = [],
+    merchant_id: Annotated[str, Form()] = "",
+    new_name: Annotated[str, Form()] = "",
+    category_id: Annotated[str, Form()] = "",
+    show_account: Annotated[bool, Form()] = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Name the payee. A new name creates the payee first. After naming a
+    single transaction, its payee-less lookalikes are offered in the
+    dialog (a suggestion the user confirms); otherwise the dialog closes."""
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    label = new_name.strip()
+    if not merchant_id and not label:
+        return await _payee_dialog(
+            request,
+            service,
+            owner_user_id,
+            txns,
+            show_account,
+            errors=["Pick a payee or name a new one."],
+            status_code=422,
+            merchant_id=None,
+            new_name=new_name,
+            category_id=int(category_id) if category_id else None,
+        )
+    if label:
+        created = await create_merchant(
+            MerchantCreate(name=label), service=service, owner_user_id=owner_user_id
+        )
+        chosen = created.id
+        merchant_name = created.name
+    else:
+        chosen = int(merchant_id)
+        merchant_name = (await service.merchant_names({chosen})).get(
+            chosen, "this payee"
+        )
+
+    similar = None
+    if len(txns) == 1:
+        similar = await similar_transactions(
+            txns[0].id, service=service, owner_user_id=owner_user_id
+        )
+
+    await assign_merchant(
+        MerchantAssign(
+            transaction_ids=transaction_ids,
+            merchant_id=chosen,
+            category_id=int(category_id) if category_id else None,
+        ),
+        service=service,
+        owner_user_id=owner_user_id,
+    )
+    await service.db.commit()
+    fresh = await _txns(service, transaction_ids, owner_user_id)
+    response = await _rows_response(
+        request,
+        service,
+        fresh,
+        owner_user_id,
+        show_account,
+        name="partials/transactions/rows_with_offer.html"
+        if similar and similar.total
+        else "partials/transactions/rows.html",
+        extra={
+            "similar": similar.items if similar else [],
+            "merchant_id": chosen,
+            "merchant_name": merchant_name,
+        },
+    )
+    with_toast(response, f"Payee set to {merchant_name}")
+    if similar and similar.total:
+        return response
+    return close_dialog(response)
+
+
+@router.post("/delete", include_in_schema=False)
+async def delete_selected(
+    request: Request,
+    transaction_ids: Annotated[list[int], Form()] = [],
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    return await _delete(
+        request, service, owner_user_id, [t.id for t in txns if t.id is not None]
+    )
+
+
+@router.delete("/{transaction_id}", include_in_schema=False)
+async def delete(
+    request: Request,
+    transaction_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    await _txns(service, [transaction_id], owner_user_id)
+    return await _delete(request, service, owner_user_id, [transaction_id])
+
+
+async def _delete(
+    request: Request, service: FinanceService, owner_user_id: int | None, ids: list[int]
+) -> Response:
+    """Soft-delete: the rows leave the register (deleted out of band) and
+    the uncategorised count follows."""
+    await service.soft_delete_transactions(ids, owner_user_id=owner_user_id)
+    await service.db.commit()
+    response = templates.TemplateResponse(
+        request=request,
+        name="partials/transactions/deleted.html",
+        context={
+            "deleted_ids": ids,
+            "uncategorized_total": await uncategorized_total(service, owner_user_id),
+        },
+    )
+    plural = "s" if len(ids) != 1 else ""
+    return with_toast(response, f"Removed {len(ids)} transaction{plural}")
+
+
+# --- splits -----------------------------------------------------------------
+
+
+async def _split_dialog(
+    request: Request,
+    service: FinanceService,
+    txn: FinanceTransaction,
+    errors: list[str],
+    status_code: int = 200,
+    parts: list[dict[str, Any]] | None = None,
+) -> Response:
+    categories = (await list_category_options(service=service)).items
+    blank = {"amount": "", "category_id": None, "memo": ""}
+    rows = parts or [blank, blank, blank]
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/transactions/split.html",
+        context={"txn": txn, "categories": categories, "parts": rows, "errors": errors},
+        status_code=status_code,
+    )
+
+
+@router.get("/{transaction_id}/split", include_in_schema=False)
+async def split_form(
+    request: Request,
+    transaction_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    (txn,) = await _txns(service, [transaction_id], owner_user_id)
+    return await _split_dialog(request, service, txn, [])
+
+
+@router.post("/{transaction_id}/split", include_in_schema=False)
+async def split(
+    request: Request,
+    transaction_id: int,
+    amount: Annotated[list[str], Form()] = [],
+    category_id: Annotated[list[str], Form()] = [],
+    memo: Annotated[list[str], Form()] = [],
+    show_account: Annotated[bool, Form()] = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """State the parts you know; the service fills the remainder. Parts
+    are parallel form lists; blank amounts are ignored."""
+    (txn,) = await _txns(service, [transaction_id], owner_user_id)
+    stated = [
+        {"amount": a, "category_id": (c or None), "memo": m}
+        for a, c, m in zip(
+            amount,
+            category_id + [""] * len(amount),
+            memo + [""] * len(amount),
+            strict=False,
+        )
+    ]
+    parts: list[SplitPart] = []
+    errors: list[str] = []
+    for row in stated:
+        if not row["amount"].strip():
+            continue
+        cents = money_to_cents(row["amount"])
+        if not cents:
+            errors.append(f"Not an amount: {row['amount']!r}.")
+            continue
+        parts.append(
+            SplitPart(
+                amount=abs(cents),
+                category_id=int(row["category_id"]) if row["category_id"] else None,
+                memo=row["memo"] or None,
+            )
+        )
+    if not parts and not errors:
+        errors.append("State at least one part.")
+    if not errors:
+        try:
+            await split_transaction(
+                transaction_id,
+                TransactionSplitRequest(parts=parts),
+                service=service,
+                owner_user_id=owner_user_id,
+            )
+        except HTTPException as exc:
+            errors.append(str(exc.detail))
+        except ValueError as exc:
+            errors.append(str(exc))
+    if errors:
+        return await _split_dialog(request, service, txn, errors, 422, parts=stated)
+    await service.db.commit()
+    fresh = await _txns(service, [transaction_id], owner_user_id)
+    response = await _rows_response(
+        request, service, fresh, owner_user_id, show_account
+    )
+    return close_dialog(with_toast(response, f"Split into {len(parts) + 1} lines"))
+
+
+@router.delete("/{transaction_id}/split", include_in_schema=False)
+async def unsplit(
+    request: Request,
+    transaction_id: int,
+    show_account: bool = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    await _txns(service, [transaction_id], owner_user_id)
+    await unsplit_transaction(
+        transaction_id, service=service, owner_user_id=owner_user_id
+    )
+    await service.db.commit()
+    fresh = await _txns(service, [transaction_id], owner_user_id)
+    return await _rows_response(request, service, fresh, owner_user_id, show_account)
+
+
+# --- declare recurring ---------------------------------------------------------
+
+
+@router.get("/declare", include_in_schema=False)
+async def declare_form(
+    request: Request,
+    transaction_ids: list[int] = Query(default=[]),
+    show_account: bool = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """What the selection would become: the plan the commit executes,
+    measured from the transactions (cadence, amount, next date), with
+    only the names left to the user."""
+    await _txns(service, transaction_ids, owner_user_id)
+    note = None
+    plan = None
+    try:
+        plan = await preview_declare_recurring(
+            DeclareRecurring(transaction_ids=transaction_ids),
+            service=service,
+            owner_user_id=owner_user_id,
+        )
+    except HTTPException as exc:
+        # The API refuses a selection with no rhythm in it (one payment);
+        # that reason is the dialog's whole content.
+        note = str(exc.detail)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/transactions/declare.html",
+        context={
+            "plan": plan,
+            "note": note,
+            "transaction_ids": transaction_ids,
+            "show_account": show_account,
+        },
+    )
+
+
+@router.post("/declare", include_in_schema=False)
+async def declare(
+    request: Request,
+    transaction_ids: Annotated[list[int], Form()] = [],
+    show_account: Annotated[bool, Form()] = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Commit the plan; ``name:<key>`` fields rename the bills it creates."""
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    form = await request.form()
+    names = {
+        str(key).removeprefix("name:"): str(value).strip()
+        for key, value in form.multi_items()
+        if str(key).startswith("name:") and str(value).strip()
+    }
+    created = await declare_recurring_transactions(
+        DeclareRecurring(transaction_ids=transaction_ids, names=names),
+        service=service,
+        owner_user_id=owner_user_id,
+    )
+    await service.db.commit()
+    fresh = await _txns(
+        service, [t.id for t in txns if t.id is not None], owner_user_id
+    )
+    response = await _rows_response(
+        request, service, fresh, owner_user_id, show_account
+    )
+    count = created.get("streams", created.get("created", len(names) or 1))
+    return close_dialog(
+        with_toast(
+            response, f"{count} recurring bill{'s' if count != 1 else ''} declared"
+        )
+    )

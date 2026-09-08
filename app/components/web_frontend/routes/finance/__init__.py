@@ -8,20 +8,26 @@ and action routes as the phases land. Mounted at ``/`` by
 from fastapi import APIRouter
 
 from app.components.web_frontend.routes.finance import (
+    account_manage,
     accounts,
     bills,
     budget,
+    imports,
     overview,
     projected,
     review,
     settings,
+    transactions,
 )
 
 router = APIRouter()
 router.include_router(overview.router)
 router.include_router(accounts.router)
+router.include_router(account_manage.router)
+router.include_router(imports.router)
 router.include_router(bills.router)
 router.include_router(projected.router)
 router.include_router(budget.router)
 router.include_router(review.router)
 router.include_router(settings.router)
+router.include_router(transactions.router)

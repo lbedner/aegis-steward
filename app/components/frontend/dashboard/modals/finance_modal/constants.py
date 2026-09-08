@@ -7,7 +7,11 @@ one is a change made next to its reason.
 
 from app.components.frontend.controls import DataTableColumn
 from app.services.finance.constants import (
+    ACCOUNT_GROUPS,
+    ADD_ACCOUNT_TYPES,
     CADENCES,
+    INVESTMENT_ACCOUNT_TYPES,
+    LIABILITY_ACCOUNT_TYPES,
     ONE_TIME_FREQUENCY,
     ONE_TIME_LABEL,
 )
@@ -35,35 +39,16 @@ _PIE_CATEGORIES = 15
 
 
 # account_type -> display group, in sidebar order (Quicken-style buckets).
-_ACCOUNT_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Banking", ("checking", "savings", "cash")),
-    ("Credit Cards", ("credit_card",)),
-    ("Investments", ("investment", "brokerage", "crypto")),
-    ("Property", ("property", "vehicle")),
-    ("Loans & Debt", ("loan", "other_liability")),
-    ("Other", ("other_asset",)),
-)
+# Shared with the web frontend; see app/services/finance/constants.py.
+_ACCOUNT_GROUPS = ACCOUNT_GROUPS
 
-# Account types whose detail view is holdings (positions), not transactions.
-_INVESTMENT_TYPES = frozenset({"brokerage", "investment", "crypto"})
+_INVESTMENT_TYPES = INVESTMENT_ACCOUNT_TYPES
 
 # Curated (account_type, label) choices for the manual "Add account" form. Keys
 # are the DB-constrained account_type values; classification is derived below.
-_ADD_ACCOUNT_TYPES: tuple[tuple[str, str], ...] = (
-    ("checking", "Checking"),
-    ("savings", "Savings"),
-    ("cash", "Cash"),
-    ("credit_card", "Credit card"),
-    ("loan", "Loan"),
-    ("brokerage", "Brokerage"),
-    ("crypto", "Crypto"),
-    ("property", "Property"),
-    ("vehicle", "Vehicle"),
-    ("other_asset", "Other asset"),
-    ("other_liability", "Other liability"),
-)
+_ADD_ACCOUNT_TYPES = ADD_ACCOUNT_TYPES
 
-_LIABILITY_ACCOUNT_TYPES = frozenset({"credit_card", "loan", "other_liability"})
+_LIABILITY_ACCOUNT_TYPES = LIABILITY_ACCOUNT_TYPES
 
 # Past about a dozen groups the bars thin to hairlines and the month
 # labels collide, so a long window is FOLDED into coarser buckets rather

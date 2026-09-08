@@ -38,6 +38,7 @@ from app.services.finance.domains.planning.goals import (
     list_goals,
 )
 from app.services.finance.utils import (
+    current_date,
     current_period_month,
     monthly_income,
 )
@@ -163,7 +164,7 @@ def allocate_month(
     when expenses grow. Paused/reached goals ask nothing. Deterministic:
     priority then key.
     """
-    today = today or date.today()
+    today = today or current_date()
     asks: dict[str, int] = {}
     room = figures.income_total - figures.committed
     for key, stored, balance in sorted(

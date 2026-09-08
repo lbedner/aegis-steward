@@ -65,3 +65,25 @@
 </div>
 {% endif %}
 {% endmacro %}
+
+
+{# An out-of-band sibling (pattern 2): rendered alongside a swapped row,
+   htmx puts it wherever ``id`` lives on the page. Every counter a row
+   action moves ships through this, so the shape is one. #}
+{% macro oob(id, tag="span", class="") %}
+<{{ tag }} id="{{ id }}" hx-swap-oob="true" {% if class %}class="{{ class }}"{% endif %}>{{ caller() }}</{{ tag }}>
+{% endmacro %}
+
+
+{# Follows a background job (pattern 5). The web /jobs/{id}/events route
+   re-emits the job's snapshots as rendered fragments; each ``status``
+   frame replaces this element's content, and the stream closes itself
+   after the terminal frame. No JavaScript beyond the htmx SSE extension. #}
+{% macro sse_job(job_id, label="Working...") %}
+<div hx-ext="sse" sse-connect="/jobs/{{ job_id }}/events" sse-swap="status" hx-swap="innerHTML">
+  <p class="flex items-center gap-2 text-sm text-aegis-muted">
+    <span class="w-3 h-3 border-2 border-aegis-teal border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
+    {{ label }}
+  </p>
+</div>
+{% endmacro %}

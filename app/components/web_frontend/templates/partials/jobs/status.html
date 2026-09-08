@@ -1,0 +1,20 @@
+{# One job snapshot, as the SSE follower swaps it in. Running: the label.
+   Done: the result, rendered by what the job was. Failed: the error. #}
+{% from "components/macros/feedback.html" import error_banner %}
+{% if job.status == "running" %}
+<p class="flex items-center gap-2 text-sm text-aegis-muted">
+  <span class="w-3 h-3 border-2 border-aegis-teal border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
+  {{ job.label or job.name }}
+</p>
+{% elif job.status == "failed" %}
+{{ error_banner([job.error or "The job failed."]) }}
+{% else %}
+<section id="import-summary" class="space-y-3">
+  <h3 class="text-sm font-semibold text-aegis-text">Imported</h3>
+  {% if job.result and job.result.rows_total is defined %}
+  {% with counts = job.result %}{% include "partials/imports/counts.html" %}{% endwith %}
+  {% endif %}
+  <button type="button" hx-get="/accounts" hx-target="#app-content" hx-push-url="true" @click="$el.closest('dialog').close()"
+          class="px-4 py-2 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Done</button>
+</section>
+{% endif %}

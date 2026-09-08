@@ -67,6 +67,7 @@ from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
 )
+from app.services.finance.utils import current_date
 
 PRICE_HIKE_THRESHOLD = 1.10  # >10% over the stream's average
 OVERSPEND_MULTIPLE = 1.5  # > 1.5x the 3-month median
@@ -186,7 +187,7 @@ async def generate_insights(
     from app.core.config import settings
 
     result = InsightGenerationResult()
-    today = today or date.today()
+    today = today or current_date()
     if lookback_days is None:
         lookback_days = settings.FINANCE_RULES_LOOKBACK_DAYS
     floor = today - timedelta(days=lookback_days) if lookback_days else None

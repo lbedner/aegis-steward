@@ -1,0 +1,26 @@
+{# Dialog body: one form holds the file for both Preview and Import; each
+   posts it to its own route and swaps #import-result below. #}
+{% from "components/macros/form.html" import field, select %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">Import a file</h2>
+<form id="import-form" hx-encoding="multipart/form-data" class="space-y-4">
+  {% call field("File") %}
+  <input type="file" name="file" required accept=".ofx,.qfx,.qif,.csv,.xlsx"
+         class="mt-1 block w-full text-sm text-aegis-muted file:mr-3 file:px-3 file:py-1.5 file:rounded file:border file:border-aegis-border file:bg-aegis-bg file:text-aegis-text file:text-xs">
+  {% endcall %}
+  {% call field("Kind") %}
+  <div class="mt-1 space-y-1">
+    {% for key, label in lanes %}
+    <label class="flex items-center gap-2 text-sm text-aegis-text"><input type="radio" name="lane" value="{{ key }}" {% if loop.first %}checked{% endif %} class="accent-aegis-teal"> {{ label }}</label>
+    {% endfor %}
+  </div>
+  {% endcall %}
+  {% call field("Into account") %}{{ select("account_id", accounts, account_id, blank="Let the file decide (OFX)") }}{% endcall %}
+  <p class="text-xxs text-aegis-muted">QIF and CSV files carry no account, so pick one for those.</p>
+  <div class="flex items-center gap-3">
+    <button type="button" hx-post="/accounts/import/preview" hx-target="#import-result" hx-include="#import-form"
+            class="px-4 py-2 rounded text-sm border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Preview</button>
+    <button type="button" hx-post="/accounts/import" hx-target="#import-result" hx-include="#import-form"
+            class="px-4 py-2 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Import</button>
+  </div>
+</form>
+<div id="import-result" class="mt-5"></div>

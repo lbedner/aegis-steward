@@ -23,6 +23,7 @@ from app.services.finance.models import (
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     FREQUENCY_STEPS,
+    current_date,
     utcnow,
 )
 
@@ -368,7 +369,7 @@ async def update_recurring(
         # Stepped from the last occurrence when there is one; the
         # forecast rolls a past date forward on its own.
         step = FREQUENCY_STEPS[frequency]
-        stream.next_expected_date = step(stream.last_date or date.today())
+        stream.next_expected_date = step(stream.last_date or current_date())
     if category_id is not None:
         stream.category_id = category_id
     if account_id is not None and account_id != stream.account_id:

@@ -1,0 +1,8 @@
+<section id="import-preview" class="space-y-3">
+  <h3 class="text-sm font-semibold text-aegis-text">What this import would do</h3>
+  {% if preview.identical_batch_id %}<p class="text-sm text-aegis-muted">This exact file was already imported; importing again changes nothing.</p>{% endif %}
+  {% with counts = preview %}{% include "partials/imports/counts.html" %}{% endwith %}
+  {% if preview.new_accounts %}<p class="text-xs text-aegis-muted">New accounts: {{ preview.new_accounts|join(", ") }}</p>{% endif %}
+  {% if preview.new_categories %}<p class="text-xs text-aegis-muted">New categories: {{ preview.new_categories|length }}</p>{% endif %}
+  {% if preview.insert_date_start %}<p class="text-xs text-aegis-muted">{{ preview.insert_date_start|short_date }} to {{ preview.insert_date_end|short_date }}</p>{% endif %}
+</section>

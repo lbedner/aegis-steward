@@ -1,0 +1,8 @@
+{% from "components/macros/form.html" import field, text_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">Rename account</h2>
+<form hx-post="/accounts/{{ account.id }}/rename" hx-target="#dialog-body" class="space-y-4">
+  {{ error_banner(errors) }}
+  {% call field("Account name") %}{{ text_input("name", name, required=True, autofocus=True) }}{% endcall %}
+  {{ primary_button("Save", type="submit") }}
+</form>

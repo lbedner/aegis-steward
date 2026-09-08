@@ -19,7 +19,7 @@ DEFAULT_CURRENCY = "usd"
 
 
 def current_period_month(today: date | None = None) -> int:
-    today = today or date.today()
+    today = today or current_date()
     return today.year * 100 + today.month
 
 
@@ -73,6 +73,18 @@ FREQUENCY_STEPS: dict[str, Callable[[date], date]] = {
 def utcnow() -> datetime:
     """Naive-UTC timestamp (matches the models' convention)."""
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+def current_date() -> date:
+    """The finance service's one calendar clock: today's date in UTC.
+
+    Models stamp naive-UTC timestamps and imports, the demo seed and the
+    scheduler run on the same clock, so every "today" in the service reads
+    this. The stdlib's local-date call gives the host's local date, which diverges from
+    UTC for part of every evening in the Americas and made the rules see
+    a bill as missed that the seed had dated as due today.
+    """
+    return utcnow().date()
 
 
 def transaction_payee_key(

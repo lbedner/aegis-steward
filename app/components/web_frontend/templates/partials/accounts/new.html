@@ -1,0 +1,17 @@
+{# Dialog body: a new manual account. Posts back to itself; a 422
+   re-renders here, success closes the dialog and opens the account. #}
+{% from "components/macros/form.html" import field, text_input, select, money_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">Add account</h2>
+<form hx-post="/accounts/new" hx-target="#dialog-body" class="space-y-4">
+  {{ error_banner(errors) }}
+  {% call field("Name") %}{{ text_input("name", name, placeholder="Ally Savings", required=True, autofocus=True) }}{% endcall %}
+  {% call field("Type") %}
+  <select name="account_type" class="mt-1 w-full bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text focus:border-aegis-teal focus:outline-none">
+    {% for key, label in types %}<option value="{{ key }}" {% if key == account_type %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  {% endcall %}
+  {% call field("Opening balance") %}{{ money_input("opening_balance", opening_balance) }}{% endcall %}
+  <p class="text-xxs text-aegis-muted">For a card or loan, enter what you owe.</p>
+  {{ primary_button("Add account", type="submit") }}
+</form>

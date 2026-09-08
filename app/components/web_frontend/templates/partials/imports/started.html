@@ -1,0 +1,3 @@
+{# The follower (pattern 5): streams the job's rendered frames in place. #}
+{% from "components/macros/feedback.html" import sse_job %}
+{{ sse_job(job_id, "Uploading " ~ (file_name or "file") ~ "...") }}

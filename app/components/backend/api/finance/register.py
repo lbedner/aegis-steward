@@ -18,7 +18,7 @@ from app.services.finance.deps import (
     get_finance_service,
     get_owner_user_id,
 )
-from app.services.finance.models import FinanceTransactionSplit
+from app.services.finance.models import FinanceTransaction, FinanceTransactionSplit
 from app.services.finance.schemas import (
     CategorySuggestionListResponse,
     SimilarTransaction,
@@ -59,42 +59,13 @@ def _split_line(
 # -- Transactions ------------------------------------------------------------
 
 
-@router.get("/transactions", response_model=TransactionListResponse)
-async def list_transactions(
-    account_id: int | None = None,
-    account_ids: list[int] | None = Query(default=None),
-    from_date: date | None = Query(default=None, alias="from"),
-    to_date: date | None = Query(default=None, alias="to"),
-    category_id: int | None = None,
-    merchant_id: int | None = None,
-    without_merchant: bool = False,
-    tag_id: int | None = None,
-    q: str | None = None,
-    include_transfers: bool = False,
-    page: int = 1,
-    page_size: int = 50,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> TransactionListResponse:
-    """Transaction feed, newest first. Excludes soft-deleted and
-    duplicate-marked rows, and (by default) paired transfer legs so a card
-    payment doesn't show as two lines. Filter by account, date, category, payee.
-    """
-    transactions, total = await service.list_transactions(
-        owner_user_id=owner_user_id,
-        account_id=account_id,
-        account_ids=account_ids,
-        from_date=from_date,
-        to_date=to_date,
-        category_id=category_id,
-        merchant_id=merchant_id,
-        without_merchant=without_merchant,
-        tag_id=tag_id,
-        query=q,
-        include_transfers=include_transfers,
-        page=page,
-        page_size=page_size,
-    )
+async def hydrate_transactions(
+    service: FinanceService, transactions: list[FinanceTransaction]
+) -> list[TransactionResponse]:
+    """Rows -> API items with category and payee names, icons, tags and
+    split lines attached. Every surface that shows a transaction (the
+    register, the uncategorized queue, a single re-rendered row) reads the
+    same shape from here."""
     splits_by_txn = await service.transaction_splits(
         [t.id for t in transactions if t.is_split and t.id is not None]
     )
@@ -144,6 +115,46 @@ async def list_transactions(
         ]
         item.splits = [_split_line(s, names) for s in splits_by_txn.get(txn.id, [])]
         items.append(item)
+    return items
+
+
+@router.get("/transactions", response_model=TransactionListResponse)
+async def list_transactions(
+    account_id: int | None = None,
+    account_ids: list[int] | None = Query(default=None),
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
+    category_id: int | None = None,
+    merchant_id: int | None = None,
+    without_merchant: bool = False,
+    tag_id: int | None = None,
+    q: str | None = None,
+    include_transfers: bool = False,
+    page: int = 1,
+    page_size: int = 50,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> TransactionListResponse:
+    """Transaction feed, newest first. Excludes soft-deleted and
+    duplicate-marked rows, and (by default) paired transfer legs so a card
+    payment doesn't show as two lines. Filter by account, date, category, payee.
+    """
+    transactions, total = await service.list_transactions(
+        owner_user_id=owner_user_id,
+        account_id=account_id,
+        account_ids=account_ids,
+        from_date=from_date,
+        to_date=to_date,
+        category_id=category_id,
+        merchant_id=merchant_id,
+        without_merchant=without_merchant,
+        tag_id=tag_id,
+        query=q,
+        include_transfers=include_transfers,
+        page=page,
+        page_size=page_size,
+    )
+    items = await hydrate_transactions(service, transactions)
     return TransactionListResponse(items=items, total=total)
 
 
@@ -187,18 +198,7 @@ async def uncategorized_transactions(
     # does - skipping this left every row's detail popup and hover
     # tooltip with no category shown at all, even when one was assigned
     # (confirmed live: category_source "rule" with no category text).
-    names = await service.category_names(
-        {t.category_id for t in txns if t.category_id is not None}
-    )
-    payees = await service.merchant_names(
-        {t.merchant_id for t in txns if t.merchant_id is not None}
-    )
-    items = []
-    for txn in txns:
-        item = TransactionResponse.from_row(txn)
-        item.category = names.get(txn.category_id)
-        item.merchant = payees.get(txn.merchant_id)
-        items.append(item)
+    items = await hydrate_transactions(service, txns)
     return TransactionListResponse(items=items, total=total)
 
 

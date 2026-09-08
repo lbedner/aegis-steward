@@ -1,0 +1,4 @@
+{# Removed rows: htmx deletes each by id; only the counters move. #}
+{% from "components/macros/feedback.html" import oob %}
+{% for id in deleted_ids %}<tr id="txn-{{ id }}" hx-swap-oob="delete"></tr>{% endfor %}
+{% call oob("uncategorized-count") %}{{ uncategorized_total }} uncategorized{% endcall %}
