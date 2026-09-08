@@ -337,6 +337,12 @@ class Settings(
     # separately in .env; these flags say which connect flows exist at all,
     # so the UI can offer them (and prompt for missing credentials) rather
     # than hide the feature on a fresh project.
+    # The scheduled bill-due email (comms' first finance use). Unset
+    # recipient means the job does nothing, so a fresh project never
+    # mails anyone by accident.
+    FINANCE_BILL_EMAIL_TO: str | None = None
+    FINANCE_BILL_EMAIL_DAYS: int = 7
+
     FINANCE_PLAID: bool = True
     FINANCE_SNAPTRADE: bool = True
     # Plaid (bank/credit/investment linking). Sign up at

@@ -1,0 +1,42 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import page_header, card %}
+{% from "components/macros/feedback.html" import empty_state %}
+
+{% block title %}Comms - {{ project_name }}{% endblock %}
+
+{% block app_content %}
+{{ page_header("Comms", "What the scheduler sends, and to whom") }}
+{% include "components/sub_nav.html" %}
+<div id="comms" class="grid gap-6 lg:grid-cols-2">
+  {% call card("Bill reminder", "daily, from the scheduler") %}
+  {% if email.to %}
+  <p class="text-sm text-aegis-muted">Sent to <span class="text-aegis-text">{{ email.to }}</span> each morning, listing the bills due in the next {{ email.days }} days.</p>
+  {% else %}
+  <p class="text-sm text-aegis-muted">Off. Set <span class="text-aegis-text">FINANCE_BILL_EMAIL_TO</span> in .env and restart to turn it on; nothing is sent until you do.</p>
+  {% endif %}
+  <p class="text-xxs text-aegis-muted">The window is FINANCE_BILL_EMAIL_DAYS, {{ email.days }} days today.</p>
+  {% endcall %}
+
+  {% if email.to %}
+  {% call card("What it would say", "a preview, never a send") %}
+  <div id="bill-email-preview" class="space-y-3">
+    <p class="text-xs text-aegis-muted">Subject: <span class="text-aegis-text">{{ email.subject }}</span></p>
+    {% if email.bills %}
+    <ul class="divide-y divide-aegis-border/60 text-sm">
+      {% for bill in email.bills %}
+      <li class="flex items-center justify-between gap-3 py-1.5">
+        <span class="text-aegis-text truncate">{{ bill.name }}</span>
+        <span class="text-xxs text-aegis-muted">{{ (bill.due_date or bill.date)|short_date }}</span>
+        <span class="tabular-nums text-aegis-text">{{ bill.amount|money }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="text-xs text-aegis-muted tabular-nums">{{ email.total|money }} in total.</p>
+    {% else %}
+    {{ empty_state("Nothing due", "No mail goes out on a quiet day.") }}
+    {% endif %}
+  </div>
+  {% endcall %}
+  {% endif %}
+</div>
+{% endblock %}

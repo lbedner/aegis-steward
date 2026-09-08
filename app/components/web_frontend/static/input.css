@@ -79,3 +79,11 @@
 .overflow-x-auto:has(details[open]) {
   overflow: visible;
 }
+
+/* One conditional for "there is none of this yet". An element that must
+   exist for an out-of-band swap to land (the pending-changes banner, a
+   count chip) renders with ``hidden`` at zero, and a display utility on
+   the same element would otherwise beat the browser's own rule for it. */
+[hidden] {
+  display: none !important;
+}

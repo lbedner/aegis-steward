@@ -1,0 +1,30 @@
+{# Step one of a connect: the provider hosts the whole flow, so the answer
+   is a link out plus an element that asks step two every few seconds
+   until the connection lands. The link stays put across polls (each poll
+   replaces this whole body), and the asking stops rather than following a
+   forgotten tab forever. No JavaScript, no browser-side SDK. #}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/form.html" import action %}
+<h2 class="text-lg font-semibold text-aegis-text mb-1">{{ provider.what }}</h2>
+{{ error_banner(errors) }}
+{% if started %}
+<div id="connect-status" class="space-y-4">
+  {% if started.url %}
+  <p class="text-sm text-aegis-muted">Finish it on {{ provider.label }}'s own page. This waits here and picks up the accounts when you are done.</p>
+  <a href="{{ started.url }}" target="_blank" rel="noopener"
+     class="inline-flex items-center gap-2 px-4 py-2.5 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Open {{ provider.label }}</a>
+  {% endif %}
+  {% if waited %}
+  <p class="text-xs text-aegis-muted">Still nothing from {{ provider.label }}. The session may have been abandoned; start again when you are ready.</p>
+  {{ action("Try again", 'hx-post="/settings/connect/' ~ provider.key ~ '" hx-target="#dialog-body"') }}
+  {% else %}
+  <p hx-post="/settings/connect/{{ provider.key }}/complete"
+     hx-vals='{{ {"token": started.token, "url": started.url, "attempt": attempt|default(1)}|tojson }}'
+     hx-trigger="every 3s" hx-target="#dialog-body" hx-swap="innerHTML"
+     class="flex items-center gap-2 text-xs text-aegis-muted">
+    <span class="w-3 h-3 border-2 border-aegis-teal border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
+    Waiting for {{ provider.label }}...
+  </p>
+  {% endif %}
+</div>
+{% endif %}

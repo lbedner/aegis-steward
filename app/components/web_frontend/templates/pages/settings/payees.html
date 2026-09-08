@@ -1,0 +1,16 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import page_header, card %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/form.html" import action %}
+
+{% block title %}Payees - {{ project_name }}{% endblock %}
+
+{% block app_content %}
+{{ page_header("Payees", "Every merchant the ledger knows, and how much it sees them") }}
+{% include "components/sub_nav.html" %}
+{% call card(id="payees") %}
+{% call(row) data_table(columns, rows, empty="No payees yet", row_id="payee") %}
+  {{ action("Categories", hx_dialog(path ~ "/payees/" ~ row.id ~ "/categories")) }}
+{% endcall %}
+{% endcall %}
+{% endblock %}

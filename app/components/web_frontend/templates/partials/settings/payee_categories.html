@@ -1,0 +1,16 @@
+{# How a payee's transactions are filed today. One dominant category is
+   the healthy case; several is a payee arguing with itself. #}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">How {{ name }} is filed</h2>
+{% if summary.total %}
+<ul id="stat-rows" class="divide-y divide-aegis-border/60 text-sm">
+  <li class="flex items-center justify-between gap-3 py-1.5">
+    <span class="text-aegis-text">{{ summary.dominant_category_name or "Uncategorized" }}</span>
+    <span class="tabular-nums text-aegis-muted">{{ summary.dominant_count }} of {{ summary.total }}</span>
+  </li>
+  {% if summary.distinct_categories > 1 %}
+  <li class="py-1.5 text-xs text-aegis-muted">Across {{ summary.distinct_categories }} categories, so this payee disagrees with itself.</li>
+  {% endif %}
+</ul>
+{% else %}
+<p id="dialog-note" class="text-sm text-aegis-muted">Nothing of this payee's is categorized yet.</p>
+{% endif %}
