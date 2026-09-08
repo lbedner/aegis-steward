@@ -1,0 +1,55 @@
+{# The one table macro. A page declares columns and hands over rows; it
+   never writes a <table> by hand.
+
+       {% from "components/macros/table.html" import data_table %}
+       {{ data_table(columns, rows, empty="No transactions yet") }}
+
+   ``columns``: list of ``{"key", "label", "kind", "align"}``. ``kind`` is
+   ``text`` (default), ``money`` (minor units, honours the row's
+   ``currency`` when it has one), ``date`` or ``int``; ``align`` is
+   ``left`` (default) or ``right``. Rows are objects or dicts; a blank
+   value renders as a dash. Zero rows render ``empty_state`` instead. #}
+{% from "components/macros/feedback.html" import empty_state %}
+
+{% macro _cell(row, col) -%}
+{%- set value = row[col.key] if row is mapping else row|attr(col.key) -%}
+{%- if value is none or value == "" -%}
+-
+{%- elif col.kind == "money" -%}
+{%- set currency = (row["currency"] if row is mapping and "currency" in row else row|attr("currency")) -%}
+{{ value|money(currency if currency is string else "USD") }}
+{%- elif col.kind == "date" -%}
+{{ value|short_date }}
+{%- elif col.kind == "int" -%}
+{{ "{:,}".format(value) }}
+{%- else -%}
+{{ value }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro data_table(columns, rows, empty="Nothing here yet") %}
+{% if rows %}
+<div class="overflow-x-auto -mx-5">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-xxs text-aegis-muted uppercase tracking-wider border-b border-aegis-border">
+        {% for col in columns %}
+        <th scope="col" class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.label }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-aegis-border/60">
+      {% for row in rows %}
+      <tr class="hover:bg-aegis-border/20 transition-colors">
+        {% for col in columns %}
+        <td class="px-5 py-2 whitespace-nowrap {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ 'text-aegis-text' if loop.first else 'text-aegis-text' }}">{{ _cell(row, col) }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+{{ empty_state(empty) }}
+{% endif %}
+{% endmacro %}

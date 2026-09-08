@@ -11,6 +11,7 @@
    Local UI state (the mobile drawer) lives on this wrapper as Alpine data
    so the sidebar, scrim and toggle share it without a global store. #}
 {% extends "base.html" %}
+{% from "components/macros/layout.html" import dialog %}
 
 {# Behind a personal finance app; never worth indexing even if a URL leaks. #}
 {% block head_extra %}
@@ -32,7 +33,7 @@
   {# Mobile scrim behind the open drawer; desktop never shows it. #}
   <div x-show="mobileOpen" x-cloak x-transition.opacity
        @click="mobileOpen = false"
-       class="md:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
+       class="md:hidden fixed inset-0 z-30 bg-aegis-scrim/60 backdrop-blur-sm"
        aria-hidden="true"></div>
 
   <div class="flex-1 min-w-0 flex flex-col md:h-screen">
@@ -44,7 +45,7 @@
               :aria-expanded="mobileOpen"
               aria-controls="sidebar"
               aria-label="Toggle navigation"
-              class="md:hidden flex items-center justify-center w-8 h-8 text-aegis-muted hover:text-white transition-colors">
+              class="md:hidden flex items-center justify-center w-8 h-8 text-aegis-muted hover:text-aegis-text transition-colors">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
              stroke-width="1.75" stroke="currentColor" class="w-5 h-5" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
@@ -56,5 +57,7 @@
       {% block app_content %}{% endblock %}
     </main>
   </div>
+
+  {{ dialog() }}
 </div>
 {% endblock %}

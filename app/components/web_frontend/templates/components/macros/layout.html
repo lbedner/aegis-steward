@@ -2,8 +2,9 @@
 
    Import what you need:
 
-       {% from "components/macros/layout.html" import nav_item %}
+       {% from "components/macros/layout.html" import card, stat_tile %}
 #}
+{% from "components/macros/feedback.html" import empty_state %}
 
 
 {# One sidebar link. ``href`` and ``hx-get`` are the same URL: a cold load
@@ -20,12 +21,82 @@
    @click="mobileOpen = false"
    {% if section.path == current_path %}aria-current="page"{% endif %}
    class="group flex items-center gap-3 px-3 py-2 text-sm rounded transition-colors whitespace-nowrap
-          text-aegis-muted hover:text-white hover:bg-aegis-border/20
-          aria-[current=page]:text-white aria-[current=page]:bg-aegis-teal/10">
+          text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20
+          aria-[current=page]:text-aegis-text aria-[current=page]:bg-aegis-teal/10">
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
        stroke-width="1.5" stroke="currentColor" class="w-5 h-5 shrink-0" aria-hidden="true">
     <path stroke-linecap="round" stroke-linejoin="round" d="{{ section.icon }}"/>
   </svg>
   <span>{{ section.label }}</span>
 </a>
+{% endmacro %}
+
+
+{# A titled surface. The body comes via {% call %}; the heading id ties the
+   section to its title for assistive tech. ``id`` lets a page target the
+   card with htmx; it defaults to a slug of the title. #}
+{% macro card(title, subtitle=None, id=None) %}
+{% set card_id = id or ("card-" ~ title|lower|replace(" ", "-")) %}
+<section id="{{ card_id }}" aria-labelledby="{{ card_id }}-title"
+         class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
+  <header class="flex items-baseline justify-between gap-3">
+    <h2 id="{{ card_id }}-title" class="text-sm font-semibold text-aegis-text">{{ title }}</h2>
+    {% if subtitle %}<p class="text-xxs text-aegis-muted uppercase tracking-wider">{{ subtitle }}</p>{% endif %}
+  </header>
+  {{ caller() }}
+</section>
+{% endmacro %}
+
+
+{# One headline figure. Render a row of them inside a ``<dl class="grid">``.
+   Red once a figure goes negative and nothing otherwise: when every
+   healthy number is coloured, colour stops meaning anything. #}
+{% macro stat_tile(label, value, negative=False) %}
+<div class="bg-aegis-card border border-aegis-border rounded-lg px-5 py-4">
+  <dt class="text-xxs text-aegis-muted uppercase tracking-wider">{{ label }}</dt>
+  <dd class="mt-1 text-2xl font-semibold tabular-nums {{ 'text-error' if negative else 'text-aegis-text' }}">{{ value }}</dd>
+</div>
+{% endmacro %}
+
+
+{# A chart card (JS island #1). The canvas declares its kind and points at
+   a JSON data block; static/js/charts.js mounts Chart.js over every
+   ``canvas[data-chart]`` on load and after each htmx settle. Data shape:
+   ``{"labels": [...], "series": [{"label": ..., "values": [...]}],
+   "slices": [{"categories": [...]}]}`` (``slices`` only for drilldowns).
+   ``drilldown`` is the URL a slice click loads into the dialog; the
+   slice's categories are appended as ``category=`` params. #}
+{% macro chart_panel(id, title, kind, data, drilldown=None, subtitle=None) %}
+{% call card(title, subtitle, id="chart-" ~ id) %}
+<div class="relative h-64">
+  <canvas data-chart="{{ kind }}"
+          data-chart-data="chart-{{ id }}-data"
+          {% if drilldown %}data-drilldown="{{ drilldown }}"{% endif %}
+          role="img" aria-label="{{ title }}"></canvas>
+</div>
+<script type="application/json" id="chart-{{ id }}-data">{{ data|tojson }}</script>
+{% endcall %}
+{% endmacro %}
+
+
+{# The one modal. Native <dialog>: focus trap, Escape and backdrop come
+   free. Content is loaded by htmx into ``#dialog-body`` (pattern 4);
+   app.js opens the dialog when a swap lands there, and closing clears it
+   so a stale body never flashes on the next open. Mounted once by the
+   app shell, outside ``#app-content``. #}
+{% macro dialog() %}
+<dialog id="dialog"
+        @close="$el.querySelector('#dialog-body').innerHTML = ''"
+        class="bg-aegis-card text-aegis-text border border-aegis-border rounded-lg shadow-2xl p-0 w-full max-w-2xl
+               backdrop:bg-aegis-scrim/60 backdrop:backdrop-blur-sm">
+  <div class="flex justify-end px-3 pt-3">
+    <button type="button" aria-label="Close" @click="$el.closest('dialog').close()"
+            class="text-aegis-muted/70 hover:text-aegis-text transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+  <div id="dialog-body" class="px-6 pb-6"></div>
+</dialog>
 {% endmacro %}

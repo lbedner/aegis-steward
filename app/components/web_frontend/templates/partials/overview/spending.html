@@ -1,0 +1,8 @@
+{# Dialog body: the transactions behind one spending slice. A fragment-only
+   response (never a page), so no layout. #}
+{% from "components/macros/table.html" import data_table %}
+<h2 class="text-lg font-semibold text-aegis-text">{{ title }}</h2>
+<p class="text-xxs text-aegis-muted uppercase tracking-wider mb-4">last {{ days }} days</p>
+<div class="px-5">
+{{ data_table(txn_columns, rows, empty="No transactions behind this slice") }}
+</div>
