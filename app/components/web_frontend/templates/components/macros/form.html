@@ -1,0 +1,43 @@
+{# Form macros. Native inputs with ``name`` attributes, so every form posts
+   or re-queries through htmx without client-side state.
+
+       {% from "components/macros/form.html" import account_filter %}
+#}
+
+
+{# The section-wide filter: a time window and a set of accounts. Every
+   change re-requests the section with the form's fields as the query
+   string (``hx-get`` on the form itself), so the filter lives in the URL
+   and survives reload. No checked account means every account. #}
+{% macro account_filter(action, accounts, selected_ids, days, ranges) %}
+<form id="filter" method="get" action="{{ action }}"
+      hx-get="{{ action }}" hx-target="#app-content" hx-push-url="true" hx-trigger="change"
+      class="flex flex-wrap items-center gap-3">
+  <fieldset class="flex items-center gap-1" aria-label="Time window">
+    {% for value, label in ranges %}
+    <label class="cursor-pointer">
+      <input type="radio" name="days" value="{{ value }}" class="sr-only peer" {% if value == days %}checked{% endif %}>
+      <span class="inline-block px-2.5 py-1 text-xxs rounded border border-aegis-border text-aegis-muted
+                   peer-checked:border-aegis-teal peer-checked:text-aegis-text peer-checked:bg-aegis-teal/10
+                   peer-focus-visible:ring-2 peer-focus-visible:ring-aegis-teal hover:text-aegis-text transition-colors">{{ label }}</span>
+    </label>
+    {% endfor %}
+  </fieldset>
+  {% if accounts %}
+  <details class="relative">
+    <summary class="list-none cursor-pointer select-none px-2.5 py-1 text-xxs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">
+      Accounts{% if selected_ids %} ({{ selected_ids|length }}){% endif %}
+    </summary>
+    <div class="absolute right-0 top-full mt-1 z-30 min-w-[14rem] bg-aegis-card border border-aegis-border rounded-lg shadow-lg p-2 space-y-1">
+      {% for account in accounts %}
+      <label class="flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-aegis-border/30 cursor-pointer">
+        <input type="checkbox" name="account_ids" value="{{ account.id }}"
+               class="accent-aegis-teal" {% if account.id in selected_ids %}checked{% endif %}>
+        <span class="text-aegis-text truncate">{{ account.name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+</form>
+{% endmacro %}

@@ -7,14 +7,42 @@ on every request. Both wrap the same ``app`` fixture, so a test module can
 swap in a different app for both at once.
 """
 
-from collections.abc import Callable, Generator
+from collections.abc import AsyncGenerator, Callable, Generator
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from jinja2 import ChoiceLoader, DictLoader
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.web_frontend.rendering import templates
+from app.core.db import get_async_db
+from app.integrations.main import create_integrated_app
+from app.services.finance.service import FinanceService
+
+
+@pytest.fixture
+def app(async_db_session: AsyncSession) -> Generator[FastAPI]:
+    """The real app on the test database.
+
+    Overrides the root ``app`` fixture so ``client`` and ``hx`` both see the
+    per-test session: pages call the finance service in-process, so a
+    page test seeds through ``finance`` and reads through either client.
+    """
+    application = create_integrated_app()
+
+    async def _test_db() -> AsyncGenerator[AsyncSession]:
+        yield async_db_session
+
+    application.dependency_overrides[get_async_db] = _test_db
+    yield application
+    application.dependency_overrides.clear()
+
+
+@pytest.fixture
+def finance(async_db_session: AsyncSession) -> FinanceService:
+    """Seed ledger rows for a page test; commit before requesting the page."""
+    return FinanceService(async_db_session)
 
 
 @pytest.fixture

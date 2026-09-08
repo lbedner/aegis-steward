@@ -1,7 +1,69 @@
 {% extends layout %}
+{% from "components/macros/layout.html" import card, stat_tile, chart_panel %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/form.html" import account_filter %}
+{% from "components/macros/feedback.html" import empty_state %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
 {% block app_content %}
-<h1 class="text-2xl font-semibold text-white">{{ section.label }}</h1>
+<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+  <h1 class="text-2xl font-semibold text-aegis-text">{{ section.label }}</h1>
+  {{ account_filter(section.path, accounts, selected_ids, days, ranges) }}
+</div>
+
+{% if pending_count %}
+<a id="pending-changes" href="/review" hx-get="/review" hx-target="#app-content" hx-push-url="true" role="status"
+   class="block mb-6 px-4 py-3 rounded-lg border border-aegis-amber/40 bg-aegis-amber/5 text-sm text-aegis-text hover:border-aegis-amber transition-colors">
+  {{ pending_count }} change{{ "s" if pending_count != 1 }} awaiting your review
+</a>
+{% endif %}
+
+<dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+  {{ stat_tile("Assets", totals.assets|money, negative=totals.assets < 0) }}
+  {{ stat_tile("Liabilities", totals.liabilities|money, negative=totals.liabilities < 0) }}
+  {{ stat_tile("Net worth", totals.net_worth|money, negative=totals.net_worth < 0) }}
+</dl>
+
+{# One card row, three questions: where is it going, am I keeping any of
+   it, and where has it got me. #}
+<div class="grid gap-6 lg:grid-cols-3 mb-6">
+  {% if spending %}
+  {{ chart_panel("spending", "Spending by category", "doughnut", spending, drilldown=drilldown) }}
+  {% else %}
+  {% call card("Spending by category") %}{{ empty_state("No spending in this window") }}{% endcall %}
+  {% endif %}
+
+  {% if cashflow %}
+  {{ chart_panel("cashflow", "Income vs spending", "bar", cashflow) }}
+  {% else %}
+  {% call card("Income vs spending") %}{{ empty_state("No activity in this window") }}{% endcall %}
+  {% endif %}
+
+  {% if net_worth %}
+  {{ chart_panel("net-worth", "Net worth over time", "line", net_worth) }}
+  {% else %}
+  {% call card("Net worth over time") %}{{ empty_state("History appears after the nightly snapshot", "Two days of data draw the first line.") }}{% endcall %}
+  {% endif %}
+</div>
+
+<div class="grid gap-6 lg:grid-cols-2 mb-6">
+  {% call card("Top payees", "last " ~ days ~ " days") %}
+  {{ data_table(payee_columns, top_payees, empty="No payees in this window") }}
+  {% endcall %}
+  {% call card("Upcoming bills", "next 30 days") %}
+  {{ data_table(bill_columns, upcoming, empty="Nothing due") }}
+  {% endcall %}
+</div>
+
+<div class="grid gap-6 lg:grid-cols-2">
+  {% call card("Recent transactions") %}
+  {{ data_table(txn_columns, recent, empty="No transactions yet") }}
+  {% endcall %}
+  {% call card("Uncategorized") %}
+  {{ data_table(txn_columns, uncategorized, empty="Everything is categorized") }}
+  <a href="/review/uncategorized" hx-get="/review/uncategorized" hx-target="#app-content" hx-push-url="true"
+     class="self-end text-xs text-aegis-teal hover:text-aegis-text transition-colors">Review all</a>
+  {% endcall %}
+</div>
 {% endblock %}

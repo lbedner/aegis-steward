@@ -52,3 +52,12 @@ function markCurrentSection() {
 }
 document.body.addEventListener('htmx:pushedIntoHistory', markCurrentSection);
 window.addEventListener('popstate', markCurrentSection);
+
+// The one modal (pattern 4). Any swap into #dialog-body opens the native
+// <dialog>; closing it clears the body (see the dialog macro).
+document.body.addEventListener('htmx:afterSwap', (event) => {
+  if (event.detail.target.id === 'dialog-body') {
+    const dialog = document.getElementById('dialog');
+    if (dialog && !dialog.open) dialog.showModal();
+  }
+});
