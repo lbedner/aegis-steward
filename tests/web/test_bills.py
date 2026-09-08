@@ -10,7 +10,9 @@ from datetime import date, timedelta
 import json
 
 from fastapi.testclient import TestClient
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.service import FinanceService
 from tests.web.conftest import Streams
 from tests.web.dom import none, one, oob, select, table_rows, text, triggers
 
@@ -74,6 +76,46 @@ class TestPage:
         for tab in select(page, "#streams [role=tablist] a"):
             assert tab.get("hx-target") == "#streams"
         assert "$1,545.00" in text(one(page, "#monthly-cost"))  # rent + water
+
+    async def test_window_chips_filter_by_last_activity(
+        self,
+        client: TestClient,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        streams: Streams,
+    ) -> None:
+        """A bill that last paid before the window drops out; one that has
+        never paid stays, because the window has nothing to judge it by."""
+        page = client.get("/bills").text
+        assert (
+            one(page, "#stream-filters input[name='days'][checked]").get("value")
+            == "9999"
+        )
+        assert set(rows_by_name(page)) == {"Rent", "Water"}
+
+        rent = await finance.get_recurring(streams.rent, None)
+        assert rent is not None
+        rent.last_date = date.today() - timedelta(days=200)
+        async_db_session.add(rent)
+        await async_db_session.commit()
+
+        narrowed = client.get("/bills?days=30").text
+        assert set(rows_by_name(narrowed)) == {"Water"}  # rent last paid too long ago
+        assert "Bills (1)" in [
+            text(a) for a in select(narrowed, "#streams [role=tablist] a")
+        ]
+
+    def test_tabs_carry_the_window_and_the_search(
+        self, client: TestClient, streams: Streams
+    ) -> None:
+        page = client.get("/bills?days=30&q=rent").text
+        income = next(
+            a
+            for a in select(page, "#streams [role=tablist] a")
+            if text(a).startswith("Income")
+        )
+        assert "days=30" in (income.get("href") or "")
+        assert "q=rent" in (income.get("href") or "")
 
     def test_fragment_has_no_shell(self, hx: TestClient, streams: Streams) -> None:
         fragment = hx.get("/bills").text

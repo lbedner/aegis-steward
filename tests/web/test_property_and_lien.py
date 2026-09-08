@@ -11,11 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
 from tests.web.conftest import Ledger
-from tests.web.dom import one, select, text
-
-
-def location(response) -> str:  # noqa: ANN001
-    return json.loads(response.headers["HX-Location"])["path"]
+from tests.web.dom import location, one, select, text
 
 
 @pytest.fixture

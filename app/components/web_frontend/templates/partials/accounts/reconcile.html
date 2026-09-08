@@ -4,7 +4,7 @@
 {% from "components/macros/form.html" import field, date_input, money_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Reconcile {{ account.name }}</h2>
-<form hx-post="/accounts/{{ account.id }}/reconcile" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/reconcile') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Statement date") %}{{ date_input("statement_date", statement_date) }}{% endcall %}
   {% call field("Statement balance") %}{{ money_input("statement_balance", statement_balance) }}{% endcall %}

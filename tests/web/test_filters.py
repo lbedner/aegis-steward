@@ -6,7 +6,7 @@ to honour the code.
 """
 
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -93,3 +93,32 @@ class TestPct:
 
     def test_blank_stays_blank(self, pct: Callable[..., Any]) -> None:
         assert pct(None) == ""
+
+
+class TestWindows:
+    """The chip rows all speak one vocabulary (web_frontend/ranges.py)."""
+
+    def test_since_is_the_cutoff_a_window_means(self) -> None:
+        """UTC, the clock rows are stamped with, and no service import:
+        the web frontend ships without any of them."""
+        from app.components.web_frontend import ranges
+
+        assert ranges.since(7) == datetime.now(UTC).date() - timedelta(days=7)
+        assert ranges.since(ranges.ALL) is None
+        assert ranges.since(None) is None
+
+    def test_one_chip_row_serves_every_page(self) -> None:
+        from app.components.web_frontend import ranges
+
+        labels = [label for _days, label in ranges.WINDOWS]
+        assert labels == ["1d", "7d", "14d", "1m", "3m", "1y", "All"]
+        assert ranges.WINDOWS[-1][0] == ranges.ALL
+
+    def test_all_becomes_the_page_ceiling_where_a_count_is_needed(self) -> None:
+        """The ledger reads "everything" as no cutoff; the endpoints that
+        take a day count read it as their own cap."""
+        from app.components.web_frontend import ranges
+
+        assert ranges.horizon(ranges.ALL, 730) == 730
+        assert ranges.horizon(90, 730) == 90
+        assert ranges.horizon(3650, 730) == 730

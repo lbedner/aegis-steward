@@ -7,10 +7,10 @@
 {% set base = path ~ "/" ~ row.id %}
 {% set swap = 'hx-target="closest tr" hx-swap="outerHTML"' %}
 {% call dropdown("", align="right") %}
-  {{ menu_item("Edit", 'hx-get="' ~ base ~ '/edit" hx-target="#dialog-body"') }}
-  {{ menu_item("Categorize", 'hx-get="' ~ base ~ '/categorize" hx-target="#dialog-body"') }}
+  {{ menu_item("Edit", hx_dialog(base ~ '/edit')) }}
+  {{ menu_item("Categorize", hx_dialog(base ~ '/categorize')) }}
   {% if row.direction == "outflow" and row.curated %}
-  {{ menu_item("Match a payment", 'hx-get="' ~ base ~ '/match" hx-target="#dialog-body"') }}
+  {{ menu_item("Match a payment", hx_dialog(base ~ '/match')) }}
   {% endif %}
   {% if row.direction == "outflow" and not row.curated %}
   {{ menu_item("Confirm", 'hx-post="' ~ base ~ '/confirm" ' ~ swap) }}
@@ -18,7 +18,7 @@
   {% if row.paused %}
   {{ menu_item("Resume", 'hx-post="' ~ base ~ '/resume" ' ~ swap) }}
   {% else %}
-  {{ menu_item("Pause", 'hx-get="' ~ base ~ '/pause" hx-target="#dialog-body"') }}
+  {{ menu_item("Pause", hx_dialog(base ~ '/pause')) }}
   {% endif %}
   {% if row.muted %}
   {{ menu_item("Unmute", 'hx-post="' ~ base ~ '/unmute" ' ~ swap) }}

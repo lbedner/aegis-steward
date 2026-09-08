@@ -42,7 +42,7 @@ class TestPage:
         self, client: TestClient, budget: Budget
     ) -> None:
         page = client.get("/budget").text
-        chips = select(page, "#month-pager a")
+        chips = select(page, "#month-pager a:not([aria-label])")  # the arrows aside
         assert len(chips) == 6 and text(chips[0]).startswith("Now")
         assert chips[1].get("hx-target") == "#budget"
         ahead = client.get("/budget?month=1").text
@@ -52,6 +52,10 @@ class TestPage:
         none(ahead, "#budget-stats [hx-get]")
         assert (
             one(ahead, "#month-pager a[aria-current]").get("href") == "/budget?month=1"
+        )
+        assert (
+            one(ahead, '#month-pager a[aria-label="Previous month"]').get("href")
+            == "/budget?month=0"
         )
 
     def test_filters_replace_the_page_in_place(

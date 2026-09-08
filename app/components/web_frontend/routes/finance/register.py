@@ -29,6 +29,7 @@ from app.components.backend.api.finance.register import (
     list_transactions,
     uncategorized_transactions,
 )
+from app.components.web_frontend import ranges
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import AccountResponse, TransactionResponse
@@ -75,6 +76,9 @@ class RegisterFilters:
     tag_id: int | None = None
     from_date: date | None = None
     to_date: date | None = None
+    # The chip row: a window in days, ALL for everything. An explicit
+    # ``from`` beats it, so picking a date does not fight the chips.
+    days: int = ranges.ALL
     include_transfers: bool = False
     # Fixed by a page rather than picked in the bar: the review queues are
     # the register with one of these on.
@@ -93,11 +97,17 @@ class RegisterFilters:
             if v not in (None, "", False)
             and not (k == "page" and v == 1)
             and not (k == "page_size" and v == PAGE_SIZE)
+            and not (k == "days" and v == ranges.ALL)
         }
         for key, value in pairs.items():
             if value is True:
                 pairs[key] = "on"
         return urlencode(pairs)
+
+    @property
+    def start_date(self) -> date | None:
+        """Where the listing starts: the stated ``from``, else the chip."""
+        return self.from_date or ranges.since(self.days)
 
 
 def register_filters(
@@ -107,6 +117,7 @@ def register_filters(
     tag_id: Annotated[int | None, Blank] = None,
     from_date: Annotated[date | None, Blank, Query(alias="from")] = None,
     to_date: Annotated[date | None, Blank, Query(alias="to")] = None,
+    days: Annotated[int, Blank] = ranges.ALL,
     include_transfers: bool = False,
     uncategorized: bool = False,
     without_merchant: bool = False,
@@ -120,6 +131,7 @@ def register_filters(
         tag_id=tag_id,
         from_date=from_date,
         to_date=to_date,
+        days=days,
         include_transfers=include_transfers,
         uncategorized=uncategorized,
         without_merchant=without_merchant,
@@ -255,7 +267,7 @@ async def register_context(
     listing = await list_transactions(
         account_id=account.id if account else None,
         account_ids=None,
-        from_date=filters.from_date,
+        from_date=filters.start_date,
         to_date=filters.to_date,
         category_id=filters.category_id,
         merchant_id=filters.merchant_id,
@@ -279,6 +291,7 @@ async def register_context(
         "kind": "transactions",
         "path": path,
         "filters": filters,
+        "ranges": ranges.WINDOWS,
         "columns": columns,
         "rows": [_row(t, names) for t in listing.items],
         "total": listing.total,
@@ -293,7 +306,8 @@ async def register_context(
         "uncategorized_total": await uncategorized_total(service, owner_user_id),
         "show_account": account is None,
         "filtered": bool(
-            filters.q
+            filters.days != ranges.ALL
+            or filters.q
             or filters.category_id
             or filters.merchant_id
             or filters.tag_id

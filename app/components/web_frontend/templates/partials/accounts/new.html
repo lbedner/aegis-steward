@@ -3,7 +3,7 @@
 {% from "components/macros/form.html" import field, text_input, select, money_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Add account</h2>
-<form hx-post="/accounts/new" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/accounts/new') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Name") %}{{ text_input("name", name, placeholder="Ally Savings", required=True, autofocus=True) }}{% endcall %}
   {% call field("Type") %}

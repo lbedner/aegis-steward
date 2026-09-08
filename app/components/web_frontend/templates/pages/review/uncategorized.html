@@ -1,13 +1,13 @@
 {% extends layout %}
-{% from "components/macros/form.html" import primary_button %}
+{% from "components/macros/form.html" import action %}
+{% from "components/macros/layout.html" import page_header %}
 
 {% block title %}Uncategorized - {{ project_name }}{% endblock %}
 
 {% block app_content %}
-<div class="flex flex-wrap items-center justify-between gap-4 mb-4">
-  <h1 class="text-2xl font-semibold text-aegis-text">Uncategorized</h1>
-  {{ primary_button("Auto-categorize", attrs='hx-post="/review/uncategorized/suggest" hx-include="[name=\'transaction_ids\']:checked" hx-swap="none" title="Preview a category for the checked rows, or all of them"') }}
-</div>
+{% call page_header("Uncategorized", register.total ~ " to review") %}
+  {{ action("Auto-categorize", 'hx-post="/review/uncategorized/suggest" hx-include="[name=\'transaction_ids\']:checked" hx-swap="none" title="Preview a category for the checked rows, or all of them"', tone="warn") }}
+{% endcall %}
 {% include "components/review_nav.html" %}
 {% include "components/register.html" %}
 {% endblock %}

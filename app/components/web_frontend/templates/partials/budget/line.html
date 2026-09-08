@@ -1,23 +1,26 @@
-{# One flexible limit (pattern 2). The amount is an inline form on the
-   upsert route; the answer is this row plus the strip out of band. #}
+{# One flexible limit (pattern 2), the Flet row: name and percent on one
+   line, a thin bar, "$spent of $limit" under it with the limit editable
+   in place. The answer to an edit is this row plus the strip out of band. #}
 {% from "components/macros/layout.html" import progress %}
 {% from "components/macros/form.html" import money_input %}
 {% set ratio = (line.spent_amount / line.allocated_amount) if line.allocated_amount else 0 %}
 {% set tone = {"good": "ok", "warn": "warn", "critical": "error"}.get(line.status, "ok") %}
-<li id="line-{{ line.id }}" class="rounded-lg border border-aegis-border p-3 flex flex-col gap-2">
-  <div class="flex items-center justify-between gap-3">
-    <span class="text-sm text-aegis-text truncate">{{ line.category_name or line.payee_label or "Overall" }}</span>
-    <button type="button" hx-delete="/budget/lines/{{ line.id }}" hx-target="#line-{{ line.id }}" hx-swap="outerHTML"
-            hx-confirm="Remove this limit?" aria-label="Remove limit" class="text-aegis-muted hover:text-error">×</button>
-  </div>
-  {{ progress(ratio, tone) }}
-  <form hx-post="/budget/lines" hx-target="#line-{{ line.id }}" hx-swap="outerHTML" hx-trigger="submit, change" class="flex items-center gap-2 text-xs text-aegis-muted">
+<li id="line-{{ line.id }}" class="flex items-start gap-3">
+  <form hx-post="/budget/lines" hx-target="#line-{{ line.id }}" hx-swap="outerHTML" hx-trigger="submit, change" class="flex-1 min-w-0">
     <input type="hidden" name="category_id" value="{{ line.category_id or '' }}">
     <input type="hidden" name="payee_key" value="{{ line.payee_key or '' }}">
     <input type="hidden" name="payee_label" value="{{ line.payee_label or '' }}">
-    <span class="tabular-nums">{{ line.spent_amount|money }} of</span>
-    <span class="w-28">{{ money_input("allocated_amount", line.allocated_amount|cents_to_input) }}</span>
-    <span class="tabular-nums {{ 'text-error' if ratio > 1 else '' }}">{{ (ratio * 100)|round|int }}%</span>
+    <div class="flex items-baseline justify-between gap-3 text-sm">
+      <span class="text-aegis-text truncate">{{ line.category_name or line.payee_label or "Overall" }}</span>
+      <span class="tabular-nums text-xs {{ 'text-error' if ratio > 1 else 'text-aegis-muted' }}">{{ (ratio * 100)|round|int }}%</span>
+    </div>
+    {{ progress(ratio, tone) }}
+    <div class="flex items-center gap-1.5 text-xs text-aegis-muted tabular-nums">
+      <span>{{ line.spent_amount|money }} of</span>
+      <span class="w-28">{{ money_input("allocated_amount", line.allocated_amount|cents_to_input) }}</span>
+    </div>
   </form>
+  <button type="button" hx-delete="/budget/lines/{{ line.id }}" hx-target="#line-{{ line.id }}" hx-swap="outerHTML"
+          hx-confirm="Remove this limit?" aria-label="Remove limit" class="mt-0.5 text-aegis-muted hover:text-error">×</button>
 </li>
 {% if strip_oob %}{% include "partials/budget/stats.html" %}{% endif %}

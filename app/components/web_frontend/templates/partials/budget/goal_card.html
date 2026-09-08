@@ -12,9 +12,9 @@
   <p class="text-xs text-aegis-muted tabular-nums">{{ goal.balance|money }} of {{ goal.target_amount|money }} · {{ eta }}</p>
   <div class="flex items-center gap-2 text-xs">
     {% set base = path ~ "/goals/" ~ goal.account_id %}
-    {{ action("Add money", 'hx-get="' ~ base ~ '/contribute" hx-target="#dialog-body"', tone="primary") }}
+    {{ action("Add money", hx_dialog(base ~ '/contribute'), tone="primary") }}
     {{ action("Resume" if paused else "Pause", 'hx-post="' ~ base ~ '/pause" hx-target="#goal-' ~ goal.account_id ~ '" hx-swap="outerHTML"') }}
-    {{ action("Edit", 'hx-get="' ~ base ~ '/edit" hx-target="#dialog-body"') }}
-    <button type="button" hx-get="{{ path }}/goals/{{ goal.account_id }}/remove" hx-target="#dialog-body" class="ml-auto text-aegis-muted hover:text-error" aria-label="Remove goal">×</button>
+    {{ action("Edit", hx_dialog(base ~ '/edit')) }}
+    <button type="button" {{ hx_dialog(base ~ "/remove") }} class="ml-auto text-aegis-muted hover:text-error" aria-label="Remove goal">×</button>
   </div>
 </li>

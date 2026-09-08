@@ -4,16 +4,11 @@ Each opens in the dialog; success closes it and navigates the content
 area back to the account (or to the list after a removal)."""
 
 from datetime import date
-import json
 
 from fastapi.testclient import TestClient
 
 from tests.web.conftest import Ledger
-from tests.web.dom import none, one, select, text, triggers
-
-
-def location(response) -> str:  # noqa: ANN001
-    return json.loads(response.headers["HX-Location"])["path"]
+from tests.web.dom import location, none, one, select, text, triggers
 
 
 class TestMenu:

@@ -1,7 +1,7 @@
 {% from "components/macros/form.html" import field, select, money_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Add a category limit</h2>
-<form hx-post="/budget/lines" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/budget/lines') }} class="space-y-4">
   {{ error_banner(errors) }}
   <input type="hidden" name="source" value="dialog">
   {% call field("Category") %}{{ select("category_id", categories, None, blank=None, block=True) }}{% endcall %}

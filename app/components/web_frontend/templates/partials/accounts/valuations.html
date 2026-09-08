@@ -4,7 +4,7 @@
 {% from "components/macros/table.html" import data_table %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Valuation history</h2>
-<form hx-post="/accounts/{{ account.id }}/valuations" hx-target="#dialog-body" class="space-y-4 mb-6">
+<form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/valuations') }} class="space-y-4 mb-6">
   {{ error_banner(errors) }}
   {% call field("Paste the history") %}{{ textarea("text", text, placeholder="2026-01-01 400,000\n2026-06-01 415,000") }}{% endcall %}
   <div class="flex items-center gap-4">

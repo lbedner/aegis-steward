@@ -15,6 +15,8 @@ from starlette.responses import Response
 
 from app.components.backend.api.finance.categories import spending_transactions
 from app.components.backend.api.finance.overview import finance_overview
+from app.components.web_frontend import ranges
+from app.components.web_frontend.filters import money
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render, templates
 from app.services.finance.deps import get_finance_service, get_owner_user_id
@@ -31,15 +33,10 @@ from app.services.finance.service import FinanceService
 SECTION = section("overview")
 router = APIRouter()
 
-# The window pills; 3650 is the composite's ceiling and reads as "all".
-RANGES: tuple[tuple[int, str], ...] = (
-    (30, "30d"),
-    (90, "90d"),
-    (180, "6m"),
-    (365, "1y"),
-    (3650, "All"),
-)
-DEFAULT_DAYS = 180
+RANGES = ranges.WINDOWS
+# What "All" asks the composite for; also its cap.
+MAX_DAYS = 3650
+DEFAULT_DAYS = 90
 PREVIEW = 7
 # Named slices before the tail folds into "Other". Measured on a real
 # ledger: 10 left "Other" at 16%, 15 gets it under 6% with every further
@@ -167,6 +164,28 @@ def upcoming_bills(points: list[ProjectionPoint]) -> list[dict[str, Any]]:
     return [{"name": p.name, "date": p.date, "amount": -p.amount} for p in bills]
 
 
+def ranked(
+    rows: list[Any], label: str, value: str, count: str | None = None, tone: str = "teal"
+) -> list[dict[str, Any]]:
+    """Rows for ``ranked_rows``: the bar is each amount over the largest."""
+    amounts = [abs(getattr(r, value) if not isinstance(r, dict) else r[value]) for r in rows]
+    top = max(amounts, default=0) or 1
+
+    def get(row: Any, key: str) -> Any:
+        return row[key] if isinstance(row, dict) else getattr(row, key)
+
+    return [
+        {
+            "label": get(r, label),
+            "count": f"{get(r, count)}x" if count else "",
+            "value": money(get(r, value)),
+            "ratio": abs(get(r, value)) / top,
+            "tone": tone,
+        }
+        for r in rows
+    ]
+
+
 def _query(days: int, account_ids: list[int]) -> str:
     return "&".join([f"days={days}", *(f"account_ids={i}" for i in account_ids)])
 
@@ -174,15 +193,16 @@ def _query(days: int, account_ids: list[int]) -> str:
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
-    days: int = Query(default=DEFAULT_DAYS, ge=1, le=3650),
+    days: int = Query(default=DEFAULT_DAYS, ge=1),
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     selected = account_ids or []
+    window = ranges.horizon(days, MAX_DAYS)
     overview = await finance_overview(
-        days=days,
-        months=max(1, min(36, round(days / 30))),
+        days=window,
+        months=max(1, min(36, round(window / 30))),
         projection_days=30,
         preview_limit=PREVIEW,
         account_ids=account_ids,
@@ -205,7 +225,13 @@ async def page(
             "spending": spending_chart(overview.spending),
             "drilldown": f"{SECTION.path}/spending?{_query(days, selected)}",
             "top_payees": overview.top_payees.items,
+            "payee_rows": ranked(
+                overview.top_payees.items, "payee", "amount", "transaction_count"
+            ),
             "upcoming": upcoming_bills(overview.projection.points),
+            "bill_rows": ranked(
+                upcoming_bills(overview.projection.points), "name", "amount", tone="accent"
+            ),
             "recent": overview.recent_transactions.items,
             "uncategorized": overview.uncategorized.items,
             "pending_count": len(pending),
@@ -220,7 +246,7 @@ async def page(
 async def spending(
     request: Request,
     category: list[str] = Query(...),
-    days: int = Query(default=DEFAULT_DAYS, ge=1, le=3650),
+    days: int = Query(default=DEFAULT_DAYS, ge=1),
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
@@ -228,7 +254,7 @@ async def spending(
     """The transactions behind a donut slice, for the dialog (pattern 4).
     Several categories mean the "Other" slice."""
     rows = await spending_transactions(
-        days=days,
+        days=ranges.horizon(days, MAX_DAYS),
         categories=category,
         account_ids=account_ids,
         service=service,

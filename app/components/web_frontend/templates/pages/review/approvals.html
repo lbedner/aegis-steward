@@ -1,5 +1,6 @@
 {% extends layout %}
 {% from "components/macros/feedback.html" import empty_state %}
+{% from "components/macros/layout.html" import page_header %}
 {% from "components/macros/layout.html" import badge %}
 {% from "components/macros/form.html" import action %}
 
@@ -20,7 +21,7 @@
 {% endmacro %}
 
 {% block app_content %}
-<h1 class="text-2xl font-semibold text-aegis-text mb-4">{{ section.label }}</h1>
+{{ page_header(section.label) }}
 {% include "components/review_nav.html" %}
 <div id="approvals">
 {% if singles or batches %}

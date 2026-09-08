@@ -145,6 +145,43 @@ class TestFilters:
         assert response.status_code == 200
         assert one(response.text, 'input[name="include_transfers"]').get("checked")
 
+    def test_window_chips_start_at_all_and_narrow_the_listing(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """The chips are the first control in the bar; the widest is the
+        default, so a cold load hides nothing."""
+        page = client.get("/accounts").text
+        chips = select(page, "#register-filters input[name='days']")
+        assert [c.get("value") for c in chips][:2] == ["1", "7"]
+        assert (
+            one(page, "#register-filters input[name='days'][checked]").get("value")
+            == "9999"
+        )
+        assert len(names(page)) == 5
+
+        # The ledger runs five days back; a one-day window keeps today and
+        # yesterday.
+        narrowed = client.get("/accounts?days=1").text
+        assert names(narrowed) == ["Market", "Market"]
+        assert (
+            one(narrowed, "#register-filters input[name='days'][checked]").get("value")
+            == "1"
+        )
+
+    def test_an_explicit_from_date_beats_the_window(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        today = date.today().isoformat()
+        page = client.get(f"/accounts?days=9999&from={today}").text
+        assert names(page) == ["Market"]
+
+    def test_the_window_rides_the_pager_and_the_clear_link(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get("/accounts?days=90&page_size=1").text
+        assert "days=90" in (one(page, '#register nav a[rel="next"]').get("href") or "")
+        one(page, "#register-filters a")  # narrowed, so Clear is offered
+
     def test_no_match_says_so(self, client: TestClient, ledger: Ledger) -> None:
         page = client.get("/accounts?q=zzz").text
         none(page, "#register table")

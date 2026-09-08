@@ -2,22 +2,26 @@
    field re-request this section and swap it in place, so the view lives
    in the URL. Needs the ``streams_context`` keys. #}
 {% from "components/macros/table.html" import data_table %}
-{% from "components/macros/form.html" import search_input %}
+{% from "components/macros/form.html" import search_input, range_chips %}
 {% from "components/macros/bills.html" import stream_actions %}
 {% from "components/macros/layout.html" import tab_bar, tab_item %}
 <section id="streams" class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
+  {# The tab links carry the filter bar's state, so switching tabs keeps
+     the window and the search rather than resetting them. #}
+  {% set carried = ("&q=" ~ q if q else "") ~ ("&days=" ~ days if days != all_days else "") %}
   {% call tab_bar("Stream kinds") %}
     {% for key, label in tabs %}
-    {{ tab_item(label, key == tab, path ~ "?tab=" ~ key ~ ("&q=" ~ q if q else ""), hx_replace(path ~ "?tab=" ~ key ~ ("&q=" ~ q if q else ""), "#streams")) }}
+    {{ tab_item(label, key == tab, path ~ "?tab=" ~ key ~ carried, hx_replace(path ~ "?tab=" ~ key ~ carried, "#streams")) }}
     {% endfor %}
   {% endcall %}
   <div class="flex flex-wrap items-center justify-between gap-3">
     <form id="stream-filters" method="get" action="{{ path }}" {{ hx_replace(path, "#streams") }}
-          hx-trigger="keyup changed delay:300ms from:[name='q'], search from:[name='q']"
-          class="flex items-center gap-3">
+          hx-trigger="change, keyup changed delay:300ms from:[name='q'], search from:[name='q']"
+          class="flex flex-wrap items-center gap-3">
       <input type="hidden" name="tab" value="{{ tab }}">
+      {{ range_chips(ranges, days) }}
       {{ search_input("q", q, placeholder="Search bills") }}
-      <span id="monthly-cost" class="text-xxs text-aegis-muted">{% if monthly_cost %}about {{ monthly_cost|money }}/month in recurring bills{% endif %}</span>
+      <span id="monthly-cost" class="sr-only">{% if monthly_cost %}about {{ monthly_cost|money }}/month in recurring bills{% endif %}</span>
     </form>
   </div>
   {% call(row) data_table(columns, rows, empty="No bills yet" if tab == "bills" else "Nothing here yet", row_id="stream") %}

@@ -1,16 +1,16 @@
 {% extends layout %}
 {% from "components/macros/form.html" import primary_button, action %}
+{% from "components/macros/layout.html" import page_header %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
 {% block app_content %}
-<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
-  <h1 class="text-2xl font-semibold text-aegis-text">{{ section.label }}</h1>
+{% call page_header(section.label, ("about " ~ monthly_cost|money ~ "/month in recurring bills") if monthly_cost else None) %}
   <div class="flex items-center gap-2">
-    {% if review_ids %}{{ action("Review (" ~ review_ids|length ~ ")", 'hx-get="' ~ path ~ '/review" hx-target="#dialog-body"', tone="warn") }}{% endif %}
+    {% if review_ids %}{{ action("Review (" ~ review_ids|length ~ ")", hx_dialog(path ~ '/review'), tone="warn") }}{% endif %}
     {{ action("Rescan", 'hx-post="' ~ path ~ '/rescan" hx-include="#stream-filters" hx-target="#streams" hx-swap="outerHTML"') }}
-    {{ primary_button("Add bill or income", attrs='hx-get="' ~ path ~ '/new" hx-target="#dialog-body"') }}
+    {{ primary_button("Add bill or income", attrs=hx_dialog(path ~ '/new')) }}
   </div>
-</div>
+{% endcall %}
 {% include "components/streams.html" %}
 {% endblock %}

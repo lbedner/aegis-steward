@@ -47,7 +47,9 @@ class TestSectionPage:
         assert response.status_code == 200
         page = response.text
         one(page, "aside#sidebar")
-        assert text(one(page, "main#app-content h1")) == section.label
+        # A page may name itself more fully than the sidebar word does
+        # ("Projected" -> "Projected balance"), never less.
+        assert text(one(page, "main#app-content h1")).startswith(section.label)
         assert section.label in text(one(page, "title"))
 
     def test_htmx_request_renders_the_fragment(
@@ -56,7 +58,7 @@ class TestSectionPage:
         fragment = hx.get(section.path).text
         none(fragment, "aside")
         none(fragment, "main")
-        assert text(one(fragment, "h1")) == section.label
+        assert text(one(fragment, "h1")).startswith(section.label)
 
     def test_sidebar_marks_only_this_section_current(
         self, client: TestClient, section: Section

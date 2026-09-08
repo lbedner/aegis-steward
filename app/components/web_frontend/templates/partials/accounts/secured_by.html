@@ -6,7 +6,7 @@
 {% if not properties %}
 <p id="dialog-note" class="text-sm text-aegis-muted mb-4">Add a property account first; a lien links a debt to a property.</p>
 {% endif %}
-<form hx-post="/accounts/{{ account.id }}/secured_by" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/secured_by') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Secured by") %}
   <select name="secured_by_account_id" class="mt-1 w-full bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text focus:border-aegis-teal focus:outline-none">

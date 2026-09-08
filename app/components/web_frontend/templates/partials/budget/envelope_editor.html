@@ -1,7 +1,7 @@
 {% from "components/macros/form.html" import field, text_input, money_input, select, checkbox, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">{{ "Edit " ~ envelope.name if envelope else "New envelope" }}</h2>
-<form hx-post="{{ path ~ '/envelopes/' ~ envelope.id ~ '/edit' if envelope else path ~ '/envelopes/new' }}" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post(path ~ '/envelopes/' ~ envelope.id ~ '/edit' if envelope else path ~ '/envelopes/new') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% if not envelope %}{% call field("Name") %}{{ text_input("name", values.name, required=True, autofocus=True) }}{% endcall %}{% endif %}
   <div class="grid grid-cols-2 gap-4">

@@ -6,7 +6,7 @@
 <ul class="text-sm text-aegis-text space-y-1 mb-4">
   {% for row in similar %}<li>{{ row.date|short_date }} · {{ row.name }} · {{ row.amount|money }}</li>{% endfor %}
 </ul>
-<form id="similar-offer" hx-post="/transactions/payee" hx-target="#dialog-body" class="flex items-center gap-3">
+<form id="similar-offer" {{ hx_dialog_post('/transactions/payee') }} class="flex items-center gap-3">
   {% for row in similar %}<input type="hidden" name="transaction_ids" value="{{ row.id }}">{% endfor %}
   <input type="hidden" name="merchant_id" value="{{ merchant_id }}">
   {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}

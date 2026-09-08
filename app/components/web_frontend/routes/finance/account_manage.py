@@ -27,9 +27,8 @@ from app.components.backend.api.finance.accounts import (
 from app.components.web_frontend.filters import cents_to_input, money_to_cents
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
-    close_dialog,
-    navigate,
-    templates,
+    dialog,
+    dialog_done,
     with_toast,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
@@ -66,20 +65,6 @@ async def _account(
     return account
 
 
-def _dialog(
-    request: Request, template: str, status_code: int = 200, **context: Any
-) -> Response:
-    return templates.TemplateResponse(
-        request=request, name=template, context=context, status_code=status_code
-    )
-
-
-def _done(path: str, toast: str) -> Response:
-    response = Response(status_code=200)
-    navigate(response, path)
-    return close_dialog(with_toast(response, toast))
-
-
 @router.get("/{account_id:int}/rename", include_in_schema=False)
 async def rename_form(
     request: Request,
@@ -88,7 +73,7 @@ async def rename_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _account(service, account_id, owner_user_id)
-    return _dialog(
+    return dialog(
         request,
         "partials/accounts/rename.html",
         account=account,
@@ -108,7 +93,7 @@ async def rename(
     account = await _account(service, account_id, owner_user_id)
     label = name.strip()
     if not label:
-        return _dialog(
+        return dialog(
             request,
             "partials/accounts/rename.html",
             422,
@@ -123,7 +108,7 @@ async def rename(
         owner_user_id=owner_user_id,
     )
     await service.db.commit()
-    return _done(f"{SECTION.path}/{account_id}", f"Renamed to {label}")
+    return dialog_done(f"{SECTION.path}/{account_id}", f"Renamed to {label}")
 
 
 @router.get("/{account_id:int}/reconcile", include_in_schema=False)
@@ -134,7 +119,7 @@ async def reconcile_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _account(service, account_id, owner_user_id)
-    return _dialog(
+    return dialog(
         request,
         "partials/accounts/reconcile.html",
         account=account,
@@ -165,7 +150,7 @@ async def reconcile(
     if cents is None or not statement_balance.strip():
         errors.append("Enter the statement balance as a number.")
     if errors:
-        return _dialog(
+        return dialog(
             request,
             "partials/accounts/reconcile.html",
             422,
@@ -189,7 +174,7 @@ async def reconcile(
         owner_user_id=owner_user_id,
     )
     if preview:
-        return _dialog(
+        return dialog(
             request,
             "partials/accounts/reconcile.html",
             account=account,
@@ -199,7 +184,7 @@ async def reconcile(
             errors=[],
         )
     await service.db.commit()
-    return _done(f"{SECTION.path}/{account_id}", "Reconciled to the statement")
+    return dialog_done(f"{SECTION.path}/{account_id}", "Reconciled to the statement")
 
 
 @router.get("/{account_id:int}/remove", include_in_schema=False)
@@ -210,7 +195,7 @@ async def remove_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _account(service, account_id, owner_user_id)
-    return _dialog(request, "partials/accounts/remove.html", account=account)
+    return dialog(request, "partials/accounts/remove.html", account=account)
 
 
 @router.delete("/{account_id:int}", include_in_schema=False)
@@ -222,7 +207,7 @@ async def remove(
     account = await _account(service, account_id, owner_user_id)
     await delete_account(account_id, service=service, owner_user_id=owner_user_id)
     await service.db.commit()
-    return _done(SECTION.path, f"Removed {account.name}")
+    return dialog_done(SECTION.path, f"Removed {account.name}")
 
 
 # --- property details ------------------------------------------------------
@@ -250,7 +235,7 @@ def _property_form(
     status_code: int = 200,
     **values: Any,
 ) -> Response:
-    return _dialog(
+    return dialog(
         request,
         "partials/accounts/property.html",
         status_code,
@@ -325,7 +310,7 @@ async def property_save(
         owner_user_id=owner_user_id,
     )
     await service.db.commit()
-    return _done(f"{SECTION.path}/{account_id}", "Property details saved")
+    return dialog_done(f"{SECTION.path}/{account_id}", "Property details saved")
 
 
 # --- valuation history -----------------------------------------------------
@@ -344,7 +329,7 @@ async def _valuations_dialog(
     history = await list_valuations(
         account.id, service=service, owner_user_id=owner_user_id
     )
-    return _dialog(
+    return dialog(
         request,
         "partials/accounts/valuations.html",
         status_code,
@@ -433,7 +418,7 @@ async def _lien_dialog(
         "secured_by_account_id": liability.secured_by_account_id if liability else None,
         "lien_position": liability.lien_position if liability else None,
     }
-    return _dialog(
+    return dialog(
         request,
         "partials/accounts/secured_by.html",
         status_code,
@@ -497,4 +482,4 @@ async def secured_by_save(
         owner_user_id=owner_user_id,
     )
     await service.db.commit()
-    return _done(f"{SECTION.path}/{account_id}", "Lien link saved")
+    return dialog_done(f"{SECTION.path}/{account_id}", "Lien link saved")

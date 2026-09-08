@@ -2,7 +2,7 @@
 {% from "components/macros/form.html" import field, money_input, text_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">{{ title }}</h2>
-<form hx-post="{{ action }}" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post(action) }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Amount") %}{{ money_input("amount") }}{% endcall %}
   {% if note %}{% call field("Note (optional)") %}{{ text_input("note", None, placeholder="Roblox, mowing the lawn...") }}{% endcall %}{% endif %}

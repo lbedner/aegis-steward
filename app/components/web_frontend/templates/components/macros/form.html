@@ -9,23 +9,28 @@
    change re-requests the section with the form's fields as the query
    string (``hx-get`` on the form itself), so the filter lives in the URL
    and survives reload. No checked account means every account. #}
+{# The time-window chips: a row of exclusive pills that submits as one
+   radio field, so a click re-requests the enclosing form. Same recipe as
+   ``layout.chip``, driven by ``peer-checked`` because a radio rather than
+   a link marks the choice. #}
+{% macro range_chips(ranges, days, field="days", aria="Time window") %}
+<fieldset class="flex flex-wrap items-center gap-1.5" aria-label="{{ aria }}">
+  {% for value, label in ranges %}
+  <label class="cursor-pointer">
+    <input type="radio" name="{{ field }}" value="{{ value }}" class="sr-only peer" {% if value == days %}checked{% endif %}>
+    <span class="inline-block text-xs px-2 py-0.5 rounded border border-aegis-border text-aegis-muted
+                 peer-checked:border-aegis-teal peer-checked:text-aegis-text peer-checked:bg-aegis-teal/10 peer-checked:font-semibold
+                 peer-focus-visible:ring-2 peer-focus-visible:ring-aegis-teal hover:border-aegis-muted hover:text-aegis-text transition-colors">{{ label }}</span>
+  </label>
+  {% endfor %}
+</fieldset>
+{% endmacro %}
+
 {% macro account_filter(action, accounts, selected_ids, days, ranges) %}
 <form id="filter" method="get" action="{{ action }}"
       hx-get="{{ action }}" hx-target="#app-content" hx-push-url="true" hx-trigger="change"
       class="flex flex-wrap items-center gap-3">
-  {% if ranges %}
-  <fieldset class="flex items-center gap-1" aria-label="Time window">
-    {% for value, label in ranges %}
-    <label class="cursor-pointer">
-      <input type="radio" name="days" value="{{ value }}" class="sr-only peer" {% if value == days %}checked{% endif %}>
-      {# The chip recipe (layout.chip), driven by the radio's state. #}
-      <span class="inline-block text-xs px-2 py-0.5 rounded border border-aegis-border text-aegis-muted
-                   peer-checked:border-aegis-teal peer-checked:text-aegis-text peer-checked:bg-aegis-teal/10 peer-checked:font-semibold
-                   peer-focus-visible:ring-2 peer-focus-visible:ring-aegis-teal hover:border-aegis-muted hover:text-aegis-text transition-colors">{{ label }}</span>
-    </label>
-    {% endfor %}
-  </fieldset>
-  {% endif %}
+  {% if ranges %}{{ range_chips(ranges, days) }}{% endif %}
   {% if accounts %}
   <details class="relative">
     <summary class="list-none cursor-pointer select-none px-2.5 py-1 text-xxs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">

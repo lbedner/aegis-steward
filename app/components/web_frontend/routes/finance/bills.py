@@ -27,10 +27,12 @@ from app.components.backend.api.finance.recurring import (
     resume_recurring,
     unmute_recurring,
 )
+from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import cents_to_input, money_to_cents
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
+    dialog,
     navigate,
     render,
     templates,
@@ -168,11 +170,26 @@ def matches(stream: RecurringStreamResponse, q: str) -> bool:
     return not needle or needle in stream.name.lower()
 
 
+def in_window(stream: RecurringStreamResponse, cutoff: date | None) -> bool:
+    """Whether the window keeps this stream, by its last real payment.
+
+    A bill nothing has matched yet (just declared, or detected from
+    history the window excludes) has nothing to judge, so it stays rather
+    than vanishing from the tab that exists to show it."""
+    if cutoff is None or stream.last_date is None:
+        return True
+    return stream.last_date >= cutoff
+
+
 # --- context ------------------------------------------------------------
 
 
 async def streams_context(
-    service: FinanceService, owner_user_id: int | None, tab: str, q: str
+    service: FinanceService,
+    owner_user_id: int | None,
+    tab: str,
+    q: str,
+    days: int = ranges.ALL,
 ) -> dict[str, Any]:
     """Everything ``components/streams.html`` renders for one tab."""
     listing = await list_recurring(service=service, owner_user_id=owner_user_id)
@@ -180,8 +197,9 @@ async def streams_context(
     tab = tab if tab in dict(TABS) else TABS[0][0]
     counts = {key: 0 for key, _label in TABS}
     shown: list[RecurringStreamResponse] = []
+    cutoff = ranges.since(days)
     for stream in listing.items:
-        if not matches(stream, q):
+        if not matches(stream, q) or not in_window(stream, cutoff):
             continue
         counts[tab_of(stream)] += 1
         if tab_of(stream) == tab:
@@ -190,6 +208,8 @@ async def streams_context(
     return {
         "tab": tab,
         "q": q,
+        "days": days,
+        "ranges": ranges.WINDOWS,
         "tabs": [(key, f"{label} ({counts[key]})") for key, label in TABS],
         "rows": [row(s, today) for s in shown],
         "columns": COLUMNS,
@@ -235,14 +255,6 @@ async def _row_response(
     )
 
 
-def _dialog(
-    request: Request, template: str, status_code: int = 200, **context: Any
-) -> Response:
-    return templates.TemplateResponse(
-        request=request, name=template, context=context, status_code=status_code
-    )
-
-
 # --- the page and the table ---------------------------------------------
 
 
@@ -251,10 +263,11 @@ async def page(
     request: Request,
     tab: str = "bills",
     q: str = "",
+    days: int = ranges.ALL,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    context = await streams_context(service, owner_user_id, tab, q)
+    context = await streams_context(service, owner_user_id, tab, q, days)
     return render(request, "pages/bills.html", {"section": SECTION, **context})
 
 
@@ -263,12 +276,13 @@ async def rescan(
     request: Request,
     tab: Annotated[str, Form()] = "bills",
     q: Annotated[str, Form()] = "",
+    days: Annotated[int, Form()] = ranges.ALL,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """Re-run detection, then re-render the table for the current view."""
     result = await rescan_recurring(service=service, owner_user_id=owner_user_id)
-    context = await streams_context(service, owner_user_id, tab, q)
+    context = await streams_context(service, owner_user_id, tab, q, days)
     response = templates.TemplateResponse(
         request=request, name="components/streams.html", context=context
     )
@@ -301,7 +315,7 @@ async def pause_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     stream = await _stream(service, stream_id, owner_user_id)
-    return _dialog(
+    return dialog(
         request,
         "partials/bills/pause.html",
         stream=stream,
@@ -324,7 +338,7 @@ async def pause(
     try:
         when = date.fromisoformat(until)
     except ValueError:
-        return _dialog(
+        return dialog(
             request,
             "partials/bills/pause.html",
             422,
@@ -355,7 +369,7 @@ async def categorize_form(
 ) -> Response:
     stream = await _stream(service, stream_id, owner_user_id)
     categories = await list_category_options(service=service)
-    return _dialog(
+    return dialog(
         request,
         "partials/bills/categorize.html",
         stream=stream,
@@ -396,7 +410,7 @@ async def _editor(
     accounts, _total = await service.list_accounts(
         owner_user_id=owner_user_id, page_size=500
     )
-    return _dialog(
+    return dialog(
         request,
         "partials/bills/editor.html",
         status_code,
@@ -589,7 +603,7 @@ async def _match_dialog(
     )
     candidates = await candidate_items(service, rows)
     queue_csv = ",".join(map(str, queue))
-    return _dialog(
+    return dialog(
         request,
         "partials/bills/match.html",
         stream=stream,

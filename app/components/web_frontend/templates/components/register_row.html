@@ -50,13 +50,15 @@
   <td class="px-5 py-2 whitespace-nowrap text-right tabular-nums {{ 'text-aegis-teal' if row.amount > 0 else 'text-aegis-text' }}">{{ row.amount|money(row.currency) }}</td>
   <td class="px-2 py-2 text-right">
     {% call dropdown("", align="right") %}
-      {{ menu_item("Tag", 'hx-get="/transactions/tag?transaction_ids=' ~ row.id ~ ('&show_account=true' if show_account else '') ~ '" hx-target="#dialog-body"') }}
+      {% set for_row = "?transaction_ids=" ~ row.id ~ ("&show_account=true" if show_account else "") %}
+      {{ menu_item("Set payee", hx_dialog("/transactions/payee" ~ for_row)) }}
+      {{ menu_item("Tag", hx_dialog("/transactions/tag" ~ for_row)) }}
       {% if row.is_split %}
       {{ menu_item("Unsplit", 'hx-delete="/transactions/' ~ row.id ~ '/split" hx-swap="none"') }}
       {% else %}
-      {{ menu_item("Split", 'hx-get="/transactions/' ~ row.id ~ '/split" hx-target="#dialog-body"') }}
+      {{ menu_item("Split", hx_dialog('/transactions/' ~ row.id ~ '/split')) }}
       {% endif %}
-      {{ menu_item("Make recurring", 'hx-get="/transactions/declare?transaction_ids=' ~ row.id ~ '" hx-target="#dialog-body"') }}
+      {{ menu_item("Make recurring", hx_dialog('/transactions/declare?transaction_ids=' ~ row.id)) }}
       {{ menu_item("Remove", 'hx-delete="/transactions/' ~ row.id ~ '" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Remove this transaction? A re-import will not bring it back."', danger=True) }}
     {% endcall %}
   </td>

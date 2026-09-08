@@ -5,14 +5,21 @@ finance service as integer minor units with a currency code.
 """
 
 from collections.abc import Callable
-from datetime import date, datetime
-
-from app.services.finance.utils import current_date
+from datetime import UTC, date, datetime
 
 # Symbols for the codes a household ledger actually sees; anything else
 # shows its code.
 _CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
 _ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
+
+
+def _utc_today() -> date:
+    """Today in UTC, the clock the rest of the app stamps rows with.
+
+    Spelled out rather than imported from a service: the web frontend
+    ships in projects that have none of them.
+    """
+    return datetime.now(UTC).date()
 
 
 def money(cents: int | None, currency: str = "USD") -> str:
@@ -41,7 +48,7 @@ def short_date(value: date | datetime | str | None, today: date | None = None) -
     if isinstance(value, datetime):
         value = value.date()
     label = f"{value:%b} {value.day}"
-    if value.year == (today or current_date()).year:
+    if value.year == (today or _utc_today()).year:
         return label
     return f"{label}, {value.year}"
 

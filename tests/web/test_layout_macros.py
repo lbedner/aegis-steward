@@ -7,7 +7,7 @@ from tests.web.dom import none, one, select, text
 
 IMPORT = (
     '{% from "components/macros/layout.html" '
-    "import card, stat_tile, chart_panel, dialog, tab_bar, tab_item, chip %}"
+    "import card, stat_tile, chart_panel, dialog, tab_bar, tab_item, chip, page_header, figures, stats_strip, ranked_rows %}"
 )
 
 
@@ -111,7 +111,75 @@ class TestTabsAndChips:
     def test_chip_is_the_date_range_recipe(self) -> None:
         active = one(render('{{ chip("30d", True, "/x?days=30") }}'), "a")
         idle = one(render('{{ chip("90d", False, "/x?days=90") }}'), "a")
-        assert "bg-aegis-teal/10" in active.get("class") and active.get("aria-current") == "page"
+        assert (
+            "bg-aegis-teal/10" in active.get("class")
+            and active.get("aria-current") == "page"
+        )
         assert "bg-aegis-teal/10" not in idle.get("class")
         assert idle.get("class").startswith("text-xs px-2 py-0.5")
 
+
+class TestPageHeader:
+    def test_title_subtitle_and_the_right_hand_side(self) -> None:
+        html = render(
+            '{% call page_header("Budget", "the month") %}<span id="r">x</span>{% endcall %}'
+        )
+        header = one(html, "header")
+        assert text(one(header, "h1")) == "Budget" and "the month" in text(header)
+        one(header, "#r")
+
+    def test_figures_are_a_definition_list_the_stat_helper_reads(self) -> None:
+        html = render(
+            '{{ figures([{"label": "Assets", "value": "$1.00", "negative": False}, {"label": "Owed", "value": "-$2.00", "negative": True}]) }}'
+        )
+        assert text(select(html, "dl dt")[0]) == "Assets"
+        assert "text-error" in select(html, "dd")[1].get("class")
+
+
+class TestStatsStrip:
+    def test_one_strip_with_a_cell_per_term(self) -> None:
+        cells = [
+            {
+                "label": "Income",
+                "value": "$10.00",
+                "caption": "2 sources",
+                "tone": None,
+                "attrs": 'hx-get="/x/income"',
+            },
+            {
+                "label": "This month",
+                "value": "-$1.00",
+                "caption": "short",
+                "tone": "error",
+                "attrs": "",
+            },
+        ]
+        html = render("{{ stats_strip(cells, id='s') }}", cells=cells)
+        strip = one(html, "dl#s")
+        assert len(select(strip, "dt")) == 2
+        assert one(strip, "[hx-get]").get("hx-get") == "/x/income"
+        assert "text-error" in select(strip, "dd")[2].get("class")
+
+
+class TestRankedRows:
+    def test_bar_scales_to_the_ratio(self) -> None:
+        rows = [
+            {
+                "label": "Market",
+                "count": "2x",
+                "value": "$45.00",
+                "ratio": 1.0,
+                "tone": "teal",
+            },
+            {
+                "label": "Gas",
+                "count": "1x",
+                "value": "$20.00",
+                "ratio": 0.444,
+                "tone": "teal",
+            },
+        ]
+        html = render("{{ ranked_rows(rows) }}", rows=rows)
+        items = select(html, ".ranked li")
+        assert len(items) == 2 and "Market" in text(items[0])
+        assert one(items[1], "[style]").get("style") == "width: 44%"

@@ -35,14 +35,18 @@
 {# A titled surface. The body comes via {% call %}; the heading id ties the
    section to its title for assistive tech. ``id`` lets a page target the
    card with htmx; it defaults to a slug of the title. #}
-{% macro card(title, subtitle=None, id=None) %}
+{% macro card(title=None, subtitle=None, id=None) %}
 {% set card_id = id or ("card-" ~ title|lower|replace(" ", "-")) %}
-<section id="{{ card_id }}" aria-labelledby="{{ card_id }}-title"
+<section id="{{ card_id }}" {% if title %}aria-labelledby="{{ card_id }}-title"{% endif %}
          class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
+  {# A card whose page title already names it (the forecast's chart) goes
+     without a header rather than repeating the words. #}
+  {% if title %}
   <header class="flex items-baseline justify-between gap-3">
     <h2 id="{{ card_id }}-title" class="text-sm font-semibold text-aegis-text">{{ title }}</h2>
     {% if subtitle %}<p class="text-xxs text-aegis-muted uppercase tracking-wider">{{ subtitle }}</p>{% endif %}
   </header>
+  {% endif %}
   {{ caller() }}
 </section>
 {% endmacro %}
@@ -75,12 +79,13 @@
    ``drilldown`` is the URL a slice click loads into the dialog; the
    slice's categories are appended as ``category=`` params. #}
 {% macro chart_panel(id, title, kind, data, drilldown=None, subtitle=None) %}
+{# ``title`` may be ``None``: the canvas keeps its aria-label either way. #}
 {% call card(title, subtitle, id="chart-" ~ id) %}
 <div class="relative h-64">
   <canvas data-chart="{{ kind }}"
           data-chart-data="chart-{{ id }}-data"
           {% if drilldown %}data-drilldown="{{ drilldown }}"{% endif %}
-          role="img" aria-label="{{ title }}"></canvas>
+          role="img" aria-label="{{ title or id|replace("-", " ") }}"></canvas>
 </div>
 <script type="application/json" id="chart-{{ id }}-data">{{ data|tojson }}</script>
 {% endcall %}
@@ -113,6 +118,69 @@
 {# A native disclosure menu: <details>/<summary>, no JS, closes on outside
    click via the ``@click.outside`` Alpine hook. The caller supplies
    ``<li>`` items. #}
+{# The page header, dashboard shape: title and subtitle on the left, and
+   whatever the caller puts on the right (headline ``figures``, chips,
+   actions) in the same row. Every section opens with one. #}
+{% macro page_header(title, subtitle=None) %}
+<header class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 pb-4 mb-6 border-b border-aegis-border">
+  <div class="min-w-0">
+    <h1 class="text-2xl font-semibold text-aegis-text">{{ title }}</h1>
+    {% if subtitle %}<p class="mt-1 text-sm text-aegis-muted">{{ subtitle }}</p>{% endif %}
+  </div>
+  <div class="flex flex-wrap items-end gap-x-8 gap-y-3 min-w-0">{{ caller() if caller is defined }}</div>
+</header>
+{% endmacro %}
+
+
+{# Headline figures for a header: label over a large number, right-aligned.
+   ``items`` are ``{"label", "value", "negative"}``; ``negative`` colours
+   the number, nothing else does. #}
+{% macro figures(items) %}
+<dl class="flex flex-wrap items-end gap-x-8 gap-y-3">
+  {% for item in items %}
+  <div class="text-right">
+    <dt class="text-sm text-aegis-muted">{{ item.label }}</dt>
+    <dd class="text-2xl font-semibold tabular-nums {{ 'text-error' if item.negative else 'text-aegis-text' }}">{{ item.value }}</dd>
+  </div>
+  {% endfor %}
+</dl>
+{% endmacro %}
+
+
+{# One bordered strip of N cells (the Budget's month equation). Each cell
+   is ``{"label", "value", "caption", "tone", "attrs"}``; ``attrs`` makes
+   it a door (hx-get) and ``tone`` colours the value. #}
+{% macro stats_strip(cells, id=None, attrs="") %}
+<dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 lg:grid-cols-{{ cells|length }} divide-x divide-aegis-border/60 bg-aegis-card border border-aegis-border rounded-lg">
+  {% for cell in cells %}
+  <div {{ cell.attrs|safe if cell.attrs else "" }} class="px-5 py-4 min-w-0{% if cell.attrs %} cursor-pointer hover:bg-aegis-border/20 transition-colors{% endif %}">
+    <dt class="text-xxs text-aegis-muted uppercase tracking-wider">{{ cell.label }}</dt>
+    <dd class="mt-1 text-2xl font-semibold tabular-nums {{ 'text-error' if cell.tone == 'error' else ('text-aegis-teal' if cell.tone == 'ok' else 'text-aegis-text') }}">{{ cell.value }}</dd>
+    {% if cell.caption %}<dd class="mt-1 text-xxs text-aegis-muted truncate">{{ cell.caption }}</dd>{% endif %}
+  </div>
+  {% endfor %}
+</dl>
+{% endmacro %}
+
+
+{# Ranked rows: name, a small count, the amount, and a thin bar scaled to
+   the largest row (the Overview's payees and bills). ``rows`` are
+   ``{"label", "count", "value", "ratio", "tone"}``. #}
+{% macro ranked_rows(rows) %}
+<ol class="ranked space-y-3">
+  {% for row in rows %}
+  <li>
+    <div class="flex items-baseline justify-between gap-3 text-sm">
+      <span class="text-aegis-text truncate">{{ row.label }}</span>
+      <span class="shrink-0 tabular-nums">{% if row.count %}<span class="text-aegis-muted mr-2">{{ row.count }}</span>{% endif %}<span class="text-aegis-text font-medium">{{ row.value }}</span></span>
+    </div>
+    <div class="mt-1 h-1 rounded bg-aegis-border/60"><div class="h-1 rounded {{ 'bg-aegis-accent' if row.tone == 'accent' else 'bg-aegis-teal' }}" style="width: {{ (row.ratio * 100)|round|int }}%"></div></div>
+  </li>
+  {% endfor %}
+</ol>
+{% endmacro %}
+
+
 {# Tabs: sibling views of one page, Pulse's underline recipe (the same
    look Flet's tabs had). ``tab_bar`` is the row (``role="tablist"``); each
    ``tab_item`` is a link: ``href`` for a cold load, ``hx`` the htmx
@@ -131,8 +199,8 @@
 {# A chip: one of a row of exclusive choices (a time window, a month, a
    view). Pulse's date-range recipe, which the Flet range chips copied:
    small, outlined, a light teal fill when chosen. #}
-{% macro chip(label, active=False, href="", hx="") %}
-<a href="{{ href }}" {{ hx|safe }} {% if active %}aria-current="page"{% endif %}
+{% macro chip(label, active=False, href="", hx="", extra="") %}
+<a href="{{ href }}" {{ hx|safe }} {{ extra|safe }} {% if active %}aria-current="page"{% endif %}
    class="text-xs px-2 py-0.5 rounded border whitespace-nowrap transition-colors {{ 'border-aegis-teal bg-aegis-teal/10 text-aegis-text font-semibold' if active else 'border-aegis-border text-aegis-muted hover:border-aegis-muted hover:text-aegis-text' }}">{{ label }}</a>
 {% endmacro %}
 
