@@ -1,6 +1,7 @@
 {# One goal (pattern 2): Pause toggles in place; Add money and Edit open
    the dialog and answer with this card out of band. #}
 {% from "components/macros/layout.html" import progress, badge %}
+{% from "components/macros/form.html" import action %}
 {% set paused = goal.status == "paused" %}
 <li id="goal-{{ goal.account_id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex flex-col gap-2">
   <div class="flex items-center justify-between gap-3">
@@ -10,9 +11,10 @@
   {{ progress(goal.progress, "muted" if paused else "ok") }}
   <p class="text-xs text-aegis-muted tabular-nums">{{ goal.balance|money }} of {{ goal.target_amount|money }} · {{ eta }}</p>
   <div class="flex items-center gap-2 text-xs">
-    <button type="button" hx-get="{{ path }}/goals/{{ goal.account_id }}/contribute" hx-target="#dialog-body" class="px-2.5 py-1 rounded border border-aegis-teal text-aegis-text hover:bg-aegis-teal/10 transition-colors">Add money</button>
-    <button type="button" hx-post="{{ path }}/goals/{{ goal.account_id }}/pause" hx-target="#goal-{{ goal.account_id }}" hx-swap="outerHTML" class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">{{ "Resume" if paused else "Pause" }}</button>
-    <button type="button" hx-get="{{ path }}/goals/{{ goal.account_id }}/edit" hx-target="#dialog-body" class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Edit</button>
+    {% set base = path ~ "/goals/" ~ goal.account_id %}
+    {{ action("Add money", 'hx-get="' ~ base ~ '/contribute" hx-target="#dialog-body"', tone="primary") }}
+    {{ action("Resume" if paused else "Pause", 'hx-post="' ~ base ~ '/pause" hx-target="#goal-' ~ goal.account_id ~ '" hx-swap="outerHTML"') }}
+    {{ action("Edit", 'hx-get="' ~ base ~ '/edit" hx-target="#dialog-body"') }}
     <button type="button" hx-get="{{ path }}/goals/{{ goal.account_id }}/remove" hx-target="#dialog-body" class="ml-auto text-aegis-muted hover:text-error" aria-label="Remove goal">×</button>
   </div>
 </li>

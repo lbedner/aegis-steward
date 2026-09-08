@@ -192,3 +192,19 @@ class TestDelete:
         self, client: TestClient, ledger: Ledger
     ) -> None:
         assert client.delete("/transactions/999999").status_code == 404
+
+
+class TestOobCounter:
+    def test_the_count_chip_keeps_its_style_when_re_sent(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """The out-of-band chip replaces the styled one in the filter bar,
+        so it has to carry the same classes or the bar changes size."""
+        page = client.get(f"/accounts/{ledger.card}").text
+        mystery = txn_id(page, "Mystery charge")
+        response = client.post(
+            f"/transactions/{mystery}/categorize", data={"category_id": ""}
+        )
+        _rows, siblings = oob(response.text)
+        chip = next(s for s in siblings if s.get("id") == "uncategorized-count")
+        assert "text-xxs" in (chip.get("class") or "")

@@ -127,7 +127,10 @@ class TestSpendingDrilldown:
 
 class TestPendingChangesBanner:
     def test_hidden_when_nothing_is_pending(self, client: TestClient) -> None:
-        none(client.get("/overview").text, "#pending-changes")
+        """Present but hidden, so a resolution elsewhere can re-send it
+        out of band and land."""
+        banner = one(client.get("/overview").text, "#pending-changes")
+        assert banner.get("hidden") is not None
 
     async def test_counts_pending_changes_and_links_to_review(
         self,
@@ -150,5 +153,6 @@ class TestPendingChangesBanner:
         await async_db_session.commit()
 
         banner = one(client.get("/overview").text, "#pending-changes")
+        assert banner.get("hidden") is None
         assert text(banner) == "1 change awaiting your review"
         assert banner.get("href") == "/review"

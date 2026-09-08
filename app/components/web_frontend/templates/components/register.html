@@ -3,7 +3,7 @@
    with ``register`` (see routes/finance/register.py) in context. #}
 {% from "components/macros/layout.html" import card %}
 {% from "components/macros/table.html" import data_table, pager %}
-{% from "components/macros/form.html" import select, date_input, checkbox, search_input %}
+{% from "components/macros/form.html" import select, date_input, checkbox, search_input, action %}
 {% from "components/macros/feedback.html" import empty_state %}
 
 {% if register.kind == "investment" %}
@@ -27,9 +27,11 @@
         {{ hx_replace(register.path, "#register") }}
         hx-trigger="change, keyup changed delay:300ms from:[name='q'], search from:[name='q']"
         class="flex flex-wrap items-center gap-3">
+    {% if register.filters.uncategorized %}<input type="hidden" name="uncategorized" value="on">{% endif %}
+    {% if register.filters.without_merchant %}<input type="hidden" name="without_merchant" value="on">{% endif %}
     {{ search_input("q", register.filters.q, placeholder="Search payee") }}
-    {{ select("category_id", register.categories, register.filters.category_id, blank="All categories") }}
-    {{ select("merchant_id", register.merchants, register.filters.merchant_id, blank="All payees") }}
+    {% if not register.filters.uncategorized %}{{ select("category_id", register.categories, register.filters.category_id, blank="All categories") }}{% endif %}
+    {% if not register.filters.without_merchant %}{{ select("merchant_id", register.merchants, register.filters.merchant_id, blank="All payees") }}{% endif %}
     {% if register.tags %}{{ select("tag_id", register.tags, register.filters.tag_id, blank="All tags") }}{% endif %}
     {{ date_input("from", register.filters.from_date, label="From") }}
     {{ date_input("to", register.filters.to_date, label="To") }}
@@ -51,17 +53,12 @@
   <div id="bulk-actions" x-show="selected > 0" x-cloak
        class="flex flex-wrap items-center gap-3 px-5 pb-3 text-xs">
     <span class="text-aegis-muted"><span x-text="selected"></span> selected</span>
-    <button type="button" hx-get="/transactions/payee" hx-include="[name='transaction_ids']:checked" hx-target="#dialog-body"
-            {% if register.show_account %}hx-vals='{"show_account": true}'{% endif %}
-            class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Set payee</button>
-    <button type="button" hx-get="/transactions/tag" hx-include="[name='transaction_ids']:checked" hx-target="#dialog-body"
-            {% if register.show_account %}hx-vals='{"show_account": true}'{% endif %}
-            class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Tag</button>
-    <button type="button" hx-get="/transactions/declare" hx-include="[name='transaction_ids']:checked" hx-target="#dialog-body"
-            class="px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Make recurring</button>
-    <button type="button" hx-post="/transactions/delete" hx-include="[name='transaction_ids']:checked" hx-swap="none"
-            hx-confirm="Remove the selected transactions? A re-import will not bring them back."
-            class="px-2.5 py-1 rounded border border-aegis-error/40 text-error hover:border-aegis-error transition-colors">Remove</button>
+    {% set checked = "hx-include=\"[name='transaction_ids']:checked\"" %}
+    {% set account = ' hx-vals=\'{"show_account": true}\'' if register.show_account else "" %}
+    {{ action("Set payee", 'hx-get="/transactions/payee" ' ~ checked ~ ' hx-target="#dialog-body"' ~ account) }}
+    {{ action("Tag", 'hx-get="/transactions/tag" ' ~ checked ~ ' hx-target="#dialog-body"' ~ account) }}
+    {{ action("Make recurring", 'hx-get="/transactions/declare" ' ~ checked ~ ' hx-target="#dialog-body"') }}
+    {{ action("Remove", 'hx-post="/transactions/delete" ' ~ checked ~ ' hx-swap="none" hx-confirm="Remove the selected transactions? A re-import will not bring them back."', tone="danger") }}
   </div>
   <div class="overflow-x-auto">
     <table class="w-full text-sm">

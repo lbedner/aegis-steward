@@ -113,6 +113,30 @@
 {# A native disclosure menu: <details>/<summary>, no JS, closes on outside
    click via the ``@click.outside`` Alpine hook. The caller supplies
    ``<li>`` items. #}
+{# Tabs: sibling views of one page, Pulse's underline recipe (the same
+   look Flet's tabs had). ``tab_bar`` is the row (``role="tablist"``); each
+   ``tab_item`` is a link: ``href`` for a cold load, ``hx`` the htmx
+   attributes (``hx_replace(...)`` or a plain string). #}
+{% macro tab_bar(label, id=None, attrs="") %}
+<nav role="tablist" aria-label="{{ label }}" {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }}
+     class="flex flex-wrap items-center gap-6 border-b border-aegis-border mb-6">{{ caller() }}</nav>
+{% endmacro %}
+
+{% macro tab_item(label, active=False, href="", hx="") %}
+<a href="{{ href }}" {{ hx|safe }} {% if active %}aria-current="page"{% endif %}
+   class="text-sm pb-2 -mb-px border-b-2 whitespace-nowrap transition-colors {{ 'text-aegis-text border-aegis-teal' if active else 'text-aegis-muted border-transparent hover:text-aegis-text' }}">{{ label }}</a>
+{% endmacro %}
+
+
+{# A chip: one of a row of exclusive choices (a time window, a month, a
+   view). Pulse's date-range recipe, which the Flet range chips copied:
+   small, outlined, a light teal fill when chosen. #}
+{% macro chip(label, active=False, href="", hx="") %}
+<a href="{{ href }}" {{ hx|safe }} {% if active %}aria-current="page"{% endif %}
+   class="text-xs px-2 py-0.5 rounded border whitespace-nowrap transition-colors {{ 'border-aegis-teal bg-aegis-teal/10 text-aegis-text font-semibold' if active else 'border-aegis-border text-aegis-muted hover:border-aegis-muted hover:text-aegis-text' }}">{{ label }}</a>
+{% endmacro %}
+
+
 {# A small status word with a dot: ``tone`` is ok, warn, error, muted or
    accent; no tone renders the label plain. One shape for every "state"
    cell and chip, so tests find them by role. #}

@@ -1,0 +1,8 @@
+{# The Overview's "changes awaiting review" banner. Always rendered with
+   its id (hidden at zero) so an approval elsewhere can re-send it out of
+   band and land wherever it is on the page. #}
+<a id="pending-changes" {% if banner_oob %}hx-swap-oob="outerHTML"{% endif %} {% if not pending_count %}hidden{% endif %}
+   href="/review" hx-get="/review" hx-target="#app-content" hx-push-url="true" role="status"
+   class="block mb-6 px-4 py-3 rounded-lg border border-aegis-amber/40 bg-aegis-amber/5 text-sm text-aegis-text hover:border-aegis-amber transition-colors">
+  {{ pending_count }} change{{ "s" if pending_count != 1 }} awaiting your review
+</a>

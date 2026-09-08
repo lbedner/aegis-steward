@@ -1,0 +1,33 @@
+{% extends layout %}
+{% from "components/macros/form.html" import primary_button %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/layout.html" import card, chip %}
+
+{% block title %}No payee - {{ project_name }}{% endblock %}
+
+{% block app_content %}
+<div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+  <h1 class="text-2xl font-semibold text-aegis-text">No payee</h1>
+  <nav aria-label="View" class="flex items-center gap-1.5">
+    {% for key, label in (("rows", "Transactions"), ("groups", "By descriptor")) %}
+    {{ chip(label, key == view, "/review/no-payee?view=" ~ key, 'hx-get="/review/no-payee?view=' ~ key ~ '" hx-target="#app-content" hx-push-url="true"') }}
+    {% endfor %}
+  </nav>
+</div>
+{% include "components/review_nav.html" %}
+{% if view == "groups" %}
+<div id="payee-groups" x-data="{ selected: 0 }" @change="selected = $el.querySelectorAll('input[name=keys]:checked').length">
+{% call card("Same descriptor, no payee", groups.total ~ " groups over " ~ groups.total_transactions ~ " transactions") %}
+  <div class="flex items-center gap-3 text-xs" x-show="selected > 0" x-cloak>
+    <span class="text-aegis-muted"><span x-text="selected"></span> selected</span>
+    {{ primary_button("Set payee", attrs='hx-get="/review/no-payee/assign" hx-include="[name=\'keys\']:checked" hx-target="#dialog-body"') }}
+  </div>
+  {% call(row) data_table(group_columns, groups["items"], empty="Every transaction has a payee") %}
+    <input type="checkbox" name="keys" value="{{ row.key }}" aria-label="Select" class="accent-aegis-teal">
+  {% endcall %}
+{% endcall %}
+</div>
+{% else %}
+{% include "components/register.html" %}
+{% endif %}
+{% endblock %}

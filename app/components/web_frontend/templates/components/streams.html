@@ -4,15 +4,14 @@
 {% from "components/macros/table.html" import data_table %}
 {% from "components/macros/form.html" import search_input %}
 {% from "components/macros/bills.html" import stream_actions %}
+{% from "components/macros/layout.html" import tab_bar, tab_item %}
 <section id="streams" class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
+  {% call tab_bar("Stream kinds") %}
+    {% for key, label in tabs %}
+    {{ tab_item(label, key == tab, path ~ "?tab=" ~ key ~ ("&q=" ~ q if q else ""), hx_replace(path ~ "?tab=" ~ key ~ ("&q=" ~ q if q else ""), "#streams")) }}
+    {% endfor %}
+  {% endcall %}
   <div class="flex flex-wrap items-center justify-between gap-3">
-    <nav role="tablist" aria-label="Stream kinds" class="flex items-center gap-1">
-      {% for key, label in tabs %}
-      <a href="{{ path }}?tab={{ key }}{%- if q -%}&q={{ q }}{%- endif -%}" {{ hx_replace(path ~ "?tab=" ~ key ~ ("&q=" ~ q if q else ""), "#streams") }}
-         {% if key == tab %}aria-current="page"{% endif %}
-         class="px-2.5 py-1 text-xs rounded border transition-colors {{ 'border-aegis-teal text-aegis-text bg-aegis-teal/10' if key == tab else 'border-aegis-border text-aegis-muted hover:text-aegis-text' }}">{{ label }}</a>
-      {% endfor %}
-    </nav>
     <form id="stream-filters" method="get" action="{{ path }}" {{ hx_replace(path, "#streams") }}
           hx-trigger="keyup changed delay:300ms from:[name='q'], search from:[name='q']"
           class="flex items-center gap-3">

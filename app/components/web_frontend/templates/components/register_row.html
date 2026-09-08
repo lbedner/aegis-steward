@@ -15,6 +15,16 @@
       {% for line in row.splits %}<li class="split-line">{{ line.amount|money(row.currency) }} · {{ line.category or "Uncategorized" }}{% if line.memo %} · {{ line.memo }}{% endif %}</li>{% endfor %}
     </ul>
     {% endif %}
+    {% if row.suggestion %}
+    {# The auto-categorize preview (pattern 3): nothing is written until
+       Accept posts the ordinary categorize action. #}
+    <span class="suggestion inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 rounded text-xxs border border-aegis-teal/50 text-aegis-text">
+      Suggested: {{ row.suggestion.category_name }}
+      <button type="button" hx-post="/transactions/{{ row.id }}/categorize" hx-vals='{{ {"category_id": row.suggestion.category_id, "show_account": show_account}|tojson }}'
+              hx-target="closest tr" hx-swap="outerHTML" aria-label="Accept suggestion" class="text-aegis-teal hover:text-aegis-text">✓</button>
+      <button type="button" @click="$el.closest('.suggestion').remove()" aria-label="Dismiss suggestion" class="text-aegis-muted hover:text-aegis-text">×</button>
+    </span>
+    {% endif %}
     {% for tag in row.tags %}
     <span class="tag inline-flex items-center gap-1 ml-2 px-1.5 py-0.5 rounded text-xxs border border-aegis-border text-aegis-muted">
       {{ tag.name }}

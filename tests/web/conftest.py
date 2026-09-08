@@ -266,6 +266,64 @@ async def budget(
     )
 
 
+@dataclass(frozen=True)
+class Review:
+    """Ids of the seeded review queues (see the ``review`` fixture)."""
+
+    change: int  # a single pending categorize
+    batch: str  # a two-row batch of payee assignments
+    insight: int
+    mystery: int  # the uncategorised, payee-less transaction
+
+
+@pytest.fixture
+async def review(
+    finance: FinanceService, async_db_session: AsyncSession, ledger: Ledger
+) -> Review:
+    """Something in every queue: one pending change and a batch of two,
+    one new insight, and the ledger's uncategorised "Mystery charge"."""
+    from app.services.finance.models import FinanceInsight
+
+    rows, _total = await finance.list_transactions(owner_user_id=None, page_size=50)
+    by_name = {t.name: t for t in rows}
+    mystery = by_name["Mystery charge"]
+    gas = by_name["Gas"]
+    groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
+    change = await finance.propose_change(
+        "transaction.categorize",
+        {"transaction_id": mystery.id, "category_id": groceries.id},
+        owner_user_id=None,
+        proposed_by_agent="steward",
+    )
+    batch = await finance.propose_many_changes(
+        "transaction.assign_payee",
+        [
+            {"transaction_id": gas.id, "payee": "Shell"},
+            {"transaction_id": mystery.id, "payee": "Shell"},
+        ],
+        owner_user_id=None,
+        proposed_by_agent="steward",
+    )
+    insight = FinanceInsight(
+        owner_user_id=0,
+        insight_type="price_hike",
+        severity="warning",
+        title="Netflix went up",
+        body="From $15.49 to $20.54.",
+        dedup_key="test:price_hike:netflix",
+    )
+    async_db_session.add(insight)
+    await async_db_session.commit()
+    assert change.id is not None and insight.id is not None and mystery.id is not None
+    assert batch[0].batch_id is not None
+    return Review(
+        change=change.id,
+        batch=batch[0].batch_id,
+        insight=insight.id,
+        mystery=mystery.id,
+    )
+
+
 def await_job(client: TestClient, job_id: str, tries: int = 200) -> dict[str, object]:
     """Poll the API until the job is terminal. The test client runs the app
     loop only while a request is in flight, so a background job advances

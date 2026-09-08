@@ -142,6 +142,11 @@ def close_dialog(response: Response) -> Response:
 def navigate(response: Response, path: str, target: str = "#app-content") -> Response:
     """Send the browser to ``path`` the htmx way: a GET with HX-Request
     swapped into ``target`` and pushed to the URL bar (``HX-Location``).
-    The usual close of a dialog form that made something new."""
+    The usual close of a dialog form that made something new.
+
+    Closes the dialog with the plain trigger: htmx follows HX-Location
+    instead of swapping this response, so nothing after-settle would ever
+    fire, and nothing swaps into the dialog that could re-open it.
+    """
     response.headers["HX-Location"] = json.dumps({"path": path, "target": target})
-    return response
+    return trigger(response, "dialog:close")

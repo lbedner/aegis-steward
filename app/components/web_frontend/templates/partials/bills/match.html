@@ -1,7 +1,7 @@
 {# Which payment was this bill? Candidates are pre-shortlisted by the
    API; the choice is the user's. In a review session the pick advances
    to the next bill and Skip moves on without one. #}
-{% from "components/macros/form.html" import primary_button %}
+{% from "components/macros/form.html" import action %}
 <h2 class="text-lg font-semibold text-aegis-text mb-1">Which payment was {{ stream.name }}?{{ position }}</h2>
 <p class="text-xs text-aegis-muted mb-4">Unclaimed transactions in the bill's direction near its amount, newest first.</p>
 {% if candidates %}
@@ -13,9 +13,7 @@
       <p class="text-xxs text-aegis-muted">{{ txn.date|short_date }}</p>
     </div>
     <span class="tabular-nums text-aegis-text">{{ txn.amount|money(txn.currency) }}</span>
-    <button type="button" hx-post="/bills/{{ stream.id }}/match" hx-swap="none"
-            hx-vals='{{ {"transaction_id": txn.id, "queue": queue, "index": index}|tojson }}'
-            class="px-2.5 py-1 text-xs rounded border border-aegis-teal text-aegis-text hover:bg-aegis-teal/10 transition-colors">This one</button>
+    {{ action("This one", 'hx-post="/bills/' ~ stream.id ~ '/match" hx-swap="none"', tone="primary", vals={"transaction_id": txn.id, "queue": queue, "index": index}) }}
   </li>
   {% endfor %}
 </ul>
@@ -24,8 +22,7 @@
 {% endif %}
 <div class="flex items-center gap-3 mt-5">
   {% if next_url %}
-  <button type="button" hx-get="{{ next_url }}" hx-target="#dialog-body"
-          class="px-3 py-1.5 text-xs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Skip</button>
+  {{ action("Skip", 'hx-get="' ~ next_url ~ '" hx-target="#dialog-body"') }}
   {% endif %}
   <button type="button" @click="$el.closest('dialog').close()" class="text-xs text-aegis-muted hover:text-aegis-text">{{ "Stop reviewing" if position else "Cancel" }}</button>
 </div>

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, timedelta
+from typing import Any
 
 from sqlalchemy import func
 from sqlmodel import or_, select
@@ -104,6 +105,7 @@ async def transactions_page(
     category_id: int | None = None,
     merchant_id: int | None = None,
     without_merchant: bool = False,
+    uncategorized: bool = False,
     tag_id: int | None = None,
     query: str | None = None,
     include_transfers: bool = False,
@@ -139,6 +141,8 @@ async def transactions_page(
         filters.append(FinanceTransaction.merchant_id == merchant_id)
     if without_merchant:
         filters.append(FinanceTransaction.merchant_id.is_(None))
+    if uncategorized:
+        filters.extend(uncategorized_clauses())
     if tag_id is not None:
         filters.append(
             FinanceTransaction.id.in_(
@@ -203,6 +207,20 @@ async def transactions_window_with_payees(
     return [(txn, name) for txn, name in rows], total
 
 
+def uncategorized_clauses() -> list[Any]:
+    """What "uncategorized" means everywhere it is asked: an unsplit row
+    with no category, or one filed under a catch-all - a row a split
+    covers is categorised by its parts, whatever its own column says."""
+    return [
+        FinanceTransaction.excluded_from_reports.is_(False),
+        FinanceTransaction.is_split.is_(False),
+        or_(
+            FinanceTransaction.category_id.is_(None),
+            FinanceTransaction.category_id.in_(uncategorized_catchall_ids()),
+        ),
+    ]
+
+
 async def uncategorized_page(
     db: AsyncSession,
     *,
@@ -216,19 +234,11 @@ async def uncategorized_page(
     catch-all bucket), newest first, plus a count (two statements)."""
     if account_ids is not None and not account_ids:
         return [], 0
-    catchall = uncategorized_catchall_ids()
     filters = [
         FinanceTransaction.deleted_at.is_(None),
         FinanceTransaction.dedup_status != "duplicate",
-        FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.account_id.in_(live_account_ids()),
-        # A split parent's categorization lives in its lines; it never
-        # sits in the attention queue no matter what its own column says.
-        FinanceTransaction.is_split.is_(False),
-        or_(
-            FinanceTransaction.category_id.is_(None),
-            FinanceTransaction.category_id.in_(catchall),
-        ),
+        *uncategorized_clauses(),
     ]
     if owner_user_id is not None:
         filters.append(FinanceTransaction.owner_user_id == owner_user_id)

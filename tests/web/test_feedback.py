@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.responses import Response
 
-from app.components.web_frontend.rendering import templates, with_toast
+from app.components.web_frontend.rendering import navigate, templates, with_toast
 from tests.web.dom import none, one, select, text
 
 
@@ -92,3 +92,23 @@ class TestErrorBanner:
             "Amount is required",
             "Date is in the future",
         ]
+
+
+class TestNavigate:
+    def test_closes_the_dialog_before_htmx_follows_the_location(self) -> None:
+        """HX-Location is followed instead of swapped, so an after-settle
+        close would never fire; the plain trigger is processed first."""
+        response = navigate(Response(), "/accounts/3")
+        assert json.loads(response.headers["HX-Location"])["path"] == "/accounts/3"
+        assert json.loads(response.headers["HX-Trigger"]) == {"dialog:close": None}
+
+
+class TestAction:
+    def test_one_recipe_with_tones(self) -> None:
+        source = '{% from "components/macros/form.html" import action %}'
+        quiet = one(render(source + '{{ action("Edit", \'hx-get="/e"\') }}'), "button")
+        danger = one(render(source + '{{ action("Remove", \'hx-delete="/r"\', tone="danger") }}'), "button")
+        assert quiet.get("hx-get") == "/e" and quiet.get("type") == "button"
+        assert "border-aegis-border" in quiet.get("class")
+        assert "text-error" in danger.get("class") and danger.get("hx-delete") == "/r"
+
