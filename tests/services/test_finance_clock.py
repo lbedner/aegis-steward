@@ -9,6 +9,8 @@ evening when the two dates differ. ``current_date`` is the only source.
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.components import web_frontend
+from app.components.backend.api import finance as api_finance
 from app.services import finance
 from app.services.finance.utils import current_date
 
@@ -17,10 +19,18 @@ def test_current_date_is_the_utc_date() -> None:
     assert current_date() == datetime.now(UTC).date()
 
 
-def test_no_local_clock_in_the_finance_service() -> None:
-    root = Path(finance.__file__).parent
+ROOTS = (
+    Path(finance.__file__).parent,
+    Path(api_finance.__file__).parent,
+    Path(web_frontend.__file__).parent,
+)
+
+
+def test_no_local_clock_in_finance_code() -> None:
+    """The service, its API, and the web routes that render it."""
     offenders = [
-        str(p.relative_to(root))
+        str(p)
+        for root in ROOTS
         for p in root.rglob("*.py")
         if "date.today()" in p.read_text() or "datetime.now().date()" in p.read_text()
     ]

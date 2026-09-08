@@ -22,9 +22,6 @@ from app.components.frontend.controls.snack_bar import (
     ErrorSnackBar,
     SuccessSnackBar,
 )
-from app.components.frontend.dashboard.modals.finance_modal import (
-    BILL_FREQUENCY_OPTIONS,
-)
 from app.components.frontend.dashboard.modals.finance_modal.formatting import (
     _parse_dollars,
 )
@@ -37,6 +34,7 @@ from app.components.frontend.dashboard.modals.finance_recurring_tab.shared impor
     stream_is_paused,
 )
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.constants import BILL_FREQUENCY_OPTIONS
 
 
 class StreamEditorMixin(RecurringTabState):

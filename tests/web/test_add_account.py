@@ -7,7 +7,7 @@ import json
 from fastapi.testclient import TestClient
 
 from app.services.finance.constants import ADD_ACCOUNT_TYPES
-from tests.web.dom import none, one, select, text
+from tests.web.dom import none, one, select, text, triggers
 
 
 class TestDialog:
@@ -41,8 +41,8 @@ class TestCreate:
         location = json.loads(response.headers["HX-Location"])
         assert location["target"] == "#app-content"
         assert location["path"].startswith("/accounts/")
-        triggers = json.loads(response.headers["HX-Trigger"])
-        assert "dialog:close" in triggers and triggers["toast"]["text"]
+        fired = triggers(response)
+        assert "dialog:close" in fired and fired["toast"]["text"]
 
         page = client.get(location["path"]).text
         assert text(one(page, "#account-detail header h2")) == "Ally Savings"

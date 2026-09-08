@@ -44,7 +44,7 @@ function money(value) {
 
 function datasets(kind, data) {
   const tail = token('--aegis-muted'); // "Other" reads as tail, never as a category
-  return data.series.map((series, i) => ({
+  return data.series.map((series, i) => (series.points ? markers(series) : {
     label: series.label,
     data: series.values,
     backgroundColor:
@@ -59,6 +59,20 @@ function datasets(kind, data) {
     tension: 0.3,
     pointRadius: 0,
   }));
+}
+
+// A marker series: dots on the days something was overdue, no line.
+function markers(series) {
+  return {
+    label: series.label,
+    data: series.values,
+    showLine: false,
+    pointRadius: 4,
+    pointHoverRadius: 6,
+    pointBackgroundColor: token('--aegis-error'),
+    pointBorderColor: token('--aegis-error'),
+    spanGaps: false,
+  };
 }
 
 function drilldownHandler(canvas, data) {

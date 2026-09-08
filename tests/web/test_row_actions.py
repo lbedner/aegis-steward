@@ -11,7 +11,7 @@ import json
 from fastapi.testclient import TestClient
 
 from tests.web.conftest import Ledger
-from tests.web.dom import none, one, oob, select, text
+from tests.web.dom import none, one, oob, select, text, triggers
 
 
 def category_id(page: str, name: str) -> str:
@@ -144,7 +144,7 @@ class TestTags:
         remove = one(chip, "[hx-delete]")
         assert remove.get("hx-delete", "").startswith(f"/transactions/{gas}/tags/")
         # The dialog closes on success.
-        assert json.loads(response.headers["HX-Trigger"])["dialog:close"] is None
+        assert triggers(response)["dialog:close"] is None
 
     def test_untag_returns_the_row_without_the_chip(
         self, client: TestClient, ledger: Ledger

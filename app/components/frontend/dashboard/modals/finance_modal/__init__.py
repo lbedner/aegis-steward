@@ -46,7 +46,6 @@ from app.components.frontend.dashboard.modals.finance_modal.constants import (
     _FREQUENCY_LABELS,
     _GROUP_DIALOG_CHROME,
     _GROUP_TABLE_MIN_HEIGHT,
-    BILL_FREQUENCY_OPTIONS,
 )
 from app.components.frontend.dashboard.modals.finance_modal.curation_shared import (
     CompactIconButton,
@@ -126,6 +125,7 @@ from app.components.frontend.dashboard.modals.finance_modal.uncategorized_panel 
 )
 from app.components.frontend.dashboard.modals.finance_panel import FinancePanel
 from app.components.frontend.dashboard.modals.modal_sections import ledger_amount_color
+from app.services.finance.constants import BILL_FREQUENCY_OPTIONS
 
 __all__ = [
     "_category_leaf",

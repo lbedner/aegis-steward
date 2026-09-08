@@ -3,8 +3,6 @@
 One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
-from datetime import date
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -28,6 +26,7 @@ from app.services.finance.schemas import (
     TransactionResponse,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 router = APIRouter()
 
@@ -158,7 +157,7 @@ async def spending_summary(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="month must be a valid YYYY-MM",
         ) from exc
-    resolved = month or date.today().strftime("%Y-%m")
+    resolved = month or current_date().strftime("%Y-%m")
     return SpendingSummaryResponse(
         month=resolved,
         categories=[

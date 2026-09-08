@@ -1,0 +1,5 @@
+{# A row action's answer: the stream's row, in place or out of band. #}
+{% from "components/macros/table.html" import table_row %}
+{% from "components/macros/bills.html" import stream_actions %}
+{% macro actions(row) %}{{ stream_actions(row, "/bills") }}{% endmacro %}
+{% for row in rows %}{{ table_row(columns, row, id="stream-" ~ row.id, oob=oob, actions=actions) }}{% endfor %}

@@ -105,6 +105,25 @@
 {# A native disclosure menu: <details>/<summary>, no JS, closes on outside
    click via the ``@click.outside`` Alpine hook. The caller supplies
    ``<li>`` items. #}
+{# A small status word with a dot: ``tone`` is ok, warn, error, muted or
+   accent; no tone renders the label plain. One shape for every "state"
+   cell and chip, so tests find them by role. #}
+{% macro badge(label, tone=None) %}
+{% set tones = {"ok": "text-aegis-teal", "warn": "text-aegis-amber", "error": "text-error", "muted": "text-aegis-muted", "accent": "text-aegis-accent"} %}
+<span data-tone="{{ tone or '' }}" class="inline-flex items-center gap-1.5 whitespace-nowrap {{ tones.get(tone, 'text-aegis-text') }}">
+  {% if tone %}<span class="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true"></span>{% endif %}{{ label }}
+</span>
+{% endmacro %}
+
+
+{# One entry in a dropdown() menu. ``attrs`` carries the htmx verb
+   (``hx-get``/``hx-post``/``hx-delete`` plus target and swap); the menu
+   closes itself on the click, so a dialog never opens over it. #}
+{% macro menu_item(label, attrs, danger=False) %}
+<li><button type="button" {{ attrs|safe }} @click="$el.closest('details').removeAttribute('open')"
+            class="w-full text-left px-3 py-1.5 text-sm {{ 'text-error' if danger else 'text-aegis-text' }} hover:bg-aegis-border/30 rounded transition-colors">{{ label }}</button></li>
+{% endmacro %}
+
 {% macro dropdown(label, align="right") %}
 <details class="relative" @click.outside="$el.removeAttribute('open')">
   <summary class="list-none cursor-pointer select-none inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text hover:border-aegis-muted transition-colors">

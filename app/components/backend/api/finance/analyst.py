@@ -3,8 +3,6 @@
 One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
-from datetime import date
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -21,6 +19,7 @@ from app.services.finance.deps import (
 )
 from app.services.finance.schemas import InsightResponse
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 from app.services.system.jobs import (
     JobHandle,
     get_job_runner,
@@ -59,7 +58,7 @@ async def run_analyst(
         run_analyst_note,
     )
 
-    today = date.today()
+    today = current_date()
     if force:
         current = await existing_note(
             service.db, owner_user_id=owner_user_id, today=today

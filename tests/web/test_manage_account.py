@@ -9,7 +9,7 @@ import json
 from fastapi.testclient import TestClient
 
 from tests.web.conftest import Ledger
-from tests.web.dom import none, one, select, text
+from tests.web.dom import none, one, select, text, triggers
 
 
 def location(response) -> str:  # noqa: ANN001
@@ -42,7 +42,7 @@ class TestRename:
             f"/accounts/{ledger.checking}/rename", data={"name": "Main Checking"}
         )
         assert location(response) == f"/accounts/{ledger.checking}"
-        assert "dialog:close" in json.loads(response.headers["HX-Trigger"])
+        assert "dialog:close" in triggers(response)
         page = client.get(f"/accounts/{ledger.checking}").text
         assert text(one(page, "#account-detail header h2")) == "Main Checking"
 
@@ -122,7 +122,7 @@ class TestRemove:
 
         response = client.delete(f"/accounts/{ledger.savings}")
         assert location(response) == "/accounts"
-        assert "dialog:close" in json.loads(response.headers["HX-Trigger"])
+        assert "dialog:close" in triggers(response)
         none(
             client.get("/accounts").text,
             f'#accounts-list a[href="/accounts/{ledger.savings}"]',

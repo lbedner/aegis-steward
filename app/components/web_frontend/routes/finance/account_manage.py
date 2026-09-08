@@ -47,6 +47,7 @@ from app.services.finance.schemas import (
     ValuationBulkRequest,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 SECTION = section("accounts")
 router = APIRouter(prefix=SECTION.path)
@@ -137,7 +138,7 @@ async def reconcile_form(
         request,
         "partials/accounts/reconcile.html",
         account=account,
-        statement_date=date.today(),
+        statement_date=current_date(),
         statement_balance="",
         result=None,
         errors=[],
@@ -169,7 +170,7 @@ async def reconcile(
             "partials/accounts/reconcile.html",
             422,
             account=account,
-            statement_date=statement_date or date.today(),
+            statement_date=statement_date or current_date(),
             statement_balance=statement_balance,
             result=None,
             errors=errors,

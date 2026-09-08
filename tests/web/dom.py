@@ -86,6 +86,17 @@ def chart_data(markup: Markup, kind: str) -> dict[str, Any]:
     return json.loads(payload.text or "")
 
 
+def triggers(response: Any) -> dict[str, Any]:
+    """Every client event a response carries, across htmx's three trigger
+    headers (``dialog:close`` rides the after-settle one)."""
+    merged: dict[str, Any] = {}
+    for header in ("HX-Trigger", "HX-Trigger-After-Swap", "HX-Trigger-After-Settle"):
+        raw = response.headers.get(header)
+        if raw:
+            merged.update(json.loads(raw))
+    return merged
+
+
 def oob(markup: str) -> tuple[list[HtmlElement], list[HtmlElement]]:
     """Split an action response into its primary elements and its
     out-of-band siblings (those carrying ``hx-swap-oob``), so a test asserts

@@ -1,0 +1,17 @@
+{% from "components/macros/form.html" import field, text_input, money_input, select, date_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">{{ "Edit bill or income" if stream else "Add a bill or income" }}</h2>
+<form hx-post="{{ '/bills/' ~ stream.id ~ '/edit' if stream else '/bills/new' }}" hx-target="#dialog-body" class="space-y-4">
+  {{ error_banner(errors) }}
+  {% call field("Name") %}{{ text_input("name", values.name, required=True, autofocus=True) }}{% endcall %}
+  <div class="grid grid-cols-2 gap-4">
+    {% if not stream %}
+    {% call field("Kind") %}{{ select("direction", directions, values.direction, blank=None, block=True) }}{% endcall %}
+    {% endif %}
+    {% call field("Amount") %}{{ money_input("expected_amount", values.expected_amount) }}{% endcall %}
+    {% call field("Repeats") %}{{ select("frequency", frequencies, values.frequency, blank=None, block=True) }}{% endcall %}
+    {% call field("Next due date") %}{{ date_input("next_expected_date", values.next_expected_date, block=True) }}{% endcall %}
+  </div>
+  {% call field("Account") %}{{ select("account_id", accounts, values.account_id|int if values.account_id else None, blank="No account", block=True) }}{% endcall %}
+  {{ primary_button("Save", type="submit") }}
+</form>

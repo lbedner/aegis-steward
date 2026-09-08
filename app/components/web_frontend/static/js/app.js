@@ -61,6 +61,8 @@ document.body.addEventListener('htmx:afterSwap', (event) => {
     if (dialog && !dialog.open) dialog.showModal();
   }
 });
+// Sent as HX-Trigger-After-Settle (rendering.close_dialog), so it lands
+// after the response's own swap has finished with #dialog-body.
 document.body.addEventListener('dialog:close', () => {
   const dialog = document.getElementById('dialog');
   if (dialog && dialog.open) dialog.close();

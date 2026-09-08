@@ -1,0 +1,30 @@
+{# The per-row menu on the streams table. Every verb is an htmx request
+   answered by the row (pattern 2) or a dialog (pattern 4). ``row`` is the
+   route's ``row()`` dict; ``path`` the section path. #}
+{% from "components/macros/layout.html" import dropdown, menu_item %}
+
+{% macro stream_actions(row, path) %}
+{% set base = path ~ "/" ~ row.id %}
+{% set swap = 'hx-target="closest tr" hx-swap="outerHTML"' %}
+{% call dropdown("", align="right") %}
+  {{ menu_item("Edit", 'hx-get="' ~ base ~ '/edit" hx-target="#dialog-body"') }}
+  {{ menu_item("Categorize", 'hx-get="' ~ base ~ '/categorize" hx-target="#dialog-body"') }}
+  {% if row.direction == "outflow" and row.curated %}
+  {{ menu_item("Match a payment", 'hx-get="' ~ base ~ '/match" hx-target="#dialog-body"') }}
+  {% endif %}
+  {% if row.direction == "outflow" and not row.curated %}
+  {{ menu_item("Confirm", 'hx-post="' ~ base ~ '/confirm" ' ~ swap) }}
+  {% endif %}
+  {% if row.paused %}
+  {{ menu_item("Resume", 'hx-post="' ~ base ~ '/resume" ' ~ swap) }}
+  {% else %}
+  {{ menu_item("Pause", 'hx-get="' ~ base ~ '/pause" hx-target="#dialog-body"') }}
+  {% endif %}
+  {% if row.muted %}
+  {{ menu_item("Unmute", 'hx-post="' ~ base ~ '/unmute" ' ~ swap) }}
+  {% else %}
+  {{ menu_item("Mute", 'hx-post="' ~ base ~ '/mute" ' ~ swap) }}
+  {% endif %}
+  {{ menu_item("Delete", 'hx-delete="' ~ base ~ '" ' ~ swap ~ ' hx-confirm="Delete ' ~ row.name ~ '? It drops out of Bills & Income and the forecast."', danger=True) }}
+{% endcall %}
+{% endmacro %}
