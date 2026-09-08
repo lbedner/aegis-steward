@@ -34,6 +34,14 @@ class TestPage:
         assert overdue["values"][1] is None
 
         rows = table_rows(page, "#projection table")
+        assert list(rows[0]) == [
+            "Date",
+            "Name",
+            "Category",
+            "Account",
+            "Amount",
+            "Balance",
+        ]
         assert [text(r["Name"]) for r in rows][:3] == ["Water", "Payroll", "Rent"]
         assert len(rows) == 5
         when = one(rows[0]["Date"], "[data-tone]")
@@ -50,9 +58,27 @@ class TestPage:
         form = one(page, "form#filter")
         assert form.get("hx-get") == "/projected"
         assert one(form, 'input[name="days"][checked]').get("value") == "90"
+        # The same chip row as every other window, six months by default.
+        assert [c.get("value") for c in select(form, 'input[name="days"]')] == [
+            "1",
+            "7",
+            "14",
+            "30",
+            "90",
+            "365",
+            "9999",
+        ]
         narrowed = client.get(f"/projected?account_ids={ledger.savings}").text
         assert stat(narrowed, "Today's balance") == "$50.00"
         none(narrowed, "#projection table")  # no bills draw on savings
+
+    def test_all_asks_for_the_forecast_ceiling(
+        self, client: TestClient, streams: Streams
+    ) -> None:
+        """A forward window has no "everything"; All is the horizon cap."""
+        page = client.get("/projected?days=9999").text
+        assert one(page, 'input[name="days"][checked]').get("value") == "9999"
+        assert len(chart_data(page, "line")["labels"]) == 731  # the 730-day cap
 
     def test_fragment_and_empty_state(self, hx: TestClient, ledger: Ledger) -> None:
         fragment = hx.get("/projected").text

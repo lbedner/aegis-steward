@@ -37,6 +37,39 @@ def payee_cell(tr):  # noqa: ANN001, ANN201
     return next(td for td in tr.getchildren() if td.get("data-cell") == "payee")
 
 
+class TestRowMenu:
+    def test_offers_the_same_verbs_as_the_selection_bar(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """A single row gets what a selection gets, Set payee included:
+        picking one row to name its payee is the common case."""
+        page = client.get(f"/accounts/{ledger.card}").text
+        gas = txn_id(page, "Gas")
+        items = [text(li) for li in select(page, f"#txn-{gas} [role=menu] li")]
+        assert items == ["Set payee", "Tag", "Split", "Make recurring", "Remove"]
+        payee = one(page, f"#txn-{gas} [hx-get^='/transactions/payee']")
+        assert payee.get("hx-get") == f"/transactions/payee?transaction_ids={gas}"
+        assert payee.get("hx-target") == "#dialog-body"
+
+        # The combined register answers with rows that name their account,
+        # so its menu asks the dialog to do the same.
+        combined = client.get("/accounts").text
+        assert (
+            one(combined, f"#txn-{gas} [hx-get^='/transactions/payee']").get("hx-get")
+            == f"/transactions/payee?transaction_ids={gas}&show_account=true"
+        )
+
+    def test_the_dialog_it_opens_names_that_one_transaction(
+        self, hx: TestClient, client: TestClient, ledger: Ledger
+    ) -> None:
+        gas = txn_id(client.get(f"/accounts/{ledger.card}").text, "Gas")
+        dialog = hx.get(f"/transactions/payee?transaction_ids={gas}").text
+        assert "Gas" in text(one(dialog, "h2"))
+        assert [
+            i.get("value") for i in select(dialog, 'input[name="transaction_ids"]')
+        ] == [gas]
+
+
 class TestRowMarkup:
     def test_category_cell_is_a_select_that_posts_on_change(
         self, client: TestClient, ledger: Ledger

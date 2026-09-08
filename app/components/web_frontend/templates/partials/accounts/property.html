@@ -1,7 +1,7 @@
 {% from "components/macros/form.html" import field, text_input, money_input, date_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Property details</h2>
-<form hx-post="/accounts/{{ account.id }}/property" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/property') }} class="space-y-4">
   {{ error_banner(errors) }}
   <div class="grid grid-cols-2 gap-4">
     {% call field("Type") %}

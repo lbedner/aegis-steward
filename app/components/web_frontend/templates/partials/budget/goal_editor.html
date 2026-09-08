@@ -3,7 +3,7 @@
 {% from "components/macros/form.html" import field, text_input, money_input, select, date_input, checkbox, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">{{ "Edit " ~ goal.name if goal else "New goal" }}</h2>
-<form hx-post="{{ path ~ '/goals/' ~ goal.account_id ~ '/edit' if goal else path ~ '/goals/new' }}" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post(path ~ '/goals/' ~ goal.account_id ~ '/edit' if goal else path ~ '/goals/new') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Name") %}{{ text_input("name", values.name, required=not goal, autofocus=True) }}{% endcall %}
   {% if not goal %}

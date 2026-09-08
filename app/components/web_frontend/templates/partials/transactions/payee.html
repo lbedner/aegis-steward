@@ -4,7 +4,7 @@
 {% from "components/macros/form.html" import field, text_input, select, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Set payee for {{ title }}</h2>
-<form hx-post="/transactions/payee" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/transactions/payee') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% for id in transaction_ids %}<input type="hidden" name="transaction_ids" value="{{ id }}">{% endfor %}
   {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}

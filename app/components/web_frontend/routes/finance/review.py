@@ -34,6 +34,7 @@ from app.components.backend.api.finance.register import suggest_categories
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
+    dialog,
     navigate,
     render,
     templates,
@@ -346,19 +347,17 @@ async def _assign_dialog(
         account_ids=None, service=service, owner_user_id=owner_user_id
     )
     categories = await list_category_options(service=service)
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/review/assign.html",
-        context={
-            "keys": keys,
-            "merchants": merchants.items,
-            "categories": categories.items,
-            "errors": errors,
-            "merchant_id": values.get("merchant_id", ""),
-            "new_name": values.get("new_name", ""),
-            "category_id": values.get("category_id", ""),
-        },
-        status_code=status_code,
+    return dialog(
+        request,
+        "partials/review/assign.html",
+        status_code,
+        keys=keys,
+        merchants=merchants.items,
+        categories=categories.items,
+        errors=errors,
+        merchant_id=values.get("merchant_id", ""),
+        new_name=values.get("new_name", ""),
+        category_id=values.get("category_id", ""),
     )
 
 

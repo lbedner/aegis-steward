@@ -11,7 +11,14 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.responses import Response
 
-from app.components.web_frontend.rendering import navigate, templates, with_toast
+from app.components.web_frontend.rendering import (
+    dialog_done,
+    hx_dialog,
+    hx_dialog_post,
+    navigate,
+    templates,
+    with_toast,
+)
 from tests.web.dom import none, one, select, text
 
 
@@ -107,8 +114,53 @@ class TestAction:
     def test_one_recipe_with_tones(self) -> None:
         source = '{% from "components/macros/form.html" import action %}'
         quiet = one(render(source + '{{ action("Edit", \'hx-get="/e"\') }}'), "button")
-        danger = one(render(source + '{{ action("Remove", \'hx-delete="/r"\', tone="danger") }}'), "button")
+        danger = one(
+            render(
+                source + '{{ action("Remove", \'hx-delete="/r"\', tone="danger") }}'
+            ),
+            "button",
+        )
         assert quiet.get("hx-get") == "/e" and quiet.get("type") == "button"
         assert "border-aegis-border" in quiet.get("class")
         assert "text-error" in danger.get("class") and danger.get("hx-delete") == "/r"
 
+
+class TestRangeChips:
+    def test_one_exclusive_radio_row(self) -> None:
+        html = render(
+            '{% from "components/macros/form.html" import range_chips %}'
+            "{{ range_chips(((7, '7d'), (30, '1m'), (9999, 'All')), 30) }}"
+        )
+        chips = select(html, "fieldset label")
+        assert [text(c) for c in chips] == ["7d", "1m", "All"]
+        radios = select(html, 'input[type="radio"]')
+        assert {r.get("name") for r in radios} == {"days"}
+        assert [r.get("value") for r in radios if r.get("checked") is not None] == [
+            "30"
+        ]
+        assert "sr-only" in radios[0].get("class")  # the pill is the label
+
+
+class TestDialogHelpers:
+    """One definition of how the modal is opened, posted to, and finished."""
+
+    def test_open_and_post_attributes_name_the_one_body(self) -> None:
+        opener = one(f"<button {hx_dialog('/accounts/new')}></button>", "button")
+        assert opener.get("hx-get") == "/accounts/new"
+        assert opener.get("hx-target") == "#dialog-body"
+
+        form = one(f"<form {hx_dialog_post('/accounts/new')}></form>", "form")
+        assert form.get("hx-post") == "/accounts/new"
+        assert form.get("hx-target") == "#dialog-body"
+
+    def test_an_opener_can_carry_more(self) -> None:
+        html = (
+            f"""<button {hx_dialog("/x", 'hx-include="[name=k]:checked"')}></button>"""
+        )
+        assert one(html, "button").get("hx-include") == "[name=k]:checked"
+
+    def test_done_closes_says_and_navigates(self) -> None:
+        response = dialog_done("/accounts/3", "Added Ally.")
+        assert json.loads(response.headers["HX-Location"])["path"] == "/accounts/3"
+        fired = json.loads(response.headers["HX-Trigger"])
+        assert "dialog:close" in fired and fired["toast"]["text"] == "Added Ally."

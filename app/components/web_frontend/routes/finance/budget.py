@@ -45,7 +45,8 @@ from app.components.web_frontend.filters import cents_to_input, money_to_cents
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
-    navigate,
+    dialog,
+    dialog_done,
     render,
     templates,
     with_toast,
@@ -300,14 +301,6 @@ async def budget_context(
     }
 
 
-def _dialog(
-    request: Request, template: str, status_code: int = 200, **context: Any
-) -> Response:
-    return templates.TemplateResponse(
-        request=request, name=template, context=context, status_code=status_code
-    )
-
-
 async def _with_strip(
     request: Request,
     service: FinanceService,
@@ -326,12 +319,6 @@ async def _with_strip(
         context={**context, "stats": stats, "strip_oob": True},
         status_code=status_code,
     )
-
-
-def _done(path: str, toast: str) -> Response:
-    response = Response(status_code=200)
-    navigate(response, path)
-    return close_dialog(with_toast(response, toast))
 
 
 # --- the page, the strip, the details ----------------------------------------
@@ -403,7 +390,7 @@ async def stat_details(
             footer = "Non-monthly bills shown at their monthly share"
         elif key == "everything":
             footer = "Spending no bill or limit covers"
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/stat_details.html",
         title=title,
@@ -429,7 +416,7 @@ async def new_line_form(
     service: FinanceService = Depends(get_finance_service),
 ) -> Response:
     categories = await list_category_options(service=service)
-    return _dialog(
+    return dialog(
         request, "partials/budget/line_new.html", categories=categories.items, errors=[]
     )
 
@@ -451,7 +438,7 @@ async def upsert_line(
     if cents is None or cents <= 0:
         if source == "dialog":
             categories = await list_category_options(service=service)
-            return _dialog(
+            return dialog(
                 request,
                 "partials/budget/line_new.html",
                 422,
@@ -476,7 +463,7 @@ async def upsert_line(
         return await _line_response(request, service, owner_user_id, line)
     await service.db.commit()
     label = line.category_name or line.payee_label or "Overall"
-    return _done(SECTION.path, f"Limit set for {label}.")
+    return dialog_done(SECTION.path, f"Limit set for {label}.")
 
 
 @router.delete("/lines/{line_id:int}", include_in_schema=False)
@@ -577,14 +564,14 @@ async def goal_parse(
         GoalParseRequest(text=text), service=service, owner_user_id=owner_user_id
     )
     if not result.matched:
-        return _dialog(
+        return dialog(
             request,
             "partials/budget/goal_parse.html",
             422,
             result=None,
             errors=["Couldn't find a category or recent payee matching that."],
         )
-    return _dialog(request, "partials/budget/goal_parse.html", result=result, errors=[])
+    return dialog(request, "partials/budget/goal_parse.html", result=result, errors=[])
 
 
 # --- goals -----------------------------------------------------------------------
@@ -608,7 +595,7 @@ async def _goal_card(
 ) -> Response:
     await service.db.commit()
     goal = await goal_response(service, account)
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/goal_card.html",
         goal=goal,
@@ -658,7 +645,7 @@ async def _goal_editor(
     accounts, _total = await service.list_accounts(
         owner_user_id=owner_user_id, page_size=500
     )
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/goal_editor.html",
         status_code,
@@ -769,7 +756,7 @@ async def goal_preview(
             f"= ${preview.target_amount / 100:,.2f} "
             f"({factor} months × ${preview.expenses / 100:,.2f} of monthly expenses)"
         )
-    return _dialog(request, "partials/budget/target_preview.html", text=text)
+    return dialog(request, "partials/budget/target_preview.html", text=text)
 
 
 @router.get("/goals/new", include_in_schema=False)
@@ -830,7 +817,7 @@ async def create_goal_route(
             request, service, owner_user_id, None, values, [str(exc.detail)], 422
         )
     await service.db.commit()
-    return _done(f"{SECTION.path}?tab=goals", f"Added {goal.name}.")
+    return dialog_done(f"{SECTION.path}?tab=goals", f"Added {goal.name}.")
 
 
 @router.get("/goals/{account_id:int}/edit", include_in_schema=False)
@@ -915,7 +902,7 @@ async def contribute_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _goal(service, account_id, owner_user_id)
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/move.html",
         title=f"Add to {account.name}",
@@ -937,7 +924,7 @@ async def contribute(
     account = await _goal(service, account_id, owner_user_id)
     cents = money_to_cents(amount)
     if cents is None or cents <= 0:
-        return _dialog(
+        return dialog(
             request,
             "partials/budget/move.html",
             422,
@@ -952,7 +939,7 @@ async def contribute(
             account_id, amount=cents, owner_user_id=owner_user_id
         )
     except ValueError as exc:  # a linked goal: its contributions are real transfers
-        return _dialog(
+        return dialog(
             request,
             "partials/budget/move.html",
             422,
@@ -976,7 +963,7 @@ async def remove_goal_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _goal(service, account_id, owner_user_id)
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/remove.html",
         title=f"Remove {account.name}?",
@@ -1021,7 +1008,7 @@ async def _envelope_card(
 ) -> Response:
     await service.db.commit()
     await service.db.refresh(account)
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/envelope_card.html",
         envelope=envelope_response(account),
@@ -1037,7 +1024,7 @@ def _move_dialog(
     errors: list[str],
     status_code: int = 200,
 ) -> Response:
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/move.html",
         status_code,
@@ -1156,7 +1143,7 @@ def _envelope_editor(
     errors: list[str],
     status_code: int = 200,
 ) -> Response:
-    return _dialog(
+    return dialog(
         request,
         "partials/budget/envelope_editor.html",
         status_code,
@@ -1210,7 +1197,7 @@ async def create_envelope_route(
         owner_user_id=owner_user_id,
     )
     await service.db.commit()
-    return _done(f"{SECTION.path}?tab=envelopes", f"Added {envelope.name}.")
+    return dialog_done(f"{SECTION.path}?tab=envelopes", f"Added {envelope.name}.")
 
 
 @router.delete("/envelopes/{account_id:int}", include_in_schema=False)

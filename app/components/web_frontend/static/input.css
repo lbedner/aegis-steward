@@ -72,3 +72,10 @@
    * overridden by a utility class at the call site, because utilities are
    * emitted after this layer. */
 }
+
+/* A row's dropdown is absolutely positioned inside the table's scroll
+   box, which would clip it (an "auto" on one axis clips the other too).
+   While a menu is open the box stops scrolling and lets it out. */
+.overflow-x-auto:has(details[open]) {
+  overflow: visible;
+}

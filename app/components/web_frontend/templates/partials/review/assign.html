@@ -2,7 +2,7 @@
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-1">Set the payee</h2>
 <p class="text-xs text-aegis-muted mb-4">Every transaction under {{ keys|length }} descriptor{{ "s" if keys|length != 1 }} gets it, and future imports will too.</p>
-<form hx-post="/review/no-payee/assign" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/review/no-payee/assign') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% for key in keys %}<input type="hidden" name="keys" value="{{ key }}">{% endfor %}
   {% call field("Existing payee") %}{{ select("merchant_id", merchants, merchant_id|int if merchant_id else None, blank="Choose a payee", block=True) }}{% endcall %}

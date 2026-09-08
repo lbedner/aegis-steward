@@ -86,6 +86,11 @@ def chart_data(markup: Markup, kind: str) -> dict[str, Any]:
     return json.loads(payload.text or "")
 
 
+def location(response: Any) -> str:
+    """Where a navigating response sends the content area (HX-Location)."""
+    return json.loads(response.headers["HX-Location"])["path"]
+
+
 def triggers(response: Any) -> dict[str, Any]:
     """Every client event a response carries, across htmx's three trigger
     headers (``dialog:close`` rides the after-settle one)."""

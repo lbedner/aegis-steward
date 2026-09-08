@@ -3,11 +3,16 @@
    place (pattern 3). Needs the ``budget_context`` keys. #}
 {% from "components/macros/layout.html" import badge, chip, tab_bar, tab_item %}
 <section id="budget" class="flex flex-col gap-6">
-  <nav id="month-pager" aria-label="Months ahead" class="flex flex-wrap items-center gap-1.5">
-    {% for entry in pager %}
-    {{ chip(badge(entry.label, entry.tone), entry.index == month, path ~ "?month=" ~ entry.index ~ query, hx_replace(path ~ "?month=" ~ entry.index ~ "&tab=" ~ tab ~ query, "#budget")) }}
-    {% endfor %}
-  </nav>
+  <div class="flex flex-wrap items-center justify-between gap-4">
+    <h2 class="text-lg font-semibold text-aegis-text">Does the month work?</h2>
+    <nav id="month-pager" aria-label="Months ahead" class="flex flex-wrap items-center gap-1.5">
+      {% if month > 0 %}{{ chip("‹", False, path ~ "?month=" ~ (month - 1) ~ query, hx_replace(path ~ "?month=" ~ (month - 1) ~ "&tab=" ~ tab ~ query, "#budget"), 'aria-label="Previous month"') }}{% endif %}
+      {% for entry in pager %}
+      {{ chip(badge(entry.label, entry.tone), entry.index == month, path ~ "?month=" ~ entry.index ~ query, hx_replace(path ~ "?month=" ~ entry.index ~ "&tab=" ~ tab ~ query, "#budget")) }}
+      {% endfor %}
+      {% if month + 1 < pager|length %}{{ chip("›", False, path ~ "?month=" ~ (month + 1) ~ query, hx_replace(path ~ "?month=" ~ (month + 1) ~ "&tab=" ~ tab ~ query, "#budget"), 'aria-label="Next month"') }}{% endif %}
+    </nav>
+  </div>
   {% include "partials/budget/stats.html" %}
   {% call tab_bar("Budget views") %}
     {% for key, label in tabs %}

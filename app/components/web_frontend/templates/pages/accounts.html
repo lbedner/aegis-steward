@@ -1,5 +1,5 @@
 {% extends layout %}
-{% from "components/macros/layout.html" import dropdown %}
+{% from "components/macros/layout.html" import dropdown, menu_item, badge, page_header %}
 {% from "components/macros/form.html" import primary_button %}
 {% from "components/macros/feedback.html" import empty_state %}
 
@@ -23,16 +23,13 @@
 {% endmacro %}
 
 {% block app_content %}
-<div class="flex items-center justify-between gap-4 mb-6">
-  <h1 class="text-2xl font-semibold text-aegis-text">{{ section.label }}</h1>
+{% call page_header(section.label, "Accounts, transactions, and investments") %}
   <div class="flex items-center gap-2">
-    <div class="flex items-center gap-2">
-    <button type="button" hx-get="{{ section.path }}/import{%- if selected -%}?account_id={{ selected.id }}{%- endif -%}" hx-target="#dialog-body"
+    <button type="button" {{ hx_dialog(section.path ~ "/import" ~ ("?account_id=" ~ selected.id if selected else "")) }}
             class="text-sm text-aegis-muted border border-aegis-border rounded px-4 py-2.5 hover:text-aegis-text hover:border-aegis-muted transition-colors">Import</button>
-    {{ primary_button("Add account", attrs='hx-get="' ~ section.path ~ '/new" hx-target="#dialog-body"') }}
+    {{ primary_button("Add account", attrs=hx_dialog(section.path ~ '/new')) }}
   </div>
-  </div>
-</div>
+{% endcall %}
 <div class="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
 
   <nav id="accounts-list" aria-label="Accounts"
@@ -59,9 +56,11 @@
     <header class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0">
         {% if selected %}
-        <p class="text-xxs uppercase tracking-wider text-aegis-muted">{{ selected.account_type|replace("_", " ")|upper }}</p>
-        <h2 class="text-2xl font-semibold text-aegis-text truncate">{{ selected.name }}</h2>
-        {% if statement_line %}<p class="text-xs text-aegis-muted mt-1">{{ statement_line }}</p>{% endif %}
+        <div class="flex items-center gap-3 min-w-0">
+          <h2 class="text-2xl font-semibold text-aegis-text truncate uppercase">{{ selected.name }}</h2>
+          <span class="shrink-0 text-xxs font-semibold tracking-wider px-2 py-0.5 rounded border border-aegis-teal text-aegis-teal uppercase">{{ selected.account_type|replace("_", " ")|upper }}</span>
+        </div>
+        <p class="text-xs text-aegis-muted mt-1">{{ selected.classification|capitalize }} · {{ "Manual" if not selected.connection_id else "Connected" }} · {{ selected.currency|upper }}{% if statement_line %} · {{ statement_line }}{% endif %}</p>
         {% else %}
         <p class="text-xxs uppercase tracking-wider text-aegis-muted">{{ groups|length }} group{{ "s" if groups|length != 1 }}</p>
         <h2 class="text-2xl font-semibold text-aegis-text">All accounts</h2>
@@ -73,10 +72,7 @@
         </p>
         {% if selected %}
         {% call dropdown("Manage") %}
-          {% for action in actions %}
-          <li><button type="button" hx-get="{{ action.url }}" hx-target="#dialog-body"
-                      class="w-full text-left px-3 py-1.5 text-sm text-aegis-text hover:bg-aegis-border/30 rounded transition-colors">{{ action.label }}</button></li>
-          {% endfor %}
+          {% for action in actions %}{{ menu_item(action.label, hx_dialog(action.url)) }}{% endfor %}
         {% endcall %}
         {% endif %}
       </div>

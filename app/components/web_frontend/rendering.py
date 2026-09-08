@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from starlette.responses import Response
 
+from app.components.web_frontend import ranges
 from app.components.web_frontend.assets import COMPONENT_DIR, static_url
 from app.components.web_frontend.filters import FILTERS
 from app.components.web_frontend.nav import NAV
@@ -32,6 +33,24 @@ templates.env.globals["auth_enabled"] = settings.AUTH_ENABLED
 templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
 # The sidebar loops this; see nav.py.
 templates.env.globals["nav"] = NAV
+# The "everything" window, so a template can tell a default chip from a
+# chosen one without importing the module.
+templates.env.globals["all_days"] = ranges.ALL
+
+
+def hx_dialog(url: str, extra: str = "") -> Markup:
+    """The attributes for "open this in the one modal" (pattern 4), so no
+    template has to remember which element the dialog swaps into.
+    ``extra`` rides along for the openers that carry more (an
+    ``hx-include`` of the checked rows, a role for a clickable cell)."""
+    return Markup(f'hx-get="{escape(url)}" hx-target="#dialog-body" {extra}')
+
+
+def hx_dialog_post(url: str) -> Markup:
+    """The attributes for a dialog's own form: post to ``url`` and swap
+    the answer back into the dialog, which is how a 422 re-renders the
+    form with its errors (pattern 1 inside pattern 4)."""
+    return Markup(f'hx-post="{escape(url)}" hx-target="#dialog-body"')
 
 
 def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
@@ -54,6 +73,8 @@ def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
 
 
 templates.env.globals["hx_replace"] = hx_replace
+templates.env.globals["hx_dialog"] = hx_dialog
+templates.env.globals["hx_dialog_post"] = hx_dialog_post
 templates.env.filters.update(FILTERS)
 
 
@@ -99,6 +120,21 @@ def render(
     )
     response.headers["Vary"] = "HX-Request"
     return response
+
+
+def dialog(
+    request: Request, template: str, /, status_code: int = 200, **context: Any
+) -> Response:
+    """A dialog's body (pattern 4): a bare fragment, never a layout. The
+    partial is swapped into ``#dialog-body``, which opens the modal; a
+    422 re-renders the same partial with its errors.
+
+    The first two arguments are positional so a form's own context can
+    carry any key it likes, ``name`` and ``template`` included.
+    """
+    return templates.TemplateResponse(
+        request=request, name=template, context=context, status_code=status_code
+    )
 
 
 def trigger(
@@ -150,3 +186,11 @@ def navigate(response: Response, path: str, target: str = "#app-content") -> Res
     """
     response.headers["HX-Location"] = json.dumps({"path": path, "target": target})
     return trigger(response, "dialog:close")
+
+
+def dialog_done(path: str, toast: str) -> Response:
+    """The end of a dialog form that made something: close it, say what
+    happened, and send the content area where the result lives."""
+    response = Response(status_code=200)
+    navigate(response, path)
+    return close_dialog(with_toast(response, toast))

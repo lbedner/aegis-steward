@@ -3,7 +3,7 @@
    with ``register`` (see routes/finance/register.py) in context. #}
 {% from "components/macros/layout.html" import card %}
 {% from "components/macros/table.html" import data_table, pager %}
-{% from "components/macros/form.html" import select, date_input, checkbox, search_input, action %}
+{% from "components/macros/form.html" import select, date_input, checkbox, search_input, action, range_chips %}
 {% from "components/macros/feedback.html" import empty_state %}
 
 {% if register.kind == "investment" %}
@@ -29,6 +29,7 @@
         class="flex flex-wrap items-center gap-3">
     {% if register.filters.uncategorized %}<input type="hidden" name="uncategorized" value="on">{% endif %}
     {% if register.filters.without_merchant %}<input type="hidden" name="without_merchant" value="on">{% endif %}
+    {{ range_chips(register.ranges, register.filters.days) }}
     {{ search_input("q", register.filters.q, placeholder="Search payee") }}
     {% if not register.filters.uncategorized %}{{ select("category_id", register.categories, register.filters.category_id, blank="All categories") }}{% endif %}
     {% if not register.filters.without_merchant %}{{ select("merchant_id", register.merchants, register.filters.merchant_id, blank="All payees") }}{% endif %}
@@ -55,9 +56,9 @@
     <span class="text-aegis-muted"><span x-text="selected"></span> selected</span>
     {% set checked = "hx-include=\"[name='transaction_ids']:checked\"" %}
     {% set account = ' hx-vals=\'{"show_account": true}\'' if register.show_account else "" %}
-    {{ action("Set payee", 'hx-get="/transactions/payee" ' ~ checked ~ ' hx-target="#dialog-body"' ~ account) }}
-    {{ action("Tag", 'hx-get="/transactions/tag" ' ~ checked ~ ' hx-target="#dialog-body"' ~ account) }}
-    {{ action("Make recurring", 'hx-get="/transactions/declare" ' ~ checked ~ ' hx-target="#dialog-body"') }}
+    {{ action("Set payee", hx_dialog("/transactions/payee", checked ~ account)) }}
+    {{ action("Tag", hx_dialog("/transactions/tag", checked ~ account)) }}
+    {{ action("Make recurring", hx_dialog("/transactions/declare", checked)) }}
     {{ action("Remove", 'hx-post="/transactions/delete" ' ~ checked ~ ' hx-swap="none" hx-confirm="Remove the selected transactions? A re-import will not bring them back."', tone="danger") }}
   </div>
   <div class="overflow-x-auto">

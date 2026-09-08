@@ -84,9 +84,10 @@ class TestSeededLedger:
 
     def test_top_payees(self, client: TestClient, ledger: Ledger) -> None:
         section = card(client.get("/overview").text, "Top payees")
-        first = select(section, "tbody tr")[0]
-        assert text(first.getchildren()[0]) == "Market"
-        assert text(first.getchildren()[1]) == "$45.00"
+        first = select(section, ".ranked li")[0]
+        assert text(first).startswith("Market") and "$45.00" in text(first)
+        assert "2x" in text(first)  # two grocery runs
+        assert one(first, "[style]").get("style") == "width: 100%"
 
 
 class TestFilters:
@@ -108,10 +109,20 @@ class TestFilters:
         assert form.get("hx-push-url") == "true"
         assert form.get("hx-trigger") == "change"
 
-    def test_range_pills_default_to_180_days(self, client: TestClient) -> None:
+    def test_range_pills_are_the_one_chip_row_defaulting_to_three_months(
+        self, client: TestClient
+    ) -> None:
         page = client.get("/overview").text
-        checked = one(page, 'input[name="days"]:checked')
-        assert checked.get("value") == "180"
+        assert [c.get("value") for c in select(page, 'input[name="days"]')] == [
+            "1",
+            "7",
+            "14",
+            "30",
+            "90",
+            "365",
+            "9999",
+        ]
+        assert one(page, 'input[name="days"]:checked').get("value") == "90"
 
 
 class TestSpendingDrilldown:
@@ -126,6 +137,12 @@ class TestSpendingDrilldown:
 
 
 class TestPendingChangesBanner:
+    def test_sits_above_the_page_header(self, client: TestClient) -> None:
+        """First thing in the content area, before the title: Leonard
+        wants a pending change to be the first thing read."""
+        content = one(client.get("/overview").text, "#app-content")
+        assert content.getchildren()[0].get("id") == "pending-changes"
+
     def test_hidden_when_nothing_is_pending(self, client: TestClient) -> None:
         """Present but hidden, so a resolution elsewhere can re-send it
         out of band and land."""

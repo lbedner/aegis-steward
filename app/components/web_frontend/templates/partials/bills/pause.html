@@ -2,7 +2,7 @@
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-1">Pause {{ stream.name }}</h2>
 <p class="text-xs text-aegis-muted mb-4">Out of the forecast, the Bills total and every nag until then; back on its own the day the date passes.</p>
-<form hx-post="/bills/{{ stream.id }}/pause" hx-target="#dialog-body" class="space-y-4">
+<form {{ hx_dialog_post('/bills/' ~ (stream.id) ~ '/pause') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Paused until") %}{{ date_input("until", until, block=True) }}{% endcall %}
   {% call field("Why? (optional, shown on the row)") %}{{ textarea("note", note, rows=2, placeholder="e.g. pausing until the pool is paid off") }}{% endcall %}

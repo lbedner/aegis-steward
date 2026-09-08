@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import Response
 
+from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import short_date
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render
@@ -23,14 +24,10 @@ from app.services.finance.service import FinanceService
 SECTION = section("projected")
 router = APIRouter()
 
-RANGES: tuple[tuple[int, str], ...] = (
-    (30, "30d"),
-    (60, "60d"),
-    (90, "90d"),
-    (180, "6m"),
-    (365, "1y"),
-)
+RANGES = ranges.WINDOWS
 DEFAULT_DAYS = 90
+# How far the forecast will look; also what "All" asks for.
+MAX_DAYS = 730
 COLUMNS = [
     {"key": "when", "label": "Date", "kind": "status"},
     {"key": "name", "label": "Name"},
@@ -105,13 +102,15 @@ def ledger_rows(points: list[ProjectionPoint]) -> list[dict[str, Any]]:
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
-    days: int = Query(default=DEFAULT_DAYS, ge=1, le=730),
+    days: int = Query(default=DEFAULT_DAYS, ge=1),
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     projection = await service.project_balances(
-        owner_user_id=owner_user_id, days=days, account_ids=account_ids or None
+        owner_user_id=owner_user_id,
+        days=ranges.horizon(days, MAX_DAYS),
+        account_ids=account_ids or None,
     )
     accounts, _total = await service.list_accounts(
         owner_user_id=owner_user_id, page_size=500

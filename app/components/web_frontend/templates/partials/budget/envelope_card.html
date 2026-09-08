@@ -7,9 +7,9 @@
   <p class="text-xxs text-aegis-muted">{% if envelope.auto_credit and envelope.monthly_credit %}+{{ envelope.monthly_credit|money }}/{{ "wk" if envelope.cadence == "weekly" else "mo" }} automatically{% else %}topped up by hand{% endif %}</p>
   <div class="flex items-center gap-2 text-xs">
     {% set base = path ~ "/envelopes/" ~ envelope.account_id %}
-    {{ action("Credit", 'hx-get="' ~ base ~ '/credit" hx-target="#dialog-body"', tone="primary") }}
-    {{ action("Spend", 'hx-get="' ~ base ~ '/spend" hx-target="#dialog-body"') }}
-    {{ action("Edit", 'hx-get="' ~ base ~ '/edit" hx-target="#dialog-body"') }}
+    {{ action("Credit", hx_dialog(base ~ '/credit'), tone="primary") }}
+    {{ action("Spend", hx_dialog(base ~ '/spend')) }}
+    {{ action("Edit", hx_dialog(base ~ '/edit')) }}
     <button type="button" hx-delete="{{ path }}/envelopes/{{ envelope.account_id }}" hx-target="#envelope-{{ envelope.account_id }}" hx-swap="outerHTML" hx-confirm="Remove {{ envelope.name }}? Its history goes with it." class="ml-auto text-aegis-muted hover:text-error" aria-label="Remove envelope">×</button>
   </div>
 </li>

@@ -4,7 +4,7 @@
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-1">Split "{{ txn.name }}"</h2>
 <p class="text-xs text-aegis-muted mb-4">{{ txn.amount|money(txn.currency) }} in total; anything left over becomes a remainder line.</p>
-<form hx-post="/transactions/{{ txn.id }}/split" hx-target="#dialog-body" class="space-y-3">
+<form {{ hx_dialog_post('/transactions/' ~ (txn.id) ~ '/split') }} class="space-y-3">
   {{ error_banner(errors) }}
   {% for part in parts %}
   <div class="grid grid-cols-[8rem_1fr_1fr] gap-2 items-end">

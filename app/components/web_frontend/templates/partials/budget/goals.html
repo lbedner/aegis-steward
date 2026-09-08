@@ -2,7 +2,7 @@
 {% from "components/macros/feedback.html" import empty_state %}
 <div class="flex items-center justify-between">
   <p class="text-xs text-aegis-muted">{% if summary.stats.goals_shortfall > 0 %}Goals ask {{ summary.stats.goals_shortfall|money }} more than this month has.{% endif %}</p>
-  {{ primary_button("New goal", attrs='hx-get="' ~ path ~ '/goals/new" hx-target="#dialog-body"') }}
+  {{ primary_button("New goal", attrs=hx_dialog(path ~ '/goals/new')) }}
 </div>
 {% if goals %}
 <ul id="goals" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
