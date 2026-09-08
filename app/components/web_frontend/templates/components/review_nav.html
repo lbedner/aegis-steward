@@ -1,8 +1,0 @@
-{# The Review sub-nav: four queues as sibling routes, each a full page.
-   Re-sent out of band (``nav_oob``) whenever a queue item is resolved. #}
-{% from "components/macros/layout.html" import tab_bar, tab_item %}
-{% call tab_bar("Review queues", id="review-nav", attrs='hx-swap-oob="outerHTML"' if nav_oob else "") %}
-  {% for item in review_nav %}
-  {{ tab_item(item.label ~ (" (" ~ item.count ~ ")" if item.count else ""), item.key == current_queue, item.href, 'hx-get="' ~ item.href ~ '" hx-target="#app-content" hx-push-url="true"') }}
-  {% endfor %}
-{% endcall %}

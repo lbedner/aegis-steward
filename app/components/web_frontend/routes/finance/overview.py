@@ -21,11 +21,12 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render, templates
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.accounts import effective_balance
+from app.services.finance.domains.planning.recurring.forecast import upcoming_outflows
 from app.services.finance.schemas import (
     AccountResponse,
     CashflowMonth,
     NetWorthPoint,
-    ProjectionPoint,
+    ProjectionResponse,
     SpendingCategory,
 )
 from app.services.finance.service import FinanceService
@@ -158,10 +159,9 @@ def spending_chart(rows: list[SpendingCategory]) -> dict[str, Any] | None:
     }
 
 
-def upcoming_bills(points: list[ProjectionPoint]) -> list[dict[str, Any]]:
-    """The outflows in the projection window, as positive amounts."""
-    bills = [p for p in points if p.amount < 0][:PREVIEW]
-    return [{"name": p.name, "date": p.date, "amount": -p.amount} for p in bills]
+def upcoming_bills(projection: ProjectionResponse) -> list[dict[str, Any]]:
+    """The window's bills, the shaping every "what is due" surface uses."""
+    return upcoming_outflows(projection, limit=PREVIEW)
 
 
 def ranked(
@@ -228,9 +228,9 @@ async def page(
             "payee_rows": ranked(
                 overview.top_payees.items, "payee", "amount", "transaction_count"
             ),
-            "upcoming": upcoming_bills(overview.projection.points),
+            "upcoming": upcoming_bills(overview.projection),
             "bill_rows": ranked(
-                upcoming_bills(overview.projection.points), "name", "amount", tone="accent"
+                upcoming_bills(overview.projection), "name", "amount", tone="accent"
             ),
             "recent": overview.recent_transactions.items,
             "uncategorized": overview.uncategorized.items,

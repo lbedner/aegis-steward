@@ -6,6 +6,7 @@ Each job opens its own session and commits (services never commit themselves).
 """
 
 import logging
+from typing import Any
 
 from sqlmodel import select
 
@@ -140,6 +141,80 @@ async def finance_analyst_note_job() -> None:
         )
     except Exception:
         logger.exception("Finance analyst note run failed")
+
+
+async def finance_bill_due_email_job() -> None:
+    """Daily: one mail listing the bills due in the next few days.
+
+    Comms' first finance use. It sends nothing at all until
+    ``FINANCE_BILL_EMAIL_TO`` is set, so a fresh project never mails
+    anyone by surprise, and nothing goes out on a quiet day. The window
+    and the shaping are the ones Settings previews, so what the page
+    shows and what lands in the inbox cannot drift apart.
+
+    One address means one mail: every owner's bills are gathered into it
+    rather than sent as separate, indistinguishable copies to the same
+    inbox. A single owner that fails costs only its own lines.
+    """
+    from app.core.config import settings
+    from app.services.comms.email import send_email_simple
+    from app.services.finance.domains.planning.recurring.forecast import (
+        upcoming_outflows,
+    )
+    from app.services.finance.service import FinanceService
+
+    recipient = settings.FINANCE_BILL_EMAIL_TO
+    if not recipient:
+        return
+    days = settings.FINANCE_BILL_EMAIL_DAYS
+    bills: list[dict[str, Any]] = []
+    try:
+        async with get_async_session() as session:
+            owners = (
+                await session.exec(
+                    select(FinanceAccount.owner_user_id)
+                    .where(FinanceAccount.deleted_at.is_(None))
+                    .distinct()
+                )
+            ).all()
+            service = FinanceService(session)
+            for owner_user_id in owners:
+                try:
+                    projection = await service.project_balances(
+                        owner_user_id=owner_user_id, days=days
+                    )
+                except Exception:
+                    logger.exception(
+                        "Finance bill reminder: owner %s could not be projected",
+                        owner_user_id,
+                    )
+                    continue
+                bills.extend(upcoming_outflows(projection))
+    except Exception:
+        logger.exception("Finance bill reminder could not read the ledger")
+        return
+
+    if not bills:
+        return
+    bills.sort(key=lambda b: b["due_date"] or b["date"])
+    lines = "\n".join(
+        f"- {b['name']}: ${b['amount'] / 100:,.2f} on {b['due_date'] or b['date']}"
+        for b in bills
+    )
+    total = sum(b["amount"] for b in bills)
+    try:
+        await send_email_simple(
+            to=recipient,
+            subject=(
+                f"{len(bills)} bill{'s' if len(bills) != 1 else ''} "
+                f"due in the next {days} days"
+            ),
+            text=f"{lines}\n\n${total / 100:,.2f} in total.",
+        )
+    except Exception:
+        logger.exception("Finance bill reminder could not be sent")
+        return
+    logger.info("Finance: bill reminder sent for %d bill(s)", len(bills))
 
 
 async def finance_sync_connections_job() -> None:

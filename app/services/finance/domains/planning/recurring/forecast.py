@@ -61,6 +61,26 @@ def _month_end(day: date) -> date:
     return date(day.year, day.month, calendar.monthrange(day.year, day.month)[1])
 
 
+def upcoming_outflows(
+    projection: ProjectionResponse, limit: int | None = None
+) -> list[dict[str, Any]]:
+    """The bills in a projection window, as positive amounts, soonest
+    first. One shaping for every surface that lists what is coming due:
+    the overview card, the settings preview, the scheduled email.
+
+    Streams only. The walk also carries budget and goal drawdowns - the
+    everyday spending nobody bills you for, and money moved to yourself -
+    and neither is a bill anyone can be reminded to pay.
+    """
+    bills = [p for p in projection.points if p.amount < 0 and p.stream_id is not None]
+    if limit is not None:
+        bills = bills[:limit]
+    return [
+        {"name": p.name, "date": p.date, "due_date": p.due_date, "amount": -p.amount}
+        for p in bills
+    ]
+
+
 async def project_balances(
     db: AsyncSession,
     *,

@@ -324,6 +324,39 @@ async def review(
     )
 
 
+@pytest.fixture
+async def connection(finance: FinanceService, async_db_session: AsyncSession) -> int:
+    """One healthy provider connection, for the Settings cards."""
+    from app.services.finance.models import FinanceConnection
+
+    row = FinanceConnection(
+        owner_user_id=None,
+        provider="plaid",
+        connection_type="aggregator_token",
+        label="Chase",
+        environment="sandbox",
+    )
+    async_db_session.add(row)
+    await async_db_session.commit()
+    await async_db_session.refresh(row)
+    assert row.id is not None
+    return row.id
+
+
+@pytest.fixture
+async def merchant(
+    finance: FinanceService, async_db_session: AsyncSession, ledger: Ledger
+) -> int:
+    """"Shell" on the ledger's fuel charge, so the payee has usage."""
+    rows, _total = await finance.list_transactions(owner_user_id=None, page_size=50)
+    gas = next(t for t in rows if t.name == "Gas")
+    payee = await finance.create_merchant("Shell", owner_user_id=None)
+    assert payee.id is not None and gas.id is not None
+    await finance.assign_merchant([gas.id], payee.id, owner_user_id=None)
+    await async_db_session.commit()
+    return payee.id
+
+
 def await_job(client: TestClient, job_id: str, tries: int = 200) -> dict[str, object]:
     """Poll the API until the job is terminal. The test client runs the app
     loop only while a request is in flight, so a background job advances

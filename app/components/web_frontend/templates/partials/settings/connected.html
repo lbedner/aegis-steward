@@ -1,0 +1,7 @@
+{# The handshake finished: say what arrived and refresh the cards behind
+   the dialog, so closing it lands on the new institution. #}
+{% from "components/macros/form.html" import primary_button %}
+<h2 class="text-lg font-semibold text-aegis-text mb-2">{{ provider.label }} connected</h2>
+<p class="text-sm text-aegis-muted mb-5">{{ done.connections }} connection{{ "s" if done.connections != 1 }} · {{ done.added }} rows synced.</p>
+{{ primary_button("Done", attrs="@click=\"$el.closest('dialog').close()\"") }}
+{{ connections_html|safe }}

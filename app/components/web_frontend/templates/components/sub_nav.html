@@ -1,0 +1,10 @@
+{# A section's sub-nav: sibling routes as underline tabs, each a full
+   page rather than nested tab state. ``sub_nav`` is the row
+   (``{key, label, href, count}``), ``current_tab`` the one showing, and
+   ``nav_oob`` re-sends it out of band when a count moves. #}
+{% from "components/macros/layout.html" import tab_bar, tab_item %}
+{% call tab_bar(nav_label, id=nav_id, attrs='hx-swap-oob="outerHTML"' if nav_oob else "") %}
+  {% for item in sub_nav %}
+  {{ tab_item(item.label ~ (" (" ~ item.count ~ ")" if item.count else ""), item.key == current_tab, item.href, 'hx-get="' ~ item.href ~ '" hx-target="#app-content" hx-push-url="true"') }}
+  {% endfor %}
+{% endcall %}

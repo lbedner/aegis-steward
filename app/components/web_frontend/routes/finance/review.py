@@ -97,7 +97,9 @@ async def nav_context(
 ) -> dict[str, Any]:
     tally = await counts(service, owner_user_id)
     return {
-        "review_nav": [
+        "nav_id": "review-nav",
+        "nav_label": "Review queues",
+        "sub_nav": [
             {
                 "key": key,
                 "label": label,
@@ -106,7 +108,7 @@ async def nav_context(
             }
             for key, label, suffix in QUEUES
         ],
-        "current_queue": current,
+        "current_tab": current,
         "pending_count": tally["approvals"],
     }
 

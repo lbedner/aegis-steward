@@ -108,3 +108,16 @@ class TestSwitching:
             client.get("/overview").text, "aside#sidebar button[data-theme-toggle]"
         )
         assert toggle.get("aria-label")
+
+
+class TestHidden:
+    def test_hidden_beats_a_display_utility(self) -> None:
+        """``hidden`` is how every "nothing here yet" element hides, so it
+        has to win against the ``block``/``flex`` class beside it. Without
+        this the empty pending-changes banner reads "0 changes awaiting
+        your review"."""
+        css = INPUT_CSS.read_text()
+        assert "[hidden]" in css
+        rule = css[css.index("[hidden]") :]
+        assert "display: none !important" in rule.split("}")[0]
+

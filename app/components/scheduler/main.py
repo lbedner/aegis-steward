@@ -23,6 +23,7 @@ from app.core.log import logger
 from app.services.ai.jobs import analyze_sentiment_job, sync_llm_catalog_job
 from app.services.finance.jobs import (
     finance_analyst_note_job,
+    finance_bill_due_email_job,
     finance_envelope_credit_job,
     finance_goal_auto_contribute_job,
     finance_recompute_snapshots_job,
@@ -282,6 +283,21 @@ def create_scheduler() -> AsyncIOScheduler:
         hours=6,
         id="finance_sync_connections",
         name="Finance: Sync Bank Connections",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+
+    # Morning, after the overnight passes: what is due in the next few
+    # days, mailed once. Does nothing at all until FINANCE_BILL_EMAIL_TO
+    # is set, so an unconfigured project mails nobody.
+    scheduler.add_job(
+        finance_bill_due_email_job,
+        trigger="cron",
+        hour=7,
+        minute=0,
+        id="finance_bill_due_email",
+        name="Finance: Email Bills Coming Due",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

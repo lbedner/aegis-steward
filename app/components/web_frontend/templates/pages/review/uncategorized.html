@@ -8,6 +8,6 @@
 {% call page_header("Uncategorized", register.total ~ " to review") %}
   {{ action("Auto-categorize", 'hx-post="/review/uncategorized/suggest" hx-include="[name=\'transaction_ids\']:checked" hx-swap="none" title="Preview a category for the checked rows, or all of them"', tone="warn") }}
 {% endcall %}
-{% include "components/review_nav.html" %}
+{% include "components/sub_nav.html" %}
 {% include "components/register.html" %}
 {% endblock %}

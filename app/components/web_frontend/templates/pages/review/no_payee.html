@@ -13,7 +13,7 @@
     {% endfor %}
   </nav>
 {% endcall %}
-{% include "components/review_nav.html" %}
+{% include "components/sub_nav.html" %}
 {% if view == "groups" %}
 <div id="payee-groups" x-data="{ selected: 0 }" @change="selected = $el.querySelectorAll('input[name=keys]:checked').length">
 {% call card("Same descriptor, no payee", groups.total ~ " groups over " ~ groups.total_transactions ~ " transactions") %}

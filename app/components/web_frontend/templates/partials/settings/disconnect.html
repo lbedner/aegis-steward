@@ -1,0 +1,4 @@
+{% from "components/macros/layout.html" import confirm %}
+{{ confirm("Disconnect " ~ connection.label ~ "?",
+           "Its accounts and history stay; they simply stop updating. Reconnect any time.",
+           path ~ "/connections/" ~ connection.id, label="Disconnect") }}
