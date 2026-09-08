@@ -76,6 +76,10 @@ class RegisterFilters:
     from_date: date | None = None
     to_date: date | None = None
     include_transfers: bool = False
+    # Fixed by a page rather than picked in the bar: the review queues are
+    # the register with one of these on.
+    uncategorized: bool = False
+    without_merchant: bool = False
     page: int = 1
     page_size: int = PAGE_SIZE
 
@@ -90,8 +94,9 @@ class RegisterFilters:
             and not (k == "page" and v == 1)
             and not (k == "page_size" and v == PAGE_SIZE)
         }
-        if pairs.get("include_transfers") is True:
-            pairs["include_transfers"] = "on"
+        for key, value in pairs.items():
+            if value is True:
+                pairs[key] = "on"
         return urlencode(pairs)
 
 
@@ -103,6 +108,8 @@ def register_filters(
     from_date: Annotated[date | None, Blank, Query(alias="from")] = None,
     to_date: Annotated[date | None, Blank, Query(alias="to")] = None,
     include_transfers: bool = False,
+    uncategorized: bool = False,
+    without_merchant: bool = False,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=PAGE_SIZE, ge=1, le=200),
 ) -> RegisterFilters:
@@ -114,6 +121,8 @@ def register_filters(
         from_date=from_date,
         to_date=to_date,
         include_transfers=include_transfers,
+        uncategorized=uncategorized,
+        without_merchant=without_merchant,
         page=page,
         page_size=page_size,
     )
@@ -141,18 +150,25 @@ def _row(txn: TransactionResponse, account_names: dict[int, str]) -> dict[str, A
 
 
 async def rows_context(
-    service: FinanceService, txns: list[FinanceTransaction], owner_user_id: int | None
+    service: FinanceService,
+    txns: list[FinanceTransaction],
+    owner_user_id: int | None,
+    suggestions: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """What re-rendered rows need (pattern 2): the shaped rows, the category
     options, and the uncategorised count for the OOB chip. One hydration
-    for one row or fifty."""
+    for one row or fifty. ``suggestions`` (transaction id -> {category_id,
+    category_name}) rides on the row as a preview nothing has written."""
     items = await hydrate_transactions(service, txns)
     accounts, _ = await service.list_accounts(
         owner_user_id=owner_user_id, page=1, page_size=500
     )
     names = {a.id: a.name for a in accounts}
     return {
-        "rows": [_row(item, names) for item in items],
+        "rows": [
+            {**_row(item, names), "suggestion": (suggestions or {}).get(item.id)}
+            for item in items
+        ],
         "categories": (await list_category_options(service=service)).items,
         "uncategorized_total": await uncategorized_total(service, owner_user_id),
     }
@@ -243,10 +259,11 @@ async def register_context(
         to_date=filters.to_date,
         category_id=filters.category_id,
         merchant_id=filters.merchant_id,
-        without_merchant=False,
+        without_merchant=filters.without_merchant,
         tag_id=filters.tag_id,
         q=filters.q,
         include_transfers=filters.include_transfers,
+        uncategorized=filters.uncategorized,
         page=filters.page,
         page_size=filters.page_size,
         service=service,

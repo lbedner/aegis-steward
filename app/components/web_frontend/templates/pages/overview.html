@@ -12,12 +12,7 @@
   {{ account_filter(section.path, accounts, selected_ids, days, ranges) }}
 </div>
 
-{% if pending_count %}
-<a id="pending-changes" href="/review" hx-get="/review" hx-target="#app-content" hx-push-url="true" role="status"
-   class="block mb-6 px-4 py-3 rounded-lg border border-aegis-amber/40 bg-aegis-amber/5 text-sm text-aegis-text hover:border-aegis-amber transition-colors">
-  {{ pending_count }} change{{ "s" if pending_count != 1 }} awaiting your review
-</a>
-{% endif %}
+{% include "partials/review/banner.html" %}
 
 <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
   {{ stat_tile("Assets", totals.assets|money, negative=totals.assets < 0) }}

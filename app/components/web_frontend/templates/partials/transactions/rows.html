@@ -5,4 +5,4 @@
 {% for row in rows %}
 {% with row_oob=(oob_rows is not defined or oob_rows) %}{% include "components/register_row.html" %}{% endwith %}
 {% endfor %}
-{% call oob("uncategorized-count") %}{{ uncategorized_total }} uncategorized{% endcall %}
+{% call oob("uncategorized-count", class="text-xxs text-aegis-muted") %}{{ uncategorized_total }} uncategorized{% endcall %}

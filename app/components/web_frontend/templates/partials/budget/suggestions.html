@@ -1,7 +1,7 @@
 {# Suggested limits (pattern 3): every verb re-renders this section and
    ships the strip out of band. The goal parser is a form round trip. #}
 {% from "components/macros/layout.html" import card %}
-{% from "components/macros/form.html" import text_input, primary_button %}
+{% from "components/macros/form.html" import text_input, primary_button, action %}
 {% from "components/macros/feedback.html" import empty_state %}
 <section id="suggestions" class="flex flex-col gap-6">
   {% call card("Say it in words", "a limit from a sentence") %}
@@ -21,10 +21,8 @@
         <p class="text-xxs text-aegis-muted">{{ pick.months_seen }} of 6 months{% if pick.unusual_months %} · {{ pick.unusual_months }} stood out{% else %} · every month alike{% endif %}</p>
       </div>
       <span class="tabular-nums text-aegis-text">{{ pick.suggested_amount|money }}/mo</span>
-      <button type="button" hx-post="{{ path }}/suggestions/{{ pick.category_id }}/accept" hx-vals='{"amount": "{{ pick.suggested_amount|cents_to_input }}"}' hx-target="#suggestions" hx-swap="outerHTML"
-              class="px-2.5 py-1 text-xs rounded border border-aegis-teal text-aegis-text hover:bg-aegis-teal/10 transition-colors">Use</button>
-      <button type="button" hx-post="{{ path }}/suggestions/{{ pick.category_id }}/dismiss" hx-target="#suggestions" hx-swap="outerHTML"
-              class="px-2.5 py-1 text-xs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Dismiss</button>
+      {{ action("Use", 'hx-post="' ~ path ~ '/suggestions/' ~ pick.category_id ~ '/accept" hx-target="#suggestions" hx-swap="outerHTML"', tone="primary", vals={"amount": pick.suggested_amount|cents_to_input}) }}
+      {{ action("Dismiss", 'hx-post="' ~ path ~ '/suggestions/' ~ pick.category_id ~ '/dismiss" hx-target="#suggestions" hx-swap="outerHTML"') }}
     </li>
     {% endfor %}
   </ul>

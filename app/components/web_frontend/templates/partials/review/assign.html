@@ -1,0 +1,12 @@
+{% from "components/macros/form.html" import field, select, text_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-1">Set the payee</h2>
+<p class="text-xs text-aegis-muted mb-4">Every transaction under {{ keys|length }} descriptor{{ "s" if keys|length != 1 }} gets it, and future imports will too.</p>
+<form hx-post="/review/no-payee/assign" hx-target="#dialog-body" class="space-y-4">
+  {{ error_banner(errors) }}
+  {% for key in keys %}<input type="hidden" name="keys" value="{{ key }}">{% endfor %}
+  {% call field("Existing payee") %}{{ select("merchant_id", merchants, merchant_id|int if merchant_id else None, blank="Choose a payee", block=True) }}{% endcall %}
+  {% call field("Or a new payee") %}{{ text_input("new_name", new_name, placeholder="Shell, Whole Foods, Landlord") }}{% endcall %}
+  {% call field("Also file under") %}{{ select("category_id", categories, category_id|int if category_id else None, blank="Leave categories alone", block=True) }}{% endcall %}
+  {{ primary_button("Set payee", type="submit") }}
+</form>

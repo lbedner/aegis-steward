@@ -7,7 +7,7 @@ import json
 from fastapi.testclient import TestClient
 
 from app.services.finance.constants import ADD_ACCOUNT_TYPES
-from tests.web.dom import none, one, select, text, triggers
+from tests.web.dom import none, one, select, text
 
 
 class TestDialog:
@@ -41,7 +41,9 @@ class TestCreate:
         location = json.loads(response.headers["HX-Location"])
         assert location["target"] == "#app-content"
         assert location["path"].startswith("/accounts/")
-        fired = triggers(response)
+        # Plain HX-Trigger on purpose: a navigating response is followed,
+        # not swapped, so an after-settle close would never fire.
+        fired = json.loads(response.headers["HX-Trigger"])
         assert "dialog:close" in fired and fired["toast"]["text"]
 
         page = client.get(location["path"]).text

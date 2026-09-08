@@ -7,7 +7,7 @@ from tests.web.dom import none, one, select, text
 
 IMPORT = (
     '{% from "components/macros/layout.html" '
-    "import card, stat_tile, chart_panel, dialog %}"
+    "import card, stat_tile, chart_panel, dialog, tab_bar, tab_item, chip %}"
 )
 
 
@@ -91,3 +91,27 @@ class TestDialog:
         one(page, "dialog#dialog")
         none(one(page, "main#app-content"), "dialog")
         assert len(select(page, "dialog")) == 1
+
+
+class TestTabsAndChips:
+    def test_tabs_are_an_underlined_tablist(self) -> None:
+        html = render(
+            '{% call tab_bar("Views", id="v") %}'
+            '{{ tab_item("One", True, "/one") }}{{ tab_item("Two", False, "/two") }}'
+            "{% endcall %}"
+        )
+        nav = one(html, "nav#v[role=tablist]")
+        assert "border-b" in nav.get("class")
+        links = select(nav, "a")
+        assert links[0].get("aria-current") == "page"
+        assert "border-aegis-teal" in links[0].get("class")
+        assert links[1].get("aria-current") is None
+        assert "border-transparent" in links[1].get("class")
+
+    def test_chip_is_the_date_range_recipe(self) -> None:
+        active = one(render('{{ chip("30d", True, "/x?days=30") }}'), "a")
+        idle = one(render('{{ chip("90d", False, "/x?days=90") }}'), "a")
+        assert "bg-aegis-teal/10" in active.get("class") and active.get("aria-current") == "page"
+        assert "bg-aegis-teal/10" not in idle.get("class")
+        assert idle.get("class").startswith("text-xs px-2 py-0.5")
+
