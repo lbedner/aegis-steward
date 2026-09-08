@@ -1,0 +1,10 @@
+{% from "components/macros/form.html" import primary_button %}
+{% from "components/macros/feedback.html" import empty_state %}
+<div class="flex items-center justify-end">{{ primary_button("New envelope", attrs='hx-get="' ~ path ~ '/envelopes/new" hx-target="#dialog-body"') }}</div>
+{% if envelopes %}
+<ul id="envelopes" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  {% for envelope in envelopes %}{% include "partials/budget/envelope_card.html" %}{% endfor %}
+</ul>
+{% else %}
+{{ empty_state("No envelopes yet", "An allowance, a fund, anything set aside without a finish line.") }}
+{% endif %}

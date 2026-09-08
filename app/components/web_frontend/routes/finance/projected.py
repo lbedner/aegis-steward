@@ -36,8 +36,20 @@ COLUMNS = [
     {"key": "name", "label": "Name"},
     {"key": "category", "label": "Category"},
     {"key": "account", "label": "Account"},
-    {"key": "amount", "label": "Amount", "kind": "money", "align": "right", "signed": True},
-    {"key": "balance", "label": "Balance", "kind": "money", "align": "right", "toned": True},
+    {
+        "key": "amount",
+        "label": "Amount",
+        "kind": "money",
+        "align": "right",
+        "signed": True,
+    },
+    {
+        "key": "balance",
+        "label": "Balance",
+        "kind": "money",
+        "align": "right",
+        "toned": True,
+    },
 ]
 
 

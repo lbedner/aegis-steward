@@ -1,0 +1,17 @@
+{# The parser's answer: an alert, or the suggested limit with a Confirm
+   that posts the upsert and returns to the page. #}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/form.html" import primary_button %}
+{{ error_banner(errors) }}
+{% if result %}
+<form hx-post="/budget/lines" hx-swap="none" class="mt-3 flex flex-wrap items-center gap-3 text-sm text-aegis-text">
+  <input type="hidden" name="source" value="goal">
+  <input type="hidden" name="category_id" value="{{ result.category_id or '' }}">
+  <input type="hidden" name="payee_key" value="{{ result.payee_key or '' }}">
+  <input type="hidden" name="payee_label" value="{{ result.payee_label or '' }}">
+  <input type="hidden" name="allocated_amount" value="{{ (result.suggested_limit or 0)|cents_to_input }}">
+  <p class="flex-1">{{ result.label or "That" }} has averaged {{ (result.baseline_monthly or 0)|money }}/mo over the last 90 days.
+     Suggested limit: <strong>{{ (result.suggested_limit or 0)|money }}/mo</strong> ({{ ((result.fraction or 0) * 100)|round|int }}% of baseline).</p>
+  {{ primary_button("Confirm " ~ (result.suggested_limit or 0)|money, type="submit") }}
+</form>
+{% endif %}

@@ -51,11 +51,19 @@
 {# One headline figure. Render a row of them inside a ``<dl class="grid">``.
    Red once a figure goes negative and nothing otherwise: when every
    healthy number is coloured, colour stops meaning anything. #}
-{% macro stat_tile(label, value, negative=False) %}
-<div class="bg-aegis-card border border-aegis-border rounded-lg px-5 py-4">
+{% macro stat_tile(label, value, negative=False, caption=None, attrs="") %}
+<div {{ attrs|safe }} class="bg-aegis-card border border-aegis-border rounded-lg px-5 py-4{% if attrs %} cursor-pointer hover:border-aegis-muted transition-colors{% endif %}">
   <dt class="text-xxs text-aegis-muted uppercase tracking-wider">{{ label }}</dt>
   <dd class="mt-1 text-2xl font-semibold tabular-nums {{ 'text-error' if negative else 'text-aegis-text' }}">{{ value }}</dd>
+  {% if caption %}<dd class="mt-1 text-xxs text-aegis-muted">{{ caption }}</dd>{% endif %}
 </div>
+{% endmacro %}
+
+
+{# A thin native progress bar; ``tone`` colours it (see badge). #}
+{% macro progress(ratio, tone="ok") %}
+{% set tones = {"ok": "accent-aegis-teal", "warn": "accent-aegis-amber", "error": "accent-aegis-error", "muted": "accent-aegis-muted"} %}
+<progress value="{{ [1, [0, ratio]|max]|min }}" max="1" class="w-full h-1 {{ tones.get(tone, 'accent-aegis-teal') }}"></progress>
 {% endmacro %}
 
 

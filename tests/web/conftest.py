@@ -216,6 +216,56 @@ async def streams(
     )
 
 
+@dataclass(frozen=True)
+class Budget:
+    """Ids of the seeded budget (see the ``budget`` fixture)."""
+
+    groceries: int  # category id
+    fuel: int  # category id
+    line: int  # the Food:Groceries limit
+    goal: int  # account id of the virtual goal
+    envelope: int  # account id
+
+
+@pytest.fixture
+async def budget(
+    finance: FinanceService, async_db_session: AsyncSession, streams: Streams
+) -> Budget:
+    """A budget on top of the ledger and its streams.
+
+    One flexible limit (Food:Groceries, $200.00 a month), one virtual goal
+    (Vacation, $1,000.00 target, $250.00 saved so far) and one envelope
+    (Kids, $20.00 a month, $50.00 in it).
+    """
+    groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
+    fuel = await finance.get_or_create_category_from_hint("Auto:Fuel")
+    line = await finance.upsert_budget_line(
+        owner_user_id=None,
+        period_month=None,
+        category_id=groceries.id,
+        payee_key=None,
+        payee_label=None,
+        allocated_amount=20_000,
+    )
+    goal = await finance.create_virtual_goal(
+        owner_user_id=None, name="Vacation", target_amount=100_000
+    )
+    assert goal.id is not None
+    await finance.contribute_to_goal(goal.id, amount=25_000, owner_user_id=None)
+    envelope = await finance.create_envelope(
+        owner_user_id=None, name="Kids", monthly_credit=2_000, starting_balance=5_000
+    )
+    assert envelope.id is not None and groceries.id is not None and fuel.id is not None
+    await async_db_session.commit()
+    return Budget(
+        groceries=groceries.id,
+        fuel=fuel.id,
+        line=line.id,
+        goal=goal.id,
+        envelope=envelope.id,
+    )
+
+
 def await_job(client: TestClient, job_id: str, tries: int = 200) -> dict[str, object]:
     """Poll the API until the job is terminal. The test client runs the app
     loop only while a request is in flight, so a background job advances

@@ -1,0 +1,37 @@
+{# The Limits tab: flexible lines you set, then the commitments the bills
+   already make. #}
+{% from "components/macros/layout.html" import card %}
+{% from "components/macros/form.html" import primary_button %}
+{% from "components/macros/feedback.html" import empty_state %}
+{% set flexible = buckets.get("flexible") %}
+<div id="limits">
+{% call card("Flexible", "limits you've set, by category or payee") %}
+  {% if flexible and flexible.lines %}
+  <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    {% for line in flexible.lines %}{% include "partials/budget/line.html" %}{% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("No limits yet", "Set one for a category you want to keep an eye on.") }}
+  {% endif %}
+  <div>{{ primary_button("Add a limit", attrs='hx-get="' ~ path ~ '/lines/new" hx-target="#dialog-body"') }}</div>
+{% endcall %}
+</div>
+<div id="commitments" class="grid gap-6 lg:grid-cols-3 mt-6">
+  {% for key, title, note in commitments %}
+  {% set bucket = buckets.get(key) %}
+  {% call card(title, (bucket.total_allocated|money if bucket else "$0.00") ~ " " ~ note) %}
+    {% if bucket and bucket.lines %}
+    <ul class="divide-y divide-aegis-border/60 text-sm">
+      {% for line in bucket.lines %}
+      <li class="flex items-center justify-between gap-3 py-1.5">
+        <span class="text-aegis-text truncate">{{ line.category_name or line.payee_label or "Uncategorized" }}</span>
+        <span class="tabular-nums text-aegis-muted">{{ line.allocated_amount|money }}{% if key != "one_time" %}/mo{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-xs text-aegis-muted">None this month.</p>
+    {% endif %}
+  {% endcall %}
+  {% endfor %}
+</div>

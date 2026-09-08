@@ -1,0 +1,49 @@
+{# Suggested limits (pattern 3): every verb re-renders this section and
+   ships the strip out of band. The goal parser is a form round trip. #}
+{% from "components/macros/layout.html" import card %}
+{% from "components/macros/form.html" import text_input, primary_button %}
+{% from "components/macros/feedback.html" import empty_state %}
+<section id="suggestions" class="flex flex-col gap-6">
+  {% call card("Say it in words", "a limit from a sentence") %}
+  <form id="goal-parse" hx-post="{{ path }}/goal" hx-target="#goal-parse-result" class="flex items-end gap-3">
+    <div class="flex-1">{{ text_input("text", None, placeholder="e.g. cut back on Starbucks") }}</div>
+    {{ primary_button("Suggest", type="submit") }}
+  </form>
+  <div id="goal-parse-result"></div>
+  {% endcall %}
+  {% call card("Suggested limits", "what six months of spending already imply") %}
+  {% if suggestions.items %}
+  <ul class="divide-y divide-aegis-border/60 text-sm">
+    {% for pick in suggestions.items %}
+    <li id="suggestion-{{ pick.category_id }}" class="flex items-center gap-3 py-2">
+      <div class="flex-1 min-w-0">
+        <p class="text-aegis-text truncate">{{ pick.category_name or "Uncategorized" }}</p>
+        <p class="text-xxs text-aegis-muted">{{ pick.months_seen }} of 6 months{% if pick.unusual_months %} · {{ pick.unusual_months }} stood out{% else %} · every month alike{% endif %}</p>
+      </div>
+      <span class="tabular-nums text-aegis-text">{{ pick.suggested_amount|money }}/mo</span>
+      <button type="button" hx-post="{{ path }}/suggestions/{{ pick.category_id }}/accept" hx-vals='{"amount": "{{ pick.suggested_amount|cents_to_input }}"}' hx-target="#suggestions" hx-swap="outerHTML"
+              class="px-2.5 py-1 text-xs rounded border border-aegis-teal text-aegis-text hover:bg-aegis-teal/10 transition-colors">Use</button>
+      <button type="button" hx-post="{{ path }}/suggestions/{{ pick.category_id }}/dismiss" hx-target="#suggestions" hx-swap="outerHTML"
+              class="px-2.5 py-1 text-xs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Dismiss</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("Nothing to suggest", "Your steady spending is covered by bills or budgeted already.") }}
+  {% endif %}
+  {% if suggestions.dismissed %}
+  <details class="text-xs text-aegis-muted">
+    <summary class="cursor-pointer">{{ suggestions.dismissed|length }} dismissed</summary>
+    <ul class="mt-2 space-y-1">
+      {% for d in suggestions.dismissed %}
+      <li class="flex items-center justify-between gap-3">
+        <span>{{ d.category_name or "Uncategorized" }}</span>
+        <button type="button" hx-post="{{ path }}/suggestions/{{ d.category_id }}/restore" hx-target="#suggestions" hx-swap="outerHTML" class="text-aegis-teal hover:text-aegis-text">Restore</button>
+      </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  {% endcall %}
+</section>
+{% if strip_oob %}{% include "partials/budget/stats.html" %}{% endif %}
