@@ -81,34 +81,28 @@ async def hydrate_transactions(
     payees = await service.merchant_names(
         {t.merchant_id for t in transactions if t.merchant_id is not None}
     )
-    from app.services.finance.domains.ledger.merchant_icon import (
-        domain_from_website,
-        icons_for_names,
-    )
+    from app.services.finance.domains.ledger.merchant_icon import payee_icons
 
-    websites = await service.merchant_websites(
-        {t.merchant_id for t in transactions if t.merchant_id is not None}
-    )
-    icons = await icons_for_names(
+    # Payee first: the raw descriptor is a bank string, the payee is the
+    # thing with a brand.
+    icons = await payee_icons(
         service.db,
-        [payees.get(t.merchant_id) or t.name for t in transactions],
-        domains_by_name={
-            payees[mid]: domain
-            for mid, url in websites.items()
-            if (domain := domain_from_website(url)) and mid in payees
-        },
+        [(t.merchant_id, payees.get(t.merchant_id) or t.name) for t in transactions],
     )
     tags_by_txn = await service.transaction_tags(
         {t.id for t in transactions if t.id is not None}
+    )
+    usual = await service.merchant_usual_categories(
+        {t.merchant_id for t in transactions if t.merchant_id is not None}
     )
     items = []
     for txn in transactions:
         item = TransactionResponse.from_row(txn)
         item.category = names.get(txn.category_id)
         item.merchant = payees.get(txn.merchant_id)
-        # Payee first: the raw descriptor is a bank string, the payee is
-        # the thing with a brand.
-        item.icon_b64 = icons.get(item.merchant or txn.name)
+        item.payee_category = usual.get(txn.merchant_id)
+        if icon := icons.get(item.merchant or txn.name):
+            item.icon_url, item.icon_b64 = icon.url, icon.b64
         item.tags = [
             TagRef(id=t.id, name=t.name, color=t.color)
             for t in tags_by_txn.get(txn.id, [])

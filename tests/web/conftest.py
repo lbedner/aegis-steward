@@ -46,6 +46,19 @@ def app() -> Generator[FastAPI]:
 
 
 @pytest.fixture(autouse=True)
+def _no_icon_fetches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pages resolve payee icons from memory and the table only; the
+    background fill would otherwise reach the favicon service for real
+    on a networked runner and hand a test payee an icon it never seeded
+    (CI did exactly this for "market.com"). An empty cache per test keeps
+    one test's seeded icon out of the next."""
+    from app.services.finance.domains.ledger import merchant_icon
+
+    monkeypatch.setattr(merchant_icon, "_CACHE", {})
+    monkeypatch.setattr(merchant_icon, "_schedule_fill", lambda domains: None)
+
+
+@pytest.fixture(autouse=True)
 def _bind_session(async_db_session: AsyncSession) -> Generator[None]:
     _SESSION["current"] = async_db_session
     yield
@@ -347,7 +360,7 @@ async def connection(finance: FinanceService, async_db_session: AsyncSession) ->
 async def merchant(
     finance: FinanceService, async_db_session: AsyncSession, ledger: Ledger
 ) -> int:
-    """"Shell" on the ledger's fuel charge, so the payee has usage."""
+    """ "Shell" on the ledger's fuel charge, so the payee has usage."""
     rows, _total = await finance.list_transactions(owner_user_id=None, page_size=50)
     gas = next(t for t in rows if t.name == "Gas")
     payee = await finance.create_merchant("Shell", owner_user_id=None)

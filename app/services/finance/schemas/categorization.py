@@ -46,6 +46,8 @@ class PayeeTotal(BaseModel):
     payee: str
     amount: int  # cents, positive
     transaction_count: int
+    # Where the payee is filed, for the card's category glyph.
+    category: str | None = None
 
 
 class PayeeListResponse(BaseModel):
@@ -111,7 +113,8 @@ class MerchantResponse(BaseModel):
     total_amount: int = 0
     last_date: date | None = None
     # Resolved brand icon, so the directory can SHOW the logo it exists to
-    # let you correct. Same base64 inlining the register uses.
+    # let you correct: a URL for a browser, the base64 bytes for Flet.
+    icon_url: str | None = None
     icon_b64: str | None = None
 
 

@@ -96,6 +96,24 @@ class TestFilters:
         assert len(selfish) >= 4
         assert {el.get("hx-swap") for el in selfish} == {"outerHTML"}
 
+    def test_payee_cell_carries_the_brand_icon(
+        self,
+        client: TestClient,
+        ledger: Ledger,
+        merchant: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A resolved icon rides the row; an unresolved payee shows its initial."""
+        from app.services.finance.domains.ledger import merchant_icon
+
+        monkeypatch.setitem(merchant_icon._CACHE, "shell.com", "AAAA")
+        cells = select(client.get("/accounts").text, "[data-cell=payee]")
+        shell = next(c for c in cells if "Shell" in text(c))
+        assert one(shell, "img").get("src") == "/icons?key=shell.com"
+        other = next(c for c in cells if "Market" in text(c))
+        none(other, "img")
+        assert one(other, "[data-avatar]").get("data-avatar") == "M"
+
     def test_search_narrows_by_payee(self, client: TestClient, ledger: Ledger) -> None:
         page = client.get(f"/accounts/{ledger.checking}?q=Market").text
         assert names(page) == ["Market", "Market"]

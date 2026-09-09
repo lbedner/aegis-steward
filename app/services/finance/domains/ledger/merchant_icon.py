@@ -1,18 +1,17 @@
-"""A payee's brand icon, resolved server-side and inlined as base64.
+"""A payee's brand icon, resolved server-side.
 
-Why base64 rather than a URL the browser fetches - two independent
-reasons, both verified live rather than assumed:
+A payee resolves to a KEY: its Plaid logo URL when a connection gave us
+one, else the domain of its stored website, else a guessed
+``<name>.com``. The key names a stored ``finance_icon`` row. Two ways to
+hand the bytes to a client, both off the same resolution:
 
-1. The upstream favicon service answers with no
-   ``Access-Control-Allow-Origin``. Flutter web loads network images by
-   fetch with CORS enforced, so a direct third-party URL is blocked and
-   every icon silently degrades to the initial-letter avatar.
-2. Pointing at our own origin with a RELATIVE path ("/api/v1/...") does
-   not fix it either: Flet resolves a non-absolute ``Image.src`` against
-   the app's assets directory, not the HTTP origin - and an absolute one
-   would have to guess the browser-facing scheme/host through a tunnel.
-
-Handing the bytes over directly sidesteps all of it.
+- ``payee_icons`` (and ``payee_icons_by_name``): an ``Icon`` whose
+  ``url`` is a same-origin ``/icons?key=...`` the browser fetches and
+  caches once, for the server-rendered pages.
+- ``icons_for_names``: the bytes inlined as base64, for the Flet client,
+  which cannot fetch them by URL (the upstream service sends no CORS
+  header, and Flet resolves a relative ``Image.src`` against its assets
+  directory).
 
 The request path NEVER fetches. Resolution reads memory, then the
 ``finance_icon`` table; domains neither knows are handed to a background
@@ -30,7 +29,10 @@ unmatched merchant degrades everywhere else in this app.
 
 import asyncio
 import base64
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -46,6 +48,9 @@ _MIN_DOMAIN_LENGTH = 2
 _MAX_DOMAIN_LENGTH = 24
 
 UPSTREAM = "https://www.google.com/s2/favicons"
+ICON_PATH = "/icons"
+# The stored key column's width; a longer logo URL is simply not tried.
+_MAX_KEY_LENGTH = 255
 
 # domain -> base64 png, or None for a domain already known to miss. A
 # read-through layer over finance_icon rows - it only ever mirrors what
@@ -136,6 +141,66 @@ def merchant_icon_domain(payee_name: str | None) -> str | None:
     return f"{domain}.com"
 
 
+@dataclass(frozen=True)
+class Icon:
+    """A resolved icon, addressable either way a client wants it."""
+
+    key: str
+
+    @property
+    def url(self) -> str:
+        return icon_url(self.key)
+
+    @property
+    def b64(self) -> str | None:
+        return icon_bytes(self.key)
+
+
+async def payee_icons(
+    db: AsyncSession, payees: Iterable[tuple[int | None, str]]
+) -> dict[str, Icon]:
+    """``{name: Icon}`` for rows that know their payee by id and name (a
+    transaction's merchant, a stream's payee, the directory itself): the
+    stored payee's logo or website is the authoritative key, then the
+    resolver guesses. One lookup per batch, never per row."""
+    from app.services.finance.domains.ledger.merchants import merchant_icon_sources
+
+    pairs = list(payees)
+    sources = await merchant_icon_sources(
+        db, {mid for mid, _ in pairs if mid is not None}
+    )
+    overrides = {name: sources[mid] for mid, name in pairs if mid in sources}
+    keys = await resolve_icon_keys(db, [name for _, name in pairs], overrides)
+    return {name: Icon(key) for name, key in keys.items()}
+
+
+async def payee_icons_by_name(
+    db: AsyncSession, names: list[str | None], *, owner_user_id: int | None = None
+) -> dict[str, Icon]:
+    """``payee_icons`` for a surface that has only names (the overview
+    cards, the projected ledger): a name that is a stored payee still
+    gets that payee's logo or website before the guess."""
+    from app.services.finance.domains.ledger.merchants import merchants_by_name
+
+    found = await merchants_by_name(db, names, owner_user_id=owner_user_id)
+    return await payee_icons(
+        db, [(found[n].id if n in found else None, n) for n in names if n]
+    )
+
+
+def icon_url(key: str) -> str:
+    """The same-origin URL that serves a stored icon (see the web
+    frontend's ``/icons`` route)."""
+    from urllib.parse import urlencode
+
+    return f"{ICON_PATH}?{urlencode({'key': key})}"
+
+
+def icon_bytes(key: str) -> str | None:
+    """The base64 png behind a key that ``resolve_icon_keys`` returned."""
+    return _CACHE.get(key)
+
+
 async def icons_for_names(
     db: AsyncSession,
     names: list[str | None],
@@ -143,19 +208,32 @@ async def icons_for_names(
 ) -> dict[str, str]:
     """``{payee name: base64 png}`` for whichever names resolve NOW.
 
-    Memory first, then stored ``finance_icon`` rows. Domains neither
-    layer knows (or whose negative entry has aged out) are scheduled for
-    a background fill and simply absent from this response - the caller's
+    Memory first, then stored ``finance_icon`` rows. Keys neither layer
+    knows (or whose negative entry has aged out) are scheduled for a
+    background fill and simply absent from this response - the caller's
     page renders its fallback once and finds the icon on the next load.
     """
+    keys = await resolve_icon_keys(db, names, domains_by_name)
+    return {name: _CACHE[key] for name, key in keys.items() if _CACHE.get(key)}
+
+
+async def resolve_icon_keys(
+    db: AsyncSession,
+    names: list[str | None],
+    domains_by_name: dict[str, str] | None,
+) -> dict[str, str]:
+    """``{payee name: stored key}`` for the names whose icon is in memory
+    after this call; the rest are scheduled for a fill (see
+    ``icons_for_names``). ``domains_by_name`` carries each name's
+    authoritative key (a logo URL or a real domain) and beats the guess."""
     overrides = domains_by_name or {}
-    wanted: dict[str, str] = {}  # name -> domain
+    wanted: dict[str, str] = {}  # name -> key
     for name in names:
         if not name or name in wanted:
             continue
-        # An explicit domain always wins over the guess.
+        # An explicit key always wins over the guess.
         domain = overrides.get(name) or merchant_icon_domain(name)
-        if domain is not None:
+        if domain is not None and len(domain) <= _MAX_KEY_LENGTH:
             wanted[name] = domain
 
     unknown = sorted({d for d in wanted.values() if d not in _CACHE})
@@ -174,12 +252,7 @@ async def icons_for_names(
         if to_fetch:
             _schedule_fill(to_fetch)
 
-    resolved: dict[str, str] = {}
-    for name, domain in wanted.items():
-        cached = _CACHE.get(domain)
-        if cached is not None:
-            resolved[name] = cached
-    return resolved
+    return {name: key for name, key in wanted.items() if _CACHE.get(key)}
 
 
 def _remember(domain: str, icon_b64: str | None) -> None:
@@ -197,7 +270,7 @@ def _schedule_fill(domains: list[str]) -> None:
     task = asyncio.create_task(_fill_icons(fresh))
     # A render-path decoration is never worth an "exception was never
     # retrieved" warning; failures were already logged/stored as misses.
-    task.add_done_callback(lambda t: t.exception())
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())
 
 
 async def _fill_icons(domains: list[str]) -> None:
@@ -225,10 +298,18 @@ async def _fill_icons(domains: list[str]) -> None:
         _IN_FLIGHT.difference_update(domains)
 
 
+def upstream_request(key: str) -> tuple[str, dict[str, Any] | None]:
+    """Where a key's bytes come from: a logo URL is fetched as is, a
+    domain goes through the favicon service."""
+    if key.startswith(("http://", "https://")):
+        return key, None
+    return UPSTREAM, {"sz": 64, "domain": key}
+
+
 async def _fetch_domains(domains: list[str]) -> dict[str, str | None]:
-    """``{domain: base64 png or None}`` from the upstream favicon service,
-    concurrently. None means the domain answered with no usable icon -
-    an answer worth storing, not an error."""
+    """``{key: base64 png or None}`` fetched concurrently. None means the
+    key answered with no usable icon - an answer worth storing, not an
+    error."""
     import httpx
 
     semaphore = asyncio.Semaphore(_CONCURRENCY)
@@ -241,9 +322,8 @@ async def _fetch_domains(domains: list[str]) -> dict[str, str | None]:
                 # asset host and httpx (unlike urllib) does not follow by
                 # default - without this every icon misses on a redirect
                 # it should have chased.
-                response = await client.get(
-                    UPSTREAM, params={"sz": 64, "domain": domain}
-                )
+                url, params = upstream_request(domain)
+                response = await client.get(url, params=params)
                 payload = response.content if response.status_code == 200 else b""
             except Exception:
                 # Includes having no network at all. An icon is never

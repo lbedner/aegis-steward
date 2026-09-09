@@ -86,9 +86,7 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 <select name="{{ name }}" class="{{ control("select") }}{% if block %} block w-full mt-1{% endif %}">
   {% if blank is not none %}<option value="">{{ blank }}</option>{% endif %}
   {% for option in options %}
-  {% set oid = option["id"] if option is mapping else option.id %}
-  {% set oname = option["name"] if option is mapping else option.name %}
-  <option value="{{ oid }}" {% if selected is not none and oid == selected %}selected{% endif %}>{{ oname }}</option>
+  <option value="{{ option.id }}" {% if selected is not none and option.id == selected %}selected{% endif %}>{{ option.name }}</option>
   {% endfor %}
 </select>
 {% if label %}</label>{% endif %}

@@ -62,6 +62,13 @@ _TXNS = [
         "date": "2026-07-10",
         "name": "McDonald's 3322",
         "merchant_name": "McDonald's",
+        "counterparties": [
+            {
+                "name": "McDonald's",
+                "type": "merchant",
+                "logo_url": "https://plaid-merchant-logos.plaid.com/mcdonalds_619.png",
+            }
+        ],
         "iso_currency_code": "USD",
         "pending": False,
         "personal_finance_category": {"primary": "FOOD_AND_DRINK"},
@@ -319,6 +326,31 @@ class TestPlaidConnection:
         amounts = {t.name: t.amount for t in txns}
         assert amounts["McDonald's"] == -1200  # Plaid +12.00 -> outflow -1200
         assert amounts["INTRST PYMNT"] == 422  # Plaid -4.22 -> inflow +422
+
+    async def test_attributing_a_plaid_transaction_gives_the_payee_its_logo(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The sync translates Plaid's counterparty enrichment into the
+        row's provider-neutral logo; the first attribution that carries
+        one hands it to the payee, and the icon resolver then prefers it
+        over any favicon guess."""
+        conn = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        await connections.sync_plaid_connection(
+            async_db_session, conn, client=FakePlaidClient(_ACCOUNTS, _TXNS)
+        )
+        txns, _ = await svc.list_transactions(owner_user_id=1)
+        mcd = next(t for t in txns if t.name == "McDonald's")
+        logo = "https://plaid-merchant-logos.plaid.com/mcdonalds_619.png"
+        assert mcd.logo_url == logo
+
+        payee = await svc.create_merchant("McDonald's", owner_user_id=1)
+        await svc.assign_merchant([mcd.id], payee.id, owner_user_id=1)
+
+        from app.services.finance.domains.ledger.merchants import merchant_icon_sources
+
+        assert (await merchant_icon_sources(svc.db, [payee.id])) == {payee.id: logo}
 
     @pytest.mark.asyncio
     async def test_sync_labels_connection_with_institution_name(

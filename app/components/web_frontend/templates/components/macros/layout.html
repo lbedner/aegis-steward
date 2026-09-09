@@ -172,7 +172,7 @@
   {% for row in rows %}
   <li>
     <div class="flex items-baseline justify-between gap-3 text-sm">
-      <span class="text-aegis-text truncate">{{ row.label }}</span>
+      <span class="inline-flex items-center gap-2 min-w-0"><span class="shrink-0">{{ mark(row, row.label) }}</span><span class="text-aegis-text truncate">{{ row.label }}</span></span>
       <span class="shrink-0 tabular-nums">{% if row.count %}<span class="text-aegis-muted mr-2">{{ row.count }}</span>{% endif %}<span class="text-aegis-text font-medium">{{ row.value }}</span></span>
     </div>
     <div class="mt-1 h-1 rounded bg-aegis-border/60"><div class="h-1 rounded {{ 'bg-aegis-accent' if row.tone == 'accent' else 'bg-aegis-teal' }}" style="width: {{ (row.ratio * 100)|round|int }}%"></div></div>
@@ -201,6 +201,30 @@
    The ``chip`` class (input.css) marks the current one by aria-current. #}
 {% macro chip(label, active=False, href="", hx="", extra="") %}
 <a href="{{ href }}" {{ hx|safe }} {{ extra|safe }} {% if active %}aria-current="page"{% endif %} class="chip">{{ label }}</a>
+{% endmacro %}
+
+
+{# A payee's brand mark, three deep: the resolved icon (served by
+   /icons, so the browser caches it once across pages) on a light tile;
+   else the category's glyph (glyphs.py); else the initial letter. The
+   letter is drawn from a data attribute, not text, so a cell's text is
+   still just the name. The tile is light in every theme on purpose:
+   favicons are drawn for their owner's background and plenty are
+   near-black on transparency, invisible on a dark surface. #}
+{# A row's mark: every row (a dict or a response object) carries
+   ``icon_url``, ``category`` and, for a transaction, the payee's usual
+   ``payee_category`` to borrow when it has no category of its own. #}
+{% macro mark(row, name) %}{{ avatar(name, row.icon_url, row.category or row.payee_category) }}{% endmacro %}
+
+{% macro avatar(name, icon_url=None, category=None) %}
+{% set glyph = category_glyph(category) if not icon_url else None %}
+{% if icon_url %}
+<span class="inline-flex shrink-0 w-5 h-5 rounded-full brand-tile items-center justify-center overflow-hidden align-middle" aria-hidden="true"><img src="{{ icon_url }}" alt="" width="14" height="14" loading="lazy" class="w-3.5 h-3.5 object-contain"></span>
+{% elif glyph %}
+<span data-glyph="{{ category }}" class="inline-flex shrink-0 w-5 h-5 rounded-full bg-aegis-border/60 text-aegis-muted items-center justify-center align-middle" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="{{ glyph }}"/></svg></span>
+{% else %}
+<span data-avatar="{{ (name or "?")|trim|first|upper }}" class="inline-flex shrink-0 w-5 h-5 rounded-full bg-aegis-border/60 text-aegis-muted text-xxs font-semibold items-center justify-center align-middle before:content-[attr(data-avatar)]" aria-hidden="true"></span>
+{% endif %}
 {% endmacro %}
 
 

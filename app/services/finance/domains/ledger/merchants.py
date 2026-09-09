@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -224,16 +224,44 @@ async def merchant_usage(
     }
 
 
-async def merchant_websites(
+async def merchant_icon_sources(
     db: AsyncSession, ids: set[int] | list[int]
 ) -> dict[int, str]:
-    """Stored websites by merchant id, for the icon resolver."""
+    """Each payee's authoritative icon key, for the resolver: the Plaid
+    logo when a connection gave us one, else the domain of the stored
+    website. Payees with neither are absent (the resolver guesses)."""
     rows = await queries.merchants_by_ids(db, ids)
-    return {
-        merchant_id: row.website_url
-        for merchant_id, row in rows.items()
-        if row.website_url
-    }
+    return {mid: key for mid, row in rows.items() if (key := icon_source(row))}
+
+
+def icon_source(merchant: FinanceMerchant) -> str | None:
+    """The one rule for a payee's authoritative icon key."""
+    from app.services.finance.domains.ledger.merchant_icon import domain_from_website
+
+    return merchant.logo_url or domain_from_website(merchant.website_url)
+
+
+async def merchants_by_name(
+    db: AsyncSession, names: Iterable[str | None], *, owner_user_id: int | None = None
+) -> dict[str, FinanceMerchant]:
+    """``{name as given: payee}`` for surfaces that know a payee only by
+    name (the overview cards, the projected ledger), one query."""
+    from app.services.finance.utils import normalize_payee
+
+    wanted = {name: normalize_payee(name) for name in names if name}
+    rows = await queries.merchants_by_normalized_names(
+        db, wanted.values(), owner_user_id=owner_user_id
+    )
+    return {name: rows[n] for name, n in wanted.items() if n in rows}
+
+
+async def usual_categories_by_name(
+    db: AsyncSession, names: Iterable[str | None], *, owner_user_id: int | None = None
+) -> dict[str, str]:
+    """``merchant_usual_categories`` by name."""
+    found = await merchants_by_name(db, names, owner_user_id=owner_user_id)
+    usual = await merchant_usual_categories(db, [m.id for m in found.values()])
+    return {name: usual[m.id] for name, m in found.items() if m.id in usual}
 
 
 async def merchant_names(db: AsyncSession, ids: set[int] | list[int]) -> dict[int, str]:
@@ -266,6 +294,15 @@ async def assign_merchant(
     if not ids:
         return 0
     rows = await queries.live_transactions_by_ids(db, ids, owner_user_id=owner_user_id)
+    if merchant_id is not None:
+        # A source's logo is the best icon a payee can have; the first
+        # attribution that carries one keeps it (a stored logo is never
+        # overwritten: the user may have corrected it).
+        merchant = (await queries.merchants_by_ids(db, [merchant_id])).get(merchant_id)
+        logo = next((t.logo_url for t in rows if t.logo_url), None)
+        if merchant is not None and merchant.logo_url is None and logo is not None:
+            merchant.logo_url = logo
+            db.add(merchant)
     for txn in rows:
         txn.merchant_id = merchant_id
         if category_id is not None:
@@ -286,6 +323,23 @@ async def assign_merchant(
     return len(rows)
 
 
+async def merchant_usual_categories(
+    db: AsyncSession, ids: set[int] | list[int]
+) -> dict[int, str]:
+    """Where each payee is usually filed (its most common category name),
+    in two queries for the whole batch. A row that has no category yet
+    borrows this for its glyph, so an unfiled mortgage payment still
+    reads as a mortgage payment."""
+    best: dict[int, tuple[int, int]] = {}  # merchant -> (count, category)
+    for merchant_id, category_id, count in await queries.category_tallies_by_merchants(
+        db, ids
+    ):
+        if category_id is not None and count > best.get(merchant_id, (0, 0))[0]:
+            best[merchant_id] = (count, category_id)
+    names = await categories.category_names(db, {c for _n, c in best.values()})
+    return {m: names[c] for m, (_n, c) in best.items() if c in names}
+
+
 async def merchant_category_summary(
     db: AsyncSession, merchant_id: int, *, owner_user_id: int | None = None
 ) -> MerchantCategorySummary:
@@ -293,10 +347,8 @@ async def merchant_category_summary(
     the "also set category" offer pre-fills from, and how it can say
     "72 of 79 already use this" instead of asking blind."""
     merchant = await queries.merchant_by_id(db, merchant_id)
-    rows = await queries.live_transactions_for_merchant(
-        db, merchant_id, owner_user_id=owner_user_id
-    )
-    tally = Counter(t.category_id for t in rows if t.category_id is not None)
+    groups = await queries.category_tallies_by_merchants(db, [merchant_id])
+    tally = Counter({c: n for _m, c, n in groups if c is not None})
     dominant_id, dominant_count = tally.most_common(1)[0] if tally else (None, 0)
     names = await categories.category_names(db, {dominant_id} if dominant_id else set())
     return MerchantCategorySummary(
@@ -307,7 +359,7 @@ async def merchant_category_summary(
         dominant_category_id=dominant_id,
         dominant_category_name=names.get(dominant_id),
         dominant_count=dominant_count,
-        total=len(rows),
+        total=sum(n for _m, _c, n in groups),
         distinct_categories=len(tally),
     )
 

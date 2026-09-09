@@ -288,6 +288,7 @@ async def _apply_transactions(
             existing.name = name
             existing.date_ = txn_date
             existing.pending = pending
+            existing.logo_url = _merchant_logo(txn)
             if existing.status != "removed":
                 existing.status = "pending" if pending else "posted"
             if pending_provider_id:
@@ -335,6 +336,8 @@ async def _apply_transactions(
             pending_provider_id=pending_provider_id,
             import_batch_id=import_batch_id,
         )
+        created.logo_url = _merchant_logo(txn)
+        db.add(created)
         lane1[(account_id, external_id)] = created
         added += 1
         if not pending and pending_provider_id:
@@ -358,6 +361,19 @@ async def _apply_transactions(
     if collapse:
         await db.flush()
     return added, reconciled
+
+
+def _merchant_logo(txn: dict[str, Any]) -> str | None:
+    """The merchant logo Plaid attached to a transaction, as the one
+    provider-neutral ``logo_url`` the ledger understands. Plaid carries it
+    at the top level and again on the merchant counterparty; either will
+    do, and a payee takes it on attribution (merchants.py)."""
+    if txn.get("logo_url"):
+        return str(txn["logo_url"])
+    for party in txn.get("counterparties") or []:
+        if party.get("type") == "merchant" and party.get("logo_url"):
+            return str(party["logo_url"])
+    return None
 
 
 def _pct_to_bps(pct: float | None) -> int | None:

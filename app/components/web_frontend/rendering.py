@@ -16,6 +16,7 @@ from starlette.responses import Response
 from app.components.web_frontend import ranges
 from app.components.web_frontend.assets import COMPONENT_DIR, static_url
 from app.components.web_frontend.filters import FILTERS
+from app.components.web_frontend.glyphs import category_glyph
 from app.components.web_frontend.nav import NAV
 from app.core.config import settings
 
@@ -33,6 +34,7 @@ templates.env.globals["auth_enabled"] = settings.AUTH_ENABLED
 templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
 # The sidebar loops this; see nav.py.
 templates.env.globals["nav"] = NAV
+templates.env.globals["category_glyph"] = category_glyph
 # The "everything" window, so a template can tell a default chip from a
 # chosen one without importing the module.
 templates.env.globals["all_days"] = ranges.ALL

@@ -70,7 +70,7 @@ CATEGORY_COLUMNS = [
     {"key": "last_used", "label": "Last used", "kind": "date"},
 ]
 PAYEE_COLUMNS = [
-    {"key": "name", "label": "Name"},
+    {"key": "name", "label": "Name", "kind": "avatar"},
     {"key": "transaction_count", "label": "Transactions", "kind": "int", "align": "right"},
     {"key": "total_amount", "label": "Total", "kind": "money", "align": "right", "toned": True},
     {"key": "last_date", "label": "Last seen", "kind": "date"},

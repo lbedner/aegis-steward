@@ -59,6 +59,54 @@ async def merchant_by_normalized(
     ).first()
 
 
+async def merchants_by_normalized_names(
+    db: AsyncSession, normalized: Iterable[str], *, owner_user_id: int | None = None
+) -> dict[str, FinanceMerchant]:
+    """Live payees by normalized name in one query, for surfaces that
+    know a payee only by what it is called (the overview cards)."""
+    wanted = [n for n in set(normalized) if n]
+    if not wanted:
+        return {}
+    rows = (
+        await db.exec(
+            select(FinanceMerchant).where(
+                FinanceMerchant.normalized_name.in_(wanted),
+                FinanceMerchant.deleted_at.is_(None),
+                FinanceMerchant.owner_user_id == owner_user_id
+                if owner_user_id is not None
+                else FinanceMerchant.owner_user_id.is_(None),
+            )
+        )
+    ).all()
+    return {row.normalized_name: row for row in rows}
+
+
+async def category_tallies_by_merchants(
+    db: AsyncSession, ids: Iterable[int]
+) -> list[tuple[int, int | None, int]]:
+    """(merchant_id, category_id, count) over these merchants' live rows,
+    one grouped query; an uncategorized group carries ``None``. Every
+    "how is this payee filed" answer tallies from here."""
+    wanted = [i for i in set(ids) if i is not None]
+    if not wanted:
+        return []
+    rows = (
+        await db.exec(
+            select(
+                FinanceTransaction.merchant_id,
+                FinanceTransaction.category_id,
+                func.count(FinanceTransaction.id),
+            )
+            .where(
+                FinanceTransaction.merchant_id.in_(wanted),
+                FinanceTransaction.deleted_at.is_(None),
+            )
+            .group_by(FinanceTransaction.merchant_id, FinanceTransaction.category_id)
+        )
+    ).all()
+    return [(int(m), None if c is None else int(c), int(n)) for m, c, n in rows]
+
+
 async def icons_by_domains(
     db: AsyncSession, domains: Iterable[str]
 ) -> dict[str, FinanceIcon]:
@@ -163,18 +211,6 @@ async def merchant_usage_rows(
         query = query.where(FinanceTransaction.owner_user_id == owner_user_id)
     if account_ids is not None:
         query = query.where(FinanceTransaction.account_id.in_(account_ids))
-    return list((await db.exec(query)).all())
-
-
-async def live_transactions_for_merchant(
-    db: AsyncSession, merchant_id: int, *, owner_user_id: int | None = None
-) -> list[FinanceTransaction]:
-    query = select(FinanceTransaction).where(
-        FinanceTransaction.merchant_id == merchant_id,
-        FinanceTransaction.deleted_at.is_(None),
-    )
-    if owner_user_id is not None:
-        query = query.where(FinanceTransaction.owner_user_id == owner_user_id)
     return list((await db.exec(query)).all())
 
 

@@ -55,6 +55,13 @@
     @apply ring-2 ring-aegis-teal;
   }
 
+  /* The tile behind a brand favicon is light in EVERY theme: favicons are
+     drawn for their owner's background and plenty are near-black on
+     transparency, invisible on a dark surface (see layout.avatar). */
+  .brand-tile {
+    background-color: rgb(255 255 255 / 0.95);
+  }
+
   /* DaisyUI gives a checkbox the button radius; on a 1rem box the softer
      themes turn that into a circle, which reads as a radio. */
   .checkbox {

@@ -93,9 +93,6 @@ class MerchantsMixin(FinanceServiceBase):
             account_ids=account_ids,
         )
 
-    async def merchant_websites(self, ids: set[int] | list[int]) -> dict[int, str]:
-        return await merchants.merchant_websites(self.db, ids)
-
     async def merchant_names(self, ids: set[int] | list[int]) -> dict[int, str]:
         return await merchants.merchant_names(self.db, ids)
 
@@ -114,6 +111,11 @@ class MerchantsMixin(FinanceServiceBase):
             owner_user_id=owner_user_id,
             category_id=category_id,
         )
+
+    async def merchant_usual_categories(
+        self, ids: set[int] | list[int]
+    ) -> dict[int, str]:
+        return await merchants.merchant_usual_categories(self.db, ids)
 
     async def merchant_category_summary(
         self, merchant_id: int, *, owner_user_id: int | None = None

@@ -51,25 +51,15 @@ async def list_merchants(
     """The owner's payees (plus any global seeds), for the assign picker
     and the payee directory. Carries usage so the directory can rank by
     weight; the picker just ignores those fields."""
-    from app.services.finance.domains.ledger.merchant_icon import (
-        domain_from_website,
-        icons_for_names,
-    )
+    from app.services.finance.domains.ledger.merchant_icon import payee_icons
 
     rows = await service.list_merchants(owner_user_id=owner_user_id)
     usage = await service.merchant_usage(
         owner_user_id=owner_user_id, account_ids=account_ids
     )
     # Same resolver the register uses, so the directory shows the logo it
-    # exists to let you correct - a stored address wins over the guess.
-    domains = {
-        m.name: domain
-        for m in rows
-        if (domain := domain_from_website(m.website_url)) is not None
-    }
-    icons = await icons_for_names(
-        service.db, [m.name for m in rows], domains_by_name=domains
-    )
+    # exists to let you correct - a stored logo or address wins over the guess.
+    icons = await payee_icons(service.db, [(m.id, m.name) for m in rows])
     return MerchantListResponse(
         items=[
             MerchantResponse(
@@ -81,7 +71,8 @@ async def list_merchants(
                 transaction_count=usage.get(m.id, {}).get("count", 0),
                 total_amount=usage.get(m.id, {}).get("total_amount", 0),
                 last_date=usage.get(m.id, {}).get("last_date"),
-                icon_b64=icons.get(m.name),
+                icon_url=icons[m.name].url if m.name in icons else None,
+                icon_b64=icons[m.name].b64 if m.name in icons else None,
             )
             for m in rows
         ],

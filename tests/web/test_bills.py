@@ -10,6 +10,7 @@ from datetime import date, timedelta
 import json
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
@@ -43,6 +44,19 @@ class TestPage:
         assert text(rent["Amount"]) == "$1,500.00"
         assert text(rent["Cadence"]) == "Monthly"
         assert text(rent[HEALTH]) == "Active"
+
+    def test_name_cell_carries_the_brand_icon(
+        self, client: TestClient, streams: Streams, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.finance.domains.ledger import merchant_icon
+
+        monkeypatch.setitem(merchant_icon._CACHE, "water.com", "AAAA")
+        rows = rows_by_name(client.get("/bills").text)
+        assert (
+            one(rows["Water"]["Name"], "img").get("src") == "/icons?key=water.com"
+        )
+        none(rows["Rent"]["Name"], "img")
+        assert one(rows["Rent"]["Name"], "[data-avatar]").get("data-avatar") == "R"
 
     def test_health_reads_overdue_past_the_due_date(
         self, client: TestClient, streams: Streams
@@ -374,14 +388,22 @@ class TestMatch:
         )
         await finance.db.commit()
         dialog = hx.get("/bills/review").text
-        vals = json.loads(one(dialog, "#match-candidates button[hx-post]").get("hx-vals"))
+        vals = json.loads(
+            one(dialog, "#match-candidates button[hx-post]").get("hx-vals")
+        )
         client.post(f"/bills/{streams.water}/match", data=vals)
 
-        assert text(one(client.get("/bills").text, '[hx-get="/bills/review"]')) == "Review (1)"
+        assert (
+            text(one(client.get("/bills").text, '[hx-get="/bills/review"]'))
+            == "Review (1)"
+        )
         response = hx.get("/bills/review")
         assert response.status_code == 204
         fired = triggers(response)
-        assert "dialog:close" not in fired and "Nothing to review" in fired["toast"]["text"]
+        assert (
+            "dialog:close" not in fired
+            and "Nothing to review" in fired["toast"]["text"]
+        )
 
     def test_review_walks_the_overdue_bills(
         self, client: TestClient, hx: TestClient, streams: Streams
