@@ -6,7 +6,7 @@ row action with the row (pattern 2). The editor, pause, categorize and
 match dialogs are pattern 4 around pattern 1.
 """
 
-from datetime import date, timedelta
+from datetime import timedelta
 import json
 
 from fastapi.testclient import TestClient
@@ -14,6 +14,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger, Streams
 from tests.web.dom import none, one, oob, select, table_rows, text, triggers
 
@@ -52,9 +53,7 @@ class TestPage:
 
         monkeypatch.setitem(merchant_icon._CACHE, "water.com", "AAAA")
         rows = rows_by_name(client.get("/bills").text)
-        assert (
-            one(rows["Water"]["Name"], "img").get("src") == "/icons?key=water.com"
-        )
+        assert one(rows["Water"]["Name"], "img").get("src") == "/icons?key=water.com"
         none(rows["Rent"]["Name"], "img")
         assert one(rows["Rent"]["Name"], "[data-avatar]").get("data-avatar") == "R"
 
@@ -109,7 +108,7 @@ class TestPage:
 
         rent = await finance.get_recurring(streams.rent, None)
         assert rent is not None
-        rent.last_date = date.today() - timedelta(days=200)
+        rent.last_date = current_date() - timedelta(days=200)
         async_db_session.add(rent)
         await async_db_session.commit()
 
@@ -202,7 +201,7 @@ class TestRowActions:
         response = client.post(
             f"/bills/{streams.rent}/pause",
             data={
-                "until": (date.today() + timedelta(days=60)).isoformat(),
+                "until": (current_date() + timedelta(days=60)).isoformat(),
                 "note": "moving",
             },
         )
@@ -284,7 +283,7 @@ class TestEditor:
                 "direction": "outflow",
                 "frequency": "monthly",
                 "expected_amount": "40",
-                "next_expected_date": (date.today() + timedelta(days=5)).isoformat(),
+                "next_expected_date": (current_date() + timedelta(days=5)).isoformat(),
                 "account_id": "",
             },
         )
@@ -327,7 +326,7 @@ class TestEditor:
                 "name": "Rent (new place)",
                 "frequency": "monthly",
                 "expected_amount": "1,650",
-                "next_expected_date": (date.today() + timedelta(days=12)).isoformat(),
+                "next_expected_date": (current_date() + timedelta(days=12)).isoformat(),
                 "account_id": "",
             },
         )
@@ -383,7 +382,7 @@ class TestMatch:
             direction="outflow",
             frequency="monthly",
             expected_amount=99_900,
-            next_expected_date=date.today() - timedelta(days=5),
+            next_expected_date=current_date() - timedelta(days=5),
             account_id=ledger.checking,
         )
         await finance.db.commit()

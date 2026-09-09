@@ -9,7 +9,7 @@ swap in a different app for both at once.
 
 from collections.abc import AsyncGenerator, Callable, Generator
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import timedelta
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -21,6 +21,7 @@ from app.components.web_frontend.rendering import templates
 from app.core.db import get_async_db
 from app.integrations.main import create_integrated_app
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 _SESSION: dict[str, AsyncSession] = {}
 
@@ -147,7 +148,7 @@ async def ledger(finance: FinanceService, async_db_session: AsyncSession) -> Led
         ids[name] = account.id
     groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
     fuel = await finance.get_or_create_category_from_hint("Auto:Fuel")
-    today = date.today()
+    today = current_date()
     rows = (
         ("Market", -3_000, groceries, ids["Checking"]),
         ("Market", -1_500, groceries, ids["Checking"]),
@@ -189,7 +190,7 @@ async def streams(
     confirmed) and Water (bill, $45.00 monthly, due 10 days ago: overdue,
     and with one unclaimed $46.00 "WATER CO" charge to match it to).
     """
-    today = date.today()
+    today = current_date()
     ids: dict[str, int] = {}
     for name, direction, frequency, amount, due in (
         ("Rent", "outflow", "monthly", 150_000, today + timedelta(days=10)),

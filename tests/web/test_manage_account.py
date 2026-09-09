@@ -3,10 +3,9 @@
 Each opens in the dialog; success closes it and navigates the content
 area back to the account (or to the list after a removal)."""
 
-from datetime import date
-
 from fastapi.testclient import TestClient
 
+from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger
 from tests.web.dom import location, none, one, select, text, triggers
 
@@ -57,7 +56,7 @@ class TestReconcile:
         assert form.get("hx-post") == f"/accounts/{ledger.checking}/reconcile"
         assert (
             one(form, 'input[name="statement_date"]').get("value")
-            == date.today().isoformat()
+            == current_date().isoformat()
         )
         one(form, 'input[name="statement_balance"]')
         one(form, 'button[name="preview"]')
@@ -65,7 +64,7 @@ class TestReconcile:
         preview = client.post(
             f"/accounts/{ledger.checking}/reconcile",
             data={
-                "statement_date": date.today().isoformat(),
+                "statement_date": current_date().isoformat(),
                 "statement_balance": "120",
                 "preview": "1",
             },
@@ -83,7 +82,7 @@ class TestReconcile:
         applied = client.post(
             f"/accounts/{ledger.checking}/reconcile",
             data={
-                "statement_date": date.today().isoformat(),
+                "statement_date": current_date().isoformat(),
                 "statement_balance": "120",
             },
         )
@@ -97,7 +96,7 @@ class TestReconcile:
         response = client.post(
             f"/accounts/{ledger.checking}/reconcile",
             data={
-                "statement_date": date.today().isoformat(),
+                "statement_date": current_date().isoformat(),
                 "statement_balance": "??",
                 "preview": "1",
             },

@@ -2,11 +2,10 @@
 bills and income, as a line with overdue markers and the ledger under
 it, both from one projection call. The account filter narrows both."""
 
-from datetime import date
-
 from fastapi.testclient import TestClient
 
 from app.components.web_frontend.filters import short_date
+from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger, Streams
 from tests.web.dom import chart_data, none, one, select, stat, table_rows, text
 
@@ -24,7 +23,7 @@ class TestPage:
 
         data = chart_data(page, "line")
         assert len(data["labels"]) == 31 and data["labels"][0] == short_date(
-            date.today()
+            current_date()
         )
         balance, overdue = data["series"]
         assert balance["label"] == "Balance" and len(balance["values"]) == 31

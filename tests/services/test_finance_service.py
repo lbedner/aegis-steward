@@ -12,6 +12,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 
 class TestFinanceAccounts:
@@ -688,7 +689,7 @@ class TestCategorization:
                 owner_user_id=1,
                 account_id=account.id,
                 amount=amount,
-                txn_date=date.today(),
+                txn_date=current_date(),
                 name="x",
                 category_id=cat.id,
             )
@@ -726,7 +727,7 @@ class TestCategorization:
                 owner_user_id=1,
                 account_id=account.id,
                 amount=amount,
-                txn_date=date.today(),
+                txn_date=current_date(),
                 name="x",
                 category_id=cat.id,
             )
@@ -766,7 +767,7 @@ class TestCategorization:
                 owner_user_id=1,
                 account_id=account.id,
                 amount=amount,
-                txn_date=date.today(),
+                txn_date=current_date(),
                 name=name,
                 category_id=cat.id,
             )
@@ -810,7 +811,7 @@ class TestNetWorthSnapshotsFromRegister:
     async def test_imported_accounts_count_and_debt_subtracts(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         from app.services.finance.domains.ledger import networth
 
@@ -829,7 +830,7 @@ class TestNetWorthSnapshotsFromRegister:
             account_type="credit_card",
             classification="liability",
         )
-        today = date.today()
+        today = current_date()
         for account_id, amount in (
             (checking.id, 500_000),  # +$5,000 in
             (checking.id, -100_000),  # -$1,000 out  -> $4,000 asset
@@ -962,7 +963,7 @@ class TestAccountScopedViews:
                 owner_user_id=1,
                 account_id=account.id,
                 amount=amount,
-                txn_date=date.today(),
+                txn_date=current_date(),
                 name="x",
                 category_id=food.id,
             )
@@ -978,7 +979,7 @@ class TestAccountScopedViews:
     @pytest.mark.asyncio
     async def test_cashflow_scopes_to_the_accounts(self, svc: FinanceService) -> None:
         checking, card = await self._two_accounts(svc)
-        today = date.today()
+        today = current_date()
         await svc.create_transaction(
             owner_user_id=1,
             account_id=checking.id,
@@ -1009,7 +1010,7 @@ class TestAccountScopedViews:
         from app.services.finance.models import FinanceBalanceSnapshot
 
         checking, card = await self._two_accounts(svc)
-        day = date.today()
+        day = current_date()
         for account, balance in ((checking, 100_000), (card, -40_000)):
             async_db_session.add(
                 FinanceBalanceSnapshot(
@@ -1058,7 +1059,7 @@ class TestAccountScopedViews:
             FinanceBalanceSnapshot(
                 account_id=foreign.id,
                 owner_user_id=2,
-                balance_date=date.today(),
+                balance_date=current_date(),
                 balance=999_999,
                 currency="usd",
                 source="manual",

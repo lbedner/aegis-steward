@@ -5,13 +5,12 @@ ways. Seeds go through ``finance`` (the service on the test session) and
 are committed before the page is requested, exactly as the API tests do.
 """
 
-from datetime import date
-
 from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger, Streams
 from tests.web.dom import card, chart_data, none, one, select, stat, text
 
@@ -225,7 +224,7 @@ class TestPendingChangesBanner:
             name="Checking", account_type="checking", classification="asset"
         )
         txn = await finance.create_transaction(
-            account_id=account.id, amount=-500, txn_date=date.today(), name="Cafe"
+            account_id=account.id, amount=-500, txn_date=current_date(), name="Cafe"
         )
         category = await finance.get_or_create_category_from_hint("Food:Coffee")
         assert category is not None
