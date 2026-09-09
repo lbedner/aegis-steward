@@ -170,7 +170,11 @@ class TestConnections:
         monkeypatch.setattr(route.PROVIDERS["plaid"], "complete", _pending)
         waiting = client.post(
             "/settings/connect/plaid/complete",
-            data={"token": "link-1", "url": "https://plaid.test/link/abc", "attempt": 1},
+            data={
+                "token": "link-1",
+                "url": "https://plaid.test/link/abc",
+                "attempt": 1,
+            },
         )
         assert (
             one(waiting.text, 'a[target="_blank"]').get("href")
@@ -232,13 +236,20 @@ class TestCategories:
         self, client: TestClient, ledger: Ledger
     ) -> None:
         page = client.get("/settings/categories").text
-        assert one(page, '#categories input[name="days"][checked]').get("value") == "9999"
+        assert (
+            one(page, '#categories input[name="days"][checked]').get("value") == "9999"
+        )
         narrowed = client.get("/settings/categories?days=1").text
-        rows = {text(r["Name"]): text(r["Transactions"]) for r in table_rows(narrowed, "#categories table")}
+        rows = {
+            text(r["Name"]): text(r["Transactions"])
+            for r in table_rows(narrowed, "#categories table")
+        }
         assert rows.get("Auto:Fuel") in (None, "0")
 
     def test_empty_ledger_says_so(self, client: TestClient) -> None:
-        assert "No categories yet" in text(one(client.get("/settings/categories").text, "#categories"))
+        assert "No categories yet" in text(
+            one(client.get("/settings/categories").text, "#categories")
+        )
 
 
 class TestPayees:
@@ -257,7 +268,9 @@ class TestPayees:
         assert "Auto:Fuel" in text(one(dialog, "#stat-rows"))
 
     def test_empty_says_so(self, client: TestClient) -> None:
-        assert "No payees yet" in text(one(client.get("/settings/payees").text, "#payees"))
+        assert "No payees yet" in text(
+            one(client.get("/settings/payees").text, "#payees")
+        )
 
 
 class TestComms:

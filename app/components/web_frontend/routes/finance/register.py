@@ -151,6 +151,7 @@ def _row(txn: TransactionResponse, account_names: dict[int, str]) -> dict[str, A
         "date": txn.date,
         "account": account_names.get(txn.account_id, ""),
         "payee": txn.merchant or txn.merchant_name or txn.name,
+        "icon_b64": txn.icon_b64,
         "category": txn.category,
         "category_id": txn.category_id,
         "amount": txn.amount,

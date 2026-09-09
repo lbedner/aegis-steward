@@ -8,8 +8,9 @@
    ``kind`` is ``text`` (default), ``money`` (minor units, honours the
    row's ``currency`` when it has one; ``signed`` adds a leading ``+`` and
    colours by sign, ``toned`` colours by sign without the plus), ``date``,
-   ``int`` or ``status`` (the value is
-   ``{"label", "tone"}``, rendered as a ``badge``); ``align`` is ``left``
+   ``int``, ``status`` (the value is
+   ``{"label", "tone"}``, rendered as a ``badge``) or ``avatar`` (the
+   row's ``icon_b64`` brand mark before the value); ``align`` is ``left``
    (default) or ``right``. Rows are objects or dicts; a blank value
    renders as a dash. Zero rows render ``empty_state`` instead.
 
@@ -17,7 +18,7 @@
    can swap one row back; a ``{% call(row) data_table(...) %}`` block adds
    an actions column rendered per row. #}
 {% from "components/macros/feedback.html" import empty_state %}
-{% from "components/macros/layout.html" import badge %}
+{% from "components/macros/layout.html" import badge, avatar %}
 
 {% macro _cell(row, col) -%}
 {%- set value = row[col.key] if row is mapping else row|attr(col.key) -%}
@@ -28,6 +29,8 @@
 {{ "+" if col.signed and value > 0 }}{{ value|money(currency if currency is string else "USD") }}
 {%- elif col.kind == "status" -%}
 {{ badge(value.label, value.tone) }}
+{%- elif col.kind == "avatar" -%}
+<span class="inline-flex items-center gap-2">{{ avatar(value, row["icon_b64"] if row is mapping else row|attr("icon_b64")) }}<span>{{ value }}</span></span>
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}

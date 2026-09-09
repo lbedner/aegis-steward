@@ -58,7 +58,7 @@ TABS: tuple[tuple[str, str], ...] = (
     ("detected", "Detected"),
 )
 COLUMNS = [
-    {"key": "name", "label": "Name"},
+    {"key": "name", "label": "Name", "kind": "avatar"},
     {"key": "category", "label": "Category"},
     {"key": "account", "label": "Account"},
     {"key": "amount", "label": "Amount", "kind": "money", "align": "right"},
@@ -149,6 +149,7 @@ def row(stream: RecurringStreamResponse, today: date) -> dict[str, Any]:
     return {
         "id": stream.id,
         "name": stream.name,
+        "icon_b64": stream.icon_b64,
         "category": stream.category_name,
         "account": stream.account_name,
         "amount": stream.expected_amount or stream.average_amount,

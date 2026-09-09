@@ -347,7 +347,7 @@ async def connection(finance: FinanceService, async_db_session: AsyncSession) ->
 async def merchant(
     finance: FinanceService, async_db_session: AsyncSession, ledger: Ledger
 ) -> int:
-    """"Shell" on the ledger's fuel charge, so the payee has usage."""
+    """ "Shell" on the ledger's fuel charge, so the payee has usage."""
     rows, _total = await finance.list_transactions(owner_user_id=None, page_size=50)
     gas = next(t for t in rows if t.name == "Gas")
     payee = await finance.create_merchant("Shell", owner_user_id=None)
