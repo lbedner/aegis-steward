@@ -83,3 +83,33 @@
 [hidden] {
   display: none !important;
 }
+
+/* A highlighted script or JSON (the ``code`` filter's pygments classes),
+   in the theme's one accent: literals and keys read in teal, keywords by
+   weight, comments muted. Outside the components layer on purpose:
+   Tailwind drops a layered rule whose inner class (``.k``) never appears
+   in a template, and these come from pygments at request time. */
+.hl .s,
+.hl .s1,
+.hl .s2,
+.hl .sa,
+.hl .mi,
+.hl .mf,
+.hl .nt,
+.hl .kc {
+  color: oklch(var(--p));
+}
+.hl .k,
+.hl .kn,
+.hl .kd,
+.hl .ow,
+.hl .nb,
+.hl .nf {
+  font-weight: 600;
+}
+.hl .c,
+.hl .c1,
+.hl .ch {
+  color: oklch(var(--n));
+  font-style: italic;
+}

@@ -1,0 +1,22 @@
+{# One tool run, in the one modal: the script or the arguments, the
+   output, and the calls a script dispatched. Nothing here is editable;
+   it is the audit of what the assistant did. #}
+{% set block = "rounded bg-aegis-bg border border-aegis-border p-3 overflow-x-auto text-xs font-mono text-aegis-text" %}
+<h2 class="text-lg font-semibold {{ 'text-error' if run.failed else 'text-aegis-text' }} mb-4">{{ run.tool }}</h2>
+<div class="space-y-4 max-h-[70vh] overflow-y-auto">
+  {% if run.code %}
+  <section><p class="micro-label text-aegis-muted mb-1">Script</p><pre class="{{ block }} hl">{{ run.code|code("python") }}</pre></section>
+  {% endif %}
+  {% if run.args %}
+  <section><p class="micro-label text-aegis-muted mb-1">Arguments</p><pre class="{{ block }} hl">{{ run.args|code("json") }}</pre></section>
+  {% endif %}
+  {% if run.output %}
+  <section><p class="micro-label text-aegis-muted mb-1">Output</p><pre class="{{ block }}">{{ run.output }}</pre></section>
+  {% endif %}
+  {% for call in run.nested %}
+  <p class="font-mono text-xs text-aegis-muted">dispatched {{ call.tool }}({{ call.args }})</p>
+  {% endfor %}
+  {% if not run.code and not run.args and not run.output and not run.nested %}
+  <p class="text-sm text-aegis-muted">No detail recorded for this call.</p>
+  {% endif %}
+</div>

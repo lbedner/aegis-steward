@@ -22,6 +22,7 @@ import pytest  # noqa: E402
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -261,6 +262,18 @@ async def app_owned_engine():
 
 
 @pytest.fixture(autouse=True)
+def _no_production_storage(tmp_path: Path) -> Generator[None]:
+    """Object storage (chat attachments) writes under ``STORAGE_ROOT``,
+    which on the host is the repo's ``storage_data/``; a test that stores
+    bytes must not leave them there. Each test gets its own directory."""
+    from app.core.storage import FilesystemStorage, set_storage
+
+    set_storage(FilesystemStorage(tmp_path / "storage"))
+    yield
+    set_storage(None)
+
+
+@pytest.fixture(autouse=True)
 def _no_production_database(app_owned_engine, monkeypatch):
     """Keep app-owned sessions off the real database.
 
@@ -286,6 +299,41 @@ def _no_production_database(app_owned_engine, monkeypatch):
             app_owned_engine, class_=AsyncSession, expire_on_commit=False
         ),
     )
+    # The SYNC factory too: the conversation store (``db_session()``) and
+    # the usage recorder write through it, and with only the async one
+    # redirected every chat test that persisted a turn wrote into the
+    # database in ``DATABASE_URL`` (hundreds of "hello" conversations in a
+    # developer's live file). Same temp file, so both views agree.
+    monkeypatch.setattr(
+        db_module,
+        "SessionLocal",
+        sessionmaker(bind=_sync_twin(app_owned_engine), class_=Session),
+    )
+
+
+def _sync_twin(async_engine: Any) -> Engine:
+    """A sync engine on the app-owned test database file, with the same
+    schema attachments and pragmas its async engine has."""
+    path = async_engine.url.database
+    engine = create_engine(
+        f"sqlite:///{path}", connect_args={"check_same_thread": False}
+    )
+    schema_names = {
+        table.schema for table in SQLModel.metadata.tables.values() if table.schema
+    }
+
+    @event.listens_for(engine, "connect")
+    def attach_schemas(dbapi_connection: Any, connection_record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        for schema_name in schema_names:
+            cursor.execute(
+                f"ATTACH DATABASE '{Path(path).parent / (schema_name + '.sqlite')}' "
+                f"AS {schema_name}"
+            )
+        cursor.close()
+
+    return engine
 
 
 @pytest.fixture(scope="session")

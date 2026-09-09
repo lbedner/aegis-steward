@@ -2,23 +2,10 @@
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/layout.html" import page_header %}
 {% from "components/macros/layout.html" import badge %}
-{% from "components/macros/form.html" import action, control %}
+{% from "components/macros/form.html" import control %}
+{% from "components/macros/changes.html" import display, verbs %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
-
-{% macro verbs(approve_url, reject_url, target, include=None) %}
-<div class="flex items-center gap-2 text-xs">
-  {{ action("Approve all" if include else "Approve", 'hx-post="' ~ approve_url ~ '" hx-target="' ~ target ~ '" hx-swap="outerHTML"' ~ (' hx-include="' ~ include ~ '"' if include else ""), tone="primary") }}
-  {{ action("Reject all" if include else "Reject", 'hx-post="' ~ reject_url ~ '" hx-target="' ~ target ~ '" hx-swap="outerHTML"') }}
-</div>
-{% endmacro %}
-
-{% macro display(change) %}
-<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs">
-  {% for row in change.display %}<dt class="text-aegis-muted">{{ row.label }}</dt><dd class="text-aegis-text">{{ row.value }}</dd>{% endfor %}
-</dl>
-{% if change.error %}<p class="text-xs text-error">{{ change.error }}</p>{% endif %}
-{% endmacro %}
 
 {% block app_content %}
 {{ page_header(section.label) }}
@@ -30,7 +17,7 @@
   <li id="change-{{ change.id }}" class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3">
       <h3 class="text-sm font-semibold text-aegis-text">{{ change.title }}</h3>
-      {% if change.proposed_by_agent %}{{ badge(change.proposed_by_agent, "muted") }}{% endif %}
+      {% if change.proposed_by_agent %}{{ badge(change.proposed_by_agent|assistant, "ok") }}{% endif %}
     </div>
     {{ display(change) }}
     {{ verbs("/review/changes/" ~ change.id ~ "/approve", "/review/changes/" ~ change.id ~ "/reject", "#change-" ~ change.id) }}
@@ -40,7 +27,7 @@
   <li id="batch-{{ batch.batch_id }}" class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex flex-col gap-3 sm:col-span-2">
     <div class="flex items-center justify-between gap-3">
       <h3 class="text-sm font-semibold text-aegis-text">{{ batch.title }} <span class="text-aegis-muted font-normal">× {{ batch["items"]|length }}</span></h3>
-      {% if batch["items"][0].proposed_by_agent %}{{ badge(batch["items"][0].proposed_by_agent, "muted") }}{% endif %}
+      {% if batch["items"][0].proposed_by_agent %}{{ badge(batch["items"][0].proposed_by_agent|assistant, "ok") }}{% endif %}
     </div>
     <ul class="divide-y divide-aegis-border/60">
       {% for change in batch["items"] %}

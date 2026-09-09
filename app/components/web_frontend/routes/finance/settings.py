@@ -65,14 +65,36 @@ TABS: tuple[tuple[str, str, str], ...] = (
 CATEGORY_COLUMNS = [
     {"key": "name", "label": "Name"},
     {"key": "classification", "label": "Kind"},
-    {"key": "transaction_count", "label": "Transactions", "kind": "int", "align": "right"},
-    {"key": "total", "label": "Total", "kind": "money", "align": "right", "toned": True},
+    {
+        "key": "transaction_count",
+        "label": "Transactions",
+        "kind": "int",
+        "align": "right",
+    },
+    {
+        "key": "total",
+        "label": "Total",
+        "kind": "money",
+        "align": "right",
+        "toned": True,
+    },
     {"key": "last_used", "label": "Last used", "kind": "date"},
 ]
 PAYEE_COLUMNS = [
     {"key": "name", "label": "Name", "kind": "avatar"},
-    {"key": "transaction_count", "label": "Transactions", "kind": "int", "align": "right"},
-    {"key": "total_amount", "label": "Total", "kind": "money", "align": "right", "toned": True},
+    {
+        "key": "transaction_count",
+        "label": "Transactions",
+        "kind": "int",
+        "align": "right",
+    },
+    {
+        "key": "total_amount",
+        "label": "Total",
+        "kind": "money",
+        "align": "right",
+        "toned": True,
+    },
     {"key": "last_date", "label": "Last seen", "kind": "date"},
 ]
 # A connection's stored status, as the card says it.

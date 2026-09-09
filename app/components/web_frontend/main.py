@@ -14,6 +14,7 @@ def create_web_frontend_app() -> APIRouter:
     """Create the web frontend router: the root redirect plus every section."""
     router = APIRouter()
 
+    from app.components.web_frontend.routes.chat import router as chat_router
     from app.components.web_frontend.routes.finance import router as finance_router
     from app.components.web_frontend.routes.icons import router as icons_router
     from app.components.web_frontend.routes.jobs import router as jobs_router
@@ -23,5 +24,6 @@ def create_web_frontend_app() -> APIRouter:
     router.include_router(finance_router)
     router.include_router(jobs_router)
     router.include_router(icons_router)
+    router.include_router(chat_router)
 
     return router
