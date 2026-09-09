@@ -1,6 +1,6 @@
 {# Add or edit a goal (pattern 1). The target preview re-asks the server
    on every change of the rule, factor or scope, without a submit. #}
-{% from "components/macros/form.html" import field, text_input, money_input, select, date_input, checkbox, primary_button %}
+{% from "components/macros/form.html" import field, text_input, money_input, select, date_input, checkbox, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">{{ "Edit " ~ goal.name if goal else "New goal" }}</h2>
 <form {{ hx_dialog_post(path ~ '/goals/' ~ goal.account_id ~ '/edit' if goal else path ~ '/goals/new') }} class="space-y-4">
@@ -18,10 +18,10 @@
   <p id="target-preview" hx-get="{{ path }}/goals/preview" hx-trigger="change from:closest form" hx-include="closest form" hx-swap="outerHTML" class="text-xs text-aegis-muted tabular-nums min-h-4"></p>
   {% if accounts %}
   <fieldset class="text-xs text-aegis-muted">
-    <legend class="text-xxs uppercase tracking-wider">Sized against (months of expenses)</legend>
+    <legend class="micro-label">Sized against (months of expenses)</legend>
     <div class="flex flex-wrap gap-3 mt-1">
       {% for account in accounts %}
-      <label class="inline-flex items-center gap-1"><input type="checkbox" name="scope" value="{{ account.id }}" {% if account.id in scope %}checked{% endif %} class="accent-aegis-teal">{{ account.name }}</label>
+      <label class="inline-flex items-center gap-1"><input type="checkbox" name="scope" value="{{ account.id }}" {% if account.id in scope %}checked{% endif %} class="{{ control('checkbox') }}">{{ account.name }}</label>
       {% endfor %}
     </div>
   </fieldset>

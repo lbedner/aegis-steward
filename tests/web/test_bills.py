@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
-from tests.web.conftest import Streams
+from tests.web.conftest import Ledger, Streams
 from tests.web.dom import none, one, oob, select, table_rows, text, triggers
 
 HEALTH = "Health"
@@ -351,6 +351,37 @@ class TestMatch:
         dialog = hx.get(f"/bills/{streams.rent}/match").text
         none(dialog, "#match-candidates li")
         assert "No unclaimed transactions" in text(one(dialog, "#dialog-note"))
+
+    async def test_review_with_nothing_to_match_says_so_without_opening(
+        self,
+        client: TestClient,
+        hx: TestClient,
+        finance: FinanceService,
+        ledger: Ledger,
+        streams: Streams,
+    ) -> None:
+        """An overdue bill with no candidate payment still counts on the
+        button, but the review has nothing to show: a toast, not a modal
+        that opens empty and closes."""
+        await finance.create_recurring_stream(
+            owner_user_id=None,
+            name="Gym",
+            direction="outflow",
+            frequency="monthly",
+            expected_amount=99_900,
+            next_expected_date=date.today() - timedelta(days=5),
+            account_id=ledger.checking,
+        )
+        await finance.db.commit()
+        dialog = hx.get("/bills/review").text
+        vals = json.loads(one(dialog, "#match-candidates button[hx-post]").get("hx-vals"))
+        client.post(f"/bills/{streams.water}/match", data=vals)
+
+        assert text(one(client.get("/bills").text, '[hx-get="/bills/review"]')) == "Review (1)"
+        response = hx.get("/bills/review")
+        assert response.status_code == 204
+        fired = triggers(response)
+        assert "dialog:close" not in fired and "Nothing to review" in fired["toast"]["text"]
 
     def test_review_walks_the_overdue_bills(
         self, client: TestClient, hx: TestClient, streams: Streams

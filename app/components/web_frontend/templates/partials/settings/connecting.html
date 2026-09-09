@@ -4,7 +4,7 @@
    replaces this whole body), and the asking stops rather than following a
    forgotten tab forever. No JavaScript, no browser-side SDK. #}
 {% from "components/macros/feedback.html" import error_banner %}
-{% from "components/macros/form.html" import action %}
+{% from "components/macros/form.html" import action, button_classes %}
 <h2 class="text-lg font-semibold text-aegis-text mb-1">{{ provider.what }}</h2>
 {{ error_banner(errors) }}
 {% if started %}
@@ -12,7 +12,7 @@
   {% if started.url %}
   <p class="text-sm text-aegis-muted">Finish it on {{ provider.label }}'s own page. This waits here and picks up the accounts when you are done.</p>
   <a href="{{ started.url }}" target="_blank" rel="noopener"
-     class="inline-flex items-center gap-2 px-4 py-2.5 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Open {{ provider.label }}</a>
+     class="{{ button_classes() }}">Open {{ provider.label }}</a>
   {% endif %}
   {% if waited %}
   <p class="text-xs text-aegis-muted">Still nothing from {{ provider.label }}. The session may have been abandoned; start again when you are ready.</p>

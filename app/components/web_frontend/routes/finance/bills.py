@@ -662,6 +662,14 @@ async def review(
     """Walk the overdue bills that have a candidate payment, one dialog
     at a time. The first call computes the queue; later steps carry it."""
     queue = _ids(ids) if ids else await _review_queue(service, owner_user_id)
+    if not queue:
+        # The button counts overdue bills; the queue needs a payment to
+        # offer. Nothing to show means no swap (204), or the dialog would
+        # open empty and close on the same tick.
+        return with_toast(
+            Response(status_code=204),
+            "Nothing to review yet: no imported payment looks like an overdue bill.",
+        )
     if index >= len(queue):
         return close_dialog(Response(status_code=200))
     stream = await _stream(service, queue[index], owner_user_id)

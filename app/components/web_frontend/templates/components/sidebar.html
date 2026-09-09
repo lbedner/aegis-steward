@@ -19,14 +19,33 @@
     {% endfor %}
   </nav>
 
-  <div class="shrink-0 border-t border-aegis-border p-2">
-    <button type="button" data-theme-toggle aria-label="Switch theme" @click="toggleTheme()"
+  {# Appearance: theme (voice and shape) and mode (palette). Alpine holds
+     the choice; theme.js applies and persists it. Both rows are the
+     ``chip`` class, marked by aria-pressed. The panel sits above its
+     button so it opens upward from the sidebar's foot. #}
+  <div class="shrink-0 border-t border-aegis-border p-2" x-data="{ open: false, ...appearance() }">
+    <div x-show="open" x-cloak x-collapse class="px-3 pt-1 pb-2 space-y-2">
+      {% for key, choices in [("theme", [("aegis", "Aegis"), ("steward", "Steward")]), ("mode", [("dark", "Dark"), ("light", "Light"), ("system", "System")])] %}
+      <fieldset>
+        <legend class="micro-label text-aegis-muted mb-1">{{ key|capitalize }}</legend>
+        <div class="flex gap-1">
+          {% for value, label in choices %}
+          <button type="button" data-set-{{ key }}="{{ value }}"
+                  :aria-pressed="{{ key }} === '{{ value }}'"
+                  @click="{{ key }} = '{{ value }}'; setAppearance('{{ key }}', '{{ value }}')"
+                  class="chip flex-1">{{ label }}</button>
+          {% endfor %}
+        </div>
+      </fieldset>
+      {% endfor %}
+    </div>
+    <button type="button" data-appearance aria-label="Appearance" :aria-expanded="open" @click="open = !open"
             class="w-full flex items-center gap-3 px-3 py-2 text-sm rounded text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20 transition-colors">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
            stroke-width="1.5" stroke="currentColor" class="w-5 h-5 shrink-0" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z"/>
       </svg>
-      <span>Theme</span>
+      <span>Appearance</span>
     </button>
   </div>
 </aside>

@@ -37,7 +37,7 @@
     {{ account_link(section.path, "All accounts", total, selected is none, strong=True) }}
     {% for group in groups %}
     <section aria-labelledby="group-{{ loop.index }}">
-      <h2 id="group-{{ loop.index }}" class="flex items-baseline justify-between px-3 pt-2 pb-1 text-xxs uppercase tracking-wider text-aegis-muted">
+      <h2 id="group-{{ loop.index }}" class="flex items-baseline justify-between px-3 pt-2 pb-1 micro-label text-aegis-muted">
         <span>{{ group.label }}</span>
         <span class="tabular-nums {{ 'text-error' if group.subtotal < 0 }}">{{ group.subtotal|money }}</span>
       </h2>
@@ -57,12 +57,12 @@
       <div class="min-w-0">
         {% if selected %}
         <div class="flex items-center gap-3 min-w-0">
-          <h2 class="text-2xl font-semibold text-aegis-text truncate uppercase">{{ selected.name }}</h2>
-          <span class="shrink-0 text-xxs font-semibold tracking-wider px-2 py-0.5 rounded border border-aegis-teal text-aegis-teal uppercase">{{ selected.account_type|replace("_", " ")|upper }}</span>
+          <h2 class="text-2xl font-semibold text-aegis-text truncate caps">{{ selected.name }}</h2>
+          <span class="shrink-0 font-semibold micro-label px-2 py-0.5 rounded border border-aegis-teal text-aegis-teal ">{{ selected.account_type|replace("_", " ")|upper }}</span>
         </div>
         <p class="text-xs text-aegis-muted mt-1">{{ selected.classification|capitalize }} · {{ "Manual" if not selected.connection_id else "Connected" }} · {{ selected.currency|upper }}{% if statement_line %} · {{ statement_line }}{% endif %}</p>
         {% else %}
-        <p class="text-xxs uppercase tracking-wider text-aegis-muted">{{ groups|length }} group{{ "s" if groups|length != 1 }}</p>
+        <p class="micro-label text-aegis-muted">{{ groups|length }} group{{ "s" if groups|length != 1 }}</p>
         <h2 class="text-2xl font-semibold text-aegis-text">All accounts</h2>
         {% endif %}
       </div>

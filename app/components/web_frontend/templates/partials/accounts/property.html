@@ -1,16 +1,16 @@
-{% from "components/macros/form.html" import field, text_input, money_input, date_input, primary_button %}
+{% from "components/macros/form.html" import field, text_input, money_input, date_input, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Property details</h2>
 <form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/property') }} class="space-y-4">
   {{ error_banner(errors) }}
   <div class="grid grid-cols-2 gap-4">
     {% call field("Type") %}
-    <select name="property_kind" class="mt-1 w-full bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text focus:border-aegis-teal focus:outline-none">
+    <select name="property_kind" class="mt-1 w-full {{ control("select") }}">
       {% for kind in kinds %}<option value="{{ kind }}" {% if kind == property_kind %}selected{% endif %}>{{ kind|capitalize }}</option>{% endfor %}
     </select>
     {% endcall %}
     {% call field("Value from") %}
-    <select name="valuation_source" class="mt-1 w-full bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text focus:border-aegis-teal focus:outline-none">
+    <select name="valuation_source" class="mt-1 w-full {{ control("select") }}">
       {% for source in sources %}<option value="{{ source }}" {% if source == valuation_source %}selected{% endif %}>{{ source|capitalize }}</option>{% endfor %}
     </select>
     {% endcall %}
