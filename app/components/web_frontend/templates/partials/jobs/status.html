@@ -1,3 +1,4 @@
+{% from "components/macros/form.html" import button_classes %}
 {# One job snapshot, as the SSE follower swaps it in. Running: the label.
    Done: the result, rendered by what the job was. Failed: the error. #}
 {% from "components/macros/feedback.html" import error_banner %}
@@ -15,6 +16,6 @@
   {% with counts = job.result %}{% include "partials/imports/counts.html" %}{% endwith %}
   {% endif %}
   <button type="button" hx-get="/accounts" hx-target="#app-content" hx-push-url="true" @click="$el.closest('dialog').close()"
-          class="px-4 py-2 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Done</button>
+          class="{{ button_classes() }}">Done</button>
 </section>
 {% endif %}

@@ -2,7 +2,7 @@
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/layout.html" import page_header %}
 {% from "components/macros/layout.html" import badge %}
-{% from "components/macros/form.html" import action %}
+{% from "components/macros/form.html" import action, control %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
@@ -46,7 +46,7 @@
       {% for change in batch["items"] %}
       <li class="flex items-start gap-3 py-2">
         <label class="inline-flex items-center gap-1 text-xxs text-aegis-muted mt-0.5" title="Leave this one out">
-          <input type="checkbox" name="exclude_ids" value="{{ change.id }}" class="accent-aegis-teal"> skip
+          <input type="checkbox" name="exclude_ids" value="{{ change.id }}" class="{{ control('checkbox') }}"> skip
         </label>
         <div class="flex-1">{{ display(change) }}</div>
       </li>

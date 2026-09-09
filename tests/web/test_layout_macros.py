@@ -108,15 +108,13 @@ class TestTabsAndChips:
         assert links[1].get("aria-current") is None
         assert "border-transparent" in links[1].get("class")
 
-    def test_chip_is_the_date_range_recipe(self) -> None:
+    def test_chip_is_the_one_chip_class(self) -> None:
+        """Every chip row wears ``chip`` (input.css); a link marks the
+        current choice with aria-current, and that is all it says."""
         active = one(render('{{ chip("30d", True, "/x?days=30") }}'), "a")
         idle = one(render('{{ chip("90d", False, "/x?days=90") }}'), "a")
-        assert (
-            "bg-aegis-teal/10" in active.get("class")
-            and active.get("aria-current") == "page"
-        )
-        assert "bg-aegis-teal/10" not in idle.get("class")
-        assert idle.get("class").startswith("text-xs px-2 py-0.5")
+        assert active.get("class") == "chip" and active.get("aria-current") == "page"
+        assert idle.get("class") == "chip" and idle.get("aria-current") is None
 
 
 class TestPageHeader:

@@ -28,7 +28,7 @@
     {% for key, title, note in commitments %}
     {% set bucket = buckets.get(key) %}
     <section>
-      <h3 class="flex items-baseline justify-between gap-3 text-sm font-semibold text-aegis-text mb-2">{{ title }} <span class="text-xxs font-normal uppercase tracking-wider text-aegis-muted">{{ (bucket.total_allocated|money if bucket else "$0.00") ~ " " ~ note }}</span></h3>
+      <h3 class="flex items-baseline justify-between gap-3 text-sm font-semibold text-aegis-text mb-2">{{ title }} <span class="font-normal micro-label text-aegis-muted">{{ (bucket.total_allocated|money if bucket else "$0.00") ~ " " ~ note }}</span></h3>
       {% if bucket and bucket.lines %}
       <ul class="divide-y divide-aegis-border/60 text-sm">
         {% for line in bucket.lines %}

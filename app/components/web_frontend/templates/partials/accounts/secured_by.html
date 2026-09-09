@@ -1,6 +1,6 @@
 {# Which property secures this debt. Equity and loan-to-value derive from
    the link; a lien position only means something once there is one. #}
-{% from "components/macros/form.html" import field, text_input, primary_button %}
+{% from "components/macros/form.html" import field, text_input, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Secured by</h2>
 {% if not properties %}
@@ -9,7 +9,7 @@
 <form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/secured_by') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Secured by") %}
-  <select name="secured_by_account_id" class="mt-1 w-full bg-aegis-bg border border-aegis-border rounded px-2.5 py-1.5 text-sm text-aegis-text focus:border-aegis-teal focus:outline-none">
+  <select name="secured_by_account_id" class="mt-1 w-full {{ control("select") }}">
     <option value="" {% if not secured_by_account_id %}selected{% endif %}>Not secured</option>
     {% for property in properties %}<option value="{{ property.id }}" {% if property.id == secured_by_account_id %}selected{% endif %}>{{ property.name }}</option>{% endfor %}
   </select>

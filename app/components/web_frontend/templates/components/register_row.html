@@ -2,10 +2,10 @@
    as the answer to a row action (pattern 2: the action swaps
    ``closest tr`` with this). Needs ``row``, ``categories`` and
    ``show_account`` in context. #}
-{% from "components/macros/form.html" import select %}
+{% from "components/macros/form.html" import select, control %}
 {% from "components/macros/layout.html" import dropdown, menu_item %}
 <tr id="txn-{{ row.id }}" {% if row_oob %}hx-swap-oob="outerHTML"{% endif %} class="hover:bg-aegis-border/20 transition-colors">
-  <td class="pl-5 pr-2 py-2"><input type="checkbox" name="transaction_ids" value="{{ row.id }}" aria-label="Select" class="accent-aegis-teal"></td>
+  <td class="pl-5 pr-2 py-2"><input type="checkbox" name="transaction_ids" value="{{ row.id }}" aria-label="Select" class="{{ control('checkbox') }}"></td>
   <td class="px-5 py-2 whitespace-nowrap text-aegis-text">{{ row.date|short_date }}</td>
   {% if show_account %}<td class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
   <td data-cell="payee" class="px-5 py-2 text-aegis-text">

@@ -5,6 +5,7 @@
        {% from "components/macros/layout.html" import card, stat_tile, dropdown %}
 #}
 {% from "components/macros/feedback.html" import empty_state %}
+{% from "components/macros/form.html" import button_classes %}
 
 
 {# One sidebar link. ``href`` and ``hx-get`` are the same URL: a cold load
@@ -44,7 +45,7 @@
   {% if title %}
   <header class="flex items-baseline justify-between gap-3">
     <h2 id="{{ card_id }}-title" class="text-sm font-semibold text-aegis-text">{{ title }}</h2>
-    {% if subtitle %}<p class="text-xxs text-aegis-muted uppercase tracking-wider">{{ subtitle }}</p>{% endif %}
+    {% if subtitle %}<p class="text-aegis-muted micro-label">{{ subtitle }}</p>{% endif %}
   </header>
   {% endif %}
   {{ caller() }}
@@ -57,7 +58,7 @@
    healthy number is coloured, colour stops meaning anything. #}
 {% macro stat_tile(label, value, negative=False, caption=None, attrs="") %}
 <div {{ attrs|safe }} class="bg-aegis-card border border-aegis-border rounded-lg px-5 py-4{% if attrs %} cursor-pointer hover:border-aegis-muted transition-colors{% endif %}">
-  <dt class="text-xxs text-aegis-muted uppercase tracking-wider">{{ label }}</dt>
+  <dt class="text-aegis-muted micro-label">{{ label }}</dt>
   <dd class="mt-1 text-2xl font-semibold tabular-nums {{ 'text-error' if negative else 'text-aegis-text' }}">{{ value }}</dd>
   {% if caption %}<dd class="mt-1 text-xxs text-aegis-muted">{{ caption }}</dd>{% endif %}
 </div>
@@ -151,10 +152,10 @@
    is ``{"label", "value", "caption", "tone", "attrs"}``; ``attrs`` makes
    it a door (hx-get) and ``tone`` colours the value. #}
 {% macro stats_strip(cells, id=None, attrs="") %}
-<dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 lg:grid-cols-{{ cells|length }} divide-x divide-aegis-border/60 bg-aegis-card border border-aegis-border rounded-lg">
+<dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 {{ {2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4"}[cells|length] }} divide-x divide-aegis-border/60 bg-aegis-card border border-aegis-border rounded-lg">
   {% for cell in cells %}
   <div {{ cell.attrs|safe if cell.attrs else "" }} class="px-5 py-4 min-w-0{% if cell.attrs %} cursor-pointer hover:bg-aegis-border/20 transition-colors{% endif %}">
-    <dt class="text-xxs text-aegis-muted uppercase tracking-wider">{{ cell.label }}</dt>
+    <dt class="text-aegis-muted micro-label">{{ cell.label }}</dt>
     <dd class="mt-1 text-2xl font-semibold tabular-nums {{ 'text-error' if cell.tone == 'error' else ('text-aegis-teal' if cell.tone == 'ok' else 'text-aegis-text') }}">{{ cell.value }}</dd>
     {% if cell.caption %}<dd class="mt-1 text-xxs text-aegis-muted truncate">{{ cell.caption }}</dd>{% endif %}
   </div>
@@ -196,12 +197,10 @@
 {% endmacro %}
 
 
-{# A chip: one of a row of exclusive choices (a time window, a month, a
-   view). Pulse's date-range recipe, which the Flet range chips copied:
-   small, outlined, a light teal fill when chosen. #}
+{# A chip as a link: one of a row of exclusive choices (a month, a view).
+   The ``chip`` class (input.css) marks the current one by aria-current. #}
 {% macro chip(label, active=False, href="", hx="", extra="") %}
-<a href="{{ href }}" {{ hx|safe }} {{ extra|safe }} {% if active %}aria-current="page"{% endif %}
-   class="text-xs px-2 py-0.5 rounded border whitespace-nowrap transition-colors {{ 'border-aegis-teal bg-aegis-teal/10 text-aegis-text font-semibold' if active else 'border-aegis-border text-aegis-muted hover:border-aegis-muted hover:text-aegis-text' }}">{{ label }}</a>
+<a href="{{ href }}" {{ hx|safe }} {{ extra|safe }} {% if active %}aria-current="page"{% endif %} class="chip">{{ label }}</a>
 {% endmacro %}
 
 
@@ -226,7 +225,7 @@
 
 {% macro dropdown(label, align="right") %}
 <details class="relative" @click.outside="$el.removeAttribute('open')">
-  <summary class="list-none cursor-pointer select-none inline-flex items-center gap-1 px-3 py-1.5 text-xs rounded border border-aegis-border text-aegis-muted hover:text-aegis-text hover:border-aegis-muted transition-colors">
+  <summary class="list-none gap-1 {{ button_classes("default", "xs") }}">
     {{ label }}
     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>

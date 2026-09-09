@@ -1,7 +1,7 @@
 {# Reconcile to a statement: Check previews the delta without writing;
    Apply lands it (an adjustment transaction, or a valuation when the
    account has no register). #}
-{% from "components/macros/form.html" import field, date_input, money_input, primary_button %}
+{% from "components/macros/form.html" import field, date_input, money_input, primary_button, button_classes %}
 {% from "components/macros/feedback.html" import error_banner %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Reconcile {{ account.name }}</h2>
 <form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/reconcile') }} class="space-y-4">
@@ -22,7 +22,7 @@
   </p>
   {% endif %}
   <div class="flex items-center gap-3">
-    <button type="submit" name="preview" value="1" class="px-4 py-2 rounded text-sm border border-aegis-border text-aegis-muted hover:text-aegis-text transition-colors">Check</button>
-    {% if result %}<button type="submit" name="apply" value="1" class="px-4 py-2 rounded text-sm text-aegis-text border border-aegis-teal bg-aegis-teal/10 hover:bg-aegis-teal/20 transition-colors">Apply</button>{% endif %}
+    <button type="submit" name="preview" value="1" class="{{ button_classes("default") }}">Check</button>
+    {% if result %}<button type="submit" name="apply" value="1" class="{{ button_classes() }}">Apply</button>{% endif %}
   </div>
 </form>

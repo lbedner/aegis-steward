@@ -16,5 +16,5 @@
   /* Native accent for checkboxes, radios and range inputs. The theme
      blocks in input.css own color-scheme, so native controls follow the
      active theme. */
-  accent-color: rgb(var(--aegis-teal));
+  accent-color: oklch(var(--p));
 }
