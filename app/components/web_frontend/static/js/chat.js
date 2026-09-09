@@ -50,7 +50,23 @@
       if (raw && navigator.clipboard) navigator.clipboard.writeText(raw.innerHTML);
     }
     if (event.target.closest('#chat-stop') && controller) controller.abort();
+    const view = event.target.closest('[data-view-image]');
+    if (view) viewImage(view.dataset.viewImage, view.title || view.getAttribute('alt') || '');
   });
+
+  // A thumbnail opens its image in the one modal (pattern 4), not a tab.
+  const viewImage = (url, name) => {
+    const body = document.getElementById('dialog-body');
+    const dialog = document.getElementById('dialog');
+    if (!body || !dialog) return;
+    body.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = name;
+    img.className = 'max-h-[75vh] w-auto max-w-full mx-auto rounded';
+    body.appendChild(img);
+    if (!dialog.open) dialog.showModal();
+  };
 
   // --- Live markdown: enough to read while it streams ----------------
   // The settled message is rendered server-side; this only keeps a
@@ -179,7 +195,9 @@
       chip.dataset.chip = file.name;
       const img = document.createElement('img');
       img.src = file.url; img.alt = ''; img.width = 28; img.height = 28;
-      img.className = 'w-7 h-7 rounded object-cover';
+      img.className = 'w-7 h-7 rounded object-cover cursor-pointer';
+      img.title = 'View full size';
+      img.dataset.viewImage = file.url;
       const name = document.createElement('span');
       name.textContent = file.name;
       const remove = document.createElement('button');
@@ -191,21 +209,44 @@
     });
     window.dispatchEvent(new CustomEvent('chat-staged', { detail: staged.length }));
   };
-  const stage = (file) => {
+  // Vision models read at about a thousand pixels on the long edge; a
+  // full-resolution screenshot only costs encode time (a 2214px paste took
+  // two minutes on a local 30B model) and bytes on the wire. Anything
+  // larger is scaled down before it is staged; animated GIFs are left
+  // alone, since a canvas would keep one frame.
+  const MAX_EDGE = 1568;
+  const shrink = async (file) => {
+    if (file.type === 'image/gif') return file;
+    const bitmap = await createImageBitmap(file);
+    const longest = Math.max(bitmap.width, bitmap.height);
+    if (longest <= MAX_EDGE) { bitmap.close(); return file; }
+    const scale = MAX_EDGE / longest;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const type = file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.9));
+    return new File([blob], file.name, { type });
+  };
+  const stage = async (file) => {
     if (!IMAGE_TYPES.includes(file.type)) { toast(`${file.name || 'That'} is not an image.`, 'error'); return; }
     if (file.size > MAX_BYTES) { toast(`${file.name} is over 10 MB.`, 'error'); return; }
     if (staged.length >= MAX_FILES) { toast(`Up to ${MAX_FILES} images per message.`, 'error'); return; }
+    let image = file;
+    try { image = await shrink(file); } catch (_) { /* undecodable: send as pasted, the model will say so */ }
     const reader = new FileReader();
     reader.onload = () => {
       staged.push({
         name: file.name || 'image',
-        media_type: file.type,
+        media_type: image.type,
         data_b64: String(reader.result).split(',')[1],
-        url: URL.createObjectURL(file),
+        url: URL.createObjectURL(image),
       });
       drawChips();
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(image);
   };
   document.addEventListener('change', (event) => {
     if (event.target.id !== 'chat-attach') return;
