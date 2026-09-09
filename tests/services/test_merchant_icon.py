@@ -95,6 +95,23 @@ class TestIconStore:
             {"sz": 64, "domain": "netflix.com"},
         )
 
+    async def test_a_payee_known_only_by_name_still_gets_its_stored_source(
+        self, async_db_session: AsyncSession, scheduled: list[list[str]]
+    ) -> None:
+        from app.services.finance.domains.ledger import merchants
+
+        payee = await merchants.create_merchant(
+            async_db_session, "Aegis Stack", owner_user_id=None
+        )
+        await merchants.update_merchant(
+            async_db_session, payee.id, website_url="https://aegis-stack.io"
+        )
+        urls = await merchant_icon.icon_urls_for_payees(
+            async_db_session, ["Aegis Stack", "Netflix"]
+        )
+        assert urls == {}
+        assert sorted(scheduled[0]) == ["aegis-stack.io", "netflix.com"]
+
     async def test_unknown_domain_returns_nothing_and_schedules_a_fill(
         self, async_db_session: AsyncSession, scheduled: list[list[str]]
     ) -> None:

@@ -59,6 +59,28 @@ async def merchant_by_normalized(
     ).first()
 
 
+async def merchants_by_normalized_names(
+    db: AsyncSession, normalized: Iterable[str], *, owner_user_id: int | None = None
+) -> dict[str, FinanceMerchant]:
+    """Live payees by normalized name in one query, for surfaces that
+    know a payee only by what it is called (the overview cards)."""
+    wanted = [n for n in set(normalized) if n]
+    if not wanted:
+        return {}
+    rows = (
+        await db.exec(
+            select(FinanceMerchant).where(
+                FinanceMerchant.normalized_name.in_(wanted),
+                FinanceMerchant.deleted_at.is_(None),
+                FinanceMerchant.owner_user_id == owner_user_id
+                if owner_user_id is not None
+                else FinanceMerchant.owner_user_id.is_(None),
+            )
+        )
+    ).all()
+    return {row.normalized_name: row for row in rows}
+
+
 async def icons_by_domains(
     db: AsyncSession, domains: Iterable[str]
 ) -> dict[str, FinanceIcon]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -230,14 +230,33 @@ async def merchant_icon_sources(
     """Each payee's authoritative icon key, for the resolver: the Plaid
     logo when a connection gave us one, else the domain of the stored
     website. Payees with neither are absent (the resolver guesses)."""
+    rows = await queries.merchants_by_ids(db, ids)
+    return {mid: key for mid, row in rows.items() if (key := icon_source(row))}
+
+
+def icon_source(merchant: FinanceMerchant) -> str | None:
+    """The one rule for a payee's authoritative icon key."""
     from app.services.finance.domains.ledger.merchant_icon import domain_from_website
 
-    rows = await queries.merchants_by_ids(db, ids)
-    sources: dict[int, str] = {}
-    for merchant_id, row in rows.items():
-        key = row.logo_url or domain_from_website(row.website_url)
-        if key:
-            sources[merchant_id] = key
+    return merchant.logo_url or domain_from_website(merchant.website_url)
+
+
+async def icon_sources_by_name(
+    db: AsyncSession, names: Iterable[str | None], *, owner_user_id: int | None = None
+) -> dict[str, str]:
+    """``merchant_icon_sources`` for surfaces that know a payee only by
+    name (the overview's top payees and upcoming bills)."""
+    from app.services.finance.utils import normalize_payee
+
+    wanted = {name: normalize_payee(name) for name in names if name}
+    rows = await queries.merchants_by_normalized_names(
+        db, wanted.values(), owner_user_id=owner_user_id
+    )
+    sources: dict[str, str] = {}
+    for name, normalized in wanted.items():
+        row = rows.get(normalized)
+        if row is not None and (key := icon_source(row)):
+            sources[name] = key
     return sources
 
 

@@ -21,6 +21,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render, templates
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.accounts import effective_balance
+from app.services.finance.domains.ledger.merchant_icon import icon_urls_for_payees
 from app.services.finance.domains.planning.recurring.forecast import upcoming_outflows
 from app.services.finance.schemas import (
     AccountResponse,
@@ -48,7 +49,7 @@ MAX_CASHFLOW_BARS = 12
 
 TXN_COLUMNS = [
     {"key": "date", "label": "Date", "kind": "date"},
-    {"key": "name", "label": "Name"},
+    {"key": "name", "label": "Name", "kind": "avatar"},
     {"key": "category", "label": "Category"},
     {"key": "amount", "label": "Amount", "kind": "money", "align": "right"},
 ]
@@ -165,10 +166,18 @@ def upcoming_bills(projection: ProjectionResponse) -> list[dict[str, Any]]:
 
 
 def ranked(
-    rows: list[Any], label: str, value: str, count: str | None = None, tone: str = "teal"
+    rows: list[Any],
+    label: str,
+    value: str,
+    count: str | None = None,
+    tone: str = "teal",
+    icons: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Rows for ``ranked_rows``: the bar is each amount over the largest."""
-    amounts = [abs(getattr(r, value) if not isinstance(r, dict) else r[value]) for r in rows]
+    """Rows for ``ranked_rows``: the bar is each amount over the largest;
+    ``icons`` maps a label to its brand mark URL."""
+    amounts = [
+        abs(getattr(r, value) if not isinstance(r, dict) else r[value]) for r in rows
+    ]
     top = max(amounts, default=0) or 1
 
     def get(row: Any, key: str) -> Any:
@@ -177,6 +186,7 @@ def ranked(
     return [
         {
             "label": get(r, label),
+            "icon_url": (icons or {}).get(get(r, label)),
             "count": f"{get(r, count)}x" if count else "",
             "value": money(get(r, value)),
             "ratio": abs(get(r, value)) / top,
@@ -210,6 +220,13 @@ async def page(
         owner_user_id=owner_user_id,
     )
     pending = await service.list_pending_changes(owner_user_id=owner_user_id)
+    upcoming = upcoming_bills(overview.projection)
+    # The cards know payees by name; one resolution serves both.
+    icons = await icon_urls_for_payees(
+        service.db,
+        [p.payee for p in overview.top_payees.items] + [b["name"] for b in upcoming],
+        owner_user_id=owner_user_id,
+    )
     return render(
         request,
         "pages/overview.html",
@@ -226,12 +243,14 @@ async def page(
             "drilldown": f"{SECTION.path}/spending?{_query(days, selected)}",
             "top_payees": overview.top_payees.items,
             "payee_rows": ranked(
-                overview.top_payees.items, "payee", "amount", "transaction_count"
+                overview.top_payees.items,
+                "payee",
+                "amount",
+                "transaction_count",
+                icons=icons,
             ),
-            "upcoming": upcoming_bills(overview.projection),
-            "bill_rows": ranked(
-                upcoming_bills(overview.projection), "name", "amount", tone="accent"
-            ),
+            "upcoming": upcoming,
+            "bill_rows": ranked(upcoming, "name", "amount", tone="accent", icons=icons),
             "recent": overview.recent_transactions.items,
             "uncategorized": overview.uncategorized.items,
             "pending_count": len(pending),

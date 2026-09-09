@@ -8,6 +8,7 @@ are committed before the page is requested, exactly as the API tests do.
 from datetime import date
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
@@ -81,6 +82,21 @@ class TestSeededLedger:
             "Payroll",
         ]
         assert one(section, 'a[href="/review/uncategorized"]') is not None
+
+    def test_cards_carry_the_brand_marks(
+        self, client: TestClient, ledger: Ledger, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Top payees, upcoming bills and the two transaction tables show
+        the same avatar the register does: the icon when it resolved,
+        the initial otherwise."""
+        from app.services.finance.domains.ledger import merchant_icon
+
+        monkeypatch.setitem(merchant_icon._CACHE, "market.com", "AAAA")
+        page = client.get("/overview").text
+        first = select(card(page, "Top payees"), ".ranked li")[0]
+        assert one(first, "img").get("src") == "/icons?key=market.com"
+        # Upcoming bills shares the ranked recipe; the seeded ledger has none.
+        assert select(card(page, "Recent transactions"), "img, [data-avatar]")
 
     def test_top_payees(self, client: TestClient, ledger: Ledger) -> None:
         section = card(client.get("/overview").text, "Top payees")

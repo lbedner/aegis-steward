@@ -157,6 +157,17 @@ async def icon_urls_for_names(
     return {name: icon_url(key) for name, key in keys.items()}
 
 
+async def icon_urls_for_payees(
+    db: AsyncSession, names: list[str | None], *, owner_user_id: int | None = None
+) -> dict[str, str]:
+    """``icon_urls_for_names`` for a surface that has only payee names:
+    a stored payee's logo or website still beats the guess."""
+    from app.services.finance.domains.ledger.merchants import icon_sources_by_name
+
+    sources = await icon_sources_by_name(db, names, owner_user_id=owner_user_id)
+    return await icon_urls_for_names(db, names, domains_by_name=sources)
+
+
 def icon_bytes(key: str) -> str | None:
     """The base64 png behind a key that ``resolve_icon_keys`` returned."""
     return _CACHE.get(key)

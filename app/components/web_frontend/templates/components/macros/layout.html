@@ -172,7 +172,7 @@
   {% for row in rows %}
   <li>
     <div class="flex items-baseline justify-between gap-3 text-sm">
-      <span class="text-aegis-text truncate">{{ row.label }}</span>
+      <span class="inline-flex items-center gap-2 min-w-0"><span class="shrink-0">{{ avatar(row.label, row.icon_url) }}</span><span class="text-aegis-text truncate">{{ row.label }}</span></span>
       <span class="shrink-0 tabular-nums">{% if row.count %}<span class="text-aegis-muted mr-2">{{ row.count }}</span>{% endif %}<span class="text-aegis-text font-medium">{{ row.value }}</span></span>
     </div>
     <div class="mt-1 h-1 rounded bg-aegis-border/60"><div class="h-1 rounded {{ 'bg-aegis-accent' if row.tone == 'accent' else 'bg-aegis-teal' }}" style="width: {{ (row.ratio * 100)|round|int }}%"></div></div>
