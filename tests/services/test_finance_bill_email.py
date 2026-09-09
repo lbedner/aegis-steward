@@ -6,7 +6,7 @@ due, because an empty reminder is worse than none.
 """
 
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -15,6 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.config import settings
 from app.services.finance import jobs
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 
 @pytest.fixture
@@ -57,7 +58,7 @@ async def a_bill(async_db_session: AsyncSession) -> None:
         direction="outflow",
         frequency="monthly",
         expected_amount=150_000,
-        next_expected_date=date.today() + timedelta(days=3),
+        next_expected_date=current_date() + timedelta(days=3),
         account_id=account.id,
     )
     await async_db_session.commit()
@@ -187,7 +188,7 @@ async def test_one_address_gets_one_mail(
         direction="outflow",
         frequency="monthly",
         expected_amount=8_000,
-        next_expected_date=date.today() + timedelta(days=2),
+        next_expected_date=current_date() + timedelta(days=2),
         account_id=other.id,
     )
     await async_db_session.commit()
@@ -195,4 +196,3 @@ async def test_one_address_gets_one_mail(
     monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
     await jobs.finance_bill_due_email_job()
     assert len(outbox) == 1
-

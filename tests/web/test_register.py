@@ -5,13 +5,12 @@ form field on the same URL, so search, filters, and paging are one
 ``hx-get`` that swaps the section in place and updates the URL.
 """
 
-from datetime import date
-
 from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger
 from tests.web.dom import none, one, select, table_rows, text
 
@@ -141,7 +140,7 @@ class TestFilters:
         ).get("value") == groceries.get("value")
 
     def test_date_range_narrows(self, client: TestClient, ledger: Ledger) -> None:
-        today = date.today().isoformat()
+        today = current_date().isoformat()
         page = client.get(f"/accounts?from={today}&to={today}").text
         assert names(page) == ["Market"]
         assert one(page, 'input[name="from"]').get("value") == today
@@ -189,7 +188,7 @@ class TestFilters:
     def test_an_explicit_from_date_beats_the_window(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        today = date.today().isoformat()
+        today = current_date().isoformat()
         page = client.get(f"/accounts?days=9999&from={today}").text
         assert names(page) == ["Market"]
 
@@ -248,7 +247,7 @@ class TestInvestmentAccount:
             owner_user_id=None,
             account_id=account.id,
             security_id=vti.id,
-            as_of_date=date.today(),
+            as_of_date=current_date(),
             quantity_e8=10 * 10**8,
             price=25_000,
         )
@@ -256,7 +255,7 @@ class TestInvestmentAccount:
             owner_user_id=None,
             account_id=account.id,
             trade_type="buy",
-            trade_date=date.today(),
+            trade_date=current_date(),
             amount=-250_000,
             security_id=vti.id,
             quantity_e8=10 * 10**8,

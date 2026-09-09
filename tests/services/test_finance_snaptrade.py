@@ -5,7 +5,7 @@ Plain ``.py`` (only generated when ``finance_snaptrade`` is selected). No
 network: ``FakeSnapTradeClient`` stands in for ``SnapTradeClient``.
 """
 
-from datetime import date, timedelta
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.adapters.providers import connections
 from app.services.finance.models import FinanceSecurity
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 _AAPL_FIGI = "BBG000B9XRY4"
 
@@ -367,7 +368,7 @@ class TestSnapTradeConnect:
         assert sorted(client.activity_pulls) == ["acct-401k", "acct-roth"]
 
         # A stale cursor (yesterday) re-opens the window — one pull per account.
-        connection.sync_cursor = (date.today() - timedelta(days=1)).isoformat()
+        connection.sync_cursor = (current_date() - timedelta(days=1)).isoformat()
         await connections.sync_snaptrade_connection(
             async_db_session, connection, client=client
         )
@@ -388,7 +389,7 @@ class TestSnapTradeConnect:
             async_db_session, provider="snaptrade", owner_user_id=1
         )
         connection = connection_rows[0]
-        connection.sync_cursor = (date.today() - timedelta(days=1)).isoformat()
+        connection.sync_cursor = (current_date() - timedelta(days=1)).isoformat()
         second = await connections.sync_snaptrade_connection(
             async_db_session, connection, client=client
         )

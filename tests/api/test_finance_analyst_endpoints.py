@@ -6,7 +6,6 @@ contract that decides whether a local model is spun up at all.
 """
 
 from contextlib import asynccontextmanager
-from datetime import date
 
 from fastapi.testclient import TestClient
 from pydantic_ai.models.test import TestModel
@@ -18,6 +17,7 @@ from app.services.ai.domains.chat.agent_loader import invalidate_agent_cache
 from app.services.finance.domains.detection import analyst
 from app.services.finance.models import FinanceInsight
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 NOTE_TEXT = "Nothing unusual this month. Your balances are where you left them."
 RUN_URL = "/api/v1/finance/analyst/run"
@@ -176,7 +176,7 @@ async def test_insights_can_exclude_the_notes(
             owner_user_id=store_owner,
             insight_type=analyst.ANALYST_NOTE_INSIGHT_TYPE,
             severity="info",
-            title=f"Analyst note - {date.today().isoformat()}",
+            title=f"Analyst note - {current_date().isoformat()}",
             body=NOTE_TEXT,
             dedup_key="note:test",
         )
