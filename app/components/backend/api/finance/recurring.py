@@ -83,8 +83,9 @@ async def hydrate_streams(
     """
     from app.core.config import settings
     from app.services.finance.domains.ledger.merchant_icon import (
-        domain_from_website,
-        icons_for_names,
+        icon_bytes,
+        icon_url,
+        resolve_icon_keys,
     )
 
     if payment_ids is None:
@@ -105,16 +106,14 @@ async def hydrate_streams(
         owner_user_id=owner_user_id, page_size=500
     )
     account_names = {a.id: a.name for a in accounts}
-    websites = await service.merchant_websites(
+    sources = await service.merchant_icon_sources(
         {s.merchant_id for s in streams if s.merchant_id is not None}
     )
-    icons = await icons_for_names(
+    keys = await resolve_icon_keys(
         service.db,
         [payee_names.get(s.merchant_id) or s.name for s in streams],
         domains_by_name={
-            payee_names[mid]: domain
-            for mid, url in websites.items()
-            if (domain := domain_from_website(url)) and mid in payee_names
+            payee_names[mid]: key for mid, key in sources.items() if mid in payee_names
         },
     )
     # Same lookback floor generate_insights computes for _missed_recurring -
@@ -131,7 +130,10 @@ async def hydrate_streams(
             s,
             account_name=account_names.get(s.account_id),
             category_name=category_names.get(s.id),
-            icon_b64=icons.get(payee_names.get(s.merchant_id) or s.name),
+            icon_url=icon_url(key)
+            if (key := keys.get(payee_names.get(s.merchant_id) or s.name))
+            else None,
+            icon_b64=icon_bytes(key) if key else None,
             staleness=stream_staleness(s, today, floor),
             is_payment=s.id in payment_ids,
         )

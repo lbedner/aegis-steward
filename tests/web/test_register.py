@@ -109,7 +109,7 @@ class TestFilters:
         monkeypatch.setitem(merchant_icon._CACHE, "shell.com", "AAAA")
         cells = select(client.get("/accounts").text, "[data-cell=payee]")
         shell = next(c for c in cells if "Shell" in text(c))
-        assert one(shell, "img").get("src") == "data:image/png;base64,AAAA"
+        assert one(shell, "img").get("src") == "/icons?key=shell.com"
         other = next(c for c in cells if "Market" in text(c))
         none(other, "img")
         assert one(other, "[data-avatar]").get("data-avatar") == "M"

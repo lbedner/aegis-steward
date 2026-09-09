@@ -53,7 +53,7 @@ class TestPage:
         monkeypatch.setitem(merchant_icon._CACHE, "water.com", "AAAA")
         rows = rows_by_name(client.get("/bills").text)
         assert (
-            one(rows["Water"]["Name"], "img").get("src") == "data:image/png;base64,AAAA"
+            one(rows["Water"]["Name"], "img").get("src") == "/icons?key=water.com"
         )
         none(rows["Rent"]["Name"], "img")
         assert one(rows["Rent"]["Name"], "[data-avatar]").get("data-avatar") == "R"

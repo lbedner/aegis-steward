@@ -149,7 +149,7 @@ def row(stream: RecurringStreamResponse, today: date) -> dict[str, Any]:
     return {
         "id": stream.id,
         "name": stream.name,
-        "icon_b64": stream.icon_b64,
+        "icon_url": stream.icon_url,
         "category": stream.category_name,
         "account": stream.account_name,
         "amount": stream.expected_amount or stream.average_amount,

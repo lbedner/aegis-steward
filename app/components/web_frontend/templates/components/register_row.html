@@ -9,7 +9,7 @@
   <td class="px-5 py-2 whitespace-nowrap text-aegis-text">{{ row.date|short_date }}</td>
   {% if show_account %}<td class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
   <td data-cell="payee" class="px-5 py-2 text-aegis-text">
-    <span class="inline-flex items-center gap-2">{{ avatar(row.payee, row.icon_b64) }}<span>{{ row.payee }}</span></span>
+    <span class="inline-flex items-center gap-2">{{ avatar(row.payee, row.icon_url) }}<span>{{ row.payee }}</span></span>
     {% if row.is_split %}
     <ul class="mt-1 space-y-0.5 text-xxs text-aegis-muted">
       {% for line in row.splits %}<li class="split-line">{{ line.amount|money(row.currency) }} · {{ line.category or "Uncategorized" }}{% if line.memo %} · {{ line.memo }}{% endif %}</li>{% endfor %}

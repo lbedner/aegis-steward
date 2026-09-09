@@ -204,14 +204,15 @@
 {% endmacro %}
 
 
-{# A payee's brand mark: the resolved favicon on a light tile, or the
-   initial letter when there is none. The letter is drawn from a data
+{# A payee's brand mark: the resolved icon (served by /icons, so the
+   browser caches it once across pages) on a light tile, or the initial
+   letter when there is none. The letter is drawn from a data
    attribute, not text, so a cell's text is still just the name. The tile is light in every theme on
    purpose: favicons are drawn for their owner's background and plenty
    are near-black on transparency, invisible on a dark surface. #}
-{% macro avatar(name, icon_b64=None) %}
-{% if icon_b64 %}
-<span class="inline-flex shrink-0 w-5 h-5 rounded-full brand-tile items-center justify-center overflow-hidden align-middle" aria-hidden="true"><img src="data:image/png;base64,{{ icon_b64 }}" alt="" width="14" height="14" class="w-3.5 h-3.5 object-contain"></span>
+{% macro avatar(name, icon_url=None) %}
+{% if icon_url %}
+<span class="inline-flex shrink-0 w-5 h-5 rounded-full brand-tile items-center justify-center overflow-hidden align-middle" aria-hidden="true"><img src="{{ icon_url }}" alt="" width="14" height="14" loading="lazy" class="w-3.5 h-3.5 object-contain"></span>
 {% else %}
 <span data-avatar="{{ (name or "?")|trim|first|upper }}" class="inline-flex shrink-0 w-5 h-5 rounded-full bg-aegis-border/60 text-aegis-muted text-xxs font-semibold items-center justify-center align-middle before:content-[attr(data-avatar)]" aria-hidden="true"></span>
 {% endif %}

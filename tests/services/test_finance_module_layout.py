@@ -483,7 +483,7 @@ SERVICE_OWNERS = {
     "merchant_category_summary": "merchants",
     "merchant_names": "merchants",
     "merchant_usage": "merchants",
-    "merchant_websites": "merchants",
+    "merchant_icon_sources": "merchants",
     "merge_merchants": "merchants",
     "monthly_cashflow": "transactions",
     "mute_recurring": "recurring",

@@ -93,8 +93,8 @@ class MerchantsMixin(FinanceServiceBase):
             account_ids=account_ids,
         )
 
-    async def merchant_websites(self, ids: set[int] | list[int]) -> dict[int, str]:
-        return await merchants.merchant_websites(self.db, ids)
+    async def merchant_icon_sources(self, ids: set[int] | list[int]) -> dict[int, str]:
+        return await merchants.merchant_icon_sources(self.db, ids)
 
     async def merchant_names(self, ids: set[int] | list[int]) -> dict[int, str]:
         return await merchants.merchant_names(self.db, ids)

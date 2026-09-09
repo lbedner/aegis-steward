@@ -68,6 +68,33 @@ class TestIconStore:
         assert icons == {"Netflix": "abc123"}
         assert scheduled == []
 
+    async def test_urls_come_off_the_same_resolution(
+        self, async_db_session: AsyncSession, scheduled: list[list[str]]
+    ) -> None:
+        async_db_session.add(FinanceIcon(domain="netflix.com", icon_b64="abc123"))
+        await async_db_session.flush()
+
+        urls = await merchant_icon.icon_urls_for_names(async_db_session, ["Netflix"])
+
+        assert urls == {"Netflix": "/icons?key=netflix.com"}
+        assert scheduled == []
+
+    async def test_a_logo_url_override_is_fetched_as_itself(
+        self, async_db_session: AsyncSession, scheduled: list[list[str]]
+    ) -> None:
+        """A Plaid logo is a key like any other: stored under its URL and
+        fetched directly rather than through the favicon service."""
+        logo = "https://plaid-merchant-logos.plaid.com/netflix_1.png"
+        urls = await merchant_icon.icon_urls_for_names(
+            async_db_session, ["Netflix"], domains_by_name={"Netflix": logo}
+        )
+        assert urls == {} and scheduled == [[logo]]
+        assert merchant_icon.upstream_request(logo) == (logo, None)
+        assert merchant_icon.upstream_request("netflix.com") == (
+            merchant_icon.UPSTREAM,
+            {"sz": 64, "domain": "netflix.com"},
+        )
+
     async def test_unknown_domain_returns_nothing_and_schedules_a_fill(
         self, async_db_session: AsyncSession, scheduled: list[list[str]]
     ) -> None:

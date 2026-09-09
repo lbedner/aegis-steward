@@ -86,13 +86,13 @@ class TestAvatarCell:
         html = render(
             columns,
             [
-                {"id": 1, "name": "Shell", "icon_b64": "AAAA"},
-                {"id": 2, "name": "Water Co", "icon_b64": None},
+                {"id": 1, "name": "Shell", "icon_url": "/icons?key=shell.com"},
+                {"id": 2, "name": "Water Co", "icon_url": None},
             ],
         )
         cells = select(html, "tbody td")
         img = one(cells[0], "img")
-        assert img.get("src") == "data:image/png;base64,AAAA" and img.get("alt") == ""
+        assert img.get("src") == "/icons?key=shell.com" and img.get("alt") == ""
         assert text(cells[0]) == "Shell"
         none(cells[1], "img")
         assert one(cells[1], "[data-avatar]").get("data-avatar") == "W"

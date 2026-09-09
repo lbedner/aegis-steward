@@ -224,16 +224,21 @@ async def merchant_usage(
     }
 
 
-async def merchant_websites(
+async def merchant_icon_sources(
     db: AsyncSession, ids: set[int] | list[int]
 ) -> dict[int, str]:
-    """Stored websites by merchant id, for the icon resolver."""
+    """Each payee's authoritative icon key, for the resolver: the Plaid
+    logo when a connection gave us one, else the domain of the stored
+    website. Payees with neither are absent (the resolver guesses)."""
+    from app.services.finance.domains.ledger.merchant_icon import domain_from_website
+
     rows = await queries.merchants_by_ids(db, ids)
-    return {
-        merchant_id: row.website_url
-        for merchant_id, row in rows.items()
-        if row.website_url
-    }
+    sources: dict[int, str] = {}
+    for merchant_id, row in rows.items():
+        key = row.logo_url or domain_from_website(row.website_url)
+        if key:
+            sources[merchant_id] = key
+    return sources
 
 
 async def merchant_names(db: AsyncSession, ids: set[int] | list[int]) -> dict[int, str]:
@@ -266,6 +271,15 @@ async def assign_merchant(
     if not ids:
         return 0
     rows = await queries.live_transactions_by_ids(db, ids, owner_user_id=owner_user_id)
+    if merchant_id is not None:
+        # A source's logo is the best icon a payee can have; the first
+        # attribution that carries one keeps it (a stored logo is never
+        # overwritten: the user may have corrected it).
+        merchant = (await queries.merchants_by_ids(db, [merchant_id])).get(merchant_id)
+        logo = next((t.logo_url for t in rows if t.logo_url), None)
+        if merchant is not None and merchant.logo_url is None and logo is not None:
+            merchant.logo_url = logo
+            db.add(merchant)
     for txn in rows:
         txn.merchant_id = merchant_id
         if category_id is not None:

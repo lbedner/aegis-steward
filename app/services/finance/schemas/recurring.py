@@ -69,6 +69,7 @@ class RecurringStreamResponse(BaseModel):
     # no reason to compute for a response the UI immediately discards.
     # Base64 PNG, inlined by the list endpoint - see merchant_icon.py
     # for why the bytes travel rather than a URL.
+    icon_url: str | None = None
     icon_b64: str | None = None
     staleness: str = "fresh"
 
@@ -79,6 +80,7 @@ class RecurringStreamResponse(BaseModel):
         *,
         account_name: str | None = None,
         category_name: str | None = None,
+        icon_url: str | None = None,
         icon_b64: str | None = None,
         staleness: str = "fresh",
         is_payment: bool = False,
@@ -109,6 +111,7 @@ class RecurringStreamResponse(BaseModel):
             category_id=row.category_id,
             account_name=account_name,
             category_name=category_name,
+            icon_url=icon_url,
             icon_b64=icon_b64,
             staleness=staleness,
         )
