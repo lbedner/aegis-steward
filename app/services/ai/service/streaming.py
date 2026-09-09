@@ -314,12 +314,43 @@ class StreamingMixin(ChatMixin):
                 MessageRole.ASSISTANT, final_content, message_id=message_id
             )
 
-            # Store conversation metadata
-            ai_message.metadata["conversation_id"] = conversation.id
+            # Calculate cost for status line
+            input_tokens = stream_usage.get("input_tokens", 0)
+            output_tokens = stream_usage.get("output_tokens", 0)
+            cost = self.calculate_cost(input_tokens, output_tokens)
+
+            # Calculate TPS (tokens per second) for performance metrics
+            # This is especially useful for Ollama but works for all providers
+            gen_tps: float | None = None
+            if output_tokens > 0 and response_time_ms > 0:
+                gen_tps = round(output_tokens * 1000 / response_time_ms, 1)
+
+            # One metadata dict: what the final frame reports is what the
+            # message keeps, so a conversation reopened from history shows
+            # the same model, cost and trace the live turn did. The model
+            # is the one that answered: an agent's pin, else the global.
+            final_metadata: dict[str, Any] = {
+                "conversation_id": conversation.id,
+                "provider": current.provider,
+                "model": (
+                    agent_config.model_id
+                    if agent_config is not None and agent_config.model_id
+                    else current.model
+                ),
+                "response_time_ms": response_time_ms,
+                "stream_complete": True,
+                # Token usage and cost for CLI status line
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost": cost,
+                # TPS for performance monitoring (especially useful for Ollama)
+                "gen_tps": gen_tps,
+            }
             if tool_trace:
                 # Persisted with the message, so a conversation reopened
                 # from history can still expand what each run did.
-                ai_message.metadata["tool_trace"] = tool_trace
+                final_metadata["tool_trace"] = tool_trace
+            ai_message.metadata.update(final_metadata)
 
             # Record usage tracking (PydanticAI provides streaming usage)
             self._record_usage(
@@ -335,33 +366,6 @@ class StreamingMixin(ChatMixin):
             )
 
             # Yield final streaming message
-
-            # Calculate cost for status line
-            input_tokens = stream_usage.get("input_tokens", 0)
-            output_tokens = stream_usage.get("output_tokens", 0)
-            cost = self.calculate_cost(input_tokens, output_tokens)
-
-            # Calculate TPS (tokens per second) for performance metrics
-            # This is especially useful for Ollama but works for all providers
-            gen_tps: float | None = None
-            if output_tokens > 0 and response_time_ms > 0:
-                gen_tps = round(output_tokens * 1000 / response_time_ms, 1)
-
-            final_metadata: dict[str, Any] = {
-                "provider": current.provider,
-                "model": current.model,
-                "response_time_ms": response_time_ms,
-                "stream_complete": True,
-                # Token usage and cost for CLI status line
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cost": cost,
-                # TPS for performance monitoring (especially useful for Ollama)
-                "gen_tps": gen_tps,
-            }
-
-            if tool_trace:
-                final_metadata["tool_trace"] = tool_trace
             yield StreamingMessage(
                 content=final_content,
                 is_final=True,

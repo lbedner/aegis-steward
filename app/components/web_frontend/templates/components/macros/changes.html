@@ -1,0 +1,125 @@
+{# Pending-change macros: the one set of parts every surface that shows a
+   proposal uses. ``display`` and ``verbs`` came from the approvals page;
+   the chat cards below render the STORED queue row, the same row approval
+   executes, so what the user sees and what runs cannot diverge.
+#}
+{% from "components/macros/form.html" import action, control %}
+{% from "components/macros/layout.html" import badge %}
+
+{# A proposal's value with teal on exactly the part that will change:
+   an arrow's target, or the leading amount of a "$3.99 · memo" line.
+   The subject line never gets it; teal means "will happen". #}
+{% macro fact(value) -%}
+{%- if " → " in value -%}
+{%- set before, _sep, target = value.rpartition(" → ") -%}
+{{ before }} → <span class="text-aegis-teal font-medium">{{ target }}</span>
+{%- elif " · " in value -%}
+{%- set head, _sep, tail = value.partition(" · ") -%}
+<span class="text-aegis-teal font-medium">{{ head }}</span> · {{ tail }}
+{%- else -%}
+<span class="text-aegis-teal font-medium">{{ value }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{# What a proposal says, the way a person reads it: the subject on its
+   own line (every executor puts it first, by convention), then each
+   proposed fact as a short sentence. The labels stay for the reader who
+   wants them, quieter than the values. #}
+{% macro display(change) %}
+{% set rows = change.display %}
+{% if rows %}
+<p class="text-sm font-medium text-aegis-text" data-subject>{{ rows[0].value }}</p>
+{% if rows|length > 1 %}
+<ul class="mt-0.5 space-y-0.5 text-xs text-aegis-muted">
+  {% for row in rows[1:] %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}</li>{% endfor %}
+</ul>
+{% endif %}
+{% endif %}
+{% if change.error %}<p class="text-xs text-error">{{ change.error }}</p>{% endif %}
+{% endmacro %}
+
+{% macro verbs(approve_url, reject_url, target, include=None) %}
+<div class="flex items-center gap-2 text-xs">
+  {{ action("Approve all" if include else "Approve", 'hx-post="' ~ approve_url ~ '" hx-target="' ~ target ~ '" hx-swap="outerHTML"' ~ (' hx-include="' ~ include ~ '"' if include else ""), tone="primary") }}
+  {{ action("Reject all" if include else "Reject", 'hx-post="' ~ reject_url ~ '" hx-target="' ~ target ~ '" hx-swap="outerHTML"') }}
+</div>
+{% endmacro %}
+
+{# A single proposal in the transcript. ``card`` is the route's shaping:
+   the change, its status word and tone, and a withdrawal note. Decided
+   cards fold to their one line: history, not homework. #}
+{% macro pending_change_card(card, base) %}
+{% set change = card.change %}
+{% set target = "chat-change-" ~ change.id %}
+<div id="{{ target }}" data-component="pending_change" class="rounded-lg border border-aegis-border bg-aegis-card p-4 max-w-md">
+  {% if card.pending %}
+  <div class="flex items-center justify-between gap-3 mb-3">
+    <h3 class="text-sm font-semibold text-aegis-text">{{ change.title or change.change_type }}</h3>
+    {{ badge(card.status, card.tone) }}
+  </div>
+  {{ display(change) }}
+  <div class="mt-3">{{ verbs(base ~ "/change/" ~ change.id ~ "/approve", base ~ "/change/" ~ change.id ~ "/reject", "#" ~ target) }}</div>
+  {% else %}
+  <details>
+    <summary class="list-none cursor-pointer flex items-center justify-between gap-3">
+      <span class="text-sm font-semibold text-aegis-text">{{ change.title or change.change_type }}</span>
+      {{ badge(card.status, card.tone) }}
+    </summary>
+    {% if card.note %}<p class="mt-2 text-xs text-aegis-muted">{{ card.note }}</p>{% endif %}
+    <div class="mt-3">{{ display(change) }}</div>
+  </details>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# A batch: every proposal as a row with a per-row veto while pending, the
+   bulk verbs saying how many will land, and an outcome summary once
+   decided. #}
+{% macro pending_change_batch_card(card, base) %}
+{% set target = "chat-batch-" ~ card.batch_id %}
+<div id="{{ target }}" data-component="pending_change_batch" class="rounded-lg border border-aegis-border bg-aegis-card p-4">
+  {% if card.pending %}
+  <div class="flex items-center justify-between gap-3 mb-2">
+    <h3 class="text-sm font-semibold text-aegis-text">{{ card.title }} <span class="text-aegis-muted font-normal">× {{ card.rows|length }}</span></h3>
+    {{ badge("Awaiting your approval", "warn") }}
+  </div>
+  <ul class="divide-y divide-aegis-border/60">
+    {% for row in card.rows %}
+    <li class="flex items-start gap-3 py-2 {{ 'opacity-60' if not row.pending }}">
+      {% if row.pending %}
+      <label class="inline-flex items-center gap-1 text-xxs text-aegis-muted mt-0.5" title="Leave this one out">
+        <input type="checkbox" name="exclude_ids" value="{{ row.change.id }}" class="{{ control('checkbox') }}"> skip
+      </label>
+      {% else %}
+      <span class="text-xxs mt-0.5">{{ badge(row.status, row.tone) }}</span>
+      {% endif %}
+      <div class="flex-1">{{ display(row.change) }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="mt-3">{{ verbs(base ~ "/batch/" ~ card.batch_id ~ "/approve", base ~ "/batch/" ~ card.batch_id ~ "/reject", "#" ~ target, include="#" ~ target) }}</div>
+  {% else %}
+  <details>
+    <summary class="list-none cursor-pointer flex items-center justify-between gap-3">
+      <span class="text-sm font-semibold text-aegis-text">{{ card.title }} <span class="text-aegis-muted font-normal">× {{ card.rows|length }}</span></span>
+      <span class="text-xs text-aegis-muted" data-outcome>{{ card.outcome }}</span>
+    </summary>
+    <ul class="mt-3 divide-y divide-aegis-border/60">
+      {% for row in card.rows %}
+      <li class="flex items-start gap-3 py-2"><span class="text-xxs mt-0.5">{{ badge(row.status, row.tone) }}</span><div class="flex-1">{{ display(row.change) }}</div></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# The registry's one door: a placeholder that loads the card for a known
+   kind from the queue; an unknown kind renders nothing. #}
+{% macro component(marker, base) %}
+{% if marker.kind == "pending_change" %}
+<div hx-get="{{ base }}/change/{{ marker.id }}" hx-trigger="load" hx-swap="outerHTML" data-component-load="{{ marker.kind }}"></div>
+{% elif marker.kind == "pending_change_batch" %}
+<div hx-get="{{ base }}/batch/{{ marker.id }}" hx-trigger="load" hx-swap="outerHTML" data-component-load="{{ marker.kind }}"></div>
+{% endif %}
+{% endmacro %}

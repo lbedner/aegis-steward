@@ -1,0 +1,101 @@
+{# Chat macros: the transcript's one set of bubbles.
+
+   A live turn and a history replay draw the same markup: ``user_bubble``
+   for what was asked, ``streaming_bubble`` while the answer arrives (the
+   script fills its body), ``assistant_bubble`` for a stored, settled
+   message (markdown, the tool trail, components, the footer). The
+   assistant is named once, by the route.
+#}
+
+{% macro user_bubble(text, at=None, attachments=None, attachment_names=None) %}
+<li class="flex justify-end pl-24" data-role="user">
+  {# A filled card, the way the Flet panel drew it: the tint is the
+     fill, not a hairline, and the text sits at body size. #}
+  <div class="max-w-full rounded-lg bg-aegis-teal/15 px-5 py-4 text-base text-aegis-text">
+    <div class="flex items-center gap-2 mb-1.5">
+      <span class="text-sm font-semibold text-aegis-text">You</span>
+      <button type="button" data-replay aria-label="Send this message again" title="Send this message again"
+              class="text-aegis-muted/70 hover:text-aegis-text transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3.5 h-3.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+      </button>
+    </div>
+    <span class="whitespace-pre-wrap" data-text>{{ text }}</span>
+    {% if attachments %}
+    <div class="mt-2 flex flex-wrap gap-2" data-attachments>
+      {% for image in attachments %}
+      <a href="{{ image.url }}" target="_blank" rel="noopener" title="{{ image.name }}"><img src="{{ image.url }}" alt="{{ image.name }}" width="64" height="64" loading="lazy" class="w-16 h-16 rounded object-cover border border-aegis-border"></a>
+      {% endfor %}
+    </div>
+    {% elif attachment_names %}
+    <p class="mt-1.5 text-xs text-aegis-muted" data-attached>Attached: {{ attachment_names|join(", ") }}</p>
+    {% endif %}
+  </div>
+</li>
+{% endmacro %}
+
+{# The rows under an answer: one per tool call, each opening the run in
+   the one modal (pattern 4) with what it actually did. #}
+{% macro trail_rows(rows) %}
+{% if rows %}
+<ul class="mb-3 space-y-1 text-xs" data-trail>
+  {% for row in rows %}
+  <li>
+    <button type="button" {{ hx_dialog(row.url) }}
+            class="block max-w-full truncate font-mono text-left {{ 'text-error' if row.failed else 'text-aegis-muted' }} hover:text-aegis-text transition-colors"
+            title="{{ 'Expand this failed run' if row.failed else 'Expand this run' }}">{{ row.label }}</button>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endmacro %}
+
+{# The answer's typography: what the markdown filter emits, styled once. #}
+{% set prose = "text-sm leading-relaxed text-aegis-text [&_p]:my-2 [&_h1]:text-xl [&_h1]:font-semibold [&_h1]:mt-5 [&_h1]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2 [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-2 [&_li]:my-0.5 [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-xs [&_code]:text-aegis-teal [&_pre]:rounded [&_pre]:bg-aegis-bg [&_pre]:border [&_pre]:border-aegis-border [&_pre]:p-3 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre_code]:text-aegis-text [&_table]:my-2 [&_th]:text-left [&_th]:font-medium [&_th]:pr-4 [&_td]:pr-4 [&_td]:py-0.5 [&_a]:text-aegis-teal [&_blockquote]:border-l-2 [&_blockquote]:border-aegis-border [&_blockquote]:pl-3 [&_blockquote]:text-aegis-muted" %}
+
+{% from "components/macros/changes.html" import component %}
+
+{% macro assistant_bubble(message, assistant) %}
+<li class="pr-24" data-role="assistant" data-message-id="{{ message.id }}">
+  <div class="group">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="micro-label text-aegis-muted">{{ assistant }}</span>
+    </div>
+    {{ trail_rows(message.trail) }}
+    <div class="{{ prose }}" data-body>{{ message.content|markdown }}</div>
+    {% if message.components %}
+    <div class="mt-3 space-y-3" data-components>
+      {% for marker in message.components %}{{ component(marker, message.components_base) }}{% endfor %}
+    </div>
+    {% endif %}
+    {% if message.footer %}
+    <div class="mt-2 flex items-center gap-3 text-xxs text-aegis-muted">
+      <span data-footer>{{ message.footer }}</span>
+      <button type="button" data-copy aria-label="Copy" title="Copy"
+              class="opacity-0 group-hover:opacity-100 transition-opacity hover:text-aegis-text">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3.5 h-3.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"/></svg>
+      </button>
+    </div>
+    {% endif %}
+    <template data-raw>{{ message.content }}</template>
+  </div>
+</li>
+{% endmacro %}
+
+{# The bubble a live turn streams into. The script reads ``data-stream``
+   (what to send) and fills ``data-body`` and ``data-trail``; when the
+   stream completes it swaps this whole element for ``assistant_bubble``
+   rendered from the stored message. #}
+{% macro streaming_bubble(text, conversation_id, assistant) %}
+<li class="pr-24" data-role="assistant" data-stream data-text="{{ text }}" {% if conversation_id %}data-conversation-id="{{ conversation_id }}"{% endif %}>
+  <div class="flex items-center gap-2 mb-1">
+    <span class="micro-label text-aegis-muted">{{ assistant }}</span>
+  </div>
+  <ul class="mb-3 space-y-1 text-xs font-mono text-aegis-muted hidden" data-trail></ul>
+  <div class="{{ prose }}" data-body></div>
+  <div class="mt-2 flex gap-1 py-1" data-busy aria-label="Thinking">
+    <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse"></span>
+    <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse [animation-delay:.15s]"></span>
+    <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse [animation-delay:.3s]"></span>
+  </div>
+</li>
+{% endmacro %}

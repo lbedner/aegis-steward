@@ -53,7 +53,8 @@
    bordered on the page surface so a bar of them reads as one. DaisyUI
    owns focus, disabled and placeholder states; the theme owns radius and
    color. Templates never spell a DaisyUI control class themselves. #}
-{% set _surface = "bg-aegis-bg text-aegis-text focus:border-aegis-teal" %}
+{# DaisyUI draws its own 2px outline on focus; the teal border is the focus cue here, so the outline goes. #}
+{% set _surface = "bg-aegis-bg text-aegis-text focus:border-aegis-teal focus:outline-none focus-within:outline-none" %}
 {# Class names are spelled in full: Tailwind emits only what it can read
    from the source, so a name built from parts would never compile. #}
 {% macro control(kind) -%}

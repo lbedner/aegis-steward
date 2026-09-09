@@ -23,6 +23,7 @@ class TestNav:
             "projected",
             "budget",
             "review",
+            "chat",
             "settings",
         ]
 

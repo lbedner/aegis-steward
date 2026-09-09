@@ -502,6 +502,14 @@ class TestToolUseSurfacing:
         run_code = next(entry for entry in trace if entry["tool"] == "run_code")
         assert "42" in run_code["result"]
         assert [n["tool"] for n in run_code["nested"]] == ["ledger", "accounts"]
+        # The saved message keeps what the frame reported: one dict, so a
+        # replay shows the same model, cost and trace the live turn did.
+        stored = service.get_conversation(finals[-1].conversation_id)
+        assert stored is not None
+        kept = stored.messages[-1].metadata
+        assert kept["tool_trace"] == trace
+        for key in ("model", "provider", "cost", "gen_tps", "response_time_ms"):
+            assert kept[key] == finals[-1].metadata[key], key
 
     async def test_pre_tool_narration_is_dropped_from_the_answer(
         self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]

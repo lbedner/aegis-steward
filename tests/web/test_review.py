@@ -43,7 +43,7 @@ class TestApprovals:
         page = client.get("/review").text
         card = one(page, f"#change-{review.change}")
         assert "Categorize a transaction" in text(one(card, "h3"))
-        assert select(card, "dl dt")  # the display rows
+        one(card, "[data-subject]")  # the subject line, then the facts
         approve = one(card, f'[hx-post="/review/changes/{review.change}/approve"]')
         assert approve.get("hx-target") == f"#change-{review.change}"
         assert approve.get("hx-swap") == "outerHTML"

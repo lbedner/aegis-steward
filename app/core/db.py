@@ -78,12 +78,22 @@ async_engine = create_async_engine(
 )
 
 
+# SQLite has one writer at a time. Every connection, sync and async, waits
+# its turn rather than failing at once: the conversation store and the
+# usage recorder write through this sync engine at the end of a chat turn
+# while a tool's session, the icon fill or the scheduler may hold the
+# lock, and without the timeout that save failed with "database is
+# locked" after the answer had already streamed.
+SQLITE_BUSY_TIMEOUT_MS = 30000
+
+
 # Enable foreign key constraints for SQLite
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
-    """Enable foreign key constraints in SQLite."""
+    """Enable foreign key constraints in SQLite, and wait for the lock."""
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     cursor.close()
 
 
@@ -97,10 +107,7 @@ def _async_sqlite_take_over_transactions(
     dbapi_connection: Any, connection_record: Any
 ) -> None:
     dbapi_connection.isolation_level = None
-    # A chat run holds one connection while each tool call commits on its
-    # own; without a timeout the second writer fails at once with
-    # "database is locked" instead of waiting its turn.
-    dbapi_connection.execute("PRAGMA busy_timeout=30000")
+    dbapi_connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
 
 
 @event.listens_for(async_engine.sync_engine, "begin")

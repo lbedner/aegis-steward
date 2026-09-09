@@ -6,6 +6,10 @@ finance service as integer minor units with a currency code.
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime
+import html
+from typing import Any
+
+from markupsafe import Markup
 
 # Symbols for the codes a household ledger actually sees; anything else
 # shows its code.
@@ -77,9 +81,73 @@ def money_to_cents(raw: str | None) -> int | None:
         return None
 
 
+# A settled assistant message is markdown from a model. marko renders it
+# (GFM: tables, strikethrough, autolinks); raw HTML in the source is
+# escaped rather than passed through, so the model can format but never
+# inject markup. The mixin is registered LAST so it sits first in the
+# renderer's MRO, ahead of GFM's own tag filter.
+def _safe_markdown() -> Any:
+    from marko import Markdown
+    from marko.ext.gfm import GFM
+    from marko.helpers import MarkoExtension
+
+    class EscapeHTML:
+        def render_html_block(self, element: Any) -> str:
+            return html.escape(element.body)
+
+        def render_inline_html(self, element: Any) -> str:
+            return html.escape(element.children)
+
+    return Markdown(extensions=[GFM, MarkoExtension(renderer_mixins=[EscapeHTML])])
+
+
+_MARKDOWN = _safe_markdown()
+
+
+def markdown(text: str | None) -> Markup:
+    """Model markdown as HTML, with any raw HTML in it escaped."""
+    return Markup(_MARKDOWN.convert(text or ""))
+
+
+# A run's script, highlighted with the classes ``input.css`` colours from
+# the theme tokens (``.hl .k`` and friends); pygments ships with the CLI's
+# renderer already.
+def _highlighter() -> Any:
+    from pygments import highlight
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import JsonLexer, PythonLexer
+
+    formatter = HtmlFormatter(nowrap=True)
+    lexers = {"python": PythonLexer(), "json": JsonLexer()}
+    return lambda code, lang: highlight(code, lexers[lang], formatter)
+
+
+_HIGHLIGHT = _highlighter()
+
+
+def code(source: str | None, lang: str = "python") -> Markup:
+    """Source as highlighted HTML spans (no wrapper, no styles); ``lang``
+    is python or json."""
+    return Markup(_HIGHLIGHT(source or "", lang))
+
+
+# The assistant's name, by agent slug. The queue stamps a proposal with
+# the slug of the agent that made it; a person reads the name. One map,
+# shared by the chat page (which names its assistant) and every badge.
+ASSISTANTS = {"finance-assistant": "Illiana"}
+
+
+def assistant(slug: str | None) -> str:
+    """The assistant's display name for an agent slug, else the slug."""
+    return ASSISTANTS.get(slug or "", slug or "")
+
+
 FILTERS: dict[str, Callable[..., str]] = {
     "money": money,
     "cents_to_input": cents_to_input,
     "short_date": short_date,
     "pct": pct,
+    "markdown": markdown,
+    "code": code,
+    "assistant": assistant,
 }
