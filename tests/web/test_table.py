@@ -76,3 +76,34 @@ class TestDataTable:
     def test_blank_values_render_as_a_dash(self) -> None:
         html = render([{"key": "name", "label": "Name"}], [{"name": None}])
         assert text(one(html, "tbody td")) == "-"
+
+
+class TestAvatarCell:
+    def test_avatar_kind_puts_the_brand_beside_the_name(self) -> None:
+        """An ``avatar`` column shows the row's icon (or the initial when
+        there is none) before the value, the way the Overseer rows did."""
+        columns = [{"key": "name", "label": "Name", "kind": "avatar"}]
+        html = render(
+            columns,
+            [
+                {"id": 1, "name": "Shell", "icon_url": "/icons?key=shell.com"},
+                {"id": 2, "name": "Water Co", "icon_url": None},
+                {
+                    "id": 3,
+                    "name": "Landlord",
+                    "icon_url": None,
+                    "category": "Rent And Utilities",
+                },
+            ],
+        )
+        cells = select(html, "tbody td")
+        img = one(cells[0], "img")
+        assert img.get("src") == "/icons?key=shell.com" and img.get("alt") == ""
+        assert text(cells[0]) == "Shell"
+        none(cells[1], "img")
+        assert one(cells[1], "[data-avatar]").get("data-avatar") == "W"
+        assert text(cells[1]) == "Water Co"
+        # A category with no brand shows the category's glyph, not a letter.
+        assert one(cells[2], "[data-glyph] svg path").get("d")
+        none(cells[2], "[data-avatar]")
+        assert text(cells[2]) == "Landlord"

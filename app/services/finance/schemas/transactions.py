@@ -60,7 +60,12 @@ class TransactionResponse(BaseModel):
     # descriptor.
     merchant_id: int | None = None
     merchant: str | None = None
-    # Base64 PNG for the payee's brand icon (merchant_icon.py).
+    # Where the payee is usually filed; a row with no category of its own
+    # borrows it for its brand mark's glyph.
+    payee_category: str | None = None
+    # The payee's brand icon (merchant_icon.py): a same-origin URL for a
+    # browser, the base64 bytes for the Flet client.
+    icon_url: str | None = None
     icon_b64: str | None = None
     pfc_primary: str | None = None
     pfc_detailed: str | None = None

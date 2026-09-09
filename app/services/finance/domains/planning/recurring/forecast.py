@@ -76,7 +76,13 @@ def upcoming_outflows(
     if limit is not None:
         bills = bills[:limit]
     return [
-        {"name": p.name, "date": p.date, "due_date": p.due_date, "amount": -p.amount}
+        {
+            "name": p.name,
+            "date": p.date,
+            "due_date": p.due_date,
+            "amount": -p.amount,
+            "category": p.category,
+        }
         for p in bills
     ]
 

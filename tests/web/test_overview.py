@@ -8,10 +8,11 @@ are committed before the page is requested, exactly as the API tests do.
 from datetime import date
 
 from fastapi.testclient import TestClient
+import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
-from tests.web.conftest import Ledger
+from tests.web.conftest import Ledger, Streams
 from tests.web.dom import card, chart_data, none, one, select, stat, text
 
 
@@ -81,6 +82,71 @@ class TestSeededLedger:
             "Payroll",
         ]
         assert one(section, 'a[href="/review/uncategorized"]') is not None
+
+    def test_cards_carry_the_brand_marks(
+        self, client: TestClient, ledger: Ledger, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Top payees, upcoming bills and the two transaction tables show
+        the same avatar the register does: the icon when it resolved,
+        the initial otherwise."""
+        from app.services.finance.domains.ledger import merchant_icon
+
+        monkeypatch.setitem(merchant_icon._CACHE, "market.com", "AAAA")
+        page = client.get("/overview").text
+        first = select(card(page, "Top payees"), ".ranked li")[0]
+        assert one(first, "img").get("src") == "/icons?key=market.com"
+        # Upcoming bills shares the ranked recipe; the seeded ledger has none.
+        assert select(card(page, "Recent transactions"), "img, [data-avatar]")
+
+    async def test_upcoming_bill_without_a_brand_shows_its_category_glyph(
+        self, client: TestClient, finance: FinanceService, streams: Streams
+    ) -> None:
+        rent = await finance.get_or_create_category_from_hint("Rent And Utilities")
+        await finance.db.commit()
+        client.post(f"/bills/{streams.rent}/categorize", data={"category_id": rent.id})
+        section = card(client.get("/overview").text, "Upcoming bills")
+        rows = select(section, ".ranked li")
+        rent = next(r for r in rows if "Rent" in text(r))
+        assert one(rent, "[data-glyph]").get("data-glyph") == "Rent And Utilities"
+
+    async def test_top_payee_without_a_brand_shows_its_category_glyph(
+        self, client: TestClient, finance: FinanceService, ledger: Ledger
+    ) -> None:
+        """Top payees are grouped by name with no payee row behind them;
+        the card still knows where each is filed and draws that glyph."""
+        rows, _ = await finance.list_transactions(owner_user_id=None, page_size=50)
+        rent = await finance.get_or_create_category_from_hint("Rent And Utilities")
+        market = [t for t in rows if t.name == "Market"]
+        payee = await finance.create_merchant("Market", owner_user_id=None)
+        await finance.assign_merchant(
+            [t.id for t in market], payee.id, owner_user_id=None
+        )
+        for txn in market:
+            await finance.categorize_transaction(txn.id, rent.id, owner_user_id=None)
+        await finance.db.commit()
+        section = card(client.get("/overview").text, "Top payees")
+        first = select(section, ".ranked li")[0]
+        assert text(first).startswith("Market")
+        assert one(first, "[data-glyph]").get("data-glyph") == "Rent And Utilities"
+
+    async def test_uncategorized_row_borrows_its_payees_usual_glyph(
+        self, client: TestClient, finance: FinanceService, ledger: Ledger, merchant: int
+    ) -> None:
+        """An unfiled charge from a payee that is normally filed under a
+        category shows that category's glyph, not a letter."""
+        transport = await finance.get_or_create_category_from_hint("Transportation")
+        rows, _ = await finance.list_transactions(owner_user_id=None, page_size=50)
+        gas = next(t for t in rows if t.name == "Gas")
+        await finance.categorize_transaction(gas.id, transport.id, owner_user_id=None)
+        unfiled = await finance.create_transaction(
+            account_id=gas.account_id, amount=-4_000, txn_date=gas.date_, name="Gas"
+        )
+        await finance.assign_merchant([unfiled.id], merchant, owner_user_id=None)
+        await finance.db.commit()
+
+        section = card(client.get("/overview").text, "Uncategorized")
+        row = next(r for r in select(section, "tbody tr") if "Gas" in text(r))
+        assert one(row, "[data-glyph]").get("data-glyph") == "Transportation"
 
     def test_top_payees(self, client: TestClient, ledger: Ledger) -> None:
         section = card(client.get("/overview").text, "Top payees")

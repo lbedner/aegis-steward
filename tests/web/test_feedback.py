@@ -121,7 +121,9 @@ class TestAction:
             "button",
         )
         assert quiet.get("hx-get") == "/e" and quiet.get("type") == "button"
-        assert "text-aegis-muted" in quiet.get("class") and "btn-error" not in quiet.get("class")
+        assert "text-aegis-muted" in quiet.get(
+            "class"
+        ) and "btn-error" not in quiet.get("class")
         assert "btn-error" in danger.get("class") and danger.get("hx-delete") == "/r"
 
 

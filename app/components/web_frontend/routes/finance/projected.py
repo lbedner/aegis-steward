@@ -18,6 +18,7 @@ from app.components.web_frontend.filters import short_date
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.ledger.merchant_icon import Icon, payee_icons_by_name
 from app.services.finance.schemas import ProjectionPoint, ProjectionResponse
 from app.services.finance.service import FinanceService
 
@@ -30,7 +31,7 @@ DEFAULT_DAYS = 90
 MAX_DAYS = 730
 COLUMNS = [
     {"key": "when", "label": "Date", "kind": "status"},
-    {"key": "name", "label": "Name"},
+    {"key": "name", "label": "Name", "kind": "avatar"},
     {"key": "category", "label": "Category"},
     {"key": "account", "label": "Account"},
     {
@@ -80,9 +81,12 @@ def balance_chart(projection: ProjectionResponse) -> dict[str, Any] | None:
     }
 
 
-def ledger_rows(points: list[ProjectionPoint]) -> list[dict[str, Any]]:
+def ledger_rows(
+    points: list[ProjectionPoint], icons: dict[str, Icon] | None = None
+) -> list[dict[str, Any]]:
     """An overdue occurrence lands on today so the balance is right, but
-    the row shows the day it was owed, in the overdue tone."""
+    the row shows the day it was owed, in the overdue tone. ``icons``
+    maps a name to its brand mark URL."""
     return [
         {
             "when": {
@@ -90,6 +94,7 @@ def ledger_rows(points: list[ProjectionPoint]) -> list[dict[str, Any]]:
                 "tone": "warn" if p.due_date else None,
             },
             "name": p.name,
+            "icon_url": icon.url if (icon := (icons or {}).get(p.name)) else None,
             "category": p.category,
             "account": p.account,
             "amount": p.amount,
@@ -115,6 +120,9 @@ async def page(
     accounts, _total = await service.list_accounts(
         owner_user_id=owner_user_id, page_size=500
     )
+    icons = await payee_icons_by_name(
+        service.db, [p.name for p in projection.points], owner_user_id=owner_user_id
+    )
     return render(
         request,
         "pages/projected.html",
@@ -126,7 +134,7 @@ async def page(
             "accounts": accounts,
             "projection": projection,
             "chart": balance_chart(projection),
-            "rows": ledger_rows(projection.points),
+            "rows": ledger_rows(projection.points, icons),
             "columns": COLUMNS,
         },
     )

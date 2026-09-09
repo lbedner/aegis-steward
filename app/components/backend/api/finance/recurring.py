@@ -82,10 +82,7 @@ async def hydrate_streams(
     a single-row caller lets it be looked up here.
     """
     from app.core.config import settings
-    from app.services.finance.domains.ledger.merchant_icon import (
-        domain_from_website,
-        icons_for_names,
-    )
+    from app.services.finance.domains.ledger.merchant_icon import payee_icons
 
     if payment_ids is None:
         transfer_ids = await service.transfer_stream_ids([s.id for s in streams])
@@ -105,17 +102,9 @@ async def hydrate_streams(
         owner_user_id=owner_user_id, page_size=500
     )
     account_names = {a.id: a.name for a in accounts}
-    websites = await service.merchant_websites(
-        {s.merchant_id for s in streams if s.merchant_id is not None}
-    )
-    icons = await icons_for_names(
+    icons = await payee_icons(
         service.db,
-        [payee_names.get(s.merchant_id) or s.name for s in streams],
-        domains_by_name={
-            payee_names[mid]: domain
-            for mid, url in websites.items()
-            if (domain := domain_from_website(url)) and mid in payee_names
-        },
+        [(s.merchant_id, payee_names.get(s.merchant_id) or s.name) for s in streams],
     )
     # Same lookback floor generate_insights computes for _missed_recurring -
     # a stream reading "stale" here is exactly the set that rule already
@@ -131,7 +120,7 @@ async def hydrate_streams(
             s,
             account_name=account_names.get(s.account_id),
             category_name=category_names.get(s.id),
-            icon_b64=icons.get(payee_names.get(s.merchant_id) or s.name),
+            icon=icons.get(payee_names.get(s.merchant_id) or s.name),
             staleness=stream_staleness(s, today, floor),
             is_payment=s.id in payment_ids,
         )

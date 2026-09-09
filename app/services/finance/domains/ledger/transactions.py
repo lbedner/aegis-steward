@@ -327,8 +327,20 @@ async def top_payees(
     rows = await queries.top_payees_over_window(
         db, owner_user_id=owner_user_id, days=days, limit=limit
     )
+    # The card knows a payee by name; where it is usually filed comes from
+    # the same rule every other row uses (merchants.merchant_usual_categories).
+    from app.services.finance.domains.ledger.merchants import usual_categories_by_name
+
+    usual = await usual_categories_by_name(
+        db, [payee for payee, *_rest in rows], owner_user_id=owner_user_id
+    )
     return [
-        PayeeTotal(payee=payee, amount=amount, transaction_count=count)
+        PayeeTotal(
+            payee=payee,
+            amount=amount,
+            transaction_count=count,
+            category=usual.get(payee),
+        )
         for payee, amount, count in rows
     ]
 
