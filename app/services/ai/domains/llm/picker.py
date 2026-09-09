@@ -1,6 +1,7 @@
-"""Display helpers for the composer's model selector (pure, testable).
+"""Display helpers for a model picker (pure, testable).
 
-The selector itself lives in ``model_picker``; these shape API payloads
+Shared by every surface that lets a person pick the active model (the
+web chat's picker, the Flet panel's): these shape the catalog payloads
 (``/api/v1/llm/current``, ``/api/v1/llm/models``) into what it renders.
 """
 

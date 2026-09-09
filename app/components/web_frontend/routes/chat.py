@@ -29,6 +29,13 @@ from app.components.backend.api.finance.changes import (
     reject_batch,
     reject_change,
 )
+from app.components.backend.api.llm.router import (
+    SetModelRequest,
+    get_current,
+    get_models,
+    get_vendors,
+    set_current,
+)
 from app.components.web_frontend.filters import assistant
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
@@ -36,6 +43,7 @@ from app.components.web_frontend.rendering import (
     dialog,
     render,
     templates,
+    with_toast,
 )
 from app.core.storage import get_storage, validate_key
 from app.services.ai.domains.chat.transcript import (
@@ -44,6 +52,16 @@ from app.services.ai.domains.chat.transcript import (
     trace_failed,
     trace_label,
     trace_output,
+)
+from app.services.ai.domains.llm.picker import (
+    display_title,
+    filter_models,
+    format_context_window,
+    format_price,
+    group_models,
+    lab_for_model,
+    model_label,
+    newest_first,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
@@ -274,6 +292,130 @@ def _stored(conversation_id: str, message_id: str) -> Any:
 
 HISTORY_LIMIT = 25
 
+# --- the model picker ------------------------------------------------------
+#
+# Switching is an install-wide override (the AI routes re-read it per
+# request), not a per-conversation setting; the dialog says "Active
+# model" for that reason. Honest caps: a section shows this many rows and
+# a flat view this many, with a "more - search to narrow" line rather than
+# silent truncation. The catalog is small enough to fetch per open.
+
+MODELS = SECTION.path + "/models"
+GROUP_MODES = (("vendor", "Vendors"), ("family", "Families"), ("all", "All"))
+SECTION_ROW_CAP = 30
+FLAT_ROW_CAP = 60
+CATALOG_LIMIT = 200
+
+
+async def model_chip() -> dict[str, Any]:
+    """What the composer's chip says: the active model's id, clipped."""
+    current = await get_current()
+    return {"label": model_label(current.model_dump()), "model": current.model}
+
+
+def _row(
+    model: dict[str, Any], *, under_vendor: str | None, icons: dict[str, str]
+) -> dict[str, Any]:
+    """One picker row. An icon only where it adds information: the lab
+    behind a hosted model when it differs from the section's vendor, and
+    the vendor in flat views that have no section context."""
+    lab = lab_for_model(model)
+    vendor = str(model.get("vendor") or "")
+    if under_vendor:
+        icon_for = lab if lab and lab.casefold() != under_vendor.casefold() else None
+    else:
+        icon_for = lab or vendor
+    facts = " · ".join(
+        part
+        for part in (
+            format_context_window(model.get("context_window")),
+            format_price(model.get("input_price"), model.get("output_price")),
+        )
+        if part
+    )
+    return {
+        "model_id": model["model_id"],
+        "title": display_title(model, under_vendor=under_vendor),
+        "facts": facts,
+        "icon_name": icon_for,
+        "icon_b64": icons.get(icon_for or ""),
+        "color": model.get("color") or "",
+    }
+
+
+async def picker(query: str, mode: str) -> dict[str, Any]:
+    """The picker's contents: sections (or one flat list when searching
+    or in All mode), rows capped honestly, the active model marked."""
+    current = await get_current()
+    active = current.model
+    # Every argument spelled out: called in-process, the handler's Query
+    # defaults are not values.
+    models = [
+        m.model_dump()
+        for m in await get_models(
+            pattern=None,
+            vendor=None,
+            modality=None,
+            limit=CATALOG_LIMIT,
+            include_disabled=False,
+            usable=True,
+        )
+    ]
+    icons = {v.name: v.icon_b64 for v in await get_vendors(usable=True) if v.icon_b64}
+    query = query.strip()
+    if query or mode == "all":
+        rows = (
+            newest_first(filter_models(models, query))
+            if query
+            else newest_first(models)
+        )
+        shown = rows[:FLAT_ROW_CAP]
+        sections = [
+            {
+                "name": None,
+                "rows": [_row(m, under_vendor=None, icons=icons) for m in shown],
+                "hidden": len(rows) - len(shown),
+                "open": True,
+            }
+        ]
+    else:
+        sections = []
+        for name, rows in group_models(models, by=mode):
+            shown = rows[:SECTION_ROW_CAP]
+            # A family section still belongs to one vendor in practice; its
+            # first row names the icon the header wears, and the rows under
+            # it go bare unless a lab differs (the header said the vendor).
+            vendor = name if mode == "vendor" else str(rows[0].get("vendor") or "")
+            sections.append(
+                {
+                    "name": name,
+                    "vendor": vendor,
+                    "icon_b64": icons.get(vendor),
+                    "color": next((m.get("color") for m in rows if m.get("color")), ""),
+                    "count": len(rows),
+                    "rows": [
+                        _row(
+                            m,
+                            under_vendor=vendor,
+                            icons=icons,
+                        )
+                        for m in shown
+                    ],
+                    "hidden": len(rows) - len(shown),
+                    # The section holding the active model opens by default.
+                    "open": any(m["model_id"] == active for m in rows),
+                }
+            )
+    return {
+        "active": active,
+        "query": query,
+        "mode": mode if mode in dict(GROUP_MODES) else "vendor",
+        "modes": GROUP_MODES,
+        "sections": sections,
+        "empty": not any(s["rows"] for s in sections),
+        "path": MODELS,
+    }
+
 
 def _conversations() -> list[Any]:
     """This surface's conversations, newest first."""
@@ -302,7 +444,47 @@ async def page(request: Request, _: None = Depends(sync_active_model)) -> Respon
             "assistant": ASSISTANT_NAME,
             "stream_url": STREAM_URL,
             "turn_defaults": TURN_DEFAULTS,
+            "chip": await model_chip(),
             **_transcript(latest),
+        },
+    )
+
+
+@router.get(MODELS, include_in_schema=False)
+async def models_dialog(
+    request: Request, q: str = "", mode: str = "vendor"
+) -> Response:
+    """The picker, in the one modal; the same route re-renders its body
+    as the search or the grouping changes."""
+    return dialog(request, "partials/chat/models.html", picker=await picker(q, mode))
+
+
+@router.post(MODELS, include_in_schema=False)
+async def pick_model(
+    request: Request,
+    model_id: Annotated[str, Form()],
+    q: Annotated[str, Form()] = "",
+    mode: Annotated[str, Form()] = "vendor",
+) -> Response:
+    """A pick updates the dialog in place (compare and switch twice without
+    reopening) and the composer's chip out of band; a refused pick shows
+    the API's message and changes nothing."""
+    try:
+        await set_current(SetModelRequest(model_id=model_id))
+    except HTTPException as exc:
+        response = dialog(
+            request, "partials/chat/models.html", picker=await picker(q, mode)
+        )
+        return with_toast(
+            response, str(exc.detail) or "Model switch failed.", tone="error"
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/chat/models.html",
+        context={
+            "picker": await picker(q, mode),
+            "chip": await model_chip(),
+            "chip_oob": True,
         },
     )
 

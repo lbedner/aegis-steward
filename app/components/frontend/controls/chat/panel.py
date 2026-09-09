@@ -20,13 +20,13 @@ from app.components.frontend.controls.text import SecondaryText
 from app.components.frontend.theme import AegisTheme as Theme
 from app.core.log import logger
 from app.core.sse import stream_sse_post
+from app.services.ai.domains.llm.picker import model_label
 
 from .attachments_ui import AttachmentsMixin, attachment_payload
 from .components import PendingChangeBatchCard, components_from_trace
 from .history_ui import HistoryMixin
 from .message import ChatMessageBubble
 from .model_picker import ModelChipMixin
-from .models import model_label
 from .stream import (
     StreamAccumulator,
     narration_note,

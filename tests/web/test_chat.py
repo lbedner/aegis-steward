@@ -6,6 +6,8 @@ exercised here; these cover everything the page renders around it.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi.testclient import TestClient
 import pytest
 
@@ -424,6 +426,11 @@ class TestAttachments:
         img = one(thread, "[data-role=user] [data-attachments] img")
         assert img.get("alt") == "receipt.png"
         assert img.get("src") == f"/chat/attachments/{key}?type=image%2Fpng"
+        # Opens in the one modal, never a new tab.
+        none(thread, "[data-attachments] a[target=_blank]")
+        assert one(thread, "[data-attachments] button[data-view-image]").get(
+            "data-view-image"
+        ) == img.get("src")
 
         served = hx.get(img.get("src"))
         assert served.status_code == 200
@@ -446,3 +453,161 @@ class TestAttachments:
         assert attach.get("accept") == "image/png,image/jpeg,image/webp,image/gif"
         assert attach.get("multiple") is not None
         one(page, "#chat-attachments[hidden]")
+
+
+class TestModelPicker:
+    """The picker reads the catalog through the LLM handlers; the suite's
+    catalog is empty, so these stub the two reads and exercise the
+    shaping, the markup and the pick."""
+
+    @pytest.fixture
+    def catalog(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+        import importlib
+
+        llm = importlib.import_module("app.components.backend.api.llm.router")
+        from app.components.web_frontend.routes import chat as routes
+
+        state: dict[str, Any] = {"active": "qwen2.5:7b", "picks": []}
+
+        async def current() -> Any:
+            return llm.CurrentConfigResponse(
+                provider="ollama",
+                model=state["active"],
+                temperature=0.7,
+                max_tokens=1024,
+            )
+
+        async def models(**_: Any) -> list[Any]:
+            return [
+                llm.ModelResponse(
+                    model_id="qwen2.5:7b",
+                    title="Qwen 2.5 7B",
+                    vendor="ollama",
+                    family="qwen",
+                    context_window=32000,
+                    input_price=None,
+                    output_price=None,
+                    released_on="2025-01-01",
+                ),
+                llm.ModelResponse(
+                    model_id="gpt-oss:20b",
+                    title="GPT OSS 20B",
+                    vendor="ollama",
+                    family="gpt-oss",
+                    context_window=128000,
+                    input_price=None,
+                    output_price=None,
+                    released_on="2025-08-01",
+                ),
+                llm.ModelResponse(
+                    model_id="gpt-4o",
+                    title="OpenAI: GPT-4o",
+                    vendor="openai",
+                    family="gpt-4",
+                    context_window=128000,
+                    input_price=2.5,
+                    output_price=10.0,
+                    released_on="2024-05-13",
+                ),
+            ]
+
+        async def vendors(**_: Any) -> list[Any]:
+            return [
+                llm.VendorResponse(name="ollama", model_count=2),
+                llm.VendorResponse(name="openai", model_count=1, icon_b64="AAAA"),
+            ]
+
+        async def set_current(body: Any) -> Any:
+            if body.model_id == "nope":
+                from fastapi import HTTPException
+
+                raise HTTPException(
+                    status_code=404, detail="Model 'nope' is not in the catalog."
+                )
+            state["active"] = body.model_id
+            state["picks"].append(body.model_id)
+            return llm.SetModelResponse(
+                success=True, model_id=body.model_id, message="ok"
+            )
+
+        monkeypatch.setattr(routes, "get_current", current)
+        monkeypatch.setattr(routes, "get_models", models)
+        monkeypatch.setattr(routes, "get_vendors", vendors)
+        monkeypatch.setattr(routes, "set_current", set_current)
+        return state
+
+    def test_chip_names_the_active_model_and_opens_the_picker(
+        self, client: TestClient, catalog: dict[str, Any]
+    ) -> None:
+        chip = one(client.get("/chat").text, "#chat-model")
+        assert text(chip) == "qwen2.5:7b"
+        assert (
+            chip.get("hx-get") == "/chat/models"
+            and chip.get("hx-target") == "#dialog-body"
+        )
+
+    def test_vendor_sections_open_on_the_active_model_and_mark_it(
+        self, hx: TestClient, catalog: dict[str, Any]
+    ) -> None:
+        html = hx.get("/chat/models").text
+        sections = select(html, "details")
+        assert [text(one(s, "summary .micro-label")) for s in sections] == [
+            "ollama",
+            "openai",
+        ]
+        assert sections[0].get("open") is not None and sections[1].get("open") is None
+        active = one(html, "button[aria-current=true]")
+        assert active.get("data-model-id") == "qwen2.5:7b"
+        # Newest first within a section; the vendor prefix comes off under its own section.
+        ollama_rows = [
+            b.get("data-model-id") for b in select(sections[0], "button[data-model-id]")
+        ]
+        assert ollama_rows == ["gpt-oss:20b", "qwen2.5:7b"]
+        gpt4o = one(sections[1], "button[data-model-id='gpt-4o']")
+        assert text(one(gpt4o, "span span:first-child")) == "GPT-4o"
+        assert "128k · $2.50 / $10" in text(gpt4o)
+        one(sections[1], "summary img")  # the vendor icon rides the section
+
+    def test_family_sections_wear_the_vendor_and_their_rows_go_bare(
+        self, hx: TestClient, catalog: dict[str, Any]
+    ) -> None:
+        html = hx.get("/chat/models", params={"mode": "family"}).text
+        sections = select(html, "details")
+        names = [text(one(s, "summary .micro-label")) for s in sections]
+        assert names == ["Gpt 4", "Gpt Oss", "Qwen"]
+        gpt4 = sections[0]
+        assert one(gpt4, "summary img").get("width") == "28"  # the vendor, once
+        none(gpt4, "button[data-model-id] img")  # the rows do not repeat it
+
+    def test_search_flattens_and_keeps_the_context(
+        self, hx: TestClient, catalog: dict[str, Any]
+    ) -> None:
+        html = hx.get("/chat/models", params={"q": "gpt", "mode": "vendor"}).text
+        none(html, "details")
+        rows = select(html, "button[data-model-id]")
+        assert [r.get("data-model-id") for r in rows] == ["gpt-oss:20b", "gpt-4o"]
+        assert text(one(rows[1], "span span:first-child")) == "OpenAI: GPT-4o"
+        assert "No models match" in hx.get("/chat/models", params={"q": "zzz"}).text
+
+    def test_a_pick_switches_in_place_and_updates_the_chip(
+        self, hx: TestClient, catalog: dict[str, Any]
+    ) -> None:
+        html = hx.post(
+            "/chat/models", data={"model_id": "gpt-4o", "q": "", "mode": "vendor"}
+        ).text
+        assert catalog["picks"] == ["gpt-4o"]
+        assert one(html, "button[aria-current=true]").get("data-model-id") == "gpt-4o"
+        chip = one(html, "#chat-model[hx-swap-oob]")
+        assert text(chip) == "gpt-4o"
+
+    def test_a_refused_pick_changes_nothing_and_says_why(
+        self, hx: TestClient, catalog: dict[str, Any]
+    ) -> None:
+        response = hx.post("/chat/models", data={"model_id": "nope"})
+        assert catalog["picks"] == []
+        assert (
+            one(response.text, "button[aria-current=true]").get("data-model-id")
+            == "qwen2.5:7b"
+        )
+        none(response.text, "#chat-model")
+        assert "not in the catalog" in triggers(response)["toast"]["text"]
