@@ -44,6 +44,8 @@ class TestPage:
         ]
         assert [text(r["Name"]) for r in rows][:3] == ["Water", "Payroll", "Rent"]
         assert len(rows) == 5
+        # The ledger wears the same brand mark as every other payee row.
+        assert one(rows[0]["Name"], "[data-avatar]").get("data-avatar") == "W"
         when = one(rows[0]["Date"], "[data-tone]")
         assert when.get("data-tone") == "warn"  # shows the day it was due
         assert text(rows[1]["Amount"]) == "+$2,500.00"
