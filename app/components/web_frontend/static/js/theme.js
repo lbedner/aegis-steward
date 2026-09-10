@@ -8,8 +8,13 @@
    for `theme-changed` and repaint from the new tokens. */
 (() => {
   const root = document.documentElement;
-  const CHOICES = { theme: ['aegis', 'steward'], mode: ['dark', 'light', 'system'] };
-  const DEFAULTS = { theme: 'aegis', mode: 'dark' };
+  const CHOICES = {
+    theme: ['aegis', 'steward'],
+    mode: ['dark', 'light', 'system'],
+    // The floating "Ask Illiana" button; hidden by CSS on [data-assistant="hide"].
+    assistant: ['show', 'hide'],
+  };
+  const DEFAULTS = { theme: 'aegis', mode: 'dark', assistant: 'show' };
   const media = window.matchMedia('(prefers-color-scheme: dark)');
 
   const read = (key) => {
@@ -27,11 +32,12 @@
     const mode = read('mode');
     const resolved = mode === 'system' ? (media.matches ? 'dark' : 'light') : mode;
     root.dataset.theme = `${theme}-${resolved}`;
+    root.dataset.assistant = read('assistant');
     document.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme, mode } }));
   };
 
   /* The sidebar menu's Alpine state; what the user chose, not what resolved. */
-  window.appearance = () => ({ theme: read('theme'), mode: read('mode') });
+  window.appearance = () => ({ theme: read('theme'), mode: read('mode'), assistant: read('assistant') });
   window.setAppearance = (key, value) => {
     try {
       localStorage.setItem(key, value);

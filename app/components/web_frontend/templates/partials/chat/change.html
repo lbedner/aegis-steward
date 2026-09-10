@@ -1,2 +1,3 @@
 {% from "components/macros/changes.html" import pending_change_card %}
 {{ pending_change_card(card, base) }}
+{% if nav_oob %}{% include "components/sub_nav.html" %}{% endif %}

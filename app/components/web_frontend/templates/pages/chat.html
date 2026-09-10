@@ -1,60 +1,14 @@
 {% extends layout %}
 {% from "components/macros/layout.html" import page_header %}
-{% from "components/macros/form.html" import action, button_classes, control %}
-{% from "components/macros/chat.html" import model_chip %}
+{% from "components/macros/chat.html" import chat_toolbar %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
 {% block app_content %}
-{# The one chat surface. The script (static/js/chat.js) owns the stream:
-   it reads ``data-chat`` for the endpoint and the fixed request fields,
-   streams into whichever bubble the composer's post appends, and swaps the
-   settled bubble in when the turn completes. #}
-<div id="chat" class="flex flex-col h-[calc(100vh-7rem)]"
-     data-chat='{{ {"stream": stream_url, "defaults": turn_defaults}|tojson }}'>
-  {% call page_header(section.label, "Ask " ~ assistant ~ " about your money") %}
-  <div class="flex items-center gap-2">
-    {{ action("New conversation", 'hx-get="' ~ section.path ~ '/conversations/new" hx-target="#chat-thread" hx-swap="innerHTML"') }}
-    {{ action("History", hx_dialog(section.path ~ "/conversations")) }}
-  </div>
-  {% endcall %}
-
-  <div class="relative flex-1 min-h-0">
-    <div id="chat-scroll" class="h-full overflow-y-auto pr-2">
-      <ol id="chat-thread" class="space-y-6 pb-6">
-        {% include "partials/chat/transcript.html" %}
-      </ol>
-    </div>
-    <button type="button" id="chat-jump" hidden aria-label="Scroll to latest" title="Scroll to latest"
-            class="absolute right-4 bottom-4 {{ button_classes('default', 'xs') }} rounded-full">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
-    </button>
-  </div>
-
-  {# Composer: the post appends the turn's bubbles; the script takes it
-     from there. Enter sends, Shift+Enter inserts a newline. #}
-  {# Staged images live in the script (they ride the stream request, one
-     turn only); the chips are drawn from that list. #}
-  <div id="chat-attachments" class="shrink-0 flex-wrap gap-2 pt-3" hidden></div>
-  <form id="chat-composer" class="shrink-0 border-t border-aegis-border pt-3 flex items-end gap-2"
-        hx-post="{{ section.path }}/turns" hx-target="#chat-thread" hx-swap="beforeend"
-        x-data="{ text: '', staged: 0 }" @chat-staged.window="staged = $event.detail"
-        @htmx:after-request="if ($event.detail.successful) { text = ''; $refs.input.style.height = 'auto' }">
-    <input type="hidden" id="chat-conversation" name="conversation_id" value="{{ conversation_id or '' }}">
-    <div class="shrink-0 pb-2">{{ model_chip(chip, section.path ~ "/models") }}</div>
-    {# Not ``required``: a message may be images alone (the route sends the
-       house line); Send stays disabled until there is text or an image. #}
-    <textarea name="message" x-ref="input" x-model="text" rows="1"
-              placeholder="Message {{ assistant }}"
-              @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); if (text.trim() || staged) $el.form.requestSubmit() }"
-              @input="$el.style.height = 'auto'; $el.style.height = $el.scrollHeight + 'px'"
-              class="{{ control('textarea') }} flex-1 resize-none max-h-40 leading-relaxed min-h-0 py-3"></textarea>
-    <label class="{{ button_classes('default') }} cursor-pointer" title="Attach images">
-      <input type="file" id="chat-attach" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="sr-only" aria-label="Attach images">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
-    </label>
-    <button type="button" id="chat-stop" hidden class="{{ button_classes('default') }}" aria-label="Stop">Stop</button>
-    <button type="submit" id="chat-send" class="{{ button_classes() }}" aria-label="Send" :disabled="!text.trim() && !staged">Send</button>
-  </form>
+{# The page is the chat surface (partials/chat/surface.html), the same one
+   the Illiana drawer shows on every other page. #}
+<div class="flex flex-col h-[calc(100vh-7rem)]">
+  {% call page_header(section.label, "Ask " ~ assistant ~ " about your money") %}{{ chat_toolbar(path) }}{% endcall %}
+  <div class="flex-1 min-h-0">{% include "partials/chat/surface.html" %}</div>
 </div>
 {% endblock %}

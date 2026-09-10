@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import Response
@@ -35,6 +36,7 @@ from app.components.backend.api.llm.router import (
     get_models,
     get_vendors,
     set_current,
+    vendor_icons,
 )
 from app.components.web_frontend.filters import assistant
 from app.components.web_frontend.nav import section
@@ -45,14 +47,14 @@ from app.components.web_frontend.rendering import (
     templates,
     with_toast,
 )
-from app.core.storage import get_storage, validate_key
-from app.services.ai.domains.chat.transcript import (
+from app.core.chat_transcript import (
     footer_line,
     strip_attachment_marker,
     trace_failed,
     trace_label,
     trace_output,
 )
+from app.core.storage import get_storage, validate_key
 from app.services.ai.domains.llm.picker import (
     display_title,
     filter_models,
@@ -244,18 +246,32 @@ ATTACHMENTS = SECTION.path + "/attachments"
 
 def attachment_url(stored: dict[str, Any]) -> str:
     """Where a stored image is served from (see ``attachment``)."""
-    from urllib.parse import urlencode
-
     return f"{ATTACHMENTS}/{stored['key']}?" + urlencode(
         {"type": stored.get("media_type") or "image/png"}
     )
 
 
-def settled(message: Any, conversation_id: str) -> dict[str, Any]:
+async def model_icons(messages: list[Any]) -> dict[str, str]:
+    """``{provider: base64 png}`` for the providers that answered these
+    messages, from the same icon store the picker's vendors use."""
+    providers = sorted(
+        {
+            str((m.metadata or {}).get("provider"))
+            for m in messages
+            if (m.metadata or {}).get("provider")
+        }
+    )
+    return await vendor_icons(providers) if providers else {}
+
+
+def settled(
+    message: Any, conversation_id: str, icons: dict[str, str] | None = None
+) -> dict[str, Any]:
     """One stored message, shaped for the bubble macro."""
     meta = message.metadata or {}
     trace = meta.get("tool_trace") or []
     return {
+        "model_icon_b64": (icons or {}).get(str(meta.get("provider") or "")),
         # The images a user message carried, served by key so a reopened
         # conversation still shows what was pasted.
         "attachments": [
@@ -277,13 +293,20 @@ def settled(message: Any, conversation_id: str) -> dict[str, Any]:
     }
 
 
-def _stored(conversation_id: str, message_id: str) -> Any:
+def _owned(conversation_id: str) -> Any:
+    """This surface's conversation, or a 404: another user's is as absent
+    as a missing one."""
     conversation = ai_service.get_conversation(conversation_id)
     if (
         conversation is None
         or conversation.metadata.get("user_id") != STANDALONE_USER_ID
     ):
         raise HTTPException(status_code=404)
+    return conversation
+
+
+def _stored(conversation_id: str, message_id: str) -> Any:
+    conversation = _owned(conversation_id)
     found = next((m for m in conversation.messages if m.id == message_id), None)
     if found is None:
         raise HTTPException(status_code=404)
@@ -422,31 +445,46 @@ def _conversations() -> list[Any]:
     return ai_service.list_conversations(STANDALONE_USER_ID, surface=SURFACE)
 
 
-def _transcript(conversation: Any | None) -> dict[str, Any]:
+async def _transcript(conversation: Any | None) -> dict[str, Any]:
     if conversation is None:
         return {"conversation_id": None, "messages": []}
+    icons = await model_icons(conversation.messages)
     return {
         "conversation_id": conversation.id,
-        "messages": [settled(m, conversation.id) for m in conversation.messages],
+        "messages": [settled(m, conversation.id, icons) for m in conversation.messages],
+    }
+
+
+async def surface_context() -> dict[str, Any]:
+    """Everything the chat surface renders from, for the page and the
+    drawer alike: it opens onto the most recent conversation, never
+    blank unless there is none."""
+    latest = next(iter(_conversations()), None)
+    return {
+        "assistant": ASSISTANT_NAME,
+        "path": SECTION.path,
+        "stream_url": STREAM_URL,
+        "turn_defaults": TURN_DEFAULTS,
+        "chip": await model_chip(),
+        **await _transcript(latest),
     }
 
 
 @router.get(SECTION.path, include_in_schema=False)
 async def page(request: Request, _: None = Depends(sync_active_model)) -> Response:
-    """The page opens onto the most recent conversation, never blank
-    unless there is none."""
-    latest = next(iter(_conversations()), None)
     return render(
-        request,
-        "pages/chat.html",
-        {
-            "section": SECTION,
-            "assistant": ASSISTANT_NAME,
-            "stream_url": STREAM_URL,
-            "turn_defaults": TURN_DEFAULTS,
-            "chip": await model_chip(),
-            **_transcript(latest),
-        },
+        request, "pages/chat.html", {"section": SECTION, **await surface_context()}
+    )
+
+
+@router.get(SECTION.path + "/drawer", include_in_schema=False)
+async def drawer(request: Request, _: None = Depends(sync_active_model)) -> Response:
+    """The surface for the Illiana drawer: the same partial the page
+    includes, from the same context."""
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/chat/surface.html",
+        context=await surface_context(),
     )
 
 
@@ -505,7 +543,7 @@ async def new_conversation(request: Request) -> Response:
     return templates.TemplateResponse(
         request=request,
         name="partials/chat/transcript.html",
-        context={"assistant": ASSISTANT_NAME, "oob": True, **_transcript(None)},
+        context={"assistant": ASSISTANT_NAME, "oob": True, **await _transcript(None)},
     )
 
 
@@ -513,16 +551,15 @@ async def new_conversation(request: Request) -> Response:
 async def load_conversation(request: Request, conversation_id: str) -> Response:
     """The thread for a conversation picked from history, replacing the
     current one in place; the dialog closes on the way."""
-    conversation = ai_service.get_conversation(conversation_id)
-    if (
-        conversation is None
-        or conversation.metadata.get("user_id") != STANDALONE_USER_ID
-    ):
-        raise HTTPException(status_code=404)
+    conversation = _owned(conversation_id)
     response = templates.TemplateResponse(
         request=request,
         name="partials/chat/transcript.html",
-        context={"assistant": ASSISTANT_NAME, "oob": True, **_transcript(conversation)},
+        context={
+            "assistant": ASSISTANT_NAME,
+            "oob": True,
+            **await _transcript(conversation),
+        },
     )
     return close_dialog(response)
 
@@ -589,15 +626,39 @@ async def message(request: Request, conversation_id: str, message_id: str) -> Re
         name="partials/chat/message.html",
         context={
             "assistant": ASSISTANT_NAME,
-            "message": settled(found, conversation_id),
+            "message": settled(found, conversation_id, await model_icons([found])),
         },
     )
 
 
-def _card(request: Request, name: str, card: dict[str, Any]) -> Response:
-    return templates.TemplateResponse(
-        request=request, name=name, context={"card": card, "base": COMPONENTS}
-    )
+async def _card(
+    request: Request,
+    name: str,
+    card: dict[str, Any],
+    service: FinanceService,
+    owner_user_id: int | None,
+) -> Response:
+    """A card, and when the page behind it is a Review queue, that page's
+    counts out of band: a decision made in the drawer must reach the tab
+    bar the reader is looking at. The tab stays whichever one shows."""
+    from app.components.web_frontend.routes.finance import review
+
+    context: dict[str, Any] = {"card": card, "base": COMPONENTS}
+    current = request.headers.get("HX-Current-URL", "")
+    path = current.split("//", 1)[-1].split("/", 1)[-1] if "//" in current else current
+    if ("/" + path).startswith(review.SECTION.path):
+        tab = next(
+            (
+                key
+                for key, _l, suffix in review.QUEUES
+                if ("/" + path).startswith(review.SECTION.path + suffix) and suffix
+            ),
+            "approvals",
+        )
+        context.update(
+            await review.nav_context(service, owner_user_id, tab), nav_oob=True
+        )
+    return templates.TemplateResponse(request=request, name=name, context=context)
 
 
 @router.get(COMPONENTS + "/change/{change_id:int}", include_in_schema=False)
@@ -608,7 +669,13 @@ async def change_component(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     change = await get_change(change_id, service=service, owner_user_id=owner_user_id)
-    return _card(request, "partials/chat/change.html", change_card(change))
+    return await _card(
+        request,
+        "partials/chat/change.html",
+        change_card(change),
+        service,
+        owner_user_id,
+    )
 
 
 @router.post(COMPONENTS + "/change/{change_id:int}/{verb}", include_in_schema=False)
@@ -626,7 +693,13 @@ async def resolve_change_component(
         raise HTTPException(status_code=404)
     change = await handler(change_id, service=service, owner_user_id=owner_user_id)
     await service.db.commit()
-    return _card(request, "partials/chat/change.html", change_card(change))
+    return await _card(
+        request,
+        "partials/chat/change.html",
+        change_card(change),
+        service,
+        owner_user_id,
+    )
 
 
 @router.get(COMPONENTS + "/batch/{batch_id}", include_in_schema=False)
@@ -639,8 +712,12 @@ async def batch_component(
     listing = await get_batch(batch_id, service=service, owner_user_id=owner_user_id)
     if not listing.items:
         raise HTTPException(status_code=404)
-    return _card(
-        request, "partials/chat/batch.html", batch_card(batch_id, listing.items)
+    return await _card(
+        request,
+        "partials/chat/batch.html",
+        batch_card(batch_id, listing.items),
+        service,
+        owner_user_id,
     )
 
 
@@ -666,8 +743,12 @@ async def resolve_batch_component(
         raise HTTPException(status_code=404)
     await service.db.commit()
     listing = await get_batch(batch_id, service=service, owner_user_id=owner_user_id)
-    return _card(
-        request, "partials/chat/batch.html", batch_card(batch_id, listing.items)
+    return await _card(
+        request,
+        "partials/chat/batch.html",
+        batch_card(batch_id, listing.items),
+        service,
+        owner_user_id,
     )
 
 

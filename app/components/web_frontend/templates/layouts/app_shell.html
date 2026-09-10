@@ -5,11 +5,13 @@
    the single element htmx swaps section fragments into, so the sidebar,
    toast region and page chrome persist across navigation.
 
-   Lifted from aegis-pulse's shell minus the auth gate, analytics and chat
-   drawer: steward has no sign-in, and the drawer returns in P8.1.
+   Lifted from aegis-pulse's shell minus the auth gate and analytics;
+   steward has no sign-in. The Illiana drawer (components/illiana_drawer)
+   mounts here, outside #app-content, so it persists across sections.
 
-   Local UI state (the mobile drawer) lives on this wrapper as Alpine data
-   so the sidebar, scrim and toggle share it without a global store. #}
+   Local UI state (the mobile drawer, the Illiana drawer) lives on this
+   wrapper as the ``shell`` Alpine component (app.js), so the sidebar,
+   scrim, toggle and drawer share it without a global store. #}
 {% extends "base.html" %}
 {% from "components/macros/layout.html" import dialog %}
 
@@ -25,8 +27,11 @@
 {% block body_class %}md:h-screen md:overflow-hidden{% endblock %}
 
 {% block page_body %}
-<div x-data="{ mobileOpen: false }"
+<div x-data="shell('{{ chat_path }}', {{ 'true' if (current_path|default('')).startswith(chat_path) else 'false' }})"
      @keydown.escape.window="mobileOpen = false"
+     {# Entering the Chat page: the page is the surface, so the drawer
+        empties (one instance of the surface at a time) and steps aside. #}
+     @htmx:after-settle.window="settled()"
      class="min-h-screen md:h-screen flex flex-col md:flex-row">
   {% include "components/sidebar.html" %}
 
@@ -59,5 +64,6 @@
   </div>
 
   {{ dialog() }}
+  {% include "components/illiana_drawer.html" %}
 </div>
 {% endblock %}

@@ -1,11 +1,9 @@
 {# The thread's messages, and the composer's conversation id out of band
    when a load replaces the thread (a new conversation carries none: the
    first frame of its first turn mints one). #}
-{% from "components/macros/chat.html" import assistant_bubble, user_bubble %}
+{% from "components/macros/chat.html" import bubble, conversation_field %}
 {% if not messages %}
 <p id="chat-empty" class="text-sm text-aegis-muted py-10 text-center">Ask {{ assistant }} anything about your accounts, bills, budget or what is coming up.</p>
 {% endif %}
-{% for message in messages %}
-{% if message.role == "user" %}{{ user_bubble(message.content, message.at, attachments=message.attachments) }}{% else %}{{ assistant_bubble(message, assistant) }}{% endif %}
-{% endfor %}
-{% if oob %}<input type="hidden" id="chat-conversation" name="conversation_id" value="{{ conversation_id or '' }}" hx-swap-oob="true">{% endif %}
+{% for message in messages %}{{ bubble(message, assistant) }}{% endfor %}
+{% if oob %}{{ conversation_field(conversation_id, oob=True) }}{% endif %}
