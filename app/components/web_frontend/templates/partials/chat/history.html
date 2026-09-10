@@ -1,10 +1,11 @@
 {# Conversation history, in the one modal: pick one to load it in place. #}
+{% from "components/macros/chat.html" import hx_thread %}
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Conversation history</h2>
 {% if conversations %}
 <ul class="divide-y divide-aegis-border/60 max-h-[60vh] overflow-y-auto" data-history>
   {% for conversation in conversations %}
   <li>
-    <button type="button" hx-get="{{ path }}/conversations/{{ conversation.id }}" hx-target="#chat-thread" hx-swap="innerHTML"
+    <button type="button" {{ hx_thread(path ~ "/conversations/" ~ conversation.id) }}
             class="w-full text-left py-2.5 flex items-baseline justify-between gap-4 hover:text-aegis-teal transition-colors">
       <span class="text-sm text-aegis-text truncate">{{ conversation.title or conversation.id[:8] }}</span>
       <span class="text-xs text-aegis-muted shrink-0">{{ conversation.updated_at|short_date }}</span>

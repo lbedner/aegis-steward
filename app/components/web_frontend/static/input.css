@@ -84,6 +84,12 @@
   display: none !important;
 }
 
+/* The floating assistant button, off by preference (theme.js sets the
+   attribute before first paint, so it never flashes). */
+[data-assistant="hide"] #illiana-fab {
+  display: none !important;
+}
+
 /* A highlighted script or JSON (the ``code`` filter's pygments classes),
    in the theme's one accent: literals and keys read in teal, keywords by
    weight, comments muted. Outside the components layer on purpose:

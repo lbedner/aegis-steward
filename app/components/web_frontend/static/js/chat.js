@@ -19,6 +19,9 @@
   const thread = () => document.getElementById('chat-thread');
   const scroller = () => document.getElementById('chat-scroll');
   const config = () => JSON.parse(root().dataset.chat);
+  // Markup the script needs is cloned from <template>s in the surface
+  // partial, so styling has one home (the template), never a JS string.
+  const clone = (id) => document.getElementById(id).content.firstElementChild.cloneNode(true);
 
   // --- Scroll: follow the stream only near the bottom ------------------
   const SLACK = 24;
@@ -59,12 +62,10 @@
     const body = document.getElementById('dialog-body');
     const dialog = document.getElementById('dialog');
     if (!body || !dialog) return;
-    body.innerHTML = '';
-    const img = document.createElement('img');
+    const img = clone('chat-image');
     img.src = url;
     img.alt = name;
-    img.className = 'max-h-[75vh] w-auto max-w-full mx-auto rounded';
-    body.appendChild(img);
+    body.replaceChildren(img);
     if (!dialog.open) dialog.showModal();
   };
 
@@ -153,22 +154,6 @@
     }
   }
 
-  // Tool labels, the same words the server's trail uses (transcript.py).
-  const toolLabel = (name, args) => {
-    if (!name) return 'working...';
-    let inner = '';
-    if (args) {
-      try {
-        const parsed = JSON.parse(args);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          const keys = Object.keys(parsed);
-          if (keys.length === 1 && keys[0] === 'code') return `${name}: ${parsed.code}`;
-          inner = keys.map((k) => `${k}=${parsed[k]}`).join(', ');
-        } else if (parsed !== null) inner = String(parsed);
-      } catch (_) { inner = args; }
-    }
-    return `${name}(${inner})`;
-  };
   const note = (text, limit = 100) => {
     const flat = text.split(/\s+/).join(' ').trim();
     return flat.length <= limit ? flat : `${flat.slice(0, limit - 3)}...`;
@@ -186,27 +171,17 @@
   const drawChips = () => {
     const box = document.getElementById('chat-attachments');
     if (!box) return;
-    box.innerHTML = '';
     box.hidden = staged.length === 0;
-    box.classList.toggle('flex', staged.length > 0);
-    staged.forEach((file, i) => {
-      const chip = document.createElement('span');
-      chip.className = 'inline-flex items-center gap-2 rounded border border-aegis-border bg-aegis-card pl-1 pr-2 py-1 text-xs text-aegis-text';
+    box.replaceChildren(...staged.map((file, i) => {
+      const chip = clone('chat-chip');
       chip.dataset.chip = file.name;
-      const img = document.createElement('img');
-      img.src = file.url; img.alt = ''; img.width = 28; img.height = 28;
-      img.className = 'w-7 h-7 rounded object-cover cursor-pointer';
-      img.title = 'View full size';
+      const img = chip.querySelector('img');
+      img.src = file.url;
       img.dataset.viewImage = file.url;
-      const name = document.createElement('span');
-      name.textContent = file.name;
-      const remove = document.createElement('button');
-      remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove';
-      remove.className = 'text-aegis-muted hover:text-aegis-text';
-      remove.addEventListener('click', () => { URL.revokeObjectURL(file.url); staged.splice(i, 1); drawChips(); });
-      chip.append(img, name, remove);
-      box.appendChild(chip);
-    });
+      chip.querySelector('[data-name]').textContent = file.name;
+      chip.querySelector('[data-remove]').addEventListener('click', () => { URL.revokeObjectURL(file.url); staged.splice(i, 1); drawChips(); });
+      return chip;
+    }));
     window.dispatchEvent(new CustomEvent('chat-staged', { detail: staged.length }));
   };
   // Vision models read at about a thousand pixels on the long edge; a
@@ -282,7 +257,7 @@
   };
 
   async function run(bubble) {
-    const { stream, defaults } = config();
+    const { stream, defaults, path } = config();
     const body = bubble.querySelector('[data-body]');
     const trail = bubble.querySelector('[data-trail]');
     const busy = bubble.querySelector('[data-busy]');
@@ -293,7 +268,6 @@
       li.textContent = label;
       trail.appendChild(li);
       trail.hidden = false;
-      trail.classList.remove('hidden');
     };
     const attachments = staged.map(({ name, media_type, data_b64 }) => ({ name, media_type, data_b64 }));
     controller = new AbortController();
@@ -319,7 +293,7 @@
           // the answer is whatever follows the last tool call.
           const said = note(writer.text);
           if (said) addTrail(said);
-          addTrail(toolLabel(data.tool, data.args));
+          addTrail(data.label || 'working...');
           writer.reset();
           busy.hidden = false;
         } else if (event === 'final') {
@@ -355,7 +329,7 @@
       p.textContent = failed;
       bubble.appendChild(p);
     } else if (ids.message && ids.conversation) {
-      htmx.ajax('GET', `/chat/messages/${ids.conversation}/${ids.message}`, { target: bubble, swap: 'outerHTML' });
+      htmx.ajax('GET', `${path}/messages/${ids.conversation}/${ids.message}`, { target: bubble, swap: 'outerHTML' });
     }
     delete bubble.dataset.stream;
     follow();

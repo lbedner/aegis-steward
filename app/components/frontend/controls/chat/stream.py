@@ -2,14 +2,14 @@
 
 The accumulator that turns SSE chunk payloads into render-safe markdown
 snapshots. The transcript words themselves (fence balancing, trail
-labels, the footer) live in ``services/ai/domains/chat/transcript.py``
+labels, the footer) live in ``app/core/chat_transcript.py``
 and are re-exported here for the panel and its tests.
 """
 
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services.ai.domains.chat.transcript import (  # noqa: F401  (re-export)
+from app.core.chat_transcript import (  # noqa: F401  (re-export)
     STREAM_CURSOR,
     balance_fences,
     footer_line,

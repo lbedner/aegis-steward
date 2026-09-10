@@ -1,4 +1,3 @@
-{# One settled message, swapped over its streaming bubble on completion
-   and drawn by history replay. #}
-{% from "components/macros/chat.html" import assistant_bubble, user_bubble %}
-{% if message.role == "user" %}{{ user_bubble(message.content, message.at, attachments=message.attachments) }}{% else %}{{ assistant_bubble(message, assistant) }}{% endif %}
+{# One settled message, swapped over its streaming bubble on completion. #}
+{% from "components/macros/chat.html" import bubble %}
+{{ bubble(message, assistant) }}

@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.components.backend.api.ai import memory as memory_routes
+from app.core.chat_transcript import tool_label
 from app.core.config import settings
 from app.core.log import logger
 from app.services.ai.domains.chat.attachments import ChatAttachment
@@ -216,9 +217,16 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 # Tool-use notice: no content, just which tool started, so
                 # the frontend can caption the pause in the token stream.
                 if (chunk.metadata or {}).get("event") == "tool":
+                    # The trail line is computed here, once: the browser
+                    # shows this label live and the stored trace renders
+                    # the same words later (chat_transcript.trace_label).
                     tool_data = {
                         "tool": chunk.metadata.get("tool", ""),
                         "args": chunk.metadata.get("args", ""),
+                        "label": tool_label(
+                            str(chunk.metadata.get("tool", "")),
+                            str(chunk.metadata.get("args", "") or ""),
+                        ),
                     }
                     yield f"event: tool\ndata: {json.dumps(tool_data)}\n\n"
                     continue

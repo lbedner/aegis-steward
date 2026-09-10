@@ -88,7 +88,7 @@ def _usable_vendor_names() -> set[str]:
     }
 
 
-async def _vendor_icons(names: list[str]) -> dict[str, str]:
+async def vendor_icons(names: list[str]) -> dict[str, str]:
     """``{vendor: base64 png}`` via the merchant icon cache; misses
     resolve on a later request once the background fill lands."""
 
@@ -227,7 +227,7 @@ async def get_vendors(
         if usable:
             allowed = _usable_vendor_names()
             results = [v for v in results if v.name in allowed and v.model_count]
-            icons = await _vendor_icons([v.name for v in results])
+            icons = await vendor_icons([v.name for v in results])
         return [
             VendorResponse(
                 name=v.name,

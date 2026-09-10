@@ -23,6 +23,26 @@ document.addEventListener('alpine:init', () => {
   }));
 });
 
+// The app shell's local state (layouts/app_shell.html): the mobile
+// drawer, and the Illiana drawer beside every page. The Chat page IS the
+// chat surface, so while it shows the drawer empties and its doors step
+// aside (one instance of the surface at a time).
+document.addEventListener('alpine:init', () => {
+  Alpine.data('shell', (chatPath, onChat) => ({
+    mobileOpen: false,
+    illiana: false,
+    onChat,
+    settled() {
+      this.onChat = !!document.querySelector('#app-content #chat');
+      if (this.onChat) { this.illiana = false; this.$refs.illianaBody.innerHTML = ''; }
+    },
+    openIlliana() {
+      this.illiana = true;
+      if (!this.$refs.illianaBody.children.length) htmx.ajax('GET', `${chatPath}/drawer`, { target: '#illiana-body', swap: 'innerHTML' });
+    },
+  }));
+});
+
 function toast(text, tone) {
   window.dispatchEvent(new CustomEvent('toast', { detail: { text, tone } }));
 }

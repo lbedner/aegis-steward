@@ -13,14 +13,14 @@ import pytest
 
 from app.components.backend.api.ai.router import ai_service
 from app.components.web_frontend.filters import markdown
-from app.services.ai.domains.chat.transcript import (
+from app.core.chat_transcript import (
     balance_fences,
     footer_line,
     trace_label,
 )
 from app.services.ai.models import AIProvider, MessageRole
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
-from tests.web.conftest import Review
+from tests.web.conftest import Ledger, Review
 from tests.web.dom import none, one, select, text, triggers
 
 
@@ -54,6 +54,20 @@ class TestPage:
             "agent_slug": "finance-assistant",
             "surface": "finance",
         }
+        # The settle swap builds its URL from the section path, not a literal.
+        assert config["path"] == "/chat"
+
+    def test_the_script_clones_its_markup_from_templates(
+        self, client: TestClient
+    ) -> None:
+        """Markup the script needs (a staged-image chip, the image viewer)
+        lives in the partial, so styling has one home."""
+        page = client.get("/chat").text
+        chip = one(page, "template#chat-chip")
+        one(chip, "img[data-view-image]")
+        one(chip, "[data-name]")
+        one(chip, "button[data-remove]")
+        one(page, "template#chat-image img")
 
 
 class TestTurn:
@@ -70,7 +84,25 @@ class TestTurn:
         one(bubble, "[data-body]")
         one(bubble, "[data-busy]")
 
-    def test_a_continuing_turn_carries_its_conversation(self, hx: TestClient) -> None:
+    def test_streaming_and_settled_bubbles_share_one_header(
+        self, hx: TestClient, stored: tuple[str, str]
+    ) -> None:
+        """The settled bubble swaps over the streaming one; the same
+        macro draws the name row and the trail in both, so nothing
+        shifts at completion."""
+        conversation_id, message_id = stored
+        live = one(hx.post("/chat/turns", data={"message": "x"}).text, "[data-stream]")
+        done = one(
+            hx.get(f"/chat/messages/{conversation_id}/{message_id}").text,
+            "li[data-role=assistant]",
+        )
+        assert one(live, "[data-assistant]").get("class") == one(
+            done, "[data-assistant]"
+        ).get("class")
+        assert one(live, "[data-trail]").get("class") == one(done, "[data-trail]").get(
+            "class"
+        )
+
         html = hx.post(
             "/chat/turns", data={"message": "and next month?", "conversation_id": "c-1"}
         ).text
@@ -106,6 +138,7 @@ def stored() -> tuple[str, str]:
         MessageRole.ASSISTANT,
         "**Two bills** this week:\n\n- Water: $45\n- Rent: $1,500\n\n<script>alert(1)</script>",
         metadata={
+            "provider": "ollama",
             "model": "gpt-5.6-luna",
             "gen_tps": 58.5,
             "cost": 0.0063,
@@ -135,6 +168,11 @@ class TestSettledMessage:
         assert text(one(body, "strong")) == "Two bills"
         assert [text(li) for li in select(body, "li")] == ["Water: $45", "Rent: $1,500"]
         none(body, "script")  # raw HTML from the model is escaped, never rendered
+        # The trail folds under the name: closed by default, a click away.
+        fold = one(bubble, "details[data-trail-fold]")
+        assert fold.get("open") is None
+        assert text(one(fold, "summary")).startswith("Illiana")
+        assert "2 steps" in text(one(fold, "summary"))
         rows = select(bubble, "[data-trail] button[hx-get]")
         assert [text(r) for r in rows] == [
             "bills(days=7)",
@@ -167,6 +205,17 @@ class TestSettledMessage:
             args, "span"
         )  # indented, coloured
         assert hx.get(f"{base}/9").status_code == 404
+
+    def test_footer_wears_the_answering_providers_icon(
+        self, hx: TestClient, stored: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.finance.domains.ledger import merchant_icon
+
+        conversation_id, message_id = stored
+        monkeypatch.setitem(merchant_icon._CACHE, "ollama.com", "AAAA")
+        html = hx.get(f"/chat/messages/{conversation_id}/{message_id}").text
+        icon = one(html, "[data-model-icon]")
+        assert icon.get("src") == "data:image/png;base64,AAAA"
 
     def test_unknown_message_or_conversation_is_a_404(
         self, hx: TestClient, stored: tuple[str, str]
@@ -611,3 +660,70 @@ class TestModelPicker:
         )
         none(response.text, "#chat-model")
         assert "not in the catalog" in triggers(response)["toast"]["text"]
+
+
+class TestDrawer:
+    """One surface, two doors: the page includes it, the drawer loads it."""
+
+    def test_every_page_carries_the_drawer_and_its_button(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get("/overview").text
+        fab = one(page, "#illiana-fab")
+        assert fab.get("aria-label") == "Ask Illiana"
+        none(
+            page, "aside#sidebar button[data-ask-illiana]"
+        )  # the button is the one door
+        body = one(page, "#illiana-body")
+        assert len(body) == 0  # loaded on first open, not with every page
+        none(page, "#chat")  # the surface is not on the page until the drawer loads it
+
+    def test_the_chat_page_is_the_surface_and_the_drawer_steps_aside(
+        self, client: TestClient
+    ) -> None:
+        page = client.get("/chat").text
+        assert len(select(page, "#chat")) == 1
+        one(page, "#chat #chat-composer")
+        shell = one(page, "[x-data=\"shell('/chat', true)\"]")
+        assert shell is not None
+
+    def test_drawer_route_serves_the_same_surface(
+        self, hx: TestClient, stored: tuple[str, str]
+    ) -> None:
+        conversation_id, _ = stored
+        surface = hx.get("/chat/drawer").text
+        assert one(surface, "#chat").get("data-chat")
+        one(surface, "#chat-thread")
+        assert one(surface, "form#chat-composer").get("hx-post") == "/chat/turns"
+        assert one(surface, "#chat-conversation").get("value") == conversation_id
+        page = hx.get("/chat").text
+        # The page and the drawer draw one partial: identical composer markup.
+        assert one(page, "form#chat-composer").get("hx-post") == one(
+            surface, "form#chat-composer"
+        ).get("hx-post")
+
+    def test_the_floating_button_is_a_preference(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get("/overview").text
+        assert {
+            b.get("data-set-assistant")
+            for b in select(page, "aside#sidebar button[data-set-assistant]")
+        } == {"show", "hide"}
+
+    def test_a_card_decided_in_the_drawer_updates_the_review_counts(
+        self, hx: TestClient, review: Review
+    ) -> None:
+        response = hx.post(
+            f"/chat/components/change/{review.change}/approve",
+            headers={"HX-Current-URL": "http://testserver/review/uncategorized"},
+        )
+        nav = one(response.text, "#review-nav[hx-swap-oob]")
+        # The tab bar keeps the tab the reader was on.
+        assert one(nav, "[aria-current=page]").get("href") == "/review/uncategorized"
+        # And a card decided from any other page carries no tab bar at all.
+        plain = hx.get(
+            f"/chat/components/batch/{review.batch}",
+            headers={"HX-Current-URL": "http://testserver/overview"},
+        ).text
+        none(plain, "#review-nav")

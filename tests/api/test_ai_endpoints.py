@@ -1,6 +1,7 @@
 """Tests for AI service API endpoints."""
 
 import importlib
+import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -285,7 +286,7 @@ class TestLLMPickerGating:
         async def fake_icons(names: list[str]) -> dict[str, str]:
             return {"openai": "iVBORfake"}
 
-        monkeypatch.setattr(llm_router, "_vendor_icons", fake_icons)
+        monkeypatch.setattr(llm_router, "vendor_icons", fake_icons)
 
         response = client.get("/api/v1/llm/vendors", params={"usable": True})
 
@@ -402,3 +403,33 @@ class TestUserMemoryEndpoints:
             response = client.delete("/api/v1/ai/user-memory/7")
 
         assert response.status_code == 404
+
+
+class TestStreamToolFrame:
+    """The SSE ``tool`` frame carries its trail label, computed once on
+    the server; the browser never re-derives it."""
+
+    def test_tool_frame_carries_the_label(self) -> None:
+        from types import SimpleNamespace
+
+        from app.components.backend.api.ai import router
+
+        async def fake_stream(**_: Any) -> Any:
+            yield SimpleNamespace(
+                content="",
+                is_final=False,
+                metadata={
+                    "event": "tool",
+                    "tool": "ledger",
+                    "args": '{"months": 3}',
+                },
+            )
+
+        with patch.object(router.ai_service, "stream_chat", fake_stream):
+            client = TestClient(create_integrated_app())
+            body = client.post(
+                "/api/v1/ai/chat/stream", json={"message": "hi", "user_id": "u"}
+            ).text
+        frame = next(b for b in body.split("\n\n") if b.startswith("event: tool"))
+        data = json.loads(frame.split("data: ", 1)[1])
+        assert data["label"] == "ledger(months=3)"

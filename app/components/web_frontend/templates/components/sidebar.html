@@ -25,9 +25,9 @@
      button so it opens upward from the sidebar's foot. #}
   <div class="shrink-0 border-t border-aegis-border p-2" x-data="{ open: false, ...appearance() }">
     <div x-show="open" x-cloak x-collapse class="px-3 pt-1 pb-2 space-y-2">
-      {% for key, choices in [("theme", [("aegis", "Aegis"), ("steward", "Steward")]), ("mode", [("dark", "Dark"), ("light", "Light"), ("system", "System")])] %}
+      {% for key, legend, choices in [("theme", "Theme", [("aegis", "Aegis"), ("steward", "Steward")]), ("mode", "Mode", [("dark", "Dark"), ("light", "Light"), ("system", "System")]), ("assistant", "Assistant button", [("show", "Show"), ("hide", "Hide")])] %}
       <fieldset>
-        <legend class="micro-label text-aegis-muted mb-1">{{ key|capitalize }}</legend>
+        <legend class="micro-label text-aegis-muted mb-1">{{ legend }}</legend>
         <div class="flex gap-1">
           {% for value, label in choices %}
           <button type="button" data-set-{{ key }}="{{ value }}"

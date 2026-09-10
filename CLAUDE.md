@@ -68,6 +68,13 @@ CLI wires routes, tests, health checks, and dependencies for you.
 - DRY: before writing a new component, endpoint, or helper, search for an
   existing one that already does it (or most of it) and extend/reuse that
   instead of duplicating logic.
+- Duplication is a bug, not a nice-to-have. Agents work safely only when
+  each thing has one home: a change to a core thing cannot miss a second
+  copy that does not exist. So any review finding of a second copy (markup,
+  logic, a selector, an hx-attribute recipe, a label computed in both Python
+  and JS) is fixed in the same session, never deferred or offered as
+  optional. Logic shared with the browser is sent from the server; markup a
+  script needs lives in a `<template>` in the partial, never in JS strings.
 
 ## Database
 
