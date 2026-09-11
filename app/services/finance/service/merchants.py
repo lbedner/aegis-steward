@@ -6,7 +6,7 @@ to the matching domain module as ``module.func(self.db, ...)``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from app.services.finance.domains.ledger import merchants
@@ -110,6 +110,16 @@ class MerchantsMixin(FinanceServiceBase):
             merchant_id,
             owner_user_id=owner_user_id,
             category_id=category_id,
+        )
+
+    async def resolve_merchant_aliases(
+        self,
+        descriptors: Iterable[str | None],
+        *,
+        owner_user_id: int | None = None,
+    ) -> dict[str, int]:
+        return await merchants.resolve_merchant_aliases(
+            self.db, descriptors, owner_user_id=owner_user_id
         )
 
     async def merchant_usual_categories(

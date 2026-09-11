@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.models import (
     FinanceIcon,
     FinanceMerchant,
+    FinanceMerchantAlias,
     FinanceRecurringStream,
     FinanceTransaction,
 )
@@ -227,3 +228,27 @@ async def payeeless_transactions(
     if owner_user_id is not None:
         query = query.where(FinanceTransaction.owner_user_id == owner_user_id)
     return list((await db.exec(query)).all())
+
+
+async def merchant_aliases_by_normalized(
+    db: AsyncSession, normalized: Iterable[str], *, owner_user_id: int | None = None
+) -> dict[str, FinanceMerchantAlias]:
+    """The alias ROWS for these normalized descriptors, one query.
+
+    Returns rows rather than ids because the writer needs them: a
+    descriptor whose payee has been corrected is rewritten in place, and
+    the unique index on ``(owner_user_id, normalized_alias)`` means
+    inserting beside the old one would fail rather than win.
+    """
+    wanted = {text for text in normalized if text}
+    if not wanted:
+        return {}
+    query = select(FinanceMerchantAlias).where(
+        FinanceMerchantAlias.normalized_alias.in_(wanted)
+    )
+    query = (
+        query.where(FinanceMerchantAlias.owner_user_id == owner_user_id)
+        if owner_user_id is not None
+        else query.where(FinanceMerchantAlias.owner_user_id.is_(None))
+    )
+    return {row.normalized_alias: row for row in (await db.exec(query)).all()}

@@ -11,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.domains.ledger import categories, queries, transactions
 from app.services.finance.models import (
     FinanceMerchant,
+    FinanceMerchantAlias,
     FinanceTransaction,
 )
 from app.services.finance.schemas import MerchantCategorySummary, PayeeGroup
@@ -289,6 +290,13 @@ async def assign_merchant(
     the history in front of you and everything that arrives later.
     Confirmed worth having on real data: 7 of 79 GreenSky loan
     payments had been auto-filed as "Food & Dining:Restaurants".
+
+    The decision also OUTLIVES these rows. Every descriptor being
+    stamped is recorded against the payee, so the same descriptor
+    arriving in a later import lands already named instead of joining
+    the backlog again. This is the one chokepoint all naming routes
+    through - the picker, ``assign_payee_group``, the change executor -
+    so remembering here covers every path without a second write site.
     """
     ids = [i for i in set(transaction_ids) if i is not None]
     if not ids:
@@ -303,6 +311,8 @@ async def assign_merchant(
         if merchant is not None and merchant.logo_url is None and logo is not None:
             merchant.logo_url = logo
             db.add(merchant)
+    if merchant_id is not None:
+        await _remember_payee_keys(db, rows, merchant_id, owner_user_id=owner_user_id)
     for txn in rows:
         txn.merchant_id = merchant_id
         if category_id is not None:
@@ -321,6 +331,95 @@ async def assign_merchant(
     if rows:
         await db.flush()
     return len(rows)
+
+
+async def _remember_payee_keys(
+    db: AsyncSession,
+    rows: Sequence[FinanceTransaction],
+    merchant_id: int,
+    *,
+    owner_user_id: int | None = None,
+) -> None:
+    """Record what each payee key being named MEANS, so the next import
+    does not ask again.
+
+    Keyed on ``transaction_payee_key`` - the same four-token grouping the
+    user was shown when they named it, which is the point: they confirmed
+    a GROUP, so the group is what was taught. Keying on the whole
+    descriptor instead was measured against this ledger and is close to
+    useless as a memory: ShopRite's 407 rows carry 211 distinct
+    descriptors and only 8 prefixes.
+
+    A key taught a SECOND payee is not a correction to apply silently -
+    it is a conflict ("NON CHASE ATM WITHDRAW" covers four real payees
+    here). The newest answer is kept, because the user just gave it, but
+    the key is flagged and stops resolving unattended from then on.
+    """
+    from app.services.finance.utils import transaction_payee_key
+
+    samples: dict[str, str] = {}
+    for txn in rows:
+        key = transaction_payee_key(
+            txn.merchant_name, txn.original_description, txn.name
+        )
+        if key:
+            samples.setdefault(
+                key, txn.merchant_name or txn.original_description or txn.name or ""
+            )
+    if not samples:
+        return
+    existing = await queries.merchant_aliases_by_normalized(
+        db, samples, owner_user_id=owner_user_id
+    )
+    for key, sample in samples.items():
+        alias = existing.get(key)
+        if alias is None:
+            db.add(
+                FinanceMerchantAlias(
+                    owner_user_id=owner_user_id,
+                    merchant_id=merchant_id,
+                    alias_text=sample,
+                    normalized_alias=key,
+                    source="user",
+                )
+            )
+        elif alias.merchant_id != merchant_id:
+            alias.merchant_id = merchant_id
+            alias.alias_text = sample
+            alias.is_ambiguous = True
+            alias.updated_at = utcnow()
+            db.add(alias)
+    await db.flush()
+
+
+async def resolve_merchant_aliases(
+    db: AsyncSession,
+    descriptors: Iterable[str | None],
+    *,
+    owner_user_id: int | None = None,
+) -> dict[str, int]:
+    """descriptor -> payee id for the ones already named unambiguously,
+    one query for the whole batch.
+
+    Unmatched descriptors are ABSENT rather than mapped to None, so a
+    caller cannot mistake "never taught" for "taught to be nothing". A
+    key flagged ambiguous is treated as never taught: the ledger has
+    been shown it means two different payees, and naming by hand is
+    better than a confident wrong answer.
+    """
+    from app.services.finance.utils import transaction_payee_key
+
+    by_descriptor = {
+        text: transaction_payee_key(None, None, text) for text in descriptors if text
+    }
+    rows = await queries.merchant_aliases_by_normalized(
+        db, by_descriptor.values(), owner_user_id=owner_user_id
+    )
+    return {
+        text: rows[key].merchant_id
+        for text, key in by_descriptor.items()
+        if key in rows and not rows[key].is_ambiguous
+    }
 
 
 async def merchant_usual_categories(
