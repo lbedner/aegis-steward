@@ -575,18 +575,6 @@ class TestUpToDateFile:
         "rows_error": 0,
     }
 
-    def test_zero_changes_means_nothing_to_import(self) -> None:
-        from app.components.frontend.dashboard.modals.finance_modal.import_summary import (
-            nothing_to_import,
-        )
-
-        assert nothing_to_import(self.UP_TO_DATE)
-        assert nothing_to_import({"identical_batch_id": 7})
-        assert not nothing_to_import({**self.UP_TO_DATE, "rows_inserted": 3})
-        assert not nothing_to_import({**self.UP_TO_DATE, "rows_updated": 1})
-        # A file with parse errors deserves the full review, not a shrug.
-        assert not nothing_to_import({**self.UP_TO_DATE, "rows_error": 2})
-
     def test_the_body_says_up_to_date_not_identical(self) -> None:
         from app.components.frontend.dashboard.modals.finance_modal.import_summary import (
             import_up_to_date_body,

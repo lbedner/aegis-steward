@@ -631,6 +631,18 @@ async def message(request: Request, conversation_id: str, message_id: str) -> Re
     )
 
 
+def _gone(request: Request) -> Response:
+    """The answer for a card whose subject is no longer there.
+
+    A transcript is a record and the queue moves on: a proposal gets
+    purged, or a whole ledger is replaced under one. The card loads
+    itself when the page opens, so a 404 here reaches the reader as an
+    error toast every single visit — for something that is simply
+    history. It says so instead, and stays a 200.
+    """
+    return templates.TemplateResponse(request=request, name="partials/chat/gone.html")
+
+
 async def _card(
     request: Request,
     name: str,
@@ -668,7 +680,14 @@ async def change_component(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    change = await get_change(change_id, service=service, owner_user_id=owner_user_id)
+    try:
+        change = await get_change(
+            change_id, service=service, owner_user_id=owner_user_id
+        )
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        return _gone(request)
     return await _card(
         request,
         "partials/chat/change.html",
@@ -711,7 +730,7 @@ async def batch_component(
 ) -> Response:
     listing = await get_batch(batch_id, service=service, owner_user_id=owner_user_id)
     if not listing.items:
-        raise HTTPException(status_code=404)
+        return _gone(request)
     return await _card(
         request,
         "partials/chat/batch.html",

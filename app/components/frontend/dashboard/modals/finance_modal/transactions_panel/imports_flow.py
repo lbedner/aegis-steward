@@ -23,7 +23,6 @@ from app.components.frontend.dashboard.modals.finance_modal.import_summary impor
     import_summary_body,
     import_up_to_date_body,
     investment_import_summary_body,
-    nothing_to_import,
 )
 from app.components.frontend.dashboard.modals.finance_modal.transactions_panel.imports_target import (
     _IMPORT_TIMEOUT_SECONDS,
@@ -348,7 +347,7 @@ class ImportsFlowMixin(ImportTargetMixin):
                 dialog.open = False
             self.page.update()
 
-        if nothing_to_import(preview):
+        if preview.get("nothing_to_import"):
             dialog = StyledAlertDialog(
                 title=(
                     "Nothing to import"

@@ -13,10 +13,7 @@ from tests.web.dom import location, none, one, select, text, triggers
 class TestMenu:
     def test_items_open_their_dialogs(self, client: TestClient, ledger: Ledger) -> None:
         page = client.get(f"/accounts/{ledger.card}").text
-        urls = [
-            b.get("hx-get")
-            for b in select(page, "#account-detail header [role=menu] button")
-        ]
+        urls = [b.get("hx-get") for b in select(page, "#manage-menu button")]
         assert urls[:2] == [
             f"/accounts/{ledger.card}/rename",
             f"/accounts/{ledger.card}/reconcile",
@@ -38,7 +35,7 @@ class TestRename:
         assert location(response) == f"/accounts/{ledger.checking}"
         assert "dialog:close" in triggers(response)
         page = client.get(f"/accounts/{ledger.checking}").text
-        assert text(one(page, "#account-detail header h2")) == "Main Checking"
+        assert text(one(page, "#account-switcher summary")) == "Main Checking"
 
     def test_blank_name_is_a_422(self, client: TestClient, ledger: Ledger) -> None:
         response = client.post(
@@ -119,7 +116,7 @@ class TestRemove:
         assert "dialog:close" in triggers(response)
         none(
             client.get("/accounts").text,
-            f'#accounts-list a[href="/accounts/{ledger.savings}"]',
+            f'#portfolio a[href="/accounts/{ledger.savings}"]',
         )
 
     def test_unknown_account_is_404(self, client: TestClient) -> None:

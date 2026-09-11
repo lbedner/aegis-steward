@@ -57,23 +57,6 @@ from app.components.frontend.theme import AegisTheme as Theme
 from app.core.formatting import format_date
 
 
-def nothing_to_import(preview: dict[str, Any]) -> bool:
-    """True when the review has nothing to offer an Import button.
-
-    Two shapes of the same dead end: the byte-identical re-upload, and a
-    fresh export whose every row is already stored (yesterday's import,
-    or a sync, got there first). Parse errors disqualify - a file that
-    partly failed deserves the full review, not a shrug.
-    """
-    if preview.get("identical_batch_id") is not None:
-        return True
-    return (
-        preview.get("rows_inserted", 0) == 0
-        and preview.get("rows_updated", 0) == 0
-        and preview.get("rows_error", 0) == 0
-    )
-
-
 def import_up_to_date_body(preview: dict[str, Any], file_name: str) -> ft.Column:
     """The body for a file with nothing to import, byte-identical or not.
 

@@ -15,6 +15,8 @@ import pprint
 import re
 from typing import Any
 
+from app.core.formatting import format_duration_ms
+
 # Rendered while text is still arriving; dropped from the final render.
 STREAM_CURSOR = "▌"
 
@@ -171,6 +173,11 @@ def footer_line(meta: dict[str, Any]) -> str:
         parts.append(str(meta["model"]))
     if meta.get("gen_tps"):
         parts.append(f"{meta['gen_tps']} tps")
+    # Beside the rate, because they answer different questions: how fast
+    # it wrote, and how long you waited for it.
+    elapsed = format_duration_ms(meta.get("response_time_ms"))
+    if elapsed:
+        parts.append(elapsed)
     cost = meta.get("cost")
     if cost:
         parts.append(f"${cost:.4f}")

@@ -1,8 +1,105 @@
-<section id="import-preview" class="space-y-3">
-  <h3 class="text-sm font-semibold text-aegis-text">What this import would do</h3>
-  {% if preview.identical_batch_id %}<p class="text-sm text-aegis-muted">This exact file was already imported; importing again changes nothing.</p>{% endif %}
-  {% with counts = preview %}{% include "partials/imports/counts.html" %}{% endwith %}
-  {% if preview.new_accounts %}<p class="text-xs text-aegis-muted">New accounts: {{ preview.new_accounts|join(", ") }}</p>{% endif %}
-  {% if preview.new_categories %}<p class="text-xs text-aegis-muted">New categories: {{ preview.new_categories|length }}</p>{% endif %}
-  {% if preview.insert_date_start %}<p class="text-xs text-aegis-muted">{{ preview.insert_date_start|short_date }} to {{ preview.insert_date_end|short_date }}</p>{% endif %}
+{# The pre-commit review: what this file will do, before it does it.
+
+   Import opens this; its own button commits the very bytes just reviewed
+   (the batch dedup ties the two requests together by file hash), and
+   until then nothing is written. Built from the house kit rather than a
+   column of sentences, because the shape carries the meaning: the three
+   outcomes that CHANGE the ledger are cells, the two that do not are
+   dots, and the per-account split is the ranked card, which answers
+   "where does this land" at a glance instead of a list added up by eye.
+
+   Needs: preview (ImportPreviewResponse), lands (the ranked per-account
+   rows), cap (PREVIEW_DETAIL_CAP), run_path (where the commit posts).
+#}
+{% from "components/macros/layout.html" import card, ranked_rows, badge %}
+{% from "components/macros/form.html" import button_classes %}
+{% from "components/macros/imports.html" import count_cells, count_dots, footnote, named, more %}
+<section id="import-preview" class="space-y-4">
+  <header class="space-y-0.5">
+    <h3 class="text-sm font-semibold text-aegis-text">Review import</h3>
+    <p class="text-xs text-aegis-muted">{{ "{:,}".format(preview.rows_total) }} rows read from {{ preview.file_name or "the file" }}</p>
+    {# "Chase Credit Card layout into Amex" — the one line that catches a
+       statement aimed at the wrong account before Import is pressed. #}
+    {% if preview.layout or preview.account_name %}
+    <p class="text-xs text-aegis-muted" data-target>{{ preview.layout or "Layout" }} layout{% if preview.account_name %} into {{ preview.account_name }}{% endif %}</p>
+    {% endif %}
+  </header>
+
+  {% if preview.nothing_to_import %}
+  {# A dead end: one button, nothing to decide. No cells — a row of zeroes
+     wearing the chrome that means "this reaches your ledger" says the
+     opposite of what happened. The reason carries the message, not the
+     count: "0 changes" alone reads as a failed import. #}
+  <p class="text-sm text-aegis-text">
+    {% if preview.identical_batch_id %}This exact file was already imported, so importing it again changes nothing.
+    {% else %}Every row in this file is already in your ledger.{% endif %}
+  </p>
+  {{ count_dots(preview) }}
+  {% else %}
+
+  {{ count_cells(preview, [
+       ("To add", preview.insert_date_start|date_range(preview.insert_date_end) if preview.insert_date_start else "New transactions"),
+       ("To update", "Changed in place"),
+       ("Already have", "Left alone"),
+     ]) }}
+  {{ count_dots(preview) }}
+
+  <div class="space-y-3 max-h-[26rem] overflow-y-auto">
+    {# One bar is not a ranking, it is "To add" restated. #}
+    {% if lands %}
+    {% call card("Where the new rows land", id="import-lands") %}
+    {{ ranked_rows(lands) }}
+    {% endcall %}
+    {% endif %}
+
+    {% if preview.new_accounts or preview.new_categories %}
+    {% call card("Also creates", id="import-creates") %}
+    <ul class="space-y-1">
+      {% for name in preview.new_accounts %}{{ named("Account", name, "warn") }}{% endfor %}
+      {% for name in preview.new_categories[:cap] %}{{ named("Category", name) }}{% endfor %}
+      {{ more(preview.new_categories|length, cap, "categories") }}
+    </ul>
+    {% endcall %}
+    {% endif %}
+
+    {% if preview.removed_accounts %}
+    {% call card("Staying out", id="import-removed") %}
+    <p class="text-xs text-aegis-muted">You removed these accounts, so their rows are ignored. Re-add an account to import into it again.</p>
+    <ul class="space-y-1">{% for name in preview.removed_accounts %}{{ named("Account", name) }}{% endfor %}</ul>
+    {% endcall %}
+    {% endif %}
+
+    {% if preview.edits %}
+    {# An edit is the only outcome here that rewrites something already
+       stored, so it is spelled out field by field: a number alone gives
+       no way to tell a payee tidy-up from a re-categorization you did
+       not ask for. #}
+    {% call card("Updated in place", id="import-edits") %}
+    <ul class="space-y-2">
+      {% for edit in preview.edits[:cap] %}
+      <li class="flex items-baseline gap-3 text-sm" data-edit>
+        <span class="w-20 shrink-0 text-xs text-aegis-muted">{{ edit.date|short_date }}</span>
+        <span class="w-20 shrink-0 text-right tabular-nums text-aegis-text">{{ edit.amount|abs|money }}</span>
+        <span class="min-w-0">
+          <span class="block text-aegis-text truncate">{{ edit.name or "transaction" }}</span>
+          <span class="block text-xs text-aegis-muted">{{ edit.changes|join("; ") }}</span>
+        </span>
+      </li>
+      {% endfor %}
+      {{ more(preview.edits|length, cap, "updates") }}
+    </ul>
+    {% endcall %}
+    {% endif %}
+  </div>
+
+  {{ footnote("Nothing has been written yet.") }}
+  <div class="flex items-center justify-end gap-3">
+    <button type="button" @click="$el.closest('dialog').close()" class="{{ button_classes('default') }}">Cancel</button>
+    {# Outside the form, so it inherits nothing from it: the encoding has
+       to be stated here or htmx posts the file urlencoded. #}
+    <button type="button" hx-post="{{ run_path }}" hx-target="#import-result" hx-include="#import-form"
+            hx-encoding="multipart/form-data"
+            class="{{ button_classes() }}">Import {{ "{:,}".format(preview.changes) }} change{{ "" if preview.changes == 1 else "s" }}</button>
+  </div>
+  {% endif %}
 </section>

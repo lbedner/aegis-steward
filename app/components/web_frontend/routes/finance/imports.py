@@ -22,6 +22,7 @@ from app.components.backend.api.finance.investments import (
 )
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import templates
+from app.services.finance.constants import PREVIEW_DETAIL_CAP
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.service import FinanceService
 
@@ -32,6 +33,20 @@ LANES = (
     ("statement", "Bank or card statement (OFX, QFX, QIF, CSV)"),
     ("investments", "Investment activity (Optum)"),
 )
+NEEDS_ACCOUNT = "This file carries no account; choose the account it belongs to."
+
+
+def _lands(by_account: dict[str, int]) -> list[dict[str, Any]]:
+    """Per-account new rows, as the house ranked card's rows. One bar is
+    not a ranking, it is "To add" restated, so one account gets none."""
+    if len(by_account) < 2:
+        return []
+    ranked = sorted(by_account.items(), key=lambda item: -item[1])
+    top = ranked[0][1] or 1
+    return [
+        {"label": name, "value": f"{count:,}", "ratio": count / top}
+        for name, count in ranked
+    ]
 
 
 def _fragment(
@@ -94,10 +109,15 @@ async def preview(
     except HTTPException as exc:
         return _error(request, str(exc.detail))
     if result.needs_account:
-        return _error(
-            request, "This file carries no account; choose the account it belongs to."
-        )
-    return _fragment(request, "partials/imports/preview.html", preview=result)
+        return _error(request, NEEDS_ACCOUNT)
+    return _fragment(
+        request,
+        "partials/imports/preview.html",
+        preview=result,
+        lands=_lands(result.inserts_by_account),
+        cap=PREVIEW_DETAIL_CAP,
+        run_path=router.prefix,
+    )
 
 
 @router.post("", include_in_schema=False)

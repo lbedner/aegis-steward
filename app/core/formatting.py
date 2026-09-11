@@ -57,6 +57,51 @@ def format_date(value: object) -> str:
     return f"{value.strftime('%b')} {value.day}, {value.year}"
 
 
+def payee_label(merchant: object, merchant_name: object, name: object) -> str:
+    """What a transaction is called: the payee someone named, then the one
+    the source supplied, then the raw descriptor.
+
+    One rule, because the register, the dialogs that rename a
+    transaction, and the cards that propose changes to it all have to
+    agree. Showing the raw descriptor after a rename reads as though the
+    rename never took.
+    """
+    return str(merchant or merchant_name or name or "")
+
+
+def format_duration_ms(milliseconds: float | None) -> str:
+    """How long something took, for a person: ``0.8s``, ``13.4s``,
+    ``1m 03s``. Blank stays blank.
+
+    Seconds rather than the raw milliseconds a timer hands you: nobody
+    reads 13411.9 as thirteen seconds, and the number that matters is
+    how long the wait felt.
+    """
+    if not milliseconds:
+        return ""
+    seconds = milliseconds / 1000
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, rest = divmod(seconds, 60)
+    return f"{int(minutes)}m {rest:02.0f}s"
+
+
+def format_date_range(start: object, end: object) -> str:
+    """A span short enough to sit on ONE line: ``Jul 29 to Aug 6, 2026``.
+
+    Both ends in full, except a repeated year: that is what a same-year
+    range can afford to lose, since whatever names the span (a file, a
+    heading) carries it. A range that crosses a year keeps both, because
+    that is exactly when the year is the surprising part.
+    """
+    left, right = format_date(start), format_date(end)
+    if not right or left == right:
+        return left or right
+    if left[-4:].isdigit() and left[-4:] == right[-4:]:
+        left = left[:-6]
+    return f"{left} to {right}"
+
+
 def _coarse_age(seconds: float) -> str:
     """Days / months / years for durations past the sub-day branches.
 

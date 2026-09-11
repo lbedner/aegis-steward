@@ -16,6 +16,18 @@ from typing import Any
 # LOGFIRE_TOKEN must never arm instrumentation (or ship test spans).
 os.environ["LOGFIRE_TOKEN"] = ""
 
+# Same window, same reason: ``app.core.db`` builds its engine at import
+# from ``DATABASE_URL``, and DDL goes through that engine rather than
+# through the session factories the fixtures redirect. Point it at a
+# throwaway file HERE so no window is left open - not import time, not a
+# fixture teardown after monkeypatch has reverted, not an atexit hook.
+# ``create_all`` only ever ADDS tables, so the damage was never data: it
+# was a table frozen at the models' shape in that moment, in a developer's
+# live ledger, that nothing would ever correct (2026-09-10).
+os.environ["DATABASE_URL"] = (
+    f"sqlite:///{tempfile.mkdtemp(prefix='aegis-test-db-')}/app.db"
+)
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest  # noqa: E402
@@ -304,11 +316,21 @@ def _no_production_database(app_owned_engine, monkeypatch):
     # redirected every chat test that persisted a turn wrote into the
     # database in ``DATABASE_URL`` (hundreds of "hello" conversations in a
     # developer's live file). Same temp file, so both views agree.
+    sync_engine = _sync_twin(app_owned_engine)
     monkeypatch.setattr(
         db_module,
         "SessionLocal",
-        sessionmaker(bind=_sync_twin(app_owned_engine), class_=Session),
+        sessionmaker(bind=sync_engine, class_=Session),
     )
+    # And the ENGINE, because DDL does not go through either factory.
+    # ``init_database()`` is ``create_all(engine)``, and the conversation
+    # store calls it on construction, so building one during the suite
+    # created every missing model table in the developer's live file. Not
+    # a data-loss bug - create_all only ever ADDS tables - but the table
+    # it adds is frozen at the models' shape in that moment and nothing
+    # corrects it later (2026-09-10: ``finance_merchant_alias`` landed in
+    # a real ledger without the column added minutes afterwards).
+    monkeypatch.setattr(db_module, "engine", sync_engine)
 
 
 def _sync_twin(async_engine: Any) -> Engine:
@@ -388,6 +410,26 @@ async def async_engine():
     yield engine
 
     await engine.dispose()
+
+
+@pytest.fixture
+async def csv_profiles(async_db_session: AsyncSession) -> None:
+    """The seeded CSV import profiles, for any test that imports a CSV.
+
+    Profiles reference a currency (FK), so currencies land first, matching
+    the production seed order — the fixture works before any account
+    exists, and ``get_or_create`` is idempotent for a caller that already
+    seeded one.
+    """
+    from app.services.finance.seeds.seed import CSV_IMPORT_PROFILES, DEFAULT_CURRENCIES
+    from app.services.finance.service import FinanceService
+
+    service = FinanceService(async_db_session)
+    for currency in DEFAULT_CURRENCIES:
+        await service.get_or_create_currency(currency["code"])
+    for profile in CSV_IMPORT_PROFILES:
+        async_db_session.add(FinanceImportProfile(is_system=True, **profile))
+    await async_db_session.flush()
 
 
 @pytest.fixture(scope="function")

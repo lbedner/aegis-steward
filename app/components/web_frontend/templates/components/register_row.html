@@ -4,6 +4,12 @@
    ``show_account`` in context. #}
 {% from "components/macros/form.html" import select, control %}
 {% from "components/macros/layout.html" import dropdown, menu_item, mark %}
+{# A row swapped out of band travels wrapped: a bare ``<tr>`` at the top
+   of a response bound for anything but a table is thrown away by the
+   HTML parser, and its cells spill into whatever was being swapped (a
+   stray transaction under a dialog's buttons). htmx unwraps a template
+   before it swaps, so this is the way to send one anywhere. #}
+{% if row_oob %}<template id="txn-{{ row.id }}-oob">{% endif %}
 <tr id="txn-{{ row.id }}" {% if row_oob %}hx-swap-oob="outerHTML"{% endif %} class="hover:bg-aegis-border/20 transition-colors">
   <td class="pl-5 pr-2 py-2"><input type="checkbox" name="transaction_ids" value="{{ row.id }}" aria-label="Select" class="{{ control('checkbox') }}"></td>
   <td class="px-5 py-2 whitespace-nowrap text-aegis-text">{{ row.date|short_date }}</td>
@@ -63,3 +69,4 @@
     {% endcall %}
   </td>
 </tr>
+{% if row_oob %}</template>{% endif %}

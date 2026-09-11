@@ -413,6 +413,8 @@ SERVICE_OWNERS = {
     "asset_liability_totals": "networth",
     "assign_merchant": "merchants",
     "assign_payee_group": "merchants",
+    "recompute_payee_aliases": "merchants",
+    "resolve_merchant_aliases": "merchants",
     "attach_transaction_to_stream": "recurring",
     "auto_contribute_goals": "goals",
     "auto_credit_envelopes": "goals",
@@ -569,7 +571,7 @@ def test_the_facade_mirrors_the_domain_gates_it_always_did() -> None:
         assert getattr(FinanceService, gate) == getattr(recurring, gate)
 
 
-# The 35 finance tables, by the module that must declare them. Splitting
+# The 36 finance tables, by the module that must declare them. Splitting
 # declarations is safe only while every model still lands in
 # ``SQLModel.metadata`` - which is what alembic autogenerate reads, and what
 # ``aegis.core.migration_generator.FINANCE_MIGRATION`` must stay
@@ -595,6 +597,7 @@ MODEL_OWNERS = {
     "FinanceInstitution": "connections",
     "FinanceLiabilityDetail": "accounts",
     "FinanceMerchant": "categorization",
+    "FinanceMerchantAlias": "categorization",
     "FinanceNetWorthSnapshot": "accounts",
     "FinanceRecurringStream": "planning",
     "FinanceRule": "categorization",

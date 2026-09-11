@@ -58,16 +58,19 @@ from app.services.finance.domains.ledger.queries.filters import (
 )
 from app.services.finance.domains.ledger.queries.merchants import (
     category_tallies_by_merchants,
+    delete_merchant_aliases,
     icons_by_domains,
     live_merchants_by_ids,
     live_streams_by_merchants,
     live_transactions_by_merchants,
+    merchant_aliases_by_normalized,
     merchant_by_id,
     merchant_by_normalized,
     merchant_usage_rows,
     merchants_by_ids,
     merchants_by_normalized_names,
     merchants_for_owner,
+    named_transactions,
     payeeless_transactions,
 )
 from app.services.finance.domains.ledger.queries.networth import (
@@ -141,6 +144,8 @@ __all__ = [
     "live_transactions_by_ids",
     "live_transactions_by_merchants",
     "merchant_by_id",
+    "delete_merchant_aliases",
+    "merchant_aliases_by_normalized",
     "merchant_by_normalized",
     "merchant_usage_rows",
     "merchants",
@@ -148,6 +153,7 @@ __all__ = [
     "merchants_by_ids",
     "merchants_by_normalized_names",
     "merchants_for_owner",
+    "named_transactions",
     "net_worth_series_since",
     "net_worth_snapshots_between",
     "networth",

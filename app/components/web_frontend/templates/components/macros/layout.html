@@ -13,12 +13,12 @@
    (see ``render()``). ``aria-current`` is set server-side from
    ``current_path`` and moved client-side by app.js as htmx pushes URLs.
    Clicking closes the mobile drawer (``mobileOpen`` from the shell). #}
+{# The kit's tone vocabulary: one word to one text colour, wherever a
+   value, a dot or a cell is coloured by what it means. #}
+{% set TONE_TEXT = {"ok": "text-aegis-teal", "warn": "text-aegis-amber", "error": "text-error", "muted": "text-aegis-muted", "accent": "text-aegis-accent"} %}
+
 {% macro nav_item(section, current_path) %}
-<a href="{{ section.path }}"
-   hx-get="{{ section.path }}"
-   hx-target="#app-content"
-   hx-push-url="true"
-   hx-swap="innerHTML show:window:top"
+<a href="{{ section.path }}" {{ hx_page(section.path) }}
    @click="mobileOpen = false"
    {% if section.path == current_path %}aria-current="page"{% endif %}
    class="group flex items-center gap-3 px-3 py-2 text-sm rounded transition-colors whitespace-nowrap
@@ -156,7 +156,7 @@
   {% for cell in cells %}
   <div {{ cell.attrs|safe if cell.attrs else "" }} class="px-5 py-4 min-w-0{% if cell.attrs %} cursor-pointer hover:bg-aegis-border/20 transition-colors{% endif %}">
     <dt class="text-aegis-muted micro-label">{{ cell.label }}</dt>
-    <dd class="mt-1 text-2xl font-semibold tabular-nums {{ 'text-error' if cell.tone == 'error' else ('text-aegis-teal' if cell.tone == 'ok' else 'text-aegis-text') }}">{{ cell.value }}</dd>
+    <dd class="mt-1 text-2xl font-semibold tabular-nums {{ TONE_TEXT.get(cell.tone, 'text-aegis-text') }}">{{ cell.value }}</dd>
     {% if cell.caption %}<dd class="mt-1 text-xxs text-aegis-muted truncate">{{ cell.caption }}</dd>{% endif %}
   </div>
   {% endfor %}
@@ -232,8 +232,7 @@
    accent; no tone renders the label plain. One shape for every "state"
    cell and chip, so tests find them by role. #}
 {% macro badge(label, tone=None) %}
-{% set tones = {"ok": "text-aegis-teal", "warn": "text-aegis-amber", "error": "text-error", "muted": "text-aegis-muted", "accent": "text-aegis-accent"} %}
-<span data-tone="{{ tone or '' }}" class="inline-flex items-center gap-1.5 whitespace-nowrap {{ tones.get(tone, 'text-aegis-text') }}">
+<span data-tone="{{ tone or '' }}" class="inline-flex items-center gap-1.5 whitespace-nowrap {{ TONE_TEXT.get(tone, 'text-aegis-text') }}">
   {% if tone %}<span class="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true"></span>{% endif %}{{ label }}
 </span>
 {% endmacro %}

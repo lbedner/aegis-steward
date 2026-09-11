@@ -1,0 +1,69 @@
+{# The account vocabulary, shared by the two pages that name accounts.
+
+   ``/accounts`` is the portfolio (every account by group, with
+   balances); a register's header carries the switcher, which says the
+   same thing on demand. Two densities of one list, from one ``groups``
+   shape (routes/finance/accounts.grouped), so a change to how an
+   account is grouped, totalled or linked lands in both at once.
+#}
+{% from "components/macros/layout.html" import dropdown, TONE_TEXT %}
+
+{# Where an account's register lives. One answer, so a door added later
+   opens the same way. #}
+{% macro register_url(path, account=None) %}{{ path }}/{{ account.id if account else "all" }}{% endmacro %}
+
+{# A balance reads by sign wherever it appears. #}
+{% macro amount(cents, currency="USD") %}
+<span class="tabular-nums {{ TONE_TEXT.error if cents < 0 else '' }}">{{ cents|money(currency) }}</span>
+{% endmacro %}
+
+{# One group's heading: what it is, and what it comes to. #}
+{% macro group_heading(group, classes="") %}
+<h2 data-group-row class="flex items-baseline justify-between gap-3 {{ classes }}">
+  <span data-group>{{ group.label }}</span>{{ amount(group.subtotal) }}
+</h2>
+{% endmacro %}
+
+{# The portfolio's row: the account, what it is worth, what it owes you
+   next, and a door to its register. #}
+{% macro portfolio_row(path, row, statement=None) %}
+<a href="{{ register_url(path, row.account) }}" {{ hx_page(register_url(path, row.account)) }}
+   class="group flex items-baseline justify-between gap-4 px-4 py-2.5 rounded
+          hover:bg-aegis-border/20 transition-colors">
+  <span class="min-w-0">
+    <span data-name class="block text-sm text-aegis-text truncate">{{ row.account.name }}</span>
+    {% if statement %}<span class="block text-xxs text-aegis-muted">{{ statement }}</span>{% endif %}
+  </span>
+  <span class="shrink-0 flex items-baseline gap-3">
+    <span class="text-sm">{{ amount(row.balance, row.account.currency) }}</span>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5 text-aegis-muted opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+  </span>
+</a>
+{% endmacro %}
+
+{# The switcher: what the old column said, opened when you want it. The
+   register a row leads to is the same URL the portfolio uses. #}
+{% macro switcher(path, groups, total, selected=None) %}
+<div id="account-switcher">
+{% call dropdown(selected.name if selected else "All accounts", align="left") %}
+  {{ switch_row(path, none, "All accounts", total, selected is none) }}
+  {% for group in groups %}
+  <li class="px-3 pt-3 pb-1 micro-label text-aegis-muted" data-group>{{ group.label }}</li>
+  {% for row in group.accounts %}
+  {{ switch_row(path, row.account, row.account.name, row.balance, selected is not none and selected.id == row.account.id) }}
+  {% endfor %}
+  {% endfor %}
+{% endcall %}
+</div>
+{% endmacro %}
+
+{% macro switch_row(path, account, label, cents, current) %}
+<li>
+  <a href="{{ register_url(path, account) }}" {{ hx_page(register_url(path, account)) }}
+     {% if current %}aria-current="page"{% endif %}
+     class="flex items-baseline justify-between gap-6 px-3 py-1.5 text-sm whitespace-nowrap
+            text-aegis-text hover:bg-aegis-border/20 aria-[current=page]:bg-aegis-teal/10 transition-colors">
+    <span class="truncate">{{ label }}</span>{{ amount(cents, account.currency if account else "USD") }}
+  </a>
+</li>
+{% endmacro %}

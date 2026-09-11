@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.backend.api.ai.router import ai_service
 from app.components.web_frontend.filters import markdown
@@ -20,7 +21,8 @@ from app.core.chat_transcript import (
 )
 from app.services.ai.models import AIProvider, MessageRole
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
-from tests.web.conftest import Ledger, Review
+from app.services.finance.service import FinanceService
+from tests.web.conftest import Ledger, Review, Streams
 from tests.web.dom import none, one, select, text, triggers
 
 
@@ -43,6 +45,13 @@ class TestPage:
         fragment = hx.get("/chat").text
         none(fragment, "aside#sidebar")
         one(fragment, "#chat-thread")
+
+    def test_the_jump_button_sits_on_a_surface(self, client: TestClient) -> None:
+        """It floats over the transcript, so it needs a background of its
+        own; transparent, the words underneath read straight through it."""
+        jump = one(client.get("/chat").text, "#chat-jump")
+        assert "bg-aegis-card" in (jump.get("class") or "")
+        assert jump.get("hidden") is not None  # shown only once you leave
 
     def test_the_stream_config_rides_on_the_page(self, client: TestClient) -> None:
         import json
@@ -251,6 +260,17 @@ class TestWords:
             == "m  ·  10 tps  ·  $0.5000"
         )
 
+    def test_the_footer_says_how_long_it_took(self) -> None:
+        """Tokens a second says how fast it wrote; it does not say how
+        long you waited. A minute of thinking and eight seconds of
+        writing read the same without it."""
+        assert footer_line({"gen_tps": 44.6, "response_time_ms": 13411.9}) == (
+            "44.6 tps  ·  13.4s"
+        )
+        assert "0.8s" in footer_line({"response_time_ms": 812})
+        assert "1m 03s" in footer_line({"response_time_ms": 63_000})
+        assert footer_line({"model": "m"}) == "m"  # nothing to say, nothing said
+
 
 @pytest.fixture
 def proposed(review: Review) -> tuple[str, str]:
@@ -317,6 +337,85 @@ class TestComponents:
         ]
         assert all(el.get("hx-trigger") == "load" for el in loaders)
 
+    def test_a_card_whose_subject_is_gone_says_so_quietly(
+        self, hx: TestClient, review: Review
+    ) -> None:
+        """A transcript is a record; the queue moves on. A proposal that
+        has since been purged (or a ledger replaced under it) must not
+        answer the card's load with a 404 the reader meets as an error
+        toast every time the page opens."""
+        for url in ("/chat/components/change/999999", "/chat/components/batch/nope"):
+            response = hx.get(url)
+            assert response.status_code == 200, url
+            assert "no longer" in text(one(response.text, "[data-component-gone]"))
+
+    def test_copying_an_answer_shows_that_it_copied(
+        self, hx: TestClient, stored: tuple[str, str]
+    ) -> None:
+        """A clipboard write is invisible: without an answer the button
+        looks broken and gets pressed twice."""
+        conversation_id, message_id = stored
+        copy = one(
+            hx.get(f"/chat/messages/{conversation_id}/{message_id}").text,
+            "button[data-copy]",
+        )
+        # Two icons in the markup, one hidden: the script swaps them and
+        # input.css makes the swap read as a pop.
+        one(copy, "[data-copy-idle]")
+        assert "hidden" in (one(copy, "[data-copy-done]").get("class") or "")
+
+    def test_a_card_wears_the_brand_of_what_it_proposes(
+        self,
+        hx: TestClient,
+        review: Review,
+        merchant: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A proposal is about a transaction, so it carries the same mark
+        the register gives that transaction: the payee's logo when there
+        is one, its category's glyph or its initial when there is not."""
+        from app.services.finance.domains.ledger import merchant_icon
+
+        monkeypatch.setitem(merchant_icon._CACHE, "shell.com", "AAAA")
+        rows = select(
+            hx.get(f"/chat/components/batch/{review.batch}").text, "[data-subject]"
+        )
+        marks = [row.getparent() for row in rows]
+        assert any(select(m, 'img[src="/icons?key=shell.com"]') for m in marks)
+        assert all(
+            select(m, "img") or select(m, "[data-avatar]") or select(m, "[data-glyph]")
+            for m in marks
+        )
+
+    async def test_a_payee_less_payment_borrows_the_brand_of_the_bill(
+        self,
+        hx: TestClient,
+        streams: Streams,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Most payments a proposal is about have no payee of their own —
+        that is why they are unmatched. The bill knows the brand, and the
+        proposal asserts the two are the same thing, so the row borrows it
+        rather than showing an initial off a raw bank descriptor."""
+        from app.services.finance.domains.ledger import merchant_icon
+
+        monkeypatch.setitem(merchant_icon._CACHE, "netflix.com", "AAAA")
+        rows, _ = await finance.list_transactions(owner_user_id=None, page_size=50)
+        water = next(t for t in rows if t.name == "WATER CO")
+        assert water.merchant_id is None  # nothing to borrow from itself
+        change = await finance.propose_change(
+            "recurring.match",
+            {"transaction_id": water.id, "stream_id": streams.netflix},
+            owner_user_id=None,
+            proposed_by_agent="steward",
+        )
+        await async_db_session.commit()
+
+        card = hx.get(f"/chat/components/change/{change.id}").text
+        assert one(card, "img").get("src") == "/icons?key=netflix.com"
+
     def test_change_card_approves_in_place_and_leaves_the_queue(
         self, client: TestClient, hx: TestClient, review: Review
     ) -> None:
@@ -363,10 +462,6 @@ class TestComponents:
         resolved = one(after, "[data-component=pending_change_batch]")
         assert text(one(resolved, "[data-outcome]")) == "1 approved, 1 rejected"
         none(resolved, "input[name=exclude_ids]")
-
-    def test_unknown_card_is_a_404(self, hx: TestClient, review: Review) -> None:
-        assert hx.get("/chat/components/change/999999").status_code == 404
-        assert hx.get("/chat/components/batch/nope").status_code == 404
 
 
 class TestHistory:
@@ -638,6 +733,20 @@ class TestModelPicker:
         assert text(one(rows[1], "span span:first-child")) == "OpenAI: GPT-4o"
         assert "No models match" in hx.get("/chat/models", params={"q": "zzz"}).text
 
+    def test_typing_replaces_the_list_and_leaves_the_box_alone(
+        self, hx: TestClient, catalog: dict[str, Any]
+    ) -> None:
+        """The rule every search here follows: a keystroke may swap the
+        list, never the input being typed into. Swapping the input takes
+        the caret and the focus with it, and the next keystroke lands
+        nowhere."""
+        dialog = hx.get("/chat/models").text
+        search = one(dialog, "#model-picker form[hx-get]")
+        assert search.get("hx-target") == "#model-list"
+        assert search.get("hx-select") == search.get("hx-target")
+        assert search.get("hx-swap") == "outerHTML"
+        one(dialog, "#model-list")
+
     def test_a_pick_switches_in_place_and_updates_the_chip(
         self, hx: TestClient, catalog: dict[str, Any]
     ) -> None:
@@ -677,6 +786,19 @@ class TestDrawer:
         body = one(page, "#illiana-body")
         assert len(body) == 0  # loaded on first open, not with every page
         none(page, "#chat")  # the surface is not on the page until the drawer loads it
+
+    def test_the_panel_lets_a_click_reach_the_script(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """The scrim is the panel's SIBLING, so a click on the panel never
+        reaches it and needs no stopping. Stopping it anyway killed every
+        delegated handler inside the drawer — copy, replay, jump, the
+        image viewer — because they all listen on the document."""
+        panel = one(
+            client.get("/overview").text, '[role=dialog][aria-label*="Illiana"]'
+        )
+        assert "@click.stop" not in " ".join(panel.keys())
+        assert panel.getparent().index(panel) > 0  # painted over the scrim
 
     def test_the_chat_page_is_the_surface_and_the_drawer_steps_aside(
         self, client: TestClient

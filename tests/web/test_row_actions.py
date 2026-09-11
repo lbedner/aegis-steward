@@ -10,7 +10,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from tests.web.conftest import Ledger
+from tests.web.conftest import REGISTER, Ledger
 from tests.web.dom import none, one, oob, select, text, triggers
 
 
@@ -53,7 +53,7 @@ class TestRowMenu:
 
         # The combined register answers with rows that name their account,
         # so its menu asks the dialog to do the same.
-        combined = client.get("/accounts").text
+        combined = client.get(REGISTER).text
         assert (
             one(combined, f"#txn-{gas} [hx-get^='/transactions/payee']").get("hx-get")
             == f"/transactions/payee?transaction_ids={gas}&show_account=true"
@@ -65,9 +65,9 @@ class TestRowMenu:
         gas = txn_id(client.get(f"/accounts/{ledger.card}").text, "Gas")
         dialog = hx.get(f"/transactions/payee?transaction_ids={gas}").text
         assert "Gas" in text(one(dialog, "h2"))
-        assert [
+        assert {
             i.get("value") for i in select(dialog, 'input[name="transaction_ids"]')
-        ] == [gas]
+        } == {gas}
 
 
 class TestRowMarkup:
@@ -94,7 +94,7 @@ class TestRowMarkup:
     def test_uncategorised_count_is_shown(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        page = client.get("/accounts").text
+        page = client.get(REGISTER).text
         assert text(one(page, "#uncategorized-count")) == "2 uncategorized"
 
     def test_row_menu_offers_tag_and_delete(
@@ -160,10 +160,11 @@ class TestTags:
 
         dialog = hx.get(f"/transactions/tag?transaction_ids={gas}").text
         none(dialog, "html")
-        form = one(dialog, "form")
-        assert form.get("hx-post") == "/transactions/tag"
-        assert form.get("hx-swap") == "none"
-        one(form, 'input[name="name"]')
+        picker = one(dialog, "#tag-picker")
+        assert one(picker, "input[type=search]").get("placeholder") == (
+            "Search or name a tag"
+        )
+        form = one(picker, "form[hx-post='/transactions/tag']")
         assert one(form, 'input[name="transaction_ids"]').get("value") == gas
 
         response = client.post(
@@ -178,6 +179,24 @@ class TestTags:
         assert remove.get("hx-delete", "").startswith(f"/transactions/{gas}/tags/")
         # The dialog closes on success.
         assert triggers(response)["dialog:close"] is None
+
+    def test_the_tag_picker_refuses_a_tag_the_row_already_wears(
+        self, client: TestClient, hx: TestClient, ledger: Ledger
+    ) -> None:
+        """Same rule as the payee: a tag already on every selected row
+        would write nothing, so it cannot be chosen again."""
+        page = client.get(f"/accounts/{ledger.card}").text
+        gas = txn_id(page, "Gas")
+        client.post(
+            "/transactions/tag", data={"transaction_ids": [gas], "name": "trip"}
+        )
+
+        picker = one(
+            hx.get(f"/transactions/tag?transaction_ids={gas}").text, "#tag-picker"
+        )
+        current = one(picker, 'button[aria-current="true"]')
+        assert current.get("value") == "trip"
+        assert current.get("disabled") is not None
 
     def test_untag_returns_the_row_without_the_chip(
         self, client: TestClient, ledger: Ledger
@@ -203,7 +222,7 @@ class TestTags:
         )
         assert response.status_code == 422
         one(response.text, '[role="alert"]')
-        one(response.text, 'input[name="name"]')
+        one(response.text, "#tag-picker")
 
 
 class TestDelete:

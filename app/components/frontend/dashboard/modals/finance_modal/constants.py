@@ -17,10 +17,6 @@ from app.services.finance.constants import (
 from app.services.system.models import ComponentStatusType
 
 _SIDEBAR_WIDTH = 320
-# Named rows in the import review's detail sections before the tail folds
-# into a count. A Quicken tree can carry hundreds of new categories, and a
-# dialog that scrolls for a page stops being read at all.
-_PREVIEW_DETAIL_CAP = 10
 _PREVIEW_DETAIL_HEIGHT = 440
 # One height for every Overview card, so the row has a single baseline.
 _OVERVIEW_CARD_HEIGHT = 320

@@ -1,0 +1,52 @@
+{# The import dialogs' shared vocabulary.
+
+   A review (before) and a completion summary (after) show the SAME five
+   numbers, and a reader compares the two screens — so they are one layout
+   wearing two sets of labels, not two layouts that drift into disagreeing
+   about what a count means. ``headings`` is the whole difference: the
+   review says what will happen, the summary says what did.
+#}
+{% from "components/macros/layout.html" import stats_strip, badge %}
+
+{# The three outcomes that CHANGE the ledger, as the house strip. #}
+{% macro count_cells(counts, headings) %}
+{% set captions = headings %}
+{{ stats_strip([
+     {"label": captions[0][0], "value": "{:,}".format(counts.rows_inserted), "caption": captions[0][1], "tone": "ok" if counts.rows_inserted else none},
+     {"label": captions[1][0], "value": "{:,}".format(counts.rows_updated), "caption": captions[1][1], "tone": "warn" if counts.rows_updated else none},
+     {"label": captions[2][0], "value": "{:,}".format(counts.rows_duplicate), "caption": captions[2][1]},
+   ], id="import-counts") }}
+{% endmacro %}
+
+{# The outcomes that do NOT touch the ledger. Dots rather than cards: a
+   card's chrome says "this lands in your ledger", and these do not. A
+   zero keeps its dot and goes muted, so the row holds its shape. #}
+{% macro count_dots(counts) %}
+<div id="import-dots" class="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+  {{ badge("{:,} scheduled".format(counts.rows_skipped), "warn" if counts.rows_skipped else "muted") }}
+  {% if counts.rows_ignored %}{{ badge("{:,} from removed accounts".format(counts.rows_ignored), "muted") }}{% endif %}
+  {{ badge("{:,} {}".format(counts.rows_error, "error" if counts.rows_error == 1 else "errors"), "error" if counts.rows_error else "muted") }}
+  {% if counts.category_kept_count %}{{ badge("{:,} {} kept".format(counts.category_kept_count, "category" if counts.category_kept_count == 1 else "categories"), "ok") }}{% endif %}
+</div>
+{% endmacro %}
+
+{# The muted closing line every import dialog ends on. #}
+{% macro footnote(text) %}
+<p class="flex items-start gap-1.5 text-xs text-aegis-muted">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.852l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"/></svg>
+  <span>{{ text }}</span>
+</p>
+{% endmacro %}
+
+{# One named thing a commit would mint: its kind, then its name. #}
+{% macro named(kind, name, tone="muted") %}
+<li class="flex items-center gap-2 min-w-0 text-sm">
+  <span class="shrink-0">{{ badge(kind, tone) }}</span>
+  <span class="text-aegis-muted truncate">{{ name }}</span>
+</li>
+{% endmacro %}
+
+{# "and N more x" — the tail of a capped list, never silent truncation. #}
+{% macro more(total, cap, noun) %}
+{% if total > cap %}<li class="text-xs text-aegis-muted">and {{ "{:,}".format(total - cap) }} more {{ noun }}</li>{% endif %}
+{% endmacro %}

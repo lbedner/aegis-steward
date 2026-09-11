@@ -11,6 +11,8 @@ from typing import Any
 
 from markupsafe import Markup
 
+from app.core.formatting import format_date_range
+
 # Symbols for the codes a household ledger actually sees; anything else
 # shows its code.
 _CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
@@ -55,6 +57,11 @@ def short_date(value: date | datetime | str | None, today: date | None = None) -
     if value.year == (today or _utc_today()).year:
         return label
     return f"{label}, {value.year}"
+
+
+def date_range(start: date | str | None, end: date | str | None) -> str:
+    """The span two dates cover, on one line (``format_date_range``)."""
+    return format_date_range(start, end)
 
 
 def pct(ratio: float | None, digits: int = 0) -> str:
@@ -146,6 +153,7 @@ FILTERS: dict[str, Callable[..., str]] = {
     "money": money,
     "cents_to_input": cents_to_input,
     "short_date": short_date,
+    "date_range": date_range,
     "pct": pct,
     "markdown": markdown,
     "code": code,

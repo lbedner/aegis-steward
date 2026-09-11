@@ -170,6 +170,40 @@ async def _recompute_snapshots(days: int) -> None:
     )
 
 
+@app.command("recompute-payee-aliases")
+def recompute_payee_aliases(owner_user_id: int | None = _OWNER_OPT) -> None:
+    """Rebuild the payee memory from the transactions already named.
+
+    The alias table is written as payees are named, so a ledger whose
+    naming predates it starts with an empty memory. Idempotent, and it
+    answers to the transactions: reach for it after restoring an archive
+    older than the table, or after the payee key's shape changes.
+    """
+    asyncio.run(_recompute_payee_aliases(owner_user_id))
+
+
+async def _recompute_payee_aliases(owner_user_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.service import FinanceService
+
+    async with get_async_session() as session:
+        counts = await FinanceService(session).recompute_payee_aliases(
+            owner_user_id=owner_user_id
+        )
+        await session.commit()
+    console.print(
+        f"[green]Learned {counts['keys']} payee key(s) from "
+        f"{counts['transactions']} named transaction(s).[/]"
+    )
+    if counts["ambiguous"]:
+        # Not a failure worth hiding: these are the keys the ledger will
+        # now decline to guess at, and knowing which is the point.
+        console.print(
+            f"[yellow]{counts['ambiguous']} key(s) cover more than one payee "
+            "and will not be applied on import.[/]"
+        )
+
+
 @app.command("seed-demo", help=lazy_t("finance.help_seed_demo"))
 def seed_demo(
     owner_user_id: int | None = _OWNER_OPT,
@@ -248,6 +282,94 @@ async def _seed_demo(
             days=result.net_worth_days,
         )
     )
+
+
+@app.command("export")
+def export_data(
+    path: str = typer.Argument(..., help="Where to write the archive (.jsonl.gz)."),
+) -> None:
+    """Export the whole finance service: every account, bill, budget,
+    category, rule, icon and transaction, as one portable archive."""
+    asyncio.run(_export_data(path))
+
+
+async def _export_data(path: str) -> None:
+    from pathlib import Path
+
+    from app.core.db import get_async_session
+    from app.services.finance import portability
+
+    target = Path(path)
+    async with get_async_session() as session:
+        counts = await portability.export_finance(session, target)
+    _print_counts(f"Exported to {target.name}", counts, target)
+
+
+@app.command("restore")
+def restore_data(
+    path: str = typer.Argument(..., help="An archive written by `finance export`."),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help="Empty the finance tables first. Without it an existing row is a refusal.",
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation."),
+) -> None:
+    """Load a finance archive into this instance."""
+    asyncio.run(_restore_data(path, replace, yes))
+
+
+async def _restore_data(path: str, replace: bool, yes: bool) -> None:
+    from pathlib import Path
+
+    from app.core.db import get_async_session
+    from app.services.finance import portability
+
+    source = Path(path)
+    try:
+        header = portability.read_header(source)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"{source.name}, written {header.get('created_at', 'at some point')}")
+    if (
+        replace
+        and not yes
+        and not typer.confirm("This empties every finance table first. Continue?")
+    ):
+        console.print("Nothing was written.")
+        raise typer.Exit(code=1)
+    async with get_async_session() as session:
+        try:
+            counts, repairs = await portability.restore_finance(
+                session, source, replace=replace
+            )
+        except Exception as exc:
+            console.print(f"[red]Restore failed:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+    _print_counts(f"Restored from {source.name}", counts, None)
+    if repairs:
+        console.print(
+            "[yellow]Dropped references with nothing at the end of them:[/] "
+            "the row is kept, the pointer is not."
+        )
+        for where, dropped in sorted(repairs.items(), key=lambda kv: -kv[1]):
+            console.print(f"  {dropped:>6,}  {where}")
+
+
+def _print_counts(title: str, counts: dict[str, int], path: Any = None) -> None:
+    """The rows an export or a restore moved, table by table."""
+    from rich.table import Table as RichTable
+
+    table = RichTable(title=title)
+    table.add_column("Table")
+    table.add_column("Rows", justify="right")
+    for name, rows in sorted(counts.items(), key=lambda item: -item[1]):
+        table.add_row(name.removeprefix("finance_"), f"{rows:,}")
+    table.add_row("[bold]total[/]", f"[bold]{sum(counts.values()):,}[/]")
+    console.print(table)
+    if path is not None and path.exists():
+        console.print(f"{path} ({path.stat().st_size / 1_000_000:.1f} MB)")
 
 
 @app.command("import")

@@ -16,11 +16,10 @@
   {% endcall %}
   {% call field("Into account") %}{{ select("account_id", accounts, account_id, blank="Let the file decide (OFX)") }}{% endcall %}
   <p class="text-xxs text-aegis-muted">QIF and CSV files carry no account, so pick one for those.</p>
-  <div class="flex items-center gap-3">
-    <button type="button" hx-post="/accounts/import/preview" hx-target="#import-result" hx-include="#import-form"
-            class="{{ button_classes("default") }}">Preview</button>
-    <button type="button" hx-post="/accounts/import" hx-target="#import-result" hx-include="#import-form"
-            class="{{ button_classes() }}">Import</button>
-  </div>
+  {# One button. Import opens the review (what this file would do); the
+     review's own button commits it, so nothing is ever written straight
+     from this form. #}
+  <button type="button" hx-post="/accounts/import/preview" hx-target="#import-result" hx-include="#import-form"
+          class="{{ button_classes() }}">Import</button>
 </form>
 <div id="import-result" class="mt-5"></div>

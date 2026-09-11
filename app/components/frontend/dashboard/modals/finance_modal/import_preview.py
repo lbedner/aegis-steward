@@ -27,23 +27,7 @@ from app.components.frontend.controls import (
     StatusDot,
     Tag,
 )
-
-# Named rows in the import review's detail sections before the tail folds
-# into a count. A Quicken tree can carry hundreds of new categories, and a
-# dialog that scrolls for a page stops being read at all.
-# One height for every Overview card, so the row has a single baseline.
-# Named slices in the spending donut (and rows in the list under it) before
-# the tail folds into "Other". Five left "Other" as the biggest slice on any
-# real ledger, which hides exactly the breakdown the card exists to show.
-# Measured against a real ledger (23 parent-level categories after the
-# spending_by_category rollup): 10 slices still left "Other" at 16.3%; 15
-# gets it to 5.3%, with everything past #15 individually under 1% of total
-# spend - the tail at that point really is "everything else", not a few
-# disguised top categories. PieChartCard's legend scrolls within its fixed
-# height (modal_sections.py) rather than clipping, so this isn't bounded
-# by legend space anymore.
 from app.components.frontend.dashboard.modals.finance_modal.constants import (
-    _PREVIEW_DETAIL_CAP,
     _PREVIEW_DETAIL_HEIGHT,
 )
 from app.components.frontend.dashboard.modals.finance_modal.formatting import _usd
@@ -53,26 +37,8 @@ from app.components.frontend.dashboard.modals.modal_sections import (
     RankedBarCard,
 )
 from app.components.frontend.theme import AegisTheme as Theme
-from app.core.formatting import format_date
-
-
-def _preview_date_range(start: object, end: object) -> str:
-    """The span an import covers, short enough to sit on ONE line.
-
-    A metric card's caption is ~175px wide, and the house
-    ``format_date`` twice over ("Jul 29, 2026 to Aug 6, 2026") does not
-    fit - it wraps, which makes that card taller than the two beside it
-    and leaves the row with a ragged bottom edge. Repeating the year is
-    what it can afford to lose: a same-year range drops both (the file
-    name carries it), a range that crosses one keeps both, because that
-    is exactly when the year is the surprising part.
-    """
-    left, right = format_date(start), format_date(end)
-    if not right or left == right:
-        return left or right
-    if left[-4:].isdigit() and left[-4:] == right[-4:]:
-        left = left[:-6]
-    return f"{left} to {right}"
+from app.core.formatting import format_date, format_date_range
+from app.services.finance.constants import PREVIEW_DETAIL_CAP as _PREVIEW_DETAIL_CAP
 
 
 def _preview_metric(
@@ -242,7 +208,7 @@ def import_preview_body(preview: dict[str, Any], file_name: str) -> ft.Column:
     """
     added_note = "New transactions"
     if preview.get("rows_inserted", 0) and preview.get("insert_date_start"):
-        added_note = _preview_date_range(
+        added_note = format_date_range(
             preview.get("insert_date_start"), preview.get("insert_date_end")
         )
     metrics, dot_row = _import_count_controls(
