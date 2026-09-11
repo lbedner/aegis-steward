@@ -74,6 +74,40 @@ class TestDialog:
         assert text(run) == "Import"
         one(dialog, "#import-result")
 
+    def test_the_chooser_steps_aside_once_a_review_is_up(
+        self, client: TestClient, hx: TestClient, ledger: Ledger
+    ) -> None:
+        """Reported live 2026-09-11: while the review was on screen the
+        file picker sat above it, so another file could be chosen against
+        a review of the last one.
+
+        Hidden, never removed: the review's own Import button re-sends the
+        very bytes it reviewed via ``hx-include="#import-form"``, and the
+        batch dedup ties the two requests together by file hash. Take the
+        form out of the DOM and the commit has nothing to post.
+        """
+        dialog = hx.get(f"/accounts/import?account_id={ledger.checking}").text
+        scope = one(dialog, "#import-dialog")
+        assert "reviewing" in (scope.get("x-data") or "")
+
+        chooser = one(dialog, "#import-chooser")
+        assert chooser.get("x-show") == "!reviewing"
+        # The file input is inside what gets hidden - that is the point.
+        one(chooser, 'input[type="file"][name="file"]')
+
+        result = one(dialog, "#import-result")
+        assert "reviewing" in (result.get("@htmx:after-swap") or ""), (
+            "the result pane is what knows a review has arrived"
+        )
+
+    def test_the_review_still_posts_the_form_it_hid(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """The guard on the fix: hiding must not become removing."""
+        panel = review(client, QIF, account_id=str(ledger.checking))
+        run = one(panel, 'button[hx-post="/accounts/import"]')
+        assert run.get("hx-include") == "#import-form"
+
 
 class TestReview:
     """What Import opens: the same five counts, the same words, and the

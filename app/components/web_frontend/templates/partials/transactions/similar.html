@@ -23,6 +23,11 @@
       @change="nothing = !$el.querySelectorAll('input[name=transaction_ids]:checked').length
                          && !$el.querySelector('input[name=apply_category]')?.checked">
   <input type="hidden" name="merchant_id" value="{{ merchant_id }}">
+  {# The rows this offer was opened on. The checkboxes below are the
+     LOOKALIKES; after a bulk assign there are none, so without these the
+     reply would carry no rows and the category would land in the ledger
+     without landing on the screen. #}
+  {% for id in named_ids %}<input type="hidden" name="named_ids" value="{{ id }}">{% endfor %}
   {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
 
   {% if similar %}
@@ -48,7 +53,7 @@
       <input type="checkbox" name="apply_category" value="true" checked class="{{ control('checkbox') }}">
       File every {{ merchant_name }} transaction under
     </label>
-    {{ select("category_id", categories, suggested_category_id, blank=None, block=True) }}
+    {{ select("category_id", offer_categories, suggested_category_id, blank=None, block=True) }}
     <p class="text-xxs text-aegis-muted">Applies to the {{ merchant_name }} transactions already in your ledger too, so the payee ends up filed one way.</p>
   </div>
   {% endif %}

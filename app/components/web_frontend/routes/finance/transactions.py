@@ -308,6 +308,7 @@ async def _payee_dialog(
 async def payee(
     request: Request,
     transaction_ids: Annotated[list[int], Form()] = [],
+    named_ids: Annotated[list[int], Form()] = [],
     merchant_id: Annotated[str, Form()] = "",
     new_name: Annotated[str, Form()] = "",
     category_id: Annotated[str, Form()] = "",
@@ -324,8 +325,18 @@ async def payee(
     one payee, and asking twice for one click is worse than asking once.
     After a bulk assign the lookalike sweep is skipped: the rows were
     already chosen by hand, and re-asking second-guesses that.
+
+    ``named_ids`` is what the offer was opened ON, carried back so the
+    reply can re-render it. ``transaction_ids`` holds only the lookalikes
+    the user ticked, and after a bulk assign there are none - so rendering
+    that alone answered with no rows at all, and the category the user had
+    just confirmed was written to the ledger and nowhere on the screen.
     """
-    txns = await _txns(service, transaction_ids, owner_user_id)
+    # Everything this request acts on: the rows the offer was opened on,
+    # plus any lookalikes ticked in it. On the first post the offer does
+    # not exist yet and this is just the selection.
+    touched = list(dict.fromkeys([*named_ids, *transaction_ids]))
+    txns = await _txns(service, touched, owner_user_id)
     label = new_name.strip()
     if not merchant_id and not label:
         return await _payee_dialog(
@@ -357,7 +368,7 @@ async def payee(
     chosen_category = int(category_id) if apply_category and category_id else None
     await assign_merchant(
         MerchantAssign(
-            transaction_ids=transaction_ids,
+            transaction_ids=touched,
             merchant_id=chosen,
             category_id=chosen_category,
         ),
@@ -371,7 +382,7 @@ async def payee(
         owned, _ = await service.list_transactions(
             owner_user_id=owner_user_id, merchant_id=chosen, page_size=500
         )
-        stale = [t.id for t in owned if t.id not in set(transaction_ids)]
+        stale = [t.id for t in owned if t.id not in set(touched)]
         if stale:
             await assign_merchant(
                 MerchantAssign(
@@ -390,7 +401,7 @@ async def payee(
     lookalikes = similar.items if similar and similar.total else []
     suggested = _followup(summary)
     ask = bool(lookalikes or suggested)
-    fresh = await _txns(service, transaction_ids, owner_user_id)
+    fresh = await _txns(service, touched, owner_user_id)
     response = await _rows_response(
         request,
         service,
@@ -404,9 +415,15 @@ async def payee(
             "similar": lookalikes,
             "merchant_id": chosen,
             "merchant_name": merchant_name,
-            "categories": (await list_category_options(service=service)).items
+            # NOT "categories": that key is the row selects' option list,
+            # from rows_context. Sharing it meant the offer's own list
+            # overwrote it - and on the post that settles the payee the
+            # offer has no list, so every row came back with an empty
+            # select and could not show the category just written to it.
+            "offer_categories": (await list_category_options(service=service)).items
             if suggested
             else [],
+            "named_ids": touched,
             "offer_category": suggested is not None,
             "suggested_category_id": suggested,
         },
