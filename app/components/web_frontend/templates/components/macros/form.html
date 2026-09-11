@@ -106,9 +106,14 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 </label>
 {% endmacro %}
 
-{% macro search_input(name, value=None, placeholder="Search", autofocus=False) %}
-<input type="search" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
-       {% if autofocus %}autofocus{% endif %}
+{# The id is not decoration: htmx restores focus after a swap by ID, and
+   a filter form that re-renders on every keystroke destroys and recreates
+   this box mid-word. Without it the caret goes and the next letter is
+   typed into nothing, which is most of what "the search feels slow" turns
+   out to mean. #}
+{% macro search_input(name, value=None, placeholder="Search", autofocus=False, attrs="") %}
+<input type="search" id="search-{{ name }}" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
+       {% if autofocus %}autofocus{% endif %} {{ attrs|safe }}
        aria-label="{{ placeholder }}" class="{{ control("input") }} min-w-[12rem]">
 {% endmacro %}
 

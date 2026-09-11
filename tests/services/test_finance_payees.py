@@ -323,3 +323,77 @@ class TestRenameKeepsTheDedupKey:
 
         assert again.id == merchant.id
         assert len(await svc.list_merchants(owner_user_id=1)) == 1
+
+
+class TestFilingEveryTransactionOfAPayee:
+    """The follow-up's promise: "Applies to the Shop Rite transactions
+    already in your ledger too, so the payee ends up filed one way."
+
+    It was a page of them. The sweep read ``page_size=500`` and re-filed
+    what came back, so a payee with more than that kept the rest - and
+    since the offer decides whether to ask by tallying ALL the payee's
+    live rows, it saw more than one category still in use and asked
+    again. Apply, watch the categories change behind the dialog, and the
+    dialog re-renders the same question forever.
+
+    Found live 2026-09-11 on Shop Rite: 536 rows, 3 categories, 0
+    uncategorised. Four other payees are past the cap too - Target 1,017,
+    Starbucks 965, Amazon 850, Adams Fairacre Farms 540.
+    """
+
+    @pytest.mark.asyncio
+    async def test_it_files_every_row_the_payee_owns(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        account = await _account(svc)
+        payee = await svc.create_merchant("Shop Rite", owner_user_id=1)
+        groceries = await svc.get_or_create_category_from_hint(
+            "Food & Dining:Groceries"
+        )
+        other = await svc.get_or_create_category_from_hint("Shopping:Household")
+        ids = []
+        for day in range(1, 6):
+            txn = await _txn(svc, account.id, "SHOPRITE", date(2026, 6, day), -4_200)
+            ids.append(txn.id)
+        await svc.assign_merchant(ids, payee.id, owner_user_id=1)
+        # Two of them filed somewhere else: the payee argues with itself.
+        await svc.assign_merchant(
+            ids[:2], payee.id, category_id=other.id, owner_user_id=1
+        )
+
+        filed = await svc.file_payee_under(payee.id, groceries.id, owner_user_id=1)
+
+        assert filed == len(ids)
+        summary = await svc.merchant_category_summary(payee.id, owner_user_id=1)
+        assert summary.distinct_categories == 1
+        assert summary.dominant_category_id == groceries.id
+        assert summary.dominant_count == summary.total
+
+    @pytest.mark.asyncio
+    async def test_it_settles_the_payee_so_the_offer_stops_asking(
+        self, svc: FinanceService
+    ) -> None:
+        """The summary is what the dialog reads to decide whether to ask.
+        If filing leaves it unsettled the dialog can never close."""
+        from app.components.web_frontend.routes.finance.transactions import _followup
+
+        account = await _account(svc)
+        payee = await svc.create_merchant("Shop Rite", owner_user_id=1)
+        groceries = await svc.get_or_create_category_from_hint(
+            "Food & Dining:Groceries"
+        )
+        one = await _txn(svc, account.id, "SHOPRITE", date(2026, 6, 1), -4_200)
+        two = await _txn(svc, account.id, "SHOPRITE", date(2026, 6, 2), -3_100)
+        await svc.assign_merchant(
+            [one.id], payee.id, category_id=groceries.id, owner_user_id=1
+        )
+        await svc.assign_merchant([two.id], payee.id, owner_user_id=1)
+        # One filed, one not: the payee argues with itself and is asked about.
+        assert _followup(await svc.merchant_category_summary(payee.id, owner_user_id=1))
+
+        await svc.file_payee_under(payee.id, groceries.id, owner_user_id=1)
+
+        assert (
+            _followup(await svc.merchant_category_summary(payee.id, owner_user_id=1))
+            is None
+        )

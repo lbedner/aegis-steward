@@ -382,6 +382,36 @@ class TestTheCategoryHalfOfTheFollowUp:
                 f"row {txn} came back without the category it was just given"
             )
 
+    def test_apply_closes_the_dialog(
+        self, client: TestClient, ledger: Ledger, merchant: int
+    ) -> None:
+        """What Leonard saw: the categories changed behind the dialog and
+        the dialog stayed, re-rendering the same question. The offer is
+        re-asked whenever the payee still argues with itself, so a filing
+        that misses rows can never close it."""
+        page = client.get(REGISTER).text
+        ids = [txn_id(page, "Mystery charge"), txn_id(page, "Payroll")]
+        offer = one(
+            client.post(
+                "/transactions/payee",
+                data={"transaction_ids": ids, "merchant_id": merchant},
+            ).text,
+            "form#similar-offer",
+        )
+
+        applied = client.post(
+            "/transactions/payee",
+            data={
+                "merchant_id": merchant,
+                "named_ids": ids,
+                "apply_category": "true",
+                "category_id": _first_option(one(offer, 'select[name="category_id"]')),
+            },
+        )
+
+        none(applied.text, "form#similar-offer")
+        assert "dialog:close" in triggers(applied)
+
 
 def _first_option(sel) -> str:  # noqa: ANN001
     return next(o.get("value") for o in sel.findall(".//option") if o.get("value"))

@@ -87,3 +87,32 @@ document.body.addEventListener('dialog:close', () => {
   const dialog = document.getElementById('dialog');
   if (dialog && dialog.open) dialog.close();
 });
+
+// A select that names a <template> of options carries only what it needs
+// to READ: its own value and the blank. The rest arrives the first time
+// it is opened, cloned from the one copy on the page.
+//
+// The register's category cell is why. Inline, its 270 options were
+// 17.5 KB of a 20.8 KB row, so fifty rows sent 1,041 KB of a 1,097 KB
+// response - and the filter above re-sends the whole register on every
+// keystroke, which is what made searching an account feel slow.
+//
+// Delegated and idempotent: rows arrive by out-of-band swap all the time,
+// and a select that has already been filled is left alone.
+function fillOptions(select) {
+  if (!select || select.dataset.filled) return;
+  const source = document.getElementById(select.dataset.options);
+  if (!source) return;
+  const keep = select.value;
+  const blank = select.querySelector('option[value=""]');
+  select.replaceChildren();
+  if (blank) select.append(blank);
+  select.append(source.content.cloneNode(true));
+  select.dataset.filled = '1';
+  select.value = keep;
+}
+for (const type of ['focusin', 'pointerdown']) {
+  document.addEventListener(type, (event) => {
+    fillOptions(event.target.closest?.('select[data-options]'));
+  });
+}

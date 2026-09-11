@@ -110,3 +110,29 @@ class TestOob:
 
         primary, siblings = oob('<span id="count" hx-swap-oob="true">0</span>')
         assert primary == [] and len(siblings) == 1
+
+
+def _form(source: str, **context: object) -> str:
+    """Render a form macro on its own, the way the layout suite does."""
+    from app.components.web_frontend.rendering import templates
+
+    head = '{% from "components/macros/form.html" import search_input %}'
+    return templates.env.from_string(head + source).render(**context)
+
+
+class TestSearchInputKeepsTheCaret:
+    """htmx restores focus after a swap by ID. The register's filter form
+    swaps the whole ``#register`` on every keystroke, so a search box with
+    no id is destroyed and recreated mid-word: focus gone, caret gone, and
+    the next letter typed into nothing. Reported as the account search
+    feeling slow, 2026-09-11 - half of "slow" was this.
+    """
+
+    def test_the_box_has_an_id_for_htmx_to_find_it_by(self) -> None:
+        box = one(_form("{{ search_input('q') }}"), "input[type=search]")
+        assert box.get("id") == "search-q"
+
+    def test_the_id_follows_the_field_name(self) -> None:
+        """Two searches on one page must not collide."""
+        box = one(_form("{{ search_input('payee') }}"), "input[type=search]")
+        assert box.get("id") == "search-payee"

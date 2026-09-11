@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+from sqlalchemy import update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger import (
@@ -360,6 +361,57 @@ async def merchant_usual_categories(
             best[merchant_id] = (count, category_id)
     names = await categories.category_names(db, {c for _n, c in best.values()})
     return {m: names[c] for m, (_n, c) in best.items() if c in names}
+
+
+async def file_payee_under(
+    db: AsyncSession,
+    merchant_id: int,
+    category_id: int,
+    *,
+    owner_user_id: int | None = None,
+) -> int:
+    """File EVERY live transaction of this payee under one category.
+
+    The follow-up dialog promises exactly this - "applies to the
+    transactions already in your ledger too, so the payee ends up filed
+    one way" - and it used to keep that promise a page at a time: read
+    500 of the payee's rows and re-file those. A payee with more kept the
+    rest, and since the offer decides whether to ask by tallying ALL the
+    payee's live rows (``category_tallies_by_merchants``), it saw more
+    than one category still in use and asked again. Apply, watch the
+    categories change behind the dialog, and get the same question back.
+
+    Found on a real ledger: Shop Rite owns 536 rows, and four other
+    payees are past the old cap too (Target 1,017, Starbucks 965, Amazon
+    850, Adams Fairacre Farms 540).
+
+    One statement, and deliberately the same row set the tally counts, so
+    "filed" and "asked about" can never disagree again.
+    """
+    stmt = (
+        update(FinanceTransaction)
+        .where(
+            FinanceTransaction.merchant_id == merchant_id,
+            FinanceTransaction.deleted_at.is_(None),
+        )
+        .values(
+            category_id=category_id,
+            category_source="user",
+            is_user_categorized=True,
+            is_reviewed=True,
+            updated_at=utcnow(),
+        )
+    )
+    if owner_user_id is not None:
+        stmt = stmt.where(FinanceTransaction.owner_user_id == owner_user_id)
+    result = await db.exec(stmt)
+    merchant = await queries.merchant_by_id(db, merchant_id)
+    if merchant is not None:
+        merchant.default_category_id = category_id
+        merchant.updated_at = utcnow()
+        db.add(merchant)
+    await db.flush()
+    return int(result.rowcount or 0)
 
 
 async def merchant_category_summary(
