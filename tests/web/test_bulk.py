@@ -299,3 +299,89 @@ class TestBulkTag:
             row = one(response.text, f"tr#txn-{i}")
             assert row.get("hx-swap-oob") == "outerHTML"
             assert text(one(row, ".tag")).startswith("audit")
+
+
+class TestTheCategoryHalfOfTheFollowUp:
+    """Applying the category after a BULK assign.
+
+    The follow-up form carries one checkbox per LOOKALIKE, and lookalikes
+    are gathered only after a SINGLE-row assign. So after naming several
+    rows at once the form posts back with no ``transaction_ids`` at all -
+    just the payee and the category. Reported live 2026-09-11: several ATM
+    withdrawals renamed to one payee, the category offered and confirmed,
+    and both rows kept the category they already had.
+    """
+
+    def test_the_category_lands_on_rows_named_in_bulk(
+        self, client: TestClient, ledger: Ledger, merchant: int
+    ) -> None:
+        page = client.get(REGISTER).text
+        ids = [txn_id(page, "Mystery charge"), txn_id(page, "Payroll")]
+        offer = one(
+            client.post(
+                "/transactions/payee",
+                data={"transaction_ids": ids, "merchant_id": merchant},
+            ).text,
+            "form#similar-offer",
+        )
+        # No lookalikes after a bulk assign: the form has a payee and a
+        # category and nothing else to send.
+        assert not select(offer, 'input[name="transaction_ids"]')
+        chosen = one(offer, 'select[name="category_id"]')
+
+        client.post(
+            "/transactions/payee",
+            data={
+                "merchant_id": merchant,
+                "apply_category": "true",
+                "category_id": chosen.get("value") or _first_option(chosen),
+            },
+        )
+
+        after = client.get(REGISTER).text
+        for txn in ids:
+            assert select(after, f"#txn-{txn} select option[selected]"), (
+                f"row {txn} came away with no category at all"
+            )
+
+    def test_the_rows_it_refiled_come_back_rendered(
+        self, client: TestClient, ledger: Ledger, merchant: int
+    ) -> None:
+        """The write was never the broken half. The follow-up re-files the
+        payee's rows and then renders whatever is in ``transaction_ids`` -
+        which after a bulk assign is empty, so the reply carried no rows
+        and the screen kept showing the categories it had."""
+        page = client.get(REGISTER).text
+        ids = [txn_id(page, "Mystery charge"), txn_id(page, "Payroll")]
+        offer = one(
+            client.post(
+                "/transactions/payee",
+                data={"transaction_ids": ids, "merchant_id": merchant},
+            ).text,
+            "form#similar-offer",
+        )
+        carried = [i.get("value") for i in select(offer, 'input[name="named_ids"]')]
+        assert sorted(carried) == sorted(str(i) for i in ids), (
+            "the offer must carry the rows it was opened on"
+        )
+
+        chosen = _first_option(one(offer, 'select[name="category_id"]'))
+        applied = client.post(
+            "/transactions/payee",
+            data={
+                "merchant_id": merchant,
+                "named_ids": ids,
+                "apply_category": "true",
+                "category_id": chosen,
+            },
+        )
+
+        for txn in ids:
+            row = one(applied.text, f"template#txn-{txn}-oob")
+            assert one(row, "select option[selected]").get("value") == chosen, (
+                f"row {txn} came back without the category it was just given"
+            )
+
+
+def _first_option(sel) -> str:  # noqa: ANN001
+    return next(o.get("value") for o in sel.findall(".//option") if o.get("value"))

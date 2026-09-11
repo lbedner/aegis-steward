@@ -47,14 +47,27 @@ SHOPRITE_AGAIN = "SHPRTE NTH RD&WNSW GT POUGHKEEPSIE NYXX8683 07/22"
 KEY = "SHPRTE NTH RD WNSW"  # what both descriptors above group under
 
 
-async def _aliases(session: AsyncSession) -> dict[str, int]:
-    rows = (await session.exec(select(FinanceMerchantAlias))).all()
+async def _stored(session: AsyncSession) -> list[FinanceMerchantAlias]:
+    """Every alias row, in ONE read. A test that asks both questions asks
+    them of this list rather than running the select twice - which is
+    both a waste and the exact shape the N+1 gate watches for."""
+    return list((await session.exec(select(FinanceMerchantAlias))).all())
+
+
+def _by_key(rows: list[FinanceMerchantAlias]) -> dict[str, int]:
     return {row.normalized_alias: row.merchant_id for row in rows}
 
 
-async def _ambiguous(session: AsyncSession) -> set[str]:
-    rows = (await session.exec(select(FinanceMerchantAlias))).all()
+def _flagged(rows: list[FinanceMerchantAlias]) -> set[str]:
     return {row.normalized_alias for row in rows if row.is_ambiguous}
+
+
+async def _aliases(session: AsyncSession) -> dict[str, int]:
+    return _by_key(await _stored(session))
+
+
+async def _ambiguous(session: AsyncSession) -> set[str]:
+    return _flagged(await _stored(session))
 
 
 class TestTheKeyAnAliasIsStoredUnder:
@@ -99,8 +112,9 @@ class TestNamingRecordsWhatItMeant:
             [first.id, second.id, third.id], shoprite.id, owner_user_id=1
         )
 
-        assert await _aliases(async_db_session) == {KEY: shoprite.id}
-        assert await _ambiguous(async_db_session) == set()
+        stored = await _stored(async_db_session)
+        assert _by_key(stored) == {KEY: shoprite.id}
+        assert _flagged(stored) == set()
 
     @pytest.mark.asyncio
     async def test_clearing_a_payee_records_nothing(
@@ -132,8 +146,9 @@ class TestNamingRecordsWhatItMeant:
 
         await svc.assign_merchant([txn.id], right.id, owner_user_id=1)
 
-        assert await _aliases(async_db_session) == {KEY: right.id}
-        assert await _ambiguous(async_db_session) == {KEY}
+        stored = await _stored(async_db_session)
+        assert _by_key(stored) == {KEY: right.id}
+        assert _flagged(stored) == {KEY}
 
     @pytest.mark.asyncio
     async def test_renaming_to_the_same_payee_is_not_a_conflict(

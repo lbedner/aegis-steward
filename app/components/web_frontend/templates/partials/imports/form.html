@@ -1,6 +1,14 @@
-{# Dialog body: one form holds the file for both Preview and Import; each
-   posts it to its own route and swaps #import-result below. #}
+{# Dialog body: one form holds the file, Import opens the review below
+   it, and the review's own button commits the very bytes it reviewed.
+
+   While a review is up the chooser steps ASIDE rather than out. Another
+   file cannot be picked against a review of the last one, but the form
+   stays in the DOM because the review posts it back by
+   ``hx-include="#import-form"`` - remove it and the commit has nothing
+   to send. #}
 {% from "components/macros/form.html" import field, select, button_classes, control %}
+<div id="import-dialog" x-data="{ reviewing: false }">
+<div id="import-chooser" x-show="!reviewing">
 <h2 class="text-lg font-semibold text-aegis-text mb-4">Import a file</h2>
 <form id="import-form" hx-encoding="multipart/form-data" class="space-y-4">
   {% call field("File") %}
@@ -22,4 +30,11 @@
   <button type="button" hx-post="/accounts/import/preview" hx-target="#import-result" hx-include="#import-form"
           class="{{ button_classes() }}">Import</button>
 </form>
-<div id="import-result" class="mt-5"></div>
+</div>
+{# The result pane is what knows a review has arrived: the preview is the
+   only thing swapped here that carries #import-preview. A completed
+   import replaces it with the summary, which brings the chooser back for
+   the next file. #}
+<div id="import-result" class="mt-5"
+     @htmx:after-swap="reviewing = !!$el.querySelector('#import-preview')"></div>
+</div>
