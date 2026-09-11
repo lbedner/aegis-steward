@@ -32,7 +32,10 @@
 <div id="model-picker" hx-target="#dialog-body" hx-swap="innerHTML">
   <h2 class="text-lg font-semibold text-aegis-text mb-1">Active model</h2>
   <p class="text-xs text-aegis-muted mb-4">One model for the whole app; a pick takes effect on the next message.</p>
-  <form hx-get="{{ picker.path }}" hx-trigger="input changed delay:200ms from:input[name=q], change from:input[name=mode]" class="space-y-3">
+  {# Only the list moves: swapping the search box mid-keystroke takes the
+     caret with it (the ``hx_filter`` recipe). #}
+  <form {{ hx_filter(picker.path, "#model-list") }}
+        hx-trigger="input changed delay:200ms from:input[name=q], change from:input[name=mode]" class="space-y-3">
     <input type="search" name="q" value="{{ picker.query }}" placeholder="Search models" aria-label="Search models" autofocus class="{{ control('input') }} w-full">
     <fieldset class="flex gap-1" aria-label="Group by">
       {% for value, label in picker.modes %}
@@ -43,7 +46,7 @@
       {% endfor %}
     </fieldset>
   </form>
-  <div class="mt-3 h-[60vh] overflow-y-auto divide-y divide-aegis-border/60" data-models>
+  <div id="model-list" class="mt-3 h-[60vh] overflow-y-auto divide-y divide-aegis-border/60" data-models>
     {% if picker.empty %}
     <p class="py-6 text-sm text-aegis-muted text-center">No models match.</p>
     {% endif %}

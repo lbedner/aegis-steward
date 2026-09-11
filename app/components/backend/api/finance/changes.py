@@ -7,6 +7,7 @@ pending with its error in the payload the card renders.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.formatting import payee_label
 from app.core.log import logger
 from app.services.finance.deps import (
     get_finance_service,
@@ -26,12 +27,93 @@ from app.services.finance.service import FinanceService
 router = APIRouter()
 
 
+async def _marks(
+    service: FinanceService, rows: list[FinancePendingChange]
+) -> dict[int, dict[str, str | None]]:
+    """The brand each proposal wears, by change id.
+
+    A proposal is about a transaction, so it takes that row's mark — the
+    same one the register gives it. Most payments a proposal concerns
+    have no payee of their own, though, because that is usually why they
+    are unmatched; when the change also names a bill, the row borrows the
+    bill's brand instead of showing an initial taken off a raw bank
+    descriptor. The proposal is asserting the two are the same thing.
+
+    Both hydrations are batched. Icons are one lookup per batch and never
+    per row, so neither can be folded into a loop over changes.
+    """
+    from app.components.backend.api.finance.recurring import hydrate_streams
+    from app.components.backend.api.finance.register import hydrate_transactions
+
+    def _key(row: FinancePendingChange, name: str) -> int | None:
+        value = (row.payload or {}).get(name)
+        return value if isinstance(value, int) else None
+
+    txn_ids = {i for i in (_key(r, "transaction_id") for r in rows) if i}
+    stream_ids = {i for i in (_key(r, "stream_id") for r in rows) if i}
+
+    by_txn: dict[int, dict[str, str | None]] = {}
+    curated: set[int] = set()
+    if txn_ids:
+        found = await service.transactions_by_ids(list(txn_ids))
+        for item in await hydrate_transactions(service, list(found.values())):
+            if item.id is None:
+                continue
+            by_txn[item.id] = {
+                "payee": payee_label(item.merchant, item.merchant_name, item.name),
+                "icon_url": item.icon_url,
+                "category": item.category,
+            }
+            if item.merchant:
+                curated.add(item.id)
+
+    by_stream: dict[int, dict[str, str | None]] = {}
+    if stream_ids:
+        streams = [
+            s for s in await service.streams_by_ids(list(stream_ids)) if s is not None
+        ]
+        for item in await hydrate_streams(service, streams, None):
+            if item.id is not None:
+                by_stream[item.id] = {
+                    "payee": item.name,
+                    "icon_url": item.icon_url,
+                    "category": item.category_name,
+                }
+
+    marks: dict[int, dict[str, str | None]] = {}
+    for row in rows:
+        if row.id is None:
+            continue
+        txn_id, stream_id = _key(row, "transaction_id"), _key(row, "stream_id")
+        own = by_txn.get(txn_id) if txn_id else None
+        borrowed = by_stream.get(stream_id) if stream_id else None
+        # The payment's own payee wins when it has one; otherwise the bill's.
+        mark = own if txn_id in curated else (borrowed or own)
+        if mark:
+            marks[row.id] = mark
+    return marks
+
+
 async def _to_response(
-    service: FinanceService, row: FinancePendingChange
+    service: FinanceService,
+    row: FinancePendingChange,
+    marks: dict[int, dict[str, str | None]] | None = None,
 ) -> PendingChangeResponse:
     executor = writes.executor_for(row.change_type)
     display = await service.describe_pending_change(row)
-    return PendingChangeResponse.from_row(row, title=executor.title, display=display)
+    if marks is None:
+        marks = await _marks(service, [row])
+    return PendingChangeResponse.from_row(
+        row, title=executor.title, display=display, mark=marks.get(row.id or 0)
+    )
+
+
+async def _to_responses(
+    service: FinanceService, rows: list[FinancePendingChange]
+) -> list[PendingChangeResponse]:
+    """A list of proposals, with their marks resolved in one pass."""
+    marks = await _marks(service, rows)
+    return [await _to_response(service, row, marks) for row in rows]
 
 
 @router.post("/changes", response_model=PendingChangeResponse)
@@ -67,7 +149,7 @@ async def list_changes(
     rows = await service.list_pending_changes(
         owner_user_id=owner_user_id, status=status_filter
     )
-    items = [await _to_response(service, row) for row in rows]
+    items = await _to_responses(service, rows)
     return PendingChangeListResponse(items=items, total=len(items))
 
 
@@ -140,7 +222,7 @@ async def get_batch(
     """Every row of one batch, whatever its status - the batch card's
     refresh source."""
     rows = await writes.batch_rows(service.db, batch_id, owner_user_id=owner_user_id)
-    items = [await _to_response(service, row) for row in rows]
+    items = await _to_responses(service, rows)
     return PendingChangeListResponse(items=items, total=len(items))
 
 

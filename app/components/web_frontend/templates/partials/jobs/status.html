@@ -2,6 +2,7 @@
 {# One job snapshot, as the SSE follower swaps it in. Running: the label.
    Done: the result, rendered by what the job was. Failed: the error. #}
 {% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/imports.html" import count_cells, count_dots %}
 {% if job.status == "running" %}
 <p class="flex items-center gap-2 text-sm text-aegis-muted">
   <span class="w-3 h-3 border-2 border-aegis-teal border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
@@ -10,10 +11,13 @@
 {% elif job.status == "failed" %}
 {{ error_banner([job.error or "The job failed."]) }}
 {% else %}
-<section id="import-summary" class="space-y-3">
-  <h3 class="text-sm font-semibold text-aegis-text">Imported</h3>
+<section id="import-summary" class="space-y-4">
+  <h3 class="text-sm font-semibold text-aegis-text">Import complete</h3>
+  {# The review's layout in the past tense: the same five numbers, the
+     same words, so the two screens can be read against each other. #}
   {% if job.result and job.result.rows_total is defined %}
-  {% with counts = job.result %}{% include "partials/imports/counts.html" %}{% endwith %}
+  {{ count_cells(job.result, [("Added", "Now in your ledger"), ("Updated", "Changed in place"), ("Already had", "Left alone")]) }}
+  {{ count_dots(job.result) }}
   {% endif %}
   <button type="button" hx-get="/accounts" hx-target="#app-content" hx-push-url="true" @click="$el.closest('dialog').close()"
           class="{{ button_classes() }}">Done</button>

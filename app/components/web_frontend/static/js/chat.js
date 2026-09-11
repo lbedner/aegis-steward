@@ -23,23 +23,56 @@
   // partial, so styling has one home (the template), never a JS string.
   const clone = (id) => document.getElementById(id).content.firstElementChild.cloneNode(true);
 
-  // --- Scroll: follow the stream only near the bottom ------------------
+  // --- Scroll: stay with the newest unless the reader went looking ------
+  // Pinned is an INTENT, not a position. Content settles after it arrives
+  // (images decode, markdown lays out, a drawer finishes opening), so a
+  // single scroll-to-bottom at load lands short — it ran against a height
+  // that was still growing. Hold the intent instead and re-apply it every
+  // time the thread changes size.
   const SLACK = 24;
+  let pinned = true;
   const nearBottom = (el) => el.scrollHeight - el.scrollTop - el.clientHeight <= SLACK;
+  const setPinned = (value) => {
+    pinned = value;
+    // The jump button is the intent's only visible state: it offers the
+    // way back, so it shows exactly when the reader is not following.
+    const jump = document.getElementById('chat-jump');
+    if (jump) jump.hidden = pinned;
+  };
   const follow = (force) => {
     const el = scroller();
     if (!el) return;
-    if (force || nearBottom(el)) el.scrollTop = el.scrollHeight;
+    if (force) setPinned(true);
+    if (pinned) el.scrollTop = el.scrollHeight;
   };
+  // Only going UP unpins. Content arriving fires a scroll event too - the
+  // box is suddenly taller than it was - and treating that as the reader
+  // walking away was what left a fresh open stranded mid-conversation:
+  // the intent was dropped a frame after it was set, by the very growth
+  // it was waiting for. Coming back to the bottom pins again.
+  let lastTop = 0;
   document.addEventListener('scroll', (event) => {
     const el = scroller();
     if (!el || event.target !== el) return;
-    const jump = document.getElementById('chat-jump');
-    if (jump) jump.hidden = nearBottom(el);
+    if (el.scrollTop < lastTop - 1) setPinned(false);
+    else if (nearBottom(el)) setPinned(true);
+    lastTop = el.scrollTop;
   }, true);
+  // Whatever the thread does next - an image arriving, an answer growing,
+  // the drawer taking its width - is a reason to re-apply the intent.
+  let growth = null;
+  const watchGrowth = () => {
+    const el = thread();
+    if (!el) return;
+    if (!growth) growth = new ResizeObserver(() => follow());
+    growth.disconnect();
+    growth.observe(el);
+    const box = scroller();
+    if (box) growth.observe(box);
+  };
   document.addEventListener('click', (event) => {
     const jump = event.target.closest('#chat-jump');
-    if (jump) { follow(true); jump.hidden = true; }
+    if (jump) follow(true);
     const replay = event.target.closest('[data-replay]');
     if (replay) {
       const text = replay.closest('[data-role=user]').querySelector('[data-text]').textContent;
@@ -50,12 +83,52 @@
     const copy = event.target.closest('[data-copy]');
     if (copy) {
       const raw = copy.closest('[data-role=assistant]').querySelector('template[data-raw]');
-      if (raw && navigator.clipboard) navigator.clipboard.writeText(raw.innerHTML);
+      if (raw) {
+        copied(copy);
+        write(raw.innerHTML).catch(() => settle(copy));
+      }
     }
     if (event.target.closest('#chat-stop') && controller) controller.abort();
     const view = event.target.closest('[data-view-image]');
     if (view) viewImage(view.dataset.viewImage, view.title || view.getAttribute('alt') || '');
   });
+
+  // navigator.clipboard exists only in a secure context, which a stack
+  // served over plain http to anything but localhost is not - so the
+  // modern call is the preference, not the requirement, and the old
+  // execCommand path keeps the button working on a LAN address.
+  const write = (text) => {
+    if (navigator.clipboard) return navigator.clipboard.writeText(text);
+    const box = document.createElement('textarea');
+    box.value = text;
+    box.setAttribute('readonly', '');
+    box.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(box);
+    box.select();
+    const ok = document.execCommand('copy');
+    box.remove();
+    return ok ? Promise.resolve() : Promise.reject(new Error('copy refused'));
+  };
+
+  // The clipboard says nothing back, so the button does: a tick for a
+  // beat, then the clipboard again. It answers the CLICK, not the
+  // promise — a write that hangs (or a browser that refuses one to an
+  // unfocused document) would otherwise leave the button looking broken,
+  // which is the thing this exists to prevent. A refusal settles it
+  // early, so a failed copy flashes rather than claims success.
+  const COPIED_MS = 1200;
+  const settle = (button) => {
+    delete button.dataset.copied;
+    button.querySelector('[data-copy-idle]')?.classList.remove('hidden');
+    button.querySelector('[data-copy-done]')?.classList.add('hidden');
+  };
+  const copied = (button) => {
+    button.dataset.copied = 'true';
+    button.querySelector('[data-copy-idle]')?.classList.add('hidden');
+    button.querySelector('[data-copy-done]')?.classList.remove('hidden');
+    clearTimeout(button._settle);
+    button._settle = setTimeout(() => settle(button), COPIED_MS);
+  };
 
   // A thumbnail opens its image in the one modal (pattern 4), not a tab.
   const viewImage = (url, name) => {
@@ -340,11 +413,32 @@
   // lands at its newest message.
   document.body.addEventListener('htmx:afterSwap', (event) => {
     if (event.detail.target.id !== 'chat-thread') return;
+    watchGrowth();
     const bubble = thread().querySelector('[data-stream]');
     if (bubble && !controller) run(bubble);
     else follow(true);
   });
   document.body.addEventListener('htmx:load', (event) => {
-    if (event.detail.elt.querySelector?.('#chat-thread') || event.detail.elt.id === 'chat-thread') follow(true);
+    const elt = event.detail.elt;
+    if (!(elt.querySelector?.('#chat-thread') || elt.id === 'chat-thread')) return;
+    watchGrowth();
+    follow(true);
   });
+
+  // The Chat page arrives WITH the document rather than through a swap,
+  // so the cold path has to arm itself; the drawer's surface comes
+  // through htmx above. And `load` is the honest moment to land at the
+  // bottom: everything the thread carries has finished taking up room by
+  // then. Not forced - a reader who scrolled up while it loaded meant it.
+  const arm = () => {
+    if (!thread()) return;
+    watchGrowth();
+    follow(true);
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', arm);
+  } else {
+    arm();
+  }
+  window.addEventListener('load', () => follow());
 })();

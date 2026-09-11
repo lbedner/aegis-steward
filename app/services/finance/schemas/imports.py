@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 if TYPE_CHECKING:
     from app.services.finance.models import (
@@ -82,6 +82,30 @@ class ImportPreviewResponse(BaseModel):
     new_categories: list[str] = Field(default_factory=list)
     edits: list[ImportPreviewEdit] = Field(default_factory=list)
     category_kept_count: int = 0
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def changes(self) -> int:
+        """Rows a commit would write: added plus changed in place.
+
+        On the wire because every client's confirm button counts them, and
+        a count computed once per UI is a count that drifts.
+        """
+        return self.rows_inserted + self.rows_updated
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def nothing_to_import(self) -> bool:
+        """True when the review has nothing to offer an Import button.
+
+        Two shapes of the same dead end: the byte-identical re-upload, and
+        a fresh export whose every row is already stored (yesterday's
+        import, or a sync, got there first). Parse errors disqualify — a
+        file that partly failed deserves the full review, not a shrug.
+        """
+        if self.identical_batch_id is not None:
+            return True
+        return not self.changes and not self.rows_error
 
 
 class ImportBatchSummary(BaseModel):

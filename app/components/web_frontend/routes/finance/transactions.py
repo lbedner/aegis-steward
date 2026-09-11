@@ -9,6 +9,7 @@ with a 422 on bad input and close on success.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -23,8 +24,11 @@ from app.components.backend.api.finance.payees import (
     assign_merchant,
     create_merchant,
     list_merchants,
+    merchant_category_summary,
 )
 from app.components.backend.api.finance.register import (
+    hydrate_transactions,
+    list_tags,
     similar_transactions,
     split_transaction,
     unsplit_transaction,
@@ -32,6 +36,7 @@ from app.components.backend.api.finance.register import (
 from app.components.web_frontend.filters import money_to_cents
 from app.components.web_frontend.rendering import close_dialog, templates, with_toast
 from app.components.web_frontend.routes.finance.register import (
+    payee_label,
     rows_context,
     uncategorized_total,
 )
@@ -63,10 +68,36 @@ async def _txns(
     return rows
 
 
-def _title(txns: list[FinanceTransaction]) -> str:
-    if len(txns) == 1:
-        return f'"{txns[0].name}"'
-    return f"{len(txns)} transactions"
+async def _title(
+    service: FinanceService, txns: list[FinanceTransaction], owner_user_id: int | None
+) -> str:
+    """What to call the selection: one transaction by whatever it is
+    called now (see ``payee_label``), several by their count."""
+    if len(txns) != 1:
+        return f"{len(txns)} transactions"
+    txn = txns[0]
+    names = await service.merchant_names({txn.merchant_id}) if txn.merchant_id else {}
+    return f'"{payee_label(names.get(txn.merchant_id), txn.merchant_name, txn.name)}"'
+
+
+def _shared(values: list[set[Any]]) -> set[Any]:
+    """What every selected row already carries. The picker disables these,
+    because choosing one would write nothing, and a step that does
+    nothing is a step to undo."""
+    return set.intersection(*values) if values else set()
+
+
+def _shared_merchant(txns: list[FinanceTransaction]) -> set[int]:
+    return _shared([{txn.merchant_id} for txn in txns]) - {None}
+
+
+async def _shared_tags(
+    service: FinanceService, txns: list[FinanceTransaction]
+) -> set[str]:
+    """The tags every selected row already wears, through the one
+    hydration the register uses."""
+    items = await hydrate_transactions(service, txns)
+    return _shared([{tag.name for tag in (item.tags or [])} for item in items])
 
 
 async def _rows_response(
@@ -114,6 +145,35 @@ async def categorize(
     )
 
 
+def picker_options(rows: list[Any], key: str = "id") -> list[Any]:
+    """Rows shaped for the ``picker`` macro: what to submit, what to read,
+    and how often it is used. One shaping, so the payee list and the tag
+    list cannot start counting differently. Whole, because the browser
+    does the narrowing."""
+    return [
+        SimpleNamespace(
+            id=getattr(row, key),
+            name=row.name,
+            fact=f"{row.transaction_count:,}" if row.transaction_count else "",
+        )
+        for row in rows
+    ]
+
+
+async def _payee_options(
+    service: FinanceService, owner_user_id: int | None
+) -> list[Any]:
+    """Payees for the picker, the ones you use most first, then the rest
+    alphabetically — a search is for the tail, not the top."""
+    listing = await list_merchants(
+        account_ids=None, service=service, owner_user_id=owner_user_id
+    )
+    ranked = sorted(
+        listing.items, key=lambda m: (-m.transaction_count, m.name.casefold())
+    )
+    return picker_options(ranked)
+
+
 @router.get("/tag", include_in_schema=False)
 async def tag_form(
     request: Request,
@@ -123,16 +183,36 @@ async def tag_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     txns = await _txns(service, transaction_ids, owner_user_id)
+    return await _tag_dialog(request, service, owner_user_id, txns, show_account)
+
+
+async def _tag_dialog(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    txns: list[FinanceTransaction],
+    show_account: bool,
+    errors: list[str] | None = None,
+    status_code: int = 200,
+) -> Response:
+    """The same picker the payee dialog uses: a tag is whatever you name
+    in the moment, so picking one and typing its near-miss both land
+    here (the service resolves a tag by normalized name)."""
+    tags = await list_tags(service=service, owner_user_id=owner_user_id)
     return templates.TemplateResponse(
         request=request,
         name="partials/transactions/tag.html",
         context={
-            "title": _title(txns),
-            "transaction_ids": transaction_ids,
+            "title": await _title(service, txns, owner_user_id),
+            "transaction_ids": [t.id for t in txns],
             "show_account": show_account,
-            "errors": [],
-            "name": "",
+            # Keyed by name: naming a tag and picking one are the same
+            # write, since the service resolves by normalized name.
+            "tags": picker_options(tags, key="name"),
+            "current": await _shared_tags(service, txns),
+            "errors": errors or [],
         },
+        status_code=status_code,
     )
 
 
@@ -141,23 +221,24 @@ async def tag(
     request: Request,
     transaction_ids: Annotated[list[int], Form()] = [],
     name: Annotated[str, Form()] = "",
+    tag_id: Annotated[str, Form()] = "",
     show_account: Annotated[bool, Form()] = False,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
+    """Put a tag on the selection. Picking an existing tag and naming a
+    new one are the same write: the service resolves by normalized name,
+    so a near-miss lands on the tag it nearly missed."""
     txns = await _txns(service, transaction_ids, owner_user_id)
-    label = name.strip()
+    label = (tag_id or name).strip()
     if not label:
-        return templates.TemplateResponse(
-            request=request,
-            name="partials/transactions/tag.html",
-            context={
-                "title": _title(txns),
-                "transaction_ids": transaction_ids,
-                "show_account": show_account,
-                "errors": ["Give the tag a name."],
-                "name": name,
-            },
+        return await _tag_dialog(
+            request,
+            service,
+            owner_user_id,
+            txns,
+            show_account,
+            errors=["Pick a tag or name a new one."],
             status_code=422,
         )
     await service.tag_transactions(transaction_ids, label, owner_user_id=owner_user_id)
@@ -193,6 +274,8 @@ async def payee_form(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
+    """The picker. The same route answers the search, so the list is
+    filtered where the whole list lives."""
     txns = await _txns(service, transaction_ids, owner_user_id)
     return await _payee_dialog(request, service, owner_user_id, txns, show_account)
 
@@ -205,27 +288,17 @@ async def _payee_dialog(
     show_account: bool,
     errors: list[str] | None = None,
     status_code: int = 200,
-    **values: Any,
 ) -> Response:
-    from app.components.backend.api.finance.categories import list_category_options
-
-    merchants = await list_merchants(
-        account_ids=None, service=service, owner_user_id=owner_user_id
-    )
-    categories = await list_category_options(service=service)
     return templates.TemplateResponse(
         request=request,
         name="partials/transactions/payee.html",
         context={
-            "title": _title(txns),
+            "title": await _title(service, txns, owner_user_id),
             "transaction_ids": [t.id for t in txns],
             "show_account": show_account,
-            "merchants": merchants.items,
-            "categories": categories.items,
+            "merchants": await _payee_options(service, owner_user_id),
+            "current": _shared_merchant(txns),
             "errors": errors or [],
-            "merchant_id": values.get("merchant_id"),
-            "new_name": values.get("new_name", ""),
-            "category_id": values.get("category_id"),
         },
         status_code=status_code,
     )
@@ -238,13 +311,20 @@ async def payee(
     merchant_id: Annotated[str, Form()] = "",
     new_name: Annotated[str, Form()] = "",
     category_id: Annotated[str, Form()] = "",
+    apply_category: Annotated[bool, Form()] = False,
     show_account: Annotated[bool, Form()] = False,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    """Name the payee. A new name creates the payee first. After naming a
-    single transaction, its payee-less lookalikes are offered in the
-    dialog (a suggestion the user confirms); otherwise the dialog closes."""
+    """Name the payee, then offer to make it stick.
+
+    A typed name creates the payee first. After naming a SINGLE row its
+    payee-less lookalikes are offered, ticked, alongside the category the
+    payee mostly uses — one dialog, because they are one decision about
+    one payee, and asking twice for one click is worse than asking once.
+    After a bulk assign the lookalike sweep is skipped: the rows were
+    already chosen by hand, and re-asking second-guesses that.
+    """
     txns = await _txns(service, transaction_ids, owner_user_id)
     label = new_name.strip()
     if not merchant_id and not label:
@@ -256,16 +336,12 @@ async def payee(
             show_account,
             errors=["Pick a payee or name a new one."],
             status_code=422,
-            merchant_id=None,
-            new_name=new_name,
-            category_id=int(category_id) if category_id else None,
         )
     if label:
         created = await create_merchant(
             MerchantCreate(name=label), service=service, owner_user_id=owner_user_id
         )
-        chosen = created.id
-        merchant_name = created.name
+        chosen, merchant_name = created.id, created.name
     else:
         chosen = int(merchant_id)
         merchant_name = (await service.merchant_names({chosen})).get(
@@ -278,16 +354,42 @@ async def payee(
             txns[0].id, service=service, owner_user_id=owner_user_id
         )
 
+    chosen_category = int(category_id) if apply_category and category_id else None
     await assign_merchant(
         MerchantAssign(
             transaction_ids=transaction_ids,
             merchant_id=chosen,
-            category_id=int(category_id) if category_id else None,
+            category_id=chosen_category,
         ),
         service=service,
         owner_user_id=owner_user_id,
     )
+    if chosen_category is not None:
+        # Settle the rows this payee ALREADY covers: the point of naming
+        # the category is that the payee ends up filed one way, not that
+        # the newest arrivals are.
+        owned, _ = await service.list_transactions(
+            owner_user_id=owner_user_id, merchant_id=chosen, page_size=500
+        )
+        stale = [t.id for t in owned if t.id not in set(transaction_ids)]
+        if stale:
+            await assign_merchant(
+                MerchantAssign(
+                    transaction_ids=stale,
+                    merchant_id=chosen,
+                    category_id=chosen_category,
+                ),
+                service=service,
+                owner_user_id=owner_user_id,
+            )
     await service.db.commit()
+
+    summary = await merchant_category_summary(
+        chosen, service=service, owner_user_id=owner_user_id
+    )
+    lookalikes = similar.items if similar and similar.total else []
+    suggested = _followup(summary)
+    ask = bool(lookalikes or suggested)
     fresh = await _txns(service, transaction_ids, owner_user_id)
     response = await _rows_response(
         request,
@@ -296,18 +398,42 @@ async def payee(
         owner_user_id,
         show_account,
         name="partials/transactions/rows_with_offer.html"
-        if similar and similar.total
+        if ask
         else "partials/transactions/rows.html",
         extra={
-            "similar": similar.items if similar else [],
+            "similar": lookalikes,
             "merchant_id": chosen,
             "merchant_name": merchant_name,
+            "categories": (await list_category_options(service=service)).items
+            if suggested
+            else [],
+            "offer_category": suggested is not None,
+            "suggested_category_id": suggested,
         },
     )
-    with_toast(response, f"Payee set to {merchant_name}")
-    if similar and similar.total:
+    if ask:
         return response
-    return close_dialog(response)
+    return close_dialog(
+        with_toast(response, f"Payee set on {len(fresh)} as {merchant_name}")
+    )
+
+
+def _followup(summary: Any) -> int | None:
+    """The category to suggest, or None when there is nothing to settle.
+
+    Only ask when the payee argues with itself: more than one category in
+    use, or rows with none at all. A payee already filed 21 of 21 the same
+    way needs no dialog, and re-confirming what is already true is just a
+    click to dismiss.
+    """
+    if not summary.total:
+        return None
+    unsettled = (
+        summary.distinct_categories > 1 or summary.dominant_count < summary.total
+    )
+    if not unsettled:
+        return None
+    return summary.dominant_category_id or summary.default_category_id
 
 
 @router.post("/delete", include_in_schema=False)

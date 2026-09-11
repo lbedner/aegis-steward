@@ -59,6 +59,13 @@ class RecurringMixin(FinanceServiceBase):
     async def payment_stream_ids(self, stream_ids: Sequence[int]) -> set[int]:
         return await recurring.payment_stream_ids(self.db, stream_ids)
 
+    async def streams_by_ids(self, ids: list[int]) -> list[FinanceRecurringStream]:
+        """Several streams in one query, for a surface that holds a
+        handful of ids (the proposal cards borrowing a bill's brand)."""
+        from app.services.finance.domains.detection import queries
+
+        return await queries.streams_by_ids(self.db, ids)
+
     async def get_recurring(
         self, stream_id: int, owner_user_id: int | None
     ) -> FinanceRecurringStream | None:

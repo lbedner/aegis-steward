@@ -87,14 +87,31 @@ async_engine = create_async_engine(
 SQLITE_BUSY_TIMEOUT_MS = 30000
 
 
-# Enable foreign key constraints for SQLite
+def apply_sqlite_pragmas(dbapi_connection: Any) -> None:
+    """The pragmas every SQLite connection opens with, sync and async.
+
+    ``foreign_keys`` because SQLite ships them off, and the finance schema
+    is nothing without them.
+
+    ``busy_timeout`` because SQLite has one writer at a time and every
+    connection should wait its turn rather than fail at once.
+
+    NOT ``journal_mode=WAL``, though it is the usual answer to a writer
+    that starves readers: WAL coordinates its readers through shared
+    memory mapped from a ``-shm`` file, which is only coherent between
+    processes on one machine. The dev stack bind-mounts this file from
+    the host into several containers and the CLI opens it from the host
+    as well, so those processes do not share memory and WAL would risk
+    the ledger. It belongs with a database the container boundary does
+    not cross (a named volume), or with Postgres.
+    """
+    dbapi_connection.execute("PRAGMA foreign_keys=ON")
+    dbapi_connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+
+
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
-    """Enable foreign key constraints in SQLite, and wait for the lock."""
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
-    cursor.close()
+    apply_sqlite_pragmas(dbapi_connection)
 
 
 # pysqlite's legacy transaction sniffing implicitly COMMITs the open
@@ -107,7 +124,7 @@ def _async_sqlite_take_over_transactions(
     dbapi_connection: Any, connection_record: Any
 ) -> None:
     dbapi_connection.isolation_level = None
-    dbapi_connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    apply_sqlite_pragmas(dbapi_connection)
 
 
 @event.listens_for(async_engine.sync_engine, "begin")
@@ -178,7 +195,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession]:
             raise
 
 
-def init_database() -> None:
+def init_database() -> Path:
     """
     Initialize the database by creating tables and ensuring directory structure.
 
@@ -191,17 +208,25 @@ def init_database() -> None:
     """
 
     try:
-        # Ensure database directory exists
-        db_path = Path(DATABASE_PATH)
+        # The path comes from the ENGINE, not from DATABASE_PATH: tables are
+        # created through the engine, so reporting the module constant
+        # names a database this call may never have touched. The test suite
+        # redirects the engine to a temp file, and for a long time this line
+        # kept naming the developer's live ledger while writing elsewhere -
+        # the one signal that would have shown the leak, saying the wrong
+        # thing in both directions.
+        db_path = Path(str(engine.url.database or DATABASE_PATH))
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Create all tables
         SQLModel.metadata.create_all(engine)
 
         if db_path.exists():
-            logger.info(f"Database initialized: {DATABASE_PATH}")
+            logger.info(f"Database initialized: {db_path}")
         else:
-            logger.info(f"Database will be created on first use: {DATABASE_PATH}")
+            logger.info(f"Database will be created on first use: {db_path}")
+
+        return db_path
 
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")

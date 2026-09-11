@@ -22,6 +22,11 @@ FINANCE_COMPONENT_NAME = "finance"
 # importing (or requiring) the AI service.
 ANALYST_NOTE_INSIGHT_TYPE = "analyst_note"
 
+# Named rows in an import review's detail sections before the tail folds
+# into a count. A Quicken tree can carry hundreds of new categories, and a
+# review that scrolls for a page stops being read at all.
+PREVIEW_DETAIL_CAP = 10
+
 
 class Provider:
     """Connection providers. ``manual`` always ships; the rest are flag-gated."""

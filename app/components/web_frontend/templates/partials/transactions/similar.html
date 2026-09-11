@@ -1,15 +1,60 @@
-{# The follow-up after naming one transaction: its payee-less lookalikes,
-   offered, never applied on their own. Posting accepts them. #}
-{% from "components/macros/form.html" import primary_button %}
-<h2 class="text-lg font-semibold text-aegis-text mb-2">Also {{ merchant_name }}?</h2>
-<p class="text-sm text-aegis-muted mb-4">{{ similar|length }} similar transaction{{ "s" if similar|length != 1 }} without a payee look like this one.</p>
-<ul class="text-sm text-aegis-text space-y-1 mb-4">
-  {% for row in similar %}<li>{{ row.date|short_date }} · {{ row.name }} · {{ row.amount|money }}</li>{% endfor %}
-</ul>
-<form id="similar-offer" {{ hx_dialog_post('/transactions/payee') }} class="flex items-center gap-3">
-  {% for row in similar %}<input type="hidden" name="transaction_ids" value="{{ row.id }}">{% endfor %}
+{# The follow-up after naming one transaction, both halves of "make this
+   stick" in one dialog: the lookalike rows that should carry the same
+   payee, and the category they should all share.
+
+   Both are offers, never silent writes. The lookalike match is a
+   heuristic worth checking, so every row is a ticked checkbox rather
+   than all-or-nothing; the category is a judgement only you can make, so
+   it starts on whatever this payee mostly uses, and unticking it writes
+   no category at all. #}
+{% from "components/macros/form.html" import primary_button, select, control %}
+<h2 class="text-lg font-semibold text-aegis-text mb-1">{{ "Also " ~ merchant_name ~ "?" if similar else "File " ~ merchant_name ~ " the same way?" }}</h2>
+<p class="text-sm text-aegis-muted mb-4">
+  {%- if similar -%}
+  {{ similar|length }} similar transaction{{ "s" if similar|length != 1 }} without a payee look like this one. Untick anything that is not a match.
+  {%- else -%}
+  This payee's transactions are not all filed the same way.
+  {%- endif -%}
+</p>
+{# Apply is dead while it would write nothing: every lookalike unticked
+   and the category too. A button that does nothing is a step to undo. #}
+<form id="similar-offer" {{ hx_dialog_post('/transactions/payee') }} class="space-y-6"
+      x-data="{ nothing: false }"
+      @change="nothing = !$el.querySelectorAll('input[name=transaction_ids]:checked').length
+                         && !$el.querySelector('input[name=apply_category]')?.checked">
   <input type="hidden" name="merchant_id" value="{{ merchant_id }}">
   {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
-  {{ primary_button("Yes, apply to " ~ similar|length, type="submit") }}
-  <button type="button" @click="$el.closest('dialog').close()" class="text-xs text-aegis-muted hover:text-aegis-text">No, just this one</button>
+
+  {% if similar %}
+  <ul class="max-h-[18rem] overflow-y-auto divide-y divide-aegis-border/60 border-y border-aegis-border">
+    {% for row in similar %}
+    <li>
+      <label class="flex items-baseline gap-3 px-1 py-2 text-sm cursor-pointer">
+        <input type="checkbox" name="transaction_ids" value="{{ row.id }}" checked class="{{ control('checkbox') }}">
+        <span class="w-20 shrink-0 text-xs text-aegis-muted">{{ row.date|short_date }}</span>
+        <span class="min-w-0 flex-1 text-aegis-text truncate">{{ row.name }}</span>
+        <span class="shrink-0 tabular-nums {{ 'text-error' if row.amount < 0 }}">{{ row.amount|money }}</span>
+      </label>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if offer_category %}
+  {# Asked only when this payee argues with itself (see _followup): rows
+     filed two ways, or not filed at all. #}
+  <div class="rounded-lg border border-aegis-border bg-aegis-bg p-4 space-y-3">
+    <label class="flex items-center gap-2.5 text-sm text-aegis-text cursor-pointer">
+      <input type="checkbox" name="apply_category" value="true" checked class="{{ control('checkbox') }}">
+      File every {{ merchant_name }} transaction under
+    </label>
+    {{ select("category_id", categories, suggested_category_id, blank=None, block=True) }}
+    <p class="text-xxs text-aegis-muted">Applies to the {{ merchant_name }} transactions already in your ledger too, so the payee ends up filed one way.</p>
+  </div>
+  {% endif %}
+
+  <div class="flex items-center justify-end gap-4 border-t border-aegis-border pt-4">
+    <button type="button" @click="$el.closest('dialog').close()" class="text-sm text-aegis-muted hover:text-aegis-text transition-colors">No, just this one</button>
+    {{ primary_button("Apply", type="submit", attrs=':disabled="nothing"') }}
+  </div>
 </form>

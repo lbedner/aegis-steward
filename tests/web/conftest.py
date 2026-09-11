@@ -115,6 +115,11 @@ def add_template() -> Generator[Callable[[str, str], None]]:
     env.loader = original
 
 
+# The all-accounts register. Its own page since the Accounts section
+# split into a portfolio and a register (see routes/finance/accounts).
+REGISTER = "/accounts/all"
+
+
 @dataclass(frozen=True)
 class Ledger:
     """Ids of the seeded ledger (see the ``ledger`` fixture)."""

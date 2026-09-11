@@ -4,7 +4,7 @@
    executes, so what the user sees and what runs cannot diverge.
 #}
 {% from "components/macros/form.html" import action, control %}
-{% from "components/macros/layout.html" import badge %}
+{% from "components/macros/layout.html" import avatar, badge %}
 
 {# A proposal's value with teal on exactly the part that will change:
    an arrow's target, or the leading amount of a "$3.99 · memo" line.
@@ -28,7 +28,13 @@
 {% macro display(change) %}
 {% set rows = change.display %}
 {% if rows %}
-<p class="text-sm font-medium text-aegis-text" data-subject>{{ rows[0].value }}</p>
+{# The same face the register gives this transaction: the payee's logo,
+   else its category's glyph, else its initial. A proposal is about a
+   row, and the row is recognisable. #}
+<p class="flex items-baseline gap-2 text-sm font-medium text-aegis-text">
+  <span class="shrink-0 self-center">{{ avatar(change.payee or rows[0].value, change.icon_url, change.category) }}</span>
+  <span data-subject>{{ rows[0].value }}</span>
+</p>
 {% if rows|length > 1 %}
 <ul class="mt-0.5 space-y-0.5 text-xs text-aegis-muted">
   {% for row in rows[1:] %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}</li>{% endfor %}

@@ -1,8 +1,10 @@
-"""The accounts section: grouped list on the left, one account's detail on
-the right. ``/accounts`` is the combined view; ``/accounts/{id}`` selects
-one. Both render the same template, so a list click can take the detail
-column (``hx-select``) and refresh the list highlight (``hx-select-oob``)
-from a single response.
+"""The accounts section, split by job.
+
+``/accounts`` is the portfolio: every account by group, with balances,
+and nothing else. ``/accounts/all`` and ``/accounts/{id}`` are registers,
+each the full width of the content area. Both shapes read one grouping
+(``grouped``), and the switcher in a register's header says what the
+portfolio says, on demand — so neither page owns the account list.
 """
 
 from __future__ import annotations
@@ -115,13 +117,10 @@ def actions(account: AccountResponse) -> list[dict[str, str]]:
     ]
 
 
-async def _page(
-    request: Request,
-    service: FinanceService,
-    owner_user_id: int | None,
-    account_id: int | None,
-    filters: RegisterFilters,
-) -> Response:
+async def _accounts(
+    service: FinanceService, owner_user_id: int | None
+) -> tuple[list[AccountResponse], dict[str, Any]]:
+    """Every live account, and the shape both pages read it through."""
     listing = await list_accounts(
         include_hidden=False,
         page=1,
@@ -129,30 +128,43 @@ async def _page(
         service=service,
         owner_user_id=owner_user_id,
     )
-    selected = next((a for a in listing.items if a.id == account_id), None)
+    return listing.items, {
+        "section": SECTION,
+        "groups": grouped(listing.items),
+        "total": sum(balance(a) for a in listing.items),
+        "statement_lines": {a.id: statement_line(a) for a in listing.items},
+    }
+
+
+async def _register_page(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    account_id: int | None,
+    filters: RegisterFilters,
+) -> Response:
+    """One register: every account, or one of them."""
+    accounts, context = await _accounts(service, owner_user_id)
+    selected = next((a for a in accounts if a.id == account_id), None)
     if account_id is not None and selected is None:
         raise HTTPException(status_code=404)
-    path = SECTION.path if selected is None else f"{SECTION.path}/{selected.id}"
     register = await register_context(
-        path=path,
+        path=f"{SECTION.path}/{selected.id if selected else 'all'}",
         account=selected,
-        accounts=listing.items,
+        accounts=accounts,
         filters=filters,
         service=service,
         owner_user_id=owner_user_id,
     )
     return render(
         request,
-        "pages/accounts.html",
+        "pages/account_register.html",
         {
-            "section": SECTION,
-            "groups": grouped(listing.items),
-            "total": sum(balance(a) for a in listing.items),
+            **context,
             "selected": selected,
             "selected_balance": balance(selected) if selected else None,
             "statement_line": statement_line(selected) if selected else None,
             "actions": actions(selected) if selected else [],
-            "statement_lines": {a.id: statement_line(a) for a in listing.items},
             "register": register,
         },
     )
@@ -161,11 +173,22 @@ async def _page(
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The portfolio. No register: that is the other page's job."""
+    _, context = await _accounts(service, owner_user_id)
+    return render(request, "pages/accounts.html", context)
+
+
+@router.get(SECTION.path + "/all", include_in_schema=False)
+async def all_accounts(
+    request: Request,
     filters: RegisterFilters = Depends(register_filters),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    return await _page(request, service, owner_user_id, None, filters)
+    return await _register_page(request, service, owner_user_id, None, filters)
 
 
 @router.get(SECTION.path + "/{account_id:int}", include_in_schema=False)
@@ -176,7 +199,7 @@ async def account(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    return await _page(request, service, owner_user_id, account_id, filters)
+    return await _register_page(request, service, owner_user_id, account_id, filters)
 
 
 def _new_form(

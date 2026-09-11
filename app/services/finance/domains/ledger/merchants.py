@@ -8,7 +8,12 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.finance.domains.ledger import categories, queries, transactions
+from app.services.finance.domains.ledger import (
+    categories,
+    payee_aliases,
+    queries,
+    transactions,
+)
 from app.services.finance.models import (
     FinanceMerchant,
     FinanceTransaction,
@@ -289,6 +294,13 @@ async def assign_merchant(
     the history in front of you and everything that arrives later.
     Confirmed worth having on real data: 7 of 79 GreenSky loan
     payments had been auto-filed as "Food & Dining:Restaurants".
+
+    The decision also OUTLIVES these rows. Every descriptor being
+    stamped is recorded against the payee, so the same descriptor
+    arriving in a later import lands already named instead of joining
+    the backlog again. This is the one chokepoint all naming routes
+    through - the picker, ``assign_payee_group``, the change executor -
+    so remembering here covers every path without a second write site.
     """
     ids = [i for i in set(transaction_ids) if i is not None]
     if not ids:
@@ -303,6 +315,10 @@ async def assign_merchant(
         if merchant is not None and merchant.logo_url is None and logo is not None:
             merchant.logo_url = logo
             db.add(merchant)
+    if merchant_id is not None:
+        await payee_aliases.remember_payee_keys(
+            db, rows, merchant_id, owner_user_id=owner_user_id
+        )
     for txn in rows:
         txn.merchant_id = merchant_id
         if category_id is not None:

@@ -11,7 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
-from tests.web.conftest import Ledger
+from tests.web.conftest import REGISTER, Ledger
 from tests.web.dom import none, one, select, table_rows, text
 
 
@@ -23,7 +23,7 @@ class TestAllAccountsRegister:
     def test_lists_every_transaction_newest_first_with_the_account(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        page = client.get("/accounts").text
+        page = client.get(REGISTER).text
         heads = [text(th) for th in select(page, "#register thead th")]
         assert heads == [
             "Select",
@@ -84,15 +84,15 @@ class TestFilters:
     def test_self_selecting_requests_replace_rather_than_nest(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        """Anything that selects the element it targets (filters, pager,
-        account links) must swap outerHTML, or each click nests a copy."""
-        page = client.get("/accounts?page_size=1").text
+        """Anything that selects the element it targets (the filters, the
+        pager) must swap outerHTML, or each click nests a copy."""
+        page = client.get("/accounts/all?page_size=1").text
         selfish = [
             el
             for el in select(page, "[hx-select]")
             if el.get("hx-select") == el.get("hx-target")
         ]
-        assert len(selfish) >= 4
+        assert len(selfish) >= 2
         assert {el.get("hx-swap") for el in selfish} == {"outerHTML"}
 
     def test_payee_cell_carries_the_brand_icon(
@@ -106,7 +106,7 @@ class TestFilters:
         from app.services.finance.domains.ledger import merchant_icon
 
         monkeypatch.setitem(merchant_icon._CACHE, "shell.com", "AAAA")
-        cells = select(client.get("/accounts").text, "[data-cell=payee]")
+        cells = select(client.get(REGISTER).text, "[data-cell=payee]")
         shell = next(c for c in cells if "Shell" in text(c))
         assert one(shell, "img").get("src") == "/icons?key=shell.com"
         other = next(c for c in cells if "Market" in text(c))
@@ -121,7 +121,7 @@ class TestFilters:
     def test_category_filter_offers_every_category_and_narrows(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        page = client.get("/accounts").text
+        page = client.get(REGISTER).text
         options = [
             text(o)
             for o in select(page, '#register-filters select[name="category_id"] option')
@@ -133,7 +133,7 @@ class TestFilters:
             for o in select(page, 'select[name="category_id"] option')
             if text(o) == "Food:Groceries"
         )
-        filtered = client.get(f"/accounts?category_id={groceries.get('value')}").text
+        filtered = client.get(f"{REGISTER}?category_id={groceries.get('value')}").text
         assert names(filtered) == ["Market", "Market"]
         assert one(
             filtered, '#register-filters select[name="category_id"] option[selected]'
@@ -141,14 +141,14 @@ class TestFilters:
 
     def test_date_range_narrows(self, client: TestClient, ledger: Ledger) -> None:
         today = current_date().isoformat()
-        page = client.get(f"/accounts?from={today}&to={today}").text
+        page = client.get(f"{REGISTER}?from={today}&to={today}").text
         assert names(page) == ["Market"]
         assert one(page, 'input[name="from"]').get("value") == today
 
     def test_transfers_toggle_is_a_checkbox_default_off(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        box = one(client.get("/accounts").text, 'input[name="include_transfers"]')
+        box = one(client.get(REGISTER).text, 'input[name="include_transfers"]')
         assert box.get("type") == "checkbox" and box.get("checked") is None
 
     def test_a_submitted_form_with_blank_fields_is_fine(
@@ -157,7 +157,7 @@ class TestFilters:
         """The browser sends ``""`` for untouched selects and dates; ticking
         one box must not 422 the whole register."""
         response = hx.get(
-            "/accounts?q=&category_id=&merchant_id=&from=&to=&include_transfers=on"
+            "/accounts/all?q=&category_id=&merchant_id=&from=&to=&include_transfers=on"
         )
         assert response.status_code == 200
         assert one(response.text, 'input[name="include_transfers"]').get("checked")
@@ -167,7 +167,7 @@ class TestFilters:
     ) -> None:
         """The chips are the first control in the bar; the widest is the
         default, so a cold load hides nothing."""
-        page = client.get("/accounts").text
+        page = client.get(REGISTER).text
         chips = select(page, "#register-filters input[name='days']")
         assert [c.get("value") for c in chips][:2] == ["1", "7"]
         assert (
@@ -178,7 +178,7 @@ class TestFilters:
 
         # The ledger runs five days back; a one-day window keeps today and
         # yesterday.
-        narrowed = client.get("/accounts?days=1").text
+        narrowed = client.get("/accounts/all?days=1").text
         assert names(narrowed) == ["Market", "Market"]
         assert (
             one(narrowed, "#register-filters input[name='days'][checked]").get("value")
@@ -189,18 +189,18 @@ class TestFilters:
         self, client: TestClient, ledger: Ledger
     ) -> None:
         today = current_date().isoformat()
-        page = client.get(f"/accounts?days=9999&from={today}").text
+        page = client.get(f"{REGISTER}?days=9999&from={today}").text
         assert names(page) == ["Market"]
 
     def test_the_window_rides_the_pager_and_the_clear_link(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        page = client.get("/accounts?days=90&page_size=1").text
+        page = client.get("/accounts/all?days=90&page_size=1").text
         assert "days=90" in (one(page, '#register nav a[rel="next"]').get("href") or "")
         one(page, "#register-filters a")  # narrowed, so Clear is offered
 
     def test_no_match_says_so(self, client: TestClient, ledger: Ledger) -> None:
-        page = client.get("/accounts?q=zzz").text
+        page = client.get("/accounts/all?q=zzz").text
         none(page, "#register table")
         assert "No transactions match" in text(one(page, "#register"))
 
@@ -209,7 +209,7 @@ class TestPaging:
     def test_pager_counts_and_links_carry_the_filters(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        page = client.get("/accounts?page_size=1&q=Market").text
+        page = client.get("/accounts/all?page_size=1&q=Market").text
         pager = one(page, "#register nav[aria-label='Pagination']")
         assert "1-1 of 2" in text(pager)
         nxt = one(pager, 'a[rel="next"]')
@@ -219,7 +219,7 @@ class TestPaging:
         none(pager, 'a[rel="prev"]')
 
     def test_second_page(self, client: TestClient, ledger: Ledger) -> None:
-        page = client.get("/accounts?page_size=2&page=2").text
+        page = client.get("/accounts/all?page_size=2&page=2").text
         assert names(page) == ["Gas", "Mystery charge"]
         pager = one(page, "#register nav[aria-label='Pagination']")
         assert "3-4 of 5" in text(pager)
@@ -227,7 +227,7 @@ class TestPaging:
         one(pager, 'a[rel="next"]')
 
     def test_single_page_has_no_pager(self, client: TestClient, ledger: Ledger) -> None:
-        none(client.get("/accounts").text, "#register nav[aria-label='Pagination']")
+        none(client.get(REGISTER).text, "#register nav[aria-label='Pagination']")
 
 
 class TestInvestmentAccount:

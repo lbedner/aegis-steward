@@ -30,6 +30,7 @@ from app.components.backend.api.finance.register import (
     uncategorized_transactions,
 )
 from app.components.web_frontend import ranges
+from app.core.formatting import payee_label
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import AccountResponse, TransactionResponse
@@ -150,7 +151,7 @@ def _row(txn: TransactionResponse, account_names: dict[int, str]) -> dict[str, A
         "account_id": txn.account_id,
         "date": txn.date,
         "account": account_names.get(txn.account_id, ""),
-        "payee": txn.merchant or txn.merchant_name or txn.name,
+        "payee": payee_label(txn.merchant, txn.merchant_name, txn.name),
         "icon_url": txn.icon_url,
         "category": txn.category,
         "payee_category": txn.payee_category,

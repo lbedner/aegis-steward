@@ -29,9 +29,7 @@ class TestPropertyDetails:
         self, client: TestClient, house: int
     ) -> None:
         page = client.get(f"/accounts/{house}").text
-        labels = [
-            text(li) for li in select(page, "#account-detail header [role=menu] li")
-        ]
+        labels = [text(li) for li in select(page, "#manage-menu li")]
         assert labels == [
             "Rename",
             "Reconcile",

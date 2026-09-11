@@ -3,7 +3,7 @@ dialog, answering with rows out of band."""
 
 from fastapi.testclient import TestClient
 
-from tests.web.conftest import Ledger
+from tests.web.conftest import REGISTER, Ledger
 from tests.web.dom import none, one, select, text, triggers
 from tests.web.test_row_actions import category_id, txn_id
 
@@ -69,7 +69,7 @@ class TestDeclareRecurring:
     def test_preview_then_declare(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:
-        page = client.get("/accounts").text
+        page = client.get(REGISTER).text
         markets = [
             (tr.get("id") or "").removeprefix("txn-")
             for tr in select(page, "#register tbody tr")
@@ -114,7 +114,7 @@ class TestDeclareRecurring:
     ) -> None:
         """One payment is a plan of one; if the API ever refuses, the
         reason is the dialog's content rather than a JSON error."""
-        page = hx.get("/accounts").text
+        page = hx.get(REGISTER).text
         payroll = txn_id(page, "Payroll")
         dialog = hx.get(
             "/transactions/declare", params={"transaction_ids": [payroll]}

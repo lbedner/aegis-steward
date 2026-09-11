@@ -59,6 +59,35 @@ def hx_dialog_post(url: str) -> Markup:
     return Markup(f'hx-post="{escape(url)}" hx-target="#dialog-body"')
 
 
+def hx_filter(url: str, target: str) -> Markup:
+    """The attributes for "narrow this list where it stands".
+
+    Like ``hx_replace`` but for a control that must survive its own
+    request: it re-requests ``url`` and replaces only ``target`` with the
+    same element from the response, so the search box being typed into is
+    never swapped. Swapping it takes the caret and the focus with it, and
+    the next keystroke lands nowhere. No pushed URL either — a dialog's
+    search is not a place you navigate back to.
+    """
+    return Markup(
+        f'hx-get="{escape(url)}" hx-target="{escape(target)}" '
+        f'hx-select="{escape(target)}" hx-swap="outerHTML"'
+    )
+
+
+def hx_page(url: str) -> Markup:
+    """The attributes for "go to this view": the section swap the sidebar
+    does, and any link that hands the reader from one page to another.
+
+    One recipe, because a link that swaps the content area but forgets to
+    push the URL, or lands mid-scroll, is a page that half works.
+    """
+    return Markup(
+        f'hx-get="{escape(url)}" hx-target="#app-content" hx-push-url="true" '
+        'hx-swap="innerHTML show:window:top"'
+    )
+
+
 def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
     """The attributes for "re-request ``url`` and replace ``target`` with
     the same element from the response" (filters, pagers, list links).
@@ -79,6 +108,8 @@ def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
 
 
 templates.env.globals["hx_replace"] = hx_replace
+templates.env.globals["hx_page"] = hx_page
+templates.env.globals["hx_filter"] = hx_filter
 templates.env.globals["hx_dialog"] = hx_dialog
 templates.env.globals["hx_dialog_post"] = hx_dialog_post
 templates.env.filters.update(FILTERS)

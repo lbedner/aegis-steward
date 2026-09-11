@@ -106,10 +106,81 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 </label>
 {% endmacro %}
 
-{% macro search_input(name, value=None, placeholder="Search") %}
+{% macro search_input(name, value=None, placeholder="Search", autofocus=False) %}
 <input type="search" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
+       {% if autofocus %}autofocus{% endif %}
        aria-label="{{ placeholder }}" class="{{ control("input") }} min-w-[12rem]">
 {% endmacro %}
+
+{# Pick one of many, or name a new one.
+
+   A ledger carries a hundred payees, a few hundred categories and as
+   many tags as someone has invented — enough that scrolling a select is
+   hopeless, and few enough that they all fit in the dialog. So the whole
+   list is rendered once and typing hides rows: no round trip per
+   keystroke, nothing to wait for, and the name you type is matched
+   against ``data-name`` rather than a string baked into an expression,
+   so a payee called "Carter's" behaves.
+
+   The list keeps a FIXED height. With a max height it collapsed to the
+   one matching row and the dialog jumped up under the cursor mid-word.
+
+   ``options`` are ``{id, name}`` (a ``fact`` shows on the right).
+   ``create`` names the field a typed name posts under; that row shows
+   itself only when nothing in the list is called that already, which is
+   exactly when you have discovered you need it. ``hidden`` rides along.
+
+   ``current`` is what the selection already carries — one answer or
+   several, since a row has one payee but any number of tags. Those rows
+   are marked AND disabled, because choosing them would write nothing.
+   Marked and not hidden, since you still need to see what is on there.
+#}
+{% macro picker(id, path, field, options, hint="Search", create=None, hidden="", current=()) %}
+{% set names = options|map(attribute="name")|map("lower")|list %}
+<div id="{{ id }}" x-data='{
+       query: "",
+       get needle() { return this.query.trim().toLowerCase() },
+       names: {{ names|tojson }},
+       shows(name) { return !this.needle || name.includes(this.needle) },
+       get nothing() { return this.needle && !this.names.some(n => n.includes(this.needle)) },
+       get novel() { return this.needle && !this.names.includes(this.needle) },
+     }' class="space-y-3">
+  <input type="search" x-model="query" placeholder="{{ hint }}" aria-label="{{ hint }}"
+         autofocus class="{{ control("input") }} w-full">
+  <form hx-post="{{ path }}" hx-target="#dialog-body" class="space-y-3">
+    {{ hidden|safe }}
+    <ul id="{{ id }}-options" class="h-[22rem] overflow-y-auto divide-y divide-aegis-border/60">
+      {% if create %}
+      <li x-show="novel" x-cloak>
+        <button type="submit" name="{{ create }}" :value="query.trim()"
+                class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-aegis-teal hover:bg-aegis-border/20 transition-colors">
+          <span class="text-base leading-none">+</span> Create "<span x-text="query.trim()"></span>"
+        </button>
+      </li>
+      {% endif %}
+      {% for option in options %}
+      <li data-name="{{ option.name|lower }}" x-show="shows($el.dataset.name)">
+        {% set is_current = option.id in current %}
+        <button type="submit" name="{{ field }}" value="{{ option.id }}"
+                {% if is_current %}aria-current="true" disabled title="Already the answer"{% endif %}
+                class="w-full flex items-baseline justify-between gap-4 px-3 py-2 text-left text-sm text-aegis-text
+                       enabled:hover:bg-aegis-border/20 aria-[current=true]:bg-aegis-teal/10
+                       disabled:cursor-default transition-colors">
+          <span class="truncate">{{ option.name }}</span>
+          {% if option.fact %}<span class="shrink-0 text-xs text-aegis-muted tabular-nums">{{ option.fact }}</span>{% endif %}
+        </button>
+      </li>
+      {% endfor %}
+      <li x-show="nothing" x-cloak class="px-3 py-6 text-sm text-aegis-muted text-center">Nothing matches.</li>
+      {% if not options %}
+      <li class="px-3 py-6 text-sm text-aegis-muted text-center">Nothing here yet.</li>
+      {% endif %}
+    </ul>
+    {{ caller() if caller is defined }}
+  </form>
+</div>
+{% endmacro %}
+
 
 {# A labelled field. The control comes via {% call %}; ``error`` renders
    under it (pattern 1's 422 re-render passes field errors here). #}

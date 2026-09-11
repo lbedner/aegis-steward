@@ -55,6 +55,19 @@
     @apply ring-2 ring-aegis-teal;
   }
 
+  /* The copy button's answer to a click. A clipboard write leaves no
+     trace, so the icon becomes a tick and pops for a beat; the swap
+     itself is two icons in the markup, and this is what makes it read as
+     something happening rather than something changing. Here rather than
+     on the button because a state this small should not need three
+     variant utilities at the call site. */
+  [data-copy] {
+    @apply transition duration-200;
+  }
+  [data-copy][data-copied] {
+    @apply opacity-100 text-aegis-teal scale-125;
+  }
+
   /* The tile behind a brand favicon is light in EVERY theme: favicons are
      drawn for their owner's background and plenty are near-black on
      transparency, invisible on a dark surface (see layout.avatar). */

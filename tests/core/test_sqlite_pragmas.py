@@ -1,27 +1,24 @@
-"""Both SQLite engines wait for the write lock.
+"""Every SQLite connection opens with the pragmas the app relies on."""
 
-One writer at a time is SQLite's rule; a connection without a busy
-timeout fails the instant another holds the lock. The async engine had
-the timeout; the sync engine (the conversation store, the usage
-recorder) did not, and a chat turn's final save failed with "database
-is locked" after its answer had streamed.
-"""
+from pathlib import Path
+import sqlite3
 
-from sqlalchemy import text
-
-from app.core.db import SQLITE_BUSY_TIMEOUT_MS, async_engine, engine
+from app.core.db import SQLITE_BUSY_TIMEOUT_MS, apply_sqlite_pragmas
 
 
-def test_sync_connections_wait_for_the_lock() -> None:
-    with engine.connect() as conn:
+def test_a_connection_gets_its_keys_and_its_wait(tmp_path: Path) -> None:
+    """Both engines open the same way. Foreign keys because SQLite ships
+    them off; the wait because SQLite has one writer at a time."""
+    connection = sqlite3.connect(tmp_path / "app.db")
+    try:
+        apply_sqlite_pragmas(connection)
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert (
-            conn.execute(text("PRAGMA busy_timeout")).scalar() == SQLITE_BUSY_TIMEOUT_MS
+            connection.execute("PRAGMA busy_timeout").fetchone()[0]
+            == SQLITE_BUSY_TIMEOUT_MS
         )
-        assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
-
-
-async def test_async_connections_wait_for_the_lock() -> None:
-    async with async_engine.connect() as conn:
-        assert (
-            await conn.execute(text("PRAGMA busy_timeout"))
-        ).scalar() == SQLITE_BUSY_TIMEOUT_MS
+        # Deliberately NOT WAL: this file is shared across the container
+        # boundary, where WAL's shared memory is not coherent.
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] != "wal"
+    finally:
+        connection.close()

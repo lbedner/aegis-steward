@@ -10,7 +10,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from tests.web.conftest import Ledger, Review
+from tests.web.conftest import REGISTER, Ledger, Review
 from tests.web.dom import none, one, oob, select, table_rows, text, triggers
 
 
@@ -57,7 +57,7 @@ class TestApprovals:
         assert nav(client.get("/review").text)["Approvals"] == "Approvals (2)"
         assert "Food:Groceries" in text(
             one(
-                client.get("/accounts").text,
+                client.get(REGISTER).text,
                 f"#txn-{review.mystery} select option[selected]",
             )
         )

@@ -40,6 +40,12 @@ class PendingChangeResponse(BaseModel):
     title: str
     status: str
     display: list[ChangeDisplayRow]
+    # The subject transaction's brand mark, so a card can wear the same
+    # face the register gives that row: the payee's logo when there is
+    # one, else its category's glyph, else its initial.
+    payee: str | None = None
+    icon_url: str | None = None
+    category: str | None = None
     proposed_by_agent: str | None
     conversation_id: str | None
     batch_id: str | None
@@ -55,6 +61,7 @@ class PendingChangeResponse(BaseModel):
         *,
         title: str,
         display: list[ChangeDisplayRow],
+        mark: dict[str, str | None] | None = None,
     ) -> PendingChangeResponse:
         if row.id is None:
             raise ValueError("pending change row has no id - flush before responding")
@@ -64,6 +71,9 @@ class PendingChangeResponse(BaseModel):
             title=title,
             status=row.status,
             display=display,
+            payee=(mark or {}).get("payee"),
+            icon_url=(mark or {}).get("icon_url"),
+            category=(mark or {}).get("category"),
             proposed_by_agent=row.proposed_by_agent,
             conversation_id=row.conversation_id,
             batch_id=row.batch_id,

@@ -19,7 +19,12 @@
   <div x-show="illiana" x-cloak @keydown.escape.window="illiana = false"
        class="fixed inset-0 z-50 flex justify-end items-end sm:items-stretch">
     <div class="absolute inset-0 bg-aegis-scrim/40 backdrop-blur-sm" @click="illiana = false" aria-hidden="true"></div>
-    <div @click.stop role="dialog" aria-label="Ask {{ assistant }}"
+    {# No @click.stop here. The scrim is this panel's SIBLING, painted
+       under it, so a click inside the panel never reaches the scrim and
+       needs no stopping — and stopping it swallowed every delegated
+       handler the chat script listens for on the document (copy, replay,
+       jump to latest, the image viewer), but only inside the drawer. #}
+    <div role="dialog" aria-label="Ask {{ assistant }}"
          x-show="illiana"
          x-transition:enter="transition ease-out duration-200" x-transition:enter-start="translate-y-full sm:translate-y-0 sm:translate-x-full" x-transition:enter-end="translate-y-0 sm:translate-x-0"
          x-transition:leave="transition ease-in duration-150" x-transition:leave-start="translate-y-0 sm:translate-x-0" x-transition:leave-end="translate-y-full sm:translate-y-0 sm:translate-x-full"

@@ -47,7 +47,7 @@ class TestCreate:
         assert "dialog:close" in fired and fired["toast"]["text"]
 
         page = client.get(location["path"]).text
-        assert text(one(page, "#account-detail header h2")) == "Ally Savings"
+        assert text(one(page, "#account-switcher summary")) == "Ally Savings"
         assert "$1,250.50" in text(one(page, "#account-detail header"))
 
     def test_a_debt_type_is_a_liability_owed(self, client: TestClient) -> None:
@@ -62,7 +62,7 @@ class TestCreate:
         path = json.loads(response.headers["HX-Location"])["path"]
         page = client.get(path).text
         assert "-$300.00" in text(one(page, "#account-detail header"))
-        assert "Credit Cards" in text(one(page, "#accounts-list"))
+        assert "Credit Cards" in text(one(page, "#account-switcher"))
 
     def test_blank_name_re_renders_with_a_422(self, client: TestClient) -> None:
         response = client.post(
