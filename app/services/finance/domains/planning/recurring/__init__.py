@@ -15,6 +15,9 @@ from app.services.finance.domains.planning.recurring import (
     schedule,
     streams,
 )
+from app.services.finance.domains.planning.recurring.amounts import (
+    recompute_stream_amounts,
+)
 from app.services.finance.domains.planning.recurring.forecast import (
     budget_drawdowns,
     goal_drawdowns,
@@ -66,6 +69,7 @@ __all__ = [
     "mute_recurring",
     "occurrences",
     "pause_recurring",
+    "recompute_stream_amounts",
     "card_payment_stream_ids",
     "payment_stream_ids",
     "project_balances",

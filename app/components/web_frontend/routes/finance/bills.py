@@ -152,7 +152,7 @@ def row(stream: RecurringStreamResponse, today: date) -> dict[str, Any]:
         "icon_url": stream.icon_url,
         "category": stream.category_name,
         "account": stream.account_name,
-        "amount": stream.expected_amount or stream.average_amount,
+        "amount": stream.amount,
         "currency": stream.currency,
         "cadence": cadence,
         "next_due": stream.next_expected_date,
@@ -438,9 +438,7 @@ def _values(stream: FinanceRecurringStream | None) -> dict[str, str]:
         "name": stream.name,
         "direction": stream.direction,
         "frequency": stream.frequency,
-        "expected_amount": cents_to_input(
-            stream.expected_amount or stream.average_amount
-        ),
+        "expected_amount": cents_to_input(stream.amount),
         "next_expected_date": (
             stream.next_expected_date.isoformat() if stream.next_expected_date else ""
         ),
