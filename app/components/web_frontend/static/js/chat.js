@@ -334,6 +334,17 @@
     const body = bubble.querySelector('[data-body]');
     const trail = bubble.querySelector('[data-trail]');
     const busy = bubble.querySelector('[data-busy]');
+    const waiting = bubble.querySelector('[data-waiting]');
+    // A pause names itself; anything arriving clears it. Silence that
+    // looks identical to a hang is what this exists to end.
+    const stillWaiting = (seconds, reason) => {
+      if (!waiting) return;
+      // The reason is the part that says it will finish: a model being
+      // loaded is a wait with an end, and silence alone reads as a hang.
+      waiting.textContent = reason ? `${reason} - ${seconds}s` : `waiting ${seconds}s`;
+      waiting.hidden = false;
+    };
+    const answered = () => { if (waiting) waiting.hidden = true; };
     const writer = typewriter(body);
     const ids = { conversation: bubble.dataset.conversationId || null, message: null };
     const addTrail = (label) => {
@@ -357,7 +368,10 @@
       });
       if (!resp.ok || !resp.body) throw new Error(`bad response ${resp.status}`);
       for await (const { event, data } of frames(resp.body)) {
-        if (event === 'chunk') {
+        if (event === 'waiting') {
+          stillWaiting(data.seconds ?? 0, data.reason);
+        } else if (event === 'chunk') {
+          answered();
           busy.hidden = true;
           if (data.conversation_id) ids.conversation = data.conversation_id;
           writer.add(data.content || '');
@@ -368,6 +382,7 @@
           if (said) addTrail(said);
           addTrail(data.label || 'working...');
           writer.reset();
+          answered();
           busy.hidden = false;
         } else if (event === 'final') {
           ids.conversation = data.conversation_id || ids.conversation;
@@ -382,6 +397,7 @@
       failed = e.name === 'AbortError' ? null : 'Something went wrong answering that.';
     } finally {
       controller = null;
+      answered();
       busy.hidden = true;
       setStreaming(false);
       if (ids.conversation) {

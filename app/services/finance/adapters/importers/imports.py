@@ -731,6 +731,16 @@ async def ingest_transactions(
         owner_user_id=owner_user_id,
     )
 
+    # What each of those payees is normally filed under. A file's own
+    # category column is a guess made somewhere else; the payee's
+    # default is the user's standing decision about this payee, so it
+    # wins. Live case: an Anthropic subscription arrived from a CSV as
+    # "Food & Dining:Groceries" while the payee itself said
+    # "Bills & Utilities:Productivity" and four earlier rows agreed.
+    payee_default_category = await service.merchant_default_categories(
+        set(merchant_by_descriptor.values())
+    )
+
     # Memoize tag rows the same way (Quicken tags repeat heavily).
     tag_cache: dict[str, int] = {}
 
@@ -878,7 +888,12 @@ async def ingest_transactions(
             )
             continue
 
-        category_id = await _category_for(txn.category_hint)
+        merchant_id = merchant_by_descriptor.get(
+            txn.original_description or txn.name or ""
+        )
+        category_id = payee_default_category.get(
+            merchant_id or 0
+        ) or await _category_for(txn.category_hint)
         created = await service.create_transaction(
             owner_user_id=owner_user_id,
             account_id=account_id,
@@ -898,9 +913,7 @@ async def ingest_transactions(
             check_number=txn.check_number,
             category_id=category_id,
             category_source="rule" if category_id is not None else "unset",
-            merchant_id=merchant_by_descriptor.get(
-                txn.original_description or txn.name or ""
-            ),
+            merchant_id=merchant_id,
             is_split=bool(txn.splits),
         )
         created_id_by_row[row.row_number] = created.id

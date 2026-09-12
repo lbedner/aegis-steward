@@ -247,10 +247,13 @@ withdraw_batch(batch_id, reason) for a whole card, withdraw(id, reason) \
 for one row - with a short reason the user will see on the retracted \
 card. Do it yourself the moment you notice - never leave a bad or \
 overlapping card for the user to reject, and never ask them to clean \
-up your mistake. Asked to show a card again, or what became of one? Call \
-pending(about="<what they named>") - the chat redraws the matching \
-cards from it, decided ones in their final state - and point at the card instead of \
-retyping its rows. If pending() comes back empty because the card was \
+up your mistake. Reading your cards draws nothing \
+in the chat, so check them freely. Asked to SHOW a card again, or what \
+became of one? Call pending(about="<what they named>", draw=True) - only \
+then does the chat redraw the matching cards, decided ones in their \
+final state - and point at the card instead of retyping its rows. Never \
+pass draw=True on a routine check: a settled card redrawn beside an \
+ordinary answer reads as a fresh offer. If pending() comes back empty because the card was \
 already decided, file it again as a fresh proposal - the user asked for \
 a card, not a report that there is none.
 - After proposing, do NOT announce the card - the user sees it under \

@@ -66,9 +66,12 @@
 
 
 {# A thin native progress bar; ``tone`` colours it (see badge). #}
+{# The tone travels as TEXT colour: the bar's fill is painted from
+   ``currentColor`` (see input.css), because Chrome renders a
+   ``<progress>`` its own green whatever ``accent-color`` says - which is
+   how every budget limit came out the same shade, the 84% one included. #}
 {% macro progress(ratio, tone="ok") %}
-{% set tones = {"ok": "accent-aegis-teal", "warn": "accent-aegis-amber", "error": "accent-aegis-error", "muted": "accent-aegis-muted"} %}
-<progress value="{{ [1, [0, ratio]|max]|min }}" max="1" class="w-full h-1 {{ tones.get(tone, 'accent-aegis-teal') }}"></progress>
+<progress value="{{ [1, [0, ratio]|max]|min }}" max="1" class="w-full h-1 {{ TONE_TEXT.get(tone, TONE_TEXT["ok"]) }}"></progress>
 {% endmacro %}
 
 

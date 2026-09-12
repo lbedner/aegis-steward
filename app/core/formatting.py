@@ -165,3 +165,10 @@ def format_relative_time(
         return dt.strftime("%b %d %H:%M")
     except (ValueError, TypeError, IndexError):
         return str(iso_str)
+
+
+# What free costs, spelled once. Not ``$0``: trailing zeros are what
+# make a figure read as a PRICE, and "$0" beside "$3 / $15" reads like a
+# value that failed to load. Shared by the model picker (a local model's
+# row) and a finished message's footer (a local model's turn).
+FREE = "$0.00"

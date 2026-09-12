@@ -111,10 +111,16 @@
   <div class="flex items-center gap-2 mb-1">{{ assistant_name(assistant) }}</div>
   <ul class="{{ trail_classes }}" data-trail hidden></ul>
   <div class="{{ prose }}" data-body></div>
-  <div class="mt-2 flex gap-1 py-1" data-busy aria-label="Thinking">
-    <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse"></span>
-    <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse [animation-delay:.15s]"></span>
-    <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse [animation-delay:.3s]"></span>
+  <div class="mt-2 flex items-center gap-2 py-1" data-busy aria-label="Thinking">
+    <span class="flex gap-1">
+      <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse"></span>
+      <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse [animation-delay:.15s]"></span>
+      <span class="w-1.5 h-1.5 rounded-full bg-aegis-muted/60 animate-pulse [animation-delay:.3s]"></span>
+    </span>
+    {# How long this pause has lasted, filled from the stream's `waiting`
+       frames. Hidden until there is a pause worth naming - a prompt
+       answer must not flash a stopwatch. #}
+    <span class="text-xs text-aegis-muted" data-waiting hidden></span>
   </div>
 </li>
 {% endmacro %}

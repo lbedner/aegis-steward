@@ -1,2 +1,6 @@
 {% from "components/macros/feedback.html" import error_banner %}
-{{ error_banner(errors) }}
+{# ``data-import-retry``: the one outcome that puts the chooser back.
+   A rejected file is the case where picking another one immediately IS
+   the next step; every other state (a review, a running job, a finished
+   summary) has its own button and must not sit under a live chooser. #}
+<div data-import-retry>{{ error_banner(errors) }}</div>

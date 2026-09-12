@@ -11,6 +11,7 @@ from typing import Any
 
 from app.services.finance.domains.ledger import merchants, payee_aliases
 from app.services.finance.domains.ledger.merchants import _UNSET
+from app.services.finance.domains.ledger.queries import merchants as ledger_queries
 from app.services.finance.models import (
     FinanceMerchant,
     FinanceTransaction,
@@ -111,6 +112,18 @@ class MerchantsMixin(FinanceServiceBase):
             owner_user_id=owner_user_id,
             category_id=category_id,
         )
+
+    async def merchant_default_categories(
+        self, merchant_ids: set[int] | list[int]
+    ) -> dict[int, int]:
+        """payee id -> the category it is normally filed under, for the
+        ones that have one. One query for the batch."""
+        rows = await ledger_queries.merchants_by_ids(self.db, merchant_ids)
+        return {
+            mid: m.default_category_id
+            for mid, m in rows.items()
+            if m.default_category_id is not None
+        }
 
     async def resolve_merchant_aliases(
         self,

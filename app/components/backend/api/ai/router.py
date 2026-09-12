@@ -22,7 +22,9 @@ from app.components.backend.api.ai import memory as memory_routes
 from app.core.chat_transcript import tool_label
 from app.core.config import settings
 from app.core.log import logger
+from app.core.streaming import Waiting, announce_waiting
 from app.services.ai.domains.chat.attachments import ChatAttachment
+from app.services.ai.domains.llm.waiting import waiting_reason
 from app.services.ai.service import (
     AIService,
     AIServiceError,
@@ -204,16 +206,36 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             connect_data = {"status": "connected", "message": "Streaming started"}
             yield f"event: connect\ndata: {json.dumps(connect_data)}\n\n"
 
-            # Stream the AI response
-            async for chunk in ai_service.stream_chat(
-                message=request.message,
-                conversation_id=request.conversation_id,
-                user_id=request.user_id,
-                stream_delta=True,
-                agent_slug=request.agent_slug,
-                surface=request.surface,
-                attachments=request.attachments,
+            # Stream the AI response. Wrapped so a quiet stretch -
+            # a cold model loading, a slow tool, a long think - says
+            # how long it has been quiet instead of looking like a
+            # hang; see core.streaming.announce_waiting.
+            async def _why_quiet() -> str | None:
+                # Asked once per quiet stretch, not per frame.
+                return await waiting_reason(
+                    ai_service.config.provider, ai_service.config.model
+                )
+
+            async for chunk in announce_waiting(
+                ai_service.stream_chat(
+                    message=request.message,
+                    conversation_id=request.conversation_id,
+                    user_id=request.user_id,
+                    stream_delta=True,
+                    agent_slug=request.agent_slug,
+                    surface=request.surface,
+                    attachments=request.attachments,
+                ),
+                explain=_why_quiet,
             ):
+                if isinstance(chunk, Waiting):
+                    waiting_data = {
+                        "seconds": chunk.seconds,
+                        "reason": chunk.reason,
+                    }
+                    yield f"event: waiting\ndata: {json.dumps(waiting_data)}\n\n"
+                    continue
+
                 # Tool-use notice: no content, just which tool started, so
                 # the frontend can caption the pause in the token stream.
                 if (chunk.metadata or {}).get("event") == "tool":

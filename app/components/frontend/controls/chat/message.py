@@ -11,6 +11,7 @@ from app.components.frontend.controls.dialog import StyledAlertDialog
 from app.components.frontend.controls.markdown import markdown_control
 from app.components.frontend.controls.text import LabelText, SecondaryText
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.ai.domains.llm.picker import is_local_model
 
 from .stream import footer_line, trace_failed, trace_label, trace_output
 
@@ -273,7 +274,7 @@ class ChatMessageBubble(ft.Container):
         self._body.value = text
         if tool_trace:
             self.set_tool_trace(tool_trace)
-        line = footer_line(meta)
+        line = footer_line(meta, local=is_local_model(meta))
         if line:
             self._footer.value = line
             self._footer_row.visible = True
