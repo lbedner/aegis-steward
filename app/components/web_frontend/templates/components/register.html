@@ -23,14 +23,35 @@
 <section id="register" class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
   {# Every control is a field on the same URL; a change re-requests this
      section and swaps it in place, so the filter state lives in the URL. #}
+  {# Every row's category options, on the page ONCE. A row ships only the
+     blank and its own value; app.js fills the rest from here the first
+     time a select is opened. Fifty inline copies of 270 options was
+     1,041 KB of a 1,097 KB register response, re-sent on every keystroke
+     in the filter below. #}
+  <template id="category-options">
+    {% for category in register.categories %}<option value="{{ category.id }}">{{ category.name }}</option>{% endfor %}
+  </template>
   <form id="register-filters" method="get" action="{{ register.path }}"
         {{ hx_replace(register.path, "#register") }}
-        hx-trigger="change, keyup changed delay:300ms from:[name='q'], search from:[name='q']"
+        {# The search box asks for itself now (below), so a blur after
+           typing must not swap the whole register a second time. #}
+        hx-trigger="change[event.target.name!='q']"
         class="flex flex-wrap items-center gap-3">
     {% if register.filters.uncategorized %}<input type="hidden" name="uncategorized" value="on">{% endif %}
     {% if register.filters.without_merchant %}<input type="hidden" name="without_merchant" value="on">{% endif %}
     {{ range_chips(register.ranges, register.filters.days) }}
-    {{ search_input("q", register.filters.q, placeholder="Search payee") }}
+    {# Asks for the same URL but takes only the results out of it, so the
+       box itself is never destroyed: no lost caret, and no re-rendering
+       three selects and the option template on every keystroke. The
+       Clear link rides along out of band because it lives up here in the
+       filters - htmx applies hx-select-oob BEFORE hx-select narrows the
+       response, so one reply serves both. 150ms rather than 300: that
+       number was set when a reply was 1.1 MB. #}
+    {{ search_input("q", register.filters.q, placeholder="Search payee",
+                    attrs='hx-get="' ~ register.path ~ '" hx-include="#register-filters"'
+                          ' hx-target="#register-results" hx-select="#register-results"'
+                          ' hx-select-oob="#register-clear" hx-swap="outerHTML"'
+                          ' hx-trigger="keyup changed delay:150ms, search"') }}
     {% if not register.filters.uncategorized %}{{ select("category_id", register.categories, register.filters.category_id, blank="All categories") }}{% endif %}
     {% if not register.filters.without_merchant %}{{ select("merchant_id", register.merchants, register.filters.merchant_id, blank="All payees") }}{% endif %}
     {% if register.tags %}{{ select("tag_id", register.tags, register.filters.tag_id, blank="All tags") }}{% endif %}
@@ -39,12 +60,16 @@
     {{ checkbox("include_transfers", register.filters.include_transfers, label="Show transfers") }}
     {% if register.filters.page_size != 50 %}<input type="hidden" name="page_size" value="{{ register.filters.page_size }}">{% endif %}
     <span id="uncategorized-count" class="text-xxs text-aegis-muted">{{ register.uncategorized_total }} uncategorized</span>
-    {% if register.filtered %}
-    <a href="{{ register.path }}" {{ hx_replace(register.path, "#register") }}
-       class="text-xs text-aegis-teal hover:text-aegis-text transition-colors">Clear</a>
-    {% endif %}
+    {# Always present, sometimes empty: a search that clears its own text
+       has to be able to take this away again, and an element absent from
+       the reply swaps nothing. #}
+    <span id="register-clear">{% if register.filtered %}<a href="{{ register.path }}" {{ hx_replace(register.path, "#register") }}
+       class="text-xs text-aegis-teal hover:text-aegis-text transition-colors">Clear</a>{% endif %}</span>
   </form>
 
+  {# What a search replaces: the rows, their pager and the empty states.
+     Everything above stays put, which is the whole point. #}
+  <div id="register-results" class="contents">
   {% if register.rows %}
   {# Selection is plain checkboxes; the bar counts them (local UI state)
      and every action includes the checked ones. #}
@@ -88,5 +113,6 @@
   {% else %}
   {{ empty_state("No transactions yet", "Import a file or connect a bank to fill the register.") }}
   {% endif %}
+  </div>
 </section>
 {% endif %}

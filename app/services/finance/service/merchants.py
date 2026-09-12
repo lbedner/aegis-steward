@@ -134,6 +134,17 @@ class MerchantsMixin(FinanceServiceBase):
     ) -> dict[int, str]:
         return await merchants.merchant_usual_categories(self.db, ids)
 
+    async def file_payee_under(
+        self,
+        merchant_id: int,
+        category_id: int,
+        *,
+        owner_user_id: int | None = None,
+    ) -> int:
+        return await merchants.file_payee_under(
+            self.db, merchant_id, category_id, owner_user_id=owner_user_id
+        )
+
     async def merchant_category_summary(
         self, merchant_id: int, *, owner_user_id: int | None = None
     ) -> MerchantCategorySummary:

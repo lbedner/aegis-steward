@@ -79,7 +79,12 @@ class TestFilters:
         assert form.get("hx-select") == "#register"
         assert form.get("hx-swap") == "outerHTML"
         assert form.get("hx-push-url") == "true"
-        assert "keyup changed delay:300ms" in (form.get("hx-trigger") or "")
+        # The form answers for the CONTROLS - selects, dates, the chips -
+        # and swaps the whole register, which is right when the shape of
+        # the filter changes. The search box answers for itself against
+        # #register-results, so typing never re-renders the form it sits
+        # in (see TestTheSearchSwapsOnlyTheResults).
+        assert form.get("hx-trigger") == "change[event.target.name!='q']"
 
     def test_self_selecting_requests_replace_rather_than_nest(
         self, client: TestClient, ledger: Ledger

@@ -376,23 +376,15 @@ async def payee(
         owner_user_id=owner_user_id,
     )
     if chosen_category is not None:
-        # Settle the rows this payee ALREADY covers: the point of naming
-        # the category is that the payee ends up filed one way, not that
-        # the newest arrivals are.
-        owned, _ = await service.list_transactions(
-            owner_user_id=owner_user_id, merchant_id=chosen, page_size=500
+        # Settle EVERY row this payee covers, which is what the dialog
+        # promises. This read a page of 500 and re-filed those, so a
+        # payee with more kept the rest - and the offer, which tallies
+        # all of them to decide whether to ask, saw the leftovers and
+        # asked again. Apply, see the categories change behind the
+        # dialog, get the same question back (Shop Rite: 536 rows).
+        await service.file_payee_under(
+            chosen, chosen_category, owner_user_id=owner_user_id
         )
-        stale = [t.id for t in owned if t.id not in set(touched)]
-        if stale:
-            await assign_merchant(
-                MerchantAssign(
-                    transaction_ids=stale,
-                    merchant_id=chosen,
-                    category_id=chosen_category,
-                ),
-                service=service,
-                owner_user_id=owner_user_id,
-            )
     await service.db.commit()
 
     summary = await merchant_category_summary(
