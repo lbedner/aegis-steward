@@ -222,7 +222,7 @@ async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
 _DRAW_CAP = 5
 
 
-async def pending(about: str | None = None) -> dict[str, Any]:
+async def pending(about: str | None = None, draw: bool = False) -> dict[str, Any]:
     """YOUR OWN cards: {"pending": [...]} still awaiting the user and
     {"decided": [...]} the user acted on in the last two weeks. One entry
     per card, with exactly these keys: batch_id (null for a single
@@ -235,10 +235,17 @@ async def pending(about: str | None = None) -> dict[str, Any]:
     replacement so you can withdraw what it supersedes yourself -
     withdraw_batch(batch_id) for a whole card, withdraw(id) for one row -
     instead of asking the user to reject them. ``about`` narrows to cards
-    mentioning it ("state farm") AND redraws what matched, decided ones in
-    their final state - so when the user asks to see a card again or what
-    became of it, pass ``about`` and point at the card. Other agents'
-    cards and the user's own are not listed and cannot be withdrawn."""
+    mentioning it ("state farm"). Other agents' cards and the user's own
+    are not listed and cannot be withdrawn.
+
+    Reading draws NOTHING. Set ``draw=True`` only when the user asked to
+    see a card - "show me that one", "what became of it?" - and then
+    `draw` carries what to point at: the ones still awaiting them, or,
+    with ``about``, whatever matched, decided ones in their final state.
+    Checking your own cards before filing a replacement is the common
+    case and must stay invisible: a settled card redrawn beside an
+    ordinary answer reads as a fresh offer, and five of them bury the
+    answer the user actually asked for."""
     from app.services.ai.domains.chat.user_memory import current_agent_slug
     from app.services.finance.domains import writes
 
@@ -301,13 +308,19 @@ async def pending(about: str | None = None) -> dict[str, Any]:
     # Capped either way, because this tool is read before filing a
     # replacement and a routine check must never paper the thread.
     listing["draw"] = (
-        listing["pending"] + listing["decided"] if needle else listing["pending"]
-    )[:_DRAW_CAP]
+        (listing["pending"] + listing["decided"] if needle else listing["pending"])[
+            :_DRAW_CAP
+        ]
+        if draw
+        else []
+    )
     listing["note"] = (
-        "The cards in `draw` are the ones redrawn in the chat for the user; "
-        "the rest are yours to read. Point at them; never list their rows. "
-        "Pass `about` when the user asked after one card, and it is redrawn "
-        "in whatever state it ended in."
+        "The cards in `draw` are redrawn in the chat for the user; the rest "
+        "are yours to read. Point at them; never list their rows."
+        if draw
+        else "This drew nothing, which is the norm. Call again with "
+        "draw=True ONLY when the user asked to see a card; then `draw` "
+        "carries what to point at."
     )
     return listing
 

@@ -15,7 +15,7 @@ import pprint
 import re
 from typing import Any
 
-from app.core.formatting import format_duration_ms
+from app.core.formatting import FREE, format_duration_ms
 
 # Rendered while text is still arriving; dropped from the final render.
 STREAM_CURSOR = "▌"
@@ -166,8 +166,13 @@ def narration_note(text: str, limit: int = 100) -> str:
     return flat if len(flat) <= limit else flat[: limit - 3] + "..."
 
 
-def footer_line(meta: dict[str, Any]) -> str:
-    """One quiet attribution line for a finished assistant message."""
+def footer_line(meta: dict[str, Any], *, local: bool = False) -> str:
+    """One quiet attribution line for a finished assistant message.
+
+    ``local`` is passed in rather than read off the metadata here: which
+    providers run on this machine is an AI-service fact, and core does
+    not reach upward for it. Same shape as ``format_price``.
+    """
     parts: list[str] = []
     if meta.get("model"):
         parts.append(str(meta["model"]))
@@ -178,7 +183,15 @@ def footer_line(meta: dict[str, Any]) -> str:
     elapsed = format_duration_ms(meta.get("response_time_ms"))
     if elapsed:
         parts.append(elapsed)
+    # A local model is free and says so; a cloud one with no cost
+    # recorded says nothing, because a blank admits we do not know what
+    # the turn cost and a figure would be invented. Zero renders with
+    # its cents for the same reason it does in the picker: trailing
+    # zeros are what make it read as a price rather than a value that
+    # failed to load.
     cost = meta.get("cost")
     if cost:
         parts.append(f"${cost:.4f}")
+    elif local:
+        parts.append(FREE)
     return "  ·  ".join(parts)

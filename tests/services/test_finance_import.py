@@ -1622,3 +1622,69 @@ class TestParseRunsOffTheEventLoop:
             account_id=account.id,
         )
         assert seen and seen[0] is not threading.main_thread()
+
+
+@pytest.mark.asyncio
+async def test_a_known_payee_beats_the_files_own_category(
+    svc: FinanceService, async_db_session: AsyncSession
+) -> None:
+    """Live 2026-09-12: an Anthropic subscription - a monthly bill, and
+    a payee named and filed four times already - arrived from a CSV as
+    "Food & Dining:Groceries", because the importer took the file's
+    category column and never asked the payee it had just resolved.
+
+    A file's category is a guess made somewhere else. The payee's
+    ``default_category_id`` is the user's standing decision about this
+    payee, made in this app, so it wins.
+    """
+    from datetime import date
+
+    from app.services.finance.adapters.importers import imports
+    from app.services.finance.adapters.importers.base import ParsedTransaction
+    from tests.services._finance_factories import seed_category
+
+    account = await svc.create_manual_account(
+        owner_user_id=1,
+        name="Checking",
+        account_type="checking",
+        classification="asset",
+    )
+    productivity = await seed_category(
+        async_db_session, "Bills & Utilities:Productivity"
+    )
+    payee = await svc.create_merchant("Anthropic", owner_user_id=1)
+    await svc.update_merchant(
+        payee.id, owner_user_id=1, default_category_id=productivity.id
+    )
+    # Named once, which is what teaches the descriptor -> payee alias.
+    seen = await svc.create_transaction(
+        account_id=account.id,
+        amount=-21625,
+        txn_date=date(2026, 8, 11),
+        owner_user_id=1,
+        name="ANTHROPIC* CLAUDE SU ANTHROPIC.COM CA 08/11",
+    )
+    await svc.assign_merchant([seen.id], payee.id, owner_user_id=1)
+    await async_db_session.commit()
+
+    await imports.ingest_transactions(
+        async_db_session,
+        owner_user_id=1,
+        source_type="csv",
+        file_name="export.csv",
+        file_bytes=b"anthropic september",
+        parsed=[
+            ParsedTransaction(
+                date=date(2026, 9, 11),
+                amount=-21625,
+                source="csv",
+                name="ANTHROPIC* CLAUDE SU ANTHROPIC.COM CA 09/11",
+                category_hint="Food & Dining:Groceries",
+            )
+        ],
+        default_account_id=account.id,
+    )
+
+    rows, _ = await svc.list_transactions(owner_user_id=1, account_id=account.id)
+    landed = next(t for t in rows if t.date_ == date(2026, 9, 11))
+    assert landed.category_id == productivity.id

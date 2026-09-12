@@ -88,17 +88,48 @@ class TestDialog:
         """
         dialog = hx.get(f"/accounts/import?account_id={ledger.checking}").text
         scope = one(dialog, "#import-dialog")
-        assert "reviewing" in (scope.get("x-data") or "")
+        assert "busy" in (scope.get("x-data") or "")
 
         chooser = one(dialog, "#import-chooser")
-        assert chooser.get("x-show") == "!reviewing"
+        assert chooser.get("x-show") == "!busy"
         # The file input is inside what gets hidden - that is the point.
         one(chooser, 'input[type="file"][name="file"]')
 
         result = one(dialog, "#import-result")
-        assert "reviewing" in (result.get("@htmx:after-swap") or ""), (
-            "the result pane is what knows a review has arrived"
+        watched = result.get("@htmx:after-swap") or ""
+        assert "firstElementChild" in watched, (
+            "reported live 2026-09-12: the chooser watched for the review "
+            "alone, so it came back over a running import and again over "
+            "the summary - a live file picker above the import just done"
         )
+        assert "data-import-retry" in watched, (
+            "a rejected file is the one case where picking another one is "
+            "the next step"
+        )
+
+    def test_only_a_rejected_file_puts_the_chooser_back(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """A running job, and the summary after it, each carry their own
+        next step; only a refused file wants the picker again."""
+        from app.components.web_frontend.rendering import templates
+
+        def render(name: str, **ctx: object) -> str:
+            return templates.get_template(name).render(**ctx)
+
+        running = render(
+            "partials/jobs/status.html",
+            job={"status": "running", "label": "Importing x.csv", "name": "import"},
+        )
+        done = render(
+            "partials/jobs/status.html",
+            job={"status": "completed", "label": "", "name": "import", "result": {}},
+        )
+        refused = render("partials/imports/error.html", errors=["Not a statement."])
+
+        assert "data-import-retry" not in running
+        assert "data-import-retry" not in done
+        assert "data-import-retry" in refused
 
     def test_the_review_still_posts_the_form_it_hid(
         self, client: TestClient, ledger: Ledger

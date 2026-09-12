@@ -227,6 +227,24 @@ class TestGoals:
         one(card, f'[hx-get="/budget/goals/{budget.goal}/contribute"]')
         one(card, f'[hx-get="/budget/goals/{budget.goal}/edit"]')
 
+    def test_a_limit_bar_carries_its_tone_as_a_text_colour(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Reported live 2026-09-12: every limit bar rendered the same
+        green, the 84%-spent one included. ``accent-color`` is the
+        documented way to tint a ``<progress>`` and Chrome paints its
+        own colour anyway, so the tone never reached the screen. The
+        fill is painted from ``currentColor`` now, which means the tone
+        has to arrive as a text-* class."""
+        from app.components.web_frontend.rendering import templates
+
+        macros = templates.get_template("components/macros/layout.html").module
+
+        assert "text-aegis-teal" in macros.progress(0.5, "ok")
+        assert "text-aegis-amber" in macros.progress(0.85, "warn")
+        assert "text-error" in macros.progress(1.2, "error")
+        assert "accent-" not in macros.progress(0.5, "warn")
+
     def test_pause_toggles_in_place(self, client: TestClient, budget: Budget) -> None:
         paused = client.post(f"/budget/goals/{budget.goal}/pause").text
         card = one(paused, f"#goal-{budget.goal}")

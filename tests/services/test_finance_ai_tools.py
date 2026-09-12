@@ -562,7 +562,7 @@ async def test_pending_hands_the_model_a_line_per_row_not_a_table(
     assert "display" not in entry
     assert "State Farm Auto" in entry["summary"]
     assert "Transportation" in entry["summary"]
-    assert "redrawn" in result["note"]
+    assert "draw=True" in result["note"]
 
 
 @pytest.mark.asyncio
@@ -1061,11 +1061,11 @@ async def test_pending_draws_only_what_still_needs_the_user(
             "transaction.categorize",
             {"transaction_id": fresh.id, "category_id": cat.id},
         )
-        listing = await ai_tools.pending()
+        listing = await ai_tools.pending(draw=True)
 
     assert len(listing["pending"]) == 1
     assert len(listing["decided"]) == 1
-    # Both are readable; only the live one is drawn.
+    # Both are readable; asked to draw, only the live one is drawn.
     drawn = {c["pending_change_ids"][0] for c in listing["draw"]}
     assert drawn == {listing["pending"][0]["pending_change_ids"][0]}
 
@@ -1103,9 +1103,13 @@ async def test_asking_about_a_card_draws_it_even_when_decided(
             {"transaction_id": txn.id, "category_id": cat.id},
         )
         await ai_tools.withdraw(filed["pending_change_id"], reason="superseded")
-        listing = await ai_tools.pending(about="state farm")
+        quiet = await ai_tools.pending(about="state farm")
+        listing = await ai_tools.pending(about="state farm", draw=True)
 
     assert listing["pending"] == []
+    # Reading is free and silent; the card is drawn only when asked for.
+    assert quiet["draw"] == []
+    assert quiet["decided"] == listing["decided"]
     assert len(listing["draw"]) == 1
 
 
@@ -1142,15 +1146,59 @@ async def test_projection_walks_cash_forward_over_a_requested_window(
 async def test_projection_can_be_asked_about_one_account(
     svc: FinanceService, session: AsyncSession
 ) -> None:
-    """"Let's only factor in the Chase checking, no savings" - a real
+    """ "Let's only factor in the Chase checking, no savings" - a real
     question, answered by hand last time. The walk already takes the
     accounts it should start from."""
     chase = await seed_account(svc, "Chase Checking", current_balance=100_000)
-    await seed_account(
-        svc, "Savings", account_type="savings", current_balance=900_000
-    )
+    await seed_account(svc, "Savings", account_type="savings", current_balance=900_000)
     await session.commit()
 
     result = await ai_tools.projection(days=30, account_ids=[chase.id])
 
     assert result["start_balance"] == 100_000
+
+
+@pytest.mark.asyncio
+async def test_reading_your_own_cards_draws_nothing(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Live: "I have to finish splitting cats for Target first" - an
+    ordinary sentence, no request to see anything - and the answer came
+    back under five settled cards: one approved, one rejected, three
+    batches of three. The agent had checked its own history with
+    ``about``, which used to redraw whatever matched in its final state.
+
+    Reading is the common case - it happens before filing a replacement,
+    every time - and it must stay invisible. A settled card redrawn
+    beside an ordinary answer reads as a fresh offer, and five of them
+    bury the answer the user asked for.
+    """
+    from app.services.ai.domains.chat.user_memory import memory_user
+
+    account = await seed_account(svc)
+    cat = await seed_category(session, "Home:Home Supplies")
+    await session.flush()
+    txn = await svc.create_transaction(
+        account_id=account.id,
+        amount=-528,
+        txn_date=date(2026, 9, 8),
+        owner_user_id=1,
+        name="TARGET 00012345",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="c-3"):
+        filed = await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": cat.id},
+        )
+        await ai_tools.withdraw(filed["pending_change_id"], reason="superseded")
+        quiet = await ai_tools.pending(about="target")
+        asked = await ai_tools.pending(about="target", draw=True)
+
+    # Readable either way - the agent still knows what it filed.
+    assert len(quiet["decided"]) == 1
+    assert quiet["decided"] == asked["decided"]
+    # Drawn only when the user asked to see it.
+    assert quiet["draw"] == []
+    assert len(asked["draw"]) == 1

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.constants import PAUSE_INDEFINITE
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger, Streams
@@ -63,6 +64,87 @@ class TestPage:
         water = rows_by_name(client.get("/bills").text)["Water"]
         badge = one(water[HEALTH], "[data-tone]")
         assert text(badge) == "Overdue" and badge.get("data-tone") == "warn"
+
+    def test_a_paused_bill_is_neither_overdue_nor_chased(self) -> None:
+        """Live: Fidelity and M1 Finance, both paused indefinitely, read
+        "Paused" in the Status column and "Overdue" in the next - the
+        row arguing with itself. The pause IS the user saying not to
+        expect it, and the due date it has already passed is exactly
+        what they paused. Review asks "what has passed?", which is the
+        same question, so it must not chase one either.
+
+        The cause was a second copy: ``is_paused`` stood written out in
+        this route as well as in commitments.py, and only the Status
+        column used it. commitments.py's own docstring warns about
+        precisely this ("one predicate for every consumer, because mute
+        taught us what per-surface treatment costs") - the copy is gone
+        and the predicate takes the response schema too.
+        """
+        from app.components.web_frontend.routes.finance.bills import (
+            health,
+            needs_review,
+            state,
+        )
+
+        today = current_date()
+
+        class _Paused:
+            direction = "outflow"
+            source = "user"
+            is_user_confirmed = True
+            is_muted = False
+            is_payment = False
+            staleness = "fresh"
+            next_expected_date = today - timedelta(days=9)
+            paused_until = PAUSE_INDEFINITE
+
+        assert state(_Paused, today)["label"] == "Paused"
+        assert health(_Paused, today)["label"] != "Overdue"
+        assert not needs_review(_Paused, today)
+
+        # The API says "overdue" on its own, so guarding only the line
+        # that DERIVES it left both live bills still reading Overdue.
+        class _AlreadyCalledOverdue(_Paused):
+            staleness = "overdue"
+
+        assert health(_AlreadyCalledOverdue, today)["label"] != "Overdue"
+
+        # Stale survives the pause: a bill nothing has paid in months is
+        # stale either way, and that is worth saying.
+        class _Stale(_Paused):
+            staleness = "stale"
+
+        assert health(_Stale, today)["label"] == "Stale"
+
+    def test_a_paused_bill_is_not_due_on_the_date_it_skipped(self) -> None:
+        """Sep 3 on a bill paused indefinitely is not a date anybody is
+        waiting for - it is the occurrence the pause skipped - and it
+        kept two investment bills at the top of a list ordered by what
+        is due soonest. A pause with an END has a real answer: the first
+        occurrence on or after the day it comes back.
+        """
+        from app.components.web_frontend.routes.finance.bills import next_due
+
+        today = current_date()
+        skipped = today - timedelta(days=9)
+
+        class _Stream:
+            frequency = "monthly"
+            next_expected_date = skipped
+            paused_until = PAUSE_INDEFINITE
+
+        assert next_due(_Stream, today) is None
+
+        class _BackSoon(_Stream):
+            paused_until = today + timedelta(days=40)
+
+        when = next_due(_BackSoon, today)
+        assert when is not None and when >= _BackSoon.paused_until
+
+        class _Running(_Stream):
+            paused_until = None
+
+        assert next_due(_Running, today) == skipped
 
     def test_income_and_detected_tabs(
         self, client: TestClient, streams: Streams

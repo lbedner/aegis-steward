@@ -40,14 +40,18 @@ from app.components.web_frontend.rendering import (
 )
 from app.services.finance.constants import (
     BILL_FREQUENCY_OPTIONS,
+    PAUSE_INDEFINITE,
     add_months,
     frequency_label,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.detection.insights.commitments import (
+    is_paused,
+)
 from app.services.finance.models import FinanceRecurringStream
 from app.services.finance.schemas import RecurringPause, RecurringStreamResponse
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import current_date
+from app.services.finance.utils import FREQUENCY_STEPS, current_date
 
 SECTION = section("bills")
 router = APIRouter(prefix=SECTION.path)
@@ -91,10 +95,6 @@ def is_curated(stream: RecurringStreamResponse) -> bool:
     return stream.source == "user" or stream.is_user_confirmed
 
 
-def is_paused(stream: RecurringStreamResponse, today: date) -> bool:
-    return stream.paused_until is not None and today < stream.paused_until
-
-
 def past_due(stream: RecurringStreamResponse, today: date) -> bool:
     return stream.next_expected_date is not None and stream.next_expected_date < today
 
@@ -115,6 +115,7 @@ def needs_review(stream: RecurringStreamResponse, today: date) -> bool:
         stream.direction == "outflow"
         and is_curated(stream)
         and not stream.is_muted
+        and not is_paused(stream, today)
         and stream.staleness != "stale"
         and past_due(stream, today)
     )
@@ -126,8 +127,48 @@ def health(stream: RecurringStreamResponse, today: date) -> dict[str, str]:
     key = stream.staleness
     if key == "fresh" and past_due(stream, today):
         key = "overdue"
+    # A paused bill is not late, whichever side said it was: "skip my
+    # investments for a few months" is the user saying not to expect it,
+    # and the due date it has already passed is exactly what they
+    # paused. Reading Paused in one column and Overdue in the next is
+    # the row arguing with itself. Applied AFTER, because the API's own
+    # staleness already says "overdue" on its own - guarding only the
+    # line above left the two live bills that prompted this still
+    # reading Overdue. Stale survives: a bill nothing has paid in months
+    # is stale whether or not it is paused, and that is worth saying.
+    if key == "overdue" and is_paused(stream, today):
+        key = "fresh"
     label, tone = HEALTH.get(key, HEALTH["fresh"])
     return {"label": label, "tone": tone}
+
+
+def next_due(stream: RecurringStreamResponse, today: date) -> date | None:
+    """When this bill is next expected - which for a paused one is not
+    the date it was already past when it was paused.
+
+    Sep 3 on a bill paused indefinitely is not a date anybody is waiting
+    for: it is the occurrence the pause skipped, and leaving it there
+    kept two investment bills sitting at the top of a list ordered by
+    what is due soonest. A pause with an END has a real answer - the
+    first occurrence on or after the day it comes back - and an
+    indefinite one has none, so it says none and sorts last.
+    """
+    if not is_paused(stream, today):
+        return stream.next_expected_date
+    if stream.paused_until is None or stream.paused_until >= PAUSE_INDEFINITE:
+        return None
+    step = FREQUENCY_STEPS.get(stream.frequency)
+    when = stream.next_expected_date
+    if step is None or when is None:
+        return None
+    # Walk rather than divide: the cadences are months and weeks, not a
+    # fixed number of days, and the step is the one definition of how
+    # each one advances. Bounded by the cadence count in a century.
+    for _ in range(1200):
+        if when >= stream.paused_until:
+            return when
+        when = step(when)
+    return None
 
 
 def state(stream: RecurringStreamResponse, today: date) -> dict[str, str]:
@@ -155,7 +196,7 @@ def row(stream: RecurringStreamResponse, today: date) -> dict[str, Any]:
         "amount": stream.amount,
         "currency": stream.currency,
         "cadence": cadence,
-        "next_due": stream.next_expected_date,
+        "next_due": next_due(stream, today),
         "health": health(stream, today),
         "state": state(stream, today),
         "direction": stream.direction,
@@ -212,7 +253,12 @@ async def streams_context(
         "days": days,
         "ranges": ranges.WINDOWS,
         "tabs": [(key, f"{label} ({counts[key]})") for key, label in TABS],
-        "rows": [row(s, today) for s in shown],
+        # Soonest first, and a bill with no date at all last: the list
+        # answers "what is coming", and a paused bill is not coming.
+        "rows": sorted(
+            (row(s, today) for s in shown),
+            key=lambda r: (r["next_due"] is None, r["next_due"] or today),
+        ),
         "columns": COLUMNS,
         "monthly_cost": listing.monthly_cost,
         "review_ids": due,

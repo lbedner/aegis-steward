@@ -61,6 +61,7 @@ from app.services.ai.domains.llm.picker import (
     format_context_window,
     format_price,
     group_models,
+    is_local_model,
     lab_for_model,
     model_label,
     newest_first,
@@ -289,7 +290,7 @@ def settled(
         "trail": trail(trace, conversation_id, message.id),
         "components": components(trace),
         "components_base": COMPONENTS,
-        "footer": footer_line(meta),
+        "footer": footer_line(meta, local=is_local_model(meta)),
     }
 
 
@@ -352,7 +353,11 @@ def _row(
         part
         for part in (
             format_context_window(model.get("context_window")),
-            format_price(model.get("input_price"), model.get("output_price")),
+            format_price(
+                model.get("input_price"),
+                model.get("output_price"),
+                local=is_local_model(model),
+            ),
         )
         if part
     )

@@ -2,7 +2,9 @@
 
 from app.services.ai.domains.llm.picker import (
     family_display_name,
+    format_price,
     group_models,
+    is_local_model,
     model_label,
     newest_first,
 )
@@ -203,3 +205,71 @@ class TestModelPickerDialog:
 
         assert dialog._active_id == "b-2"
         assert dialog._list_host.content is not before  # rows re-rendered
+
+
+class TestALocalModelIsFreeNotUnpriced:
+    """A missing price means two different things. For a cloud model it
+    is a gap in the catalog - we do not know what it costs, and a blank
+    admits that. For a local model the blank WAS the answer: it runs on
+    this machine and costs nothing, and leaving the only free option
+    looking like the one we failed to price gets it read as the risky
+    choice rather than the free one."""
+
+    def test_a_local_model_costs_nothing_and_says_so(self) -> None:
+        model = {"vendor": "ollama", "input_price": None, "output_price": None}
+
+        assert is_local_model(model)
+        assert format_price(None, None, local=True) == "$0.00"
+
+    def test_the_zero_keeps_its_cents(self) -> None:
+        """``_usd(0)`` renders "$0", and trailing zeros are what make a
+        figure read as a price - "$0" beside "$3 / $15" reads like a
+        value that failed to load."""
+        assert format_price(None, None, local=True) == "$0.00"
+
+    def test_a_cloud_model_with_no_pricing_stays_blank(self) -> None:
+        """Inventing a figure is worse than admitting we lack one."""
+        model = {"vendor": "openai", "input_price": None, "output_price": None}
+
+        assert not is_local_model(model)
+        assert format_price(None, None, local=is_local_model(model)) == ""
+
+    def test_a_priced_model_is_untouched_whatever_it_runs_on(self) -> None:
+        assert format_price(3.0, 15.0, local=True) == "$3 / $15"
+
+    def test_the_vendor_check_ignores_case(self) -> None:
+        assert is_local_model({"vendor": "Ollama"})
+        assert not is_local_model({})
+
+
+class TestTheFooterOnAFinishedTurn:
+    """The attribution line under a settled message. Same rule as the
+    picker row, one line further on: a local turn is free and says so, a
+    cloud turn with no cost recorded says nothing."""
+
+    def test_a_local_turn_is_free(self) -> None:
+        from app.core.chat_transcript import footer_line
+
+        meta = {"model": "muse-glimmer:30b-mlx-128k", "provider": "ollama"}
+
+        assert footer_line(meta, local=is_local_model(meta)).endswith("$0.00")
+
+    def test_a_cloud_turn_with_no_cost_recorded_says_nothing(self) -> None:
+        """A blank admits we do not know what the turn cost; a figure
+        would be invented."""
+        from app.core.chat_transcript import footer_line
+
+        meta = {"model": "gpt-4o", "provider": "openai"}
+
+        assert "$" not in footer_line(meta, local=is_local_model(meta))
+
+    def test_a_recorded_cost_still_wins(self) -> None:
+        from app.core.chat_transcript import footer_line
+
+        assert "$0.0123" in footer_line({"model": "gpt-4o", "cost": 0.0123})
+
+    def test_provider_is_read_as_well_as_vendor(self) -> None:
+        """A catalog row spells it ``vendor``; a finished message's
+        metadata spells it ``provider``. Same question."""
+        assert is_local_model({"provider": "ollama"})
+        assert is_local_model({"vendor": "ollama"})

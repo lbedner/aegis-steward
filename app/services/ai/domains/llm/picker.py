@@ -7,6 +7,9 @@ web chat's picker, the Flet panel's): these shape the catalog payloads
 
 from typing import Any
 
+from app.core.formatting import FREE
+from app.services.ai.models import AIProvider
+
 # The composer chip is inline with the input; longer ids clip.
 _CHIP_LABEL_LIMIT = 24
 
@@ -74,10 +77,37 @@ def _usd(value: float) -> str:
     return f"${value:g}" if value == int(value) else f"${value:.2f}"
 
 
-def format_price(input_price: float | None, output_price: float | None) -> str:
-    """Per-million-token pricing as ``$in / $out``; blanks stay blank."""
+def is_local_model(model: dict[str, Any]) -> bool:
+    """Does this model run on this machine.
+
+    One definition, because three surfaces ask it and the answer
+    decides what a missing price MEANS. Ollama is the only local vendor
+    the catalog carries today; anything else is somebody's API.
+
+    Reads either spelling: a catalog row calls it ``vendor``, a finished
+    message's metadata calls it ``provider``, and the question is the
+    same one.
+    """
+    named = model.get("vendor") or model.get("provider") or ""
+    return str(named).casefold() == AIProvider.OLLAMA.value
+
+
+def format_price(
+    input_price: float | None,
+    output_price: float | None,
+    *,
+    local: bool = False,
+) -> str:
+    """Per-million-token pricing as ``$in / $out``.
+
+    A cloud model with no pricing on file renders blank - we do not know
+    what it costs, and inventing a figure is worse than admitting it. A
+    LOCAL model is different: the blank was not a gap in the catalog, it
+    was the answer, and running it costs nothing. Saying so beats
+    leaving the one free option looking like the one we failed to price.
+    """
     if input_price is None and output_price is None:
-        return ""
+        return FREE if local else ""
     if output_price is None:
         return _usd(input_price or 0.0)
     if input_price is None:

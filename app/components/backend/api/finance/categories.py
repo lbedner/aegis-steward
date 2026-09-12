@@ -11,6 +11,7 @@ from fastapi import (
     status,
 )
 
+from app.components.backend.api.finance.register import hydrate_transactions
 from app.services.finance.deps import (
     get_finance_service,
     get_owner_user_id,
@@ -23,7 +24,6 @@ from app.services.finance.schemas import (
     SpendingCategory,
     SpendingSummaryResponse,
     TransactionListResponse,
-    TransactionResponse,
 )
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
@@ -131,14 +131,11 @@ async def spending_transactions(
         account_ids=account_ids,
         categories=categories,
     )
-    names = await service.category_names(
-        {t.category_id for t in rows if t.category_id is not None}
-    )
-    items = []
-    for txn in rows:
-        item = TransactionResponse.from_row(txn)
-        item.category = names.get(txn.category_id)
-        items.append(item)
+    # The SAME shaping every other transaction surface uses. This built
+    # its own lighter copy - category name and nothing else - so the
+    # drill-down dialog showed letter avatars where the register shows
+    # brand icons, and a split row arrived without its lines.
+    items = await hydrate_transactions(service, rows)
     return TransactionListResponse(items=items, total=len(items))
 
 

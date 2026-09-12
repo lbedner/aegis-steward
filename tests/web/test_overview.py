@@ -200,6 +200,23 @@ class TestSpendingDrilldown:
         names = [text(tr.getchildren()[1]) for tr in select(fragment, "tbody tr")]
         assert names == ["Market", "Market"]
 
+    def test_a_row_is_shaped_like_every_other_transaction(
+        self, hx: TestClient, ledger: Ledger, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Reported live 2026-09-12: the dialog showed letter avatars
+        where the register shows brand icons. It had built its own
+        lighter shaping - category name and nothing else - beside
+        ``hydrate_transactions``, whose own docstring says every surface
+        that shows a transaction reads the same shape from there. A
+        split row arrived without its lines for the same reason."""
+        from app.services.finance.domains.ledger import merchant_icon
+
+        monkeypatch.setitem(merchant_icon._CACHE, "market.com", "AAAA")
+
+        fragment = hx.get("/overview/spending?category=Food&days=180").text
+
+        assert select(fragment, "tbody tr td img"), "no brand icon in the dialog"
+
 
 class TestPendingChangesBanner:
     def test_sits_above_the_page_header(self, client: TestClient) -> None:

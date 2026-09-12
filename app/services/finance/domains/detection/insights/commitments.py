@@ -21,6 +21,7 @@ from sqlmodel import or_
 
 from app.services.finance.constants import CADENCES
 from app.services.finance.models import FinanceRecurringStream
+from app.services.finance.schemas.recurring import RecurringStreamResponse
 from app.services.finance.utils import current_date
 
 # Monthly-equivalent multiplier for the recurring-cost rollup, derived from
@@ -60,7 +61,10 @@ def is_commitment(stream: FinanceRecurringStream) -> bool:
     return stream.is_user_confirmed or stream.source == "user"
 
 
-def is_paused(stream: FinanceRecurringStream, today: date | None = None) -> bool:
+def is_paused(
+    stream: FinanceRecurringStream | RecurringStreamResponse,
+    today: date | None = None,
+) -> bool:
     """Paused while ``paused_until`` is ahead of today.
 
     A stated fact, not an inference from a pushed date: "skip my
@@ -70,7 +74,10 @@ def is_paused(stream: FinanceRecurringStream, today: date | None = None) -> bool
     forget to run. One predicate for every consumer, because mute taught
     us what per-surface treatment costs: a muted bill vanished from the
     forecast but kept counting in the Bills total, and the two surfaces
-    disagreed by the whole bill.
+    disagreed by the whole bill. It happened again anyway - the Bills
+    page wrote its own copy, and a paused bill read "Paused" and
+    "Overdue" side by side on the same row - so this takes the response
+    schema too, and there is nothing left for a surface to re-derive.
     """
     if stream.paused_until is None:
         return False
