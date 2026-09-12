@@ -149,6 +149,19 @@ class FinanceRecurringStream(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 
+    @property
+    def amount(self) -> int:
+        """What this bill costs: the figure the user declared, else the
+        one measured from its payments.
+
+        The fallback stood written out in fifteen places, which is how
+        Illiana came to report forty bills as having "no amount" - the
+        AI tool was the one caller that sent the raw ``expected_amount``
+        and left the measured figure sitting beside it unread. Nothing
+        should have to know the rule; it lives here.
+        """
+        return self.expected_amount or self.average_amount or 0
+
 
 class FinanceBudget(SQLModel, table=True):
     """Budget definition scoped to a period. Reserved until the budgeting UI

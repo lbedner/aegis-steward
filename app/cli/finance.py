@@ -170,6 +170,36 @@ async def _recompute_snapshots(days: int) -> None:
     )
 
 
+@app.command("recompute-stream-amounts")
+def recompute_stream_amounts(owner_user_id: int | None = _OWNER_OPT) -> None:
+    """Re-read every bill's amount from the transactions that paid it.
+
+    ``average_amount`` is the figure Bills & Income, the forecast and the
+    budget rollup all show, and the nightly detector - its only author -
+    skips user-confirmed streams by design. So a confirmed bill's amount
+    froze the day it was confirmed. Idempotent: reach for it after a
+    restore, after a bulk re-match, or once, to unstick the bills that
+    were confirmed before the attach path learned to keep them current.
+    """
+    asyncio.run(_recompute_stream_amounts(owner_user_id))
+
+
+async def _recompute_stream_amounts(owner_user_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.service import FinanceService
+
+    async with get_async_session() as session:
+        counts = await FinanceService(session).recompute_stream_amounts(
+            owner_user_id=owner_user_id
+        )
+        await session.commit()
+    console.print(
+        f"[green]Re-read {counts['streams']} stream(s); "
+        f"released {counts['released']} member(s); "
+        f"{counts['changed']} amount(s) changed.[/]"
+    )
+
+
 @app.command("recompute-payee-aliases")
 def recompute_payee_aliases(owner_user_id: int | None = _OWNER_OPT) -> None:
     """Rebuild the payee memory from the transactions already named.
