@@ -167,3 +167,32 @@ def category_glyph(category: str | None) -> str | None:
         category.split(":")[0].strip()
     )
     return _PATHS[icon] if icon else None
+
+
+# Account type -> icon name. The same paths the categories draw from, so
+# a ledger has one visual vocabulary rather than two: an account reads as
+# what it IS before anybody names the bank behind it.
+_BY_ACCOUNT_TYPE: dict[str, str] = {
+    "checking": "building-library",
+    "savings": "building-library",
+    "cash": "banknotes",
+    "credit_card": "credit-card",
+    "loan": "receipt-percent",
+    "other_liability": "receipt-percent",
+    "brokerage": "briefcase",
+    "investment": "briefcase",
+    "crypto": "briefcase",
+    "property": "home",
+    "vehicle": "truck",
+    "other_asset": "shopping-bag",
+}
+
+
+def account_glyph(account_type: str | None) -> str | None:
+    """The path data for an account type's glyph, or None when it has
+    none - a budgeting envelope or a savings goal is not a place money
+    is kept, and gets the initial-letter tile like anything else."""
+    if not account_type:
+        return None
+    icon = _BY_ACCOUNT_TYPE.get(account_type)
+    return _PATHS[icon] if icon else None

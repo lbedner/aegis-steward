@@ -244,17 +244,32 @@ def account_group(account_type: str) -> str:
     return "Other"
 
 
+# Action key -> the label both frontends show. The keys are the rule
+# (``account_actions``); this is the one place they are put into words,
+# because a menu that reads differently in two places is two menus.
+ACCOUNT_ACTION_LABELS: dict[str, str] = {
+    "rename": "Rename",
+    "institution": "Institution",
+    "reconcile": "Reconcile",
+    "property": "Property details",
+    "valuations": "Valuation history",
+    "secured_by": "Secured by",
+    "remove": "Remove",
+}
+
+
 def account_actions(
     *, account_type: str, classification: str, is_manual: bool
 ) -> tuple[str, ...]:
     """What a UI may offer to do to an account, in menu order.
 
-    Rename and reconcile always; property details and valuation history
-    only where there is a property to describe; the lien link only on a
-    debt; remove only for a manual account (a provider account belongs to
-    its bank connection). Both frontends map these keys to their labels.
+    Rename, institution and reconcile always; property details and
+    valuation history only where there is a property to describe; the
+    lien link only on a debt; remove only for a manual account (a
+    provider account belongs to its bank connection). Both frontends map
+    these keys to their labels.
     """
-    actions = ["rename", "reconcile"]
+    actions = ["rename", "institution", "reconcile"]
     if account_type == PROPERTY_ACCOUNT_TYPE:
         actions.extend(("property", "valuations"))
     if classification == "liability":

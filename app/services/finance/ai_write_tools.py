@@ -209,6 +209,10 @@ async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# No single turn papers the thread, however the model asks.
+_DRAW_CAP = 5
+
+
 async def pending(about: str | None = None) -> dict[str, Any]:
     """YOUR OWN cards: {"pending": [...]} still awaiting the user and
     {"decided": [...]} the user acted on in the last two weeks. One entry
@@ -216,16 +220,16 @@ async def pending(about: str | None = None) -> dict[str, Any]:
     proposal), pending_change_ids (its rows), rows (how many), change_type,
     title, status (pending, approved, rejected, withdrawn by you, or mixed),
     filed_at, decided_at (null while pending), summary (one line: what the
-    card does, with one example row). Read this before filing a
+    card does, with one example row). Reading it is FREE: only the cards
+    under "draw" are redrawn in the chat, and unfiltered that is just the
+    ones still awaiting the user. Read this before filing a
     replacement so you can withdraw what it supersedes yourself -
     withdraw_batch(batch_id) for a whole card, withdraw(id) for one row -
-    instead of asking the user to reject them. Calling it also redraws the
-    listed cards in the chat, decided ones in their final state, so when
-    the user asks to see a card again or what became of it, call this and
-    point at the card. ``about`` narrows to cards mentioning it ("state
-    farm"): always pass it when the user asked about one card, or every
-    card you ever filed is redrawn. Other agents' cards and the user's own
-    are not listed and cannot be withdrawn."""
+    instead of asking the user to reject them. ``about`` narrows to cards
+    mentioning it ("state farm") AND redraws what matched, decided ones in
+    their final state - so when the user asks to see a card again or what
+    became of it, pass ``about`` and point at the card. Other agents'
+    cards and the user's own are not listed and cannot be withdrawn."""
     from app.services.ai.domains.chat.user_memory import current_agent_slug
     from app.services.finance.domains import writes
 
@@ -276,9 +280,25 @@ async def pending(about: str | None = None) -> dict[str, Any]:
         if card["rows"] > 1:
             card["summary"] = f"{card['rows']} rows, e.g. {card['summary']}"
         listing["pending" if "pending" in statuses else "decided"].append(card)
+    # What is worth putting in front of the user, decided HERE because
+    # this is the only place that knows whether they asked about a card.
+    #
+    # Unfiltered, that is the cards still awaiting them: a proposal
+    # rejected twelve days ago is history, and handing it back as a card
+    # reads as a fresh offer. Asked about something, it is whatever
+    # matched, decided included - "what became of that one?" deserves the
+    # card in its resolved state.
+    #
+    # Capped either way, because this tool is read before filing a
+    # replacement and a routine check must never paper the thread.
+    listing["draw"] = (
+        listing["pending"] + listing["decided"] if needle else listing["pending"]
+    )[:_DRAW_CAP]
     listing["note"] = (
-        "These cards are redrawn in the chat for the user, decided ones in "
-        "their final state. Point at them; never list their rows."
+        "The cards in `draw` are the ones redrawn in the chat for the user; "
+        "the rest are yours to read. Point at them; never list their rows. "
+        "Pass `about` when the user asked after one card, and it is redrawn "
+        "in whatever state it ended in."
     )
     return listing
 

@@ -16,7 +16,7 @@ from starlette.responses import Response
 from app.components.web_frontend import ranges
 from app.components.web_frontend.assets import COMPONENT_DIR, static_url
 from app.components.web_frontend.filters import FILTERS, assistant
-from app.components.web_frontend.glyphs import category_glyph
+from app.components.web_frontend.glyphs import account_glyph, category_glyph
 from app.components.web_frontend.nav import NAV
 from app.core.config import settings
 
@@ -35,6 +35,7 @@ templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
 # The sidebar loops this; see nav.py.
 templates.env.globals["nav"] = NAV
 templates.env.globals["category_glyph"] = category_glyph
+templates.env.globals["account_glyph"] = account_glyph
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.
 templates.env.globals["chat_path"] = "/chat"

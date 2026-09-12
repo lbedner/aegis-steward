@@ -40,6 +40,11 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "finance_icon": ("table", "finance.finance_icon"),
     "transaction_logo": ("column", "finance.finance_transaction", "logo_url"),
     "merchant_alias": ("table", "finance.finance_merchant_alias"),
+    "institution_owner": (
+        "column",
+        "finance.finance_institution",
+        "owner_user_id",
+    ),
     "pending_changes": ("table", "finance.finance_pending_change"),
     "pending_change_batch": (
         "column",

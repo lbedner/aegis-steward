@@ -14,8 +14,9 @@ class TestMenu:
     def test_items_open_their_dialogs(self, client: TestClient, ledger: Ledger) -> None:
         page = client.get(f"/accounts/{ledger.card}").text
         urls = [b.get("hx-get") for b in select(page, "#manage-menu button")]
-        assert urls[:2] == [
+        assert urls[:3] == [
             f"/accounts/{ledger.card}/rename",
+            f"/accounts/{ledger.card}/institution",
             f"/accounts/{ledger.card}/reconcile",
         ]
         assert urls[-1] == f"/accounts/{ledger.card}/remove"

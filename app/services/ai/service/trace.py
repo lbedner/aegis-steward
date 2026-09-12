@@ -109,7 +109,19 @@ def _component_marker(
     if not isinstance(data, dict) or data.get("error"):
         return None
     if name == "pending":
-        rows = (data.get("pending") or []) + (data.get("decided") or [])
+        # The TOOL nominates what is worth drawing, because it is the
+        # only place that knows whether the user asked about a card.
+        # This used to draw everything the listing held, and the listing
+        # holds every card the agent filed in a fortnight - so a routine
+        # "what have I already filed" check repainted the whole thread
+        # with cards decided weeks ago.
+        #
+        # ``draw`` absent means a trace stored before that was settled
+        # here; those keep their old behaviour so old conversations do
+        # not lose their cards.
+        rows = data.get("draw")
+        if rows is None:
+            rows = (data.get("pending") or []) + (data.get("decided") or [])
         return _pending_markers(rows) or None
     return _identity_marker(data)
 

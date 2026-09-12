@@ -259,3 +259,80 @@ async def has_nonreconcile_register(db: AsyncSession, account_id: int) -> bool:
         )
     ).first()
     return row is not None
+
+
+async def institution_by_normalized(
+    db: AsyncSession, *, normalized: str, owner_user_id: int | None
+) -> FinanceInstitution | None:
+    """This owner's institution by its dedup key. A NULL owner reads the
+    provider seeds, so naming your own never edits the shared row."""
+    query = select(FinanceInstitution).where(
+        FinanceInstitution.normalized_name == normalized
+    )
+    query = (
+        query.where(FinanceInstitution.owner_user_id == owner_user_id)
+        if owner_user_id is not None
+        else query.where(FinanceInstitution.owner_user_id.is_(None))
+    )
+    return (await db.exec(query)).first()
+
+
+async def institutions_for_owner(
+    db: AsyncSession, *, owner_user_id: int | None
+) -> list[FinanceInstitution]:
+    """This owner's institutions, by name. A NULL owner reads the
+    provider seeds."""
+    query = select(FinanceInstitution).order_by(FinanceInstitution.name)
+    query = (
+        query.where(FinanceInstitution.owner_user_id == owner_user_id)
+        if owner_user_id is not None
+        else query.where(FinanceInstitution.owner_user_id.is_(None))
+    )
+    return list((await db.exec(query)).all())
+
+
+async def latest_account_institution(
+    db: AsyncSession, *, owner_user_id: int | None
+) -> int | None:
+    """The institution on the most recently touched account that has one.
+
+    Read from the accounts rather than stored anywhere: the answer to
+    "the one I used last" is already in the data, and a remembered copy
+    would go stale the moment an account changed hands.
+    """
+    query = (
+        select(FinanceAccount.institution_id)
+        .where(
+            FinanceAccount.institution_id.isnot(None),
+            FinanceAccount.deleted_at.is_(None),
+        )
+        .order_by(FinanceAccount.updated_at.desc())
+        .limit(1)
+    )
+    if owner_user_id is not None:
+        query = query.where(FinanceAccount.owner_user_id == owner_user_id)
+    return (await db.exec(query)).first()
+
+
+async def account_counts_by_institution(
+    db: AsyncSession, *, owner_user_id: int | None
+) -> dict[int, int]:
+    """``{institution id: live accounts}`` in one grouped query, so the
+    directory can say what each bank is actually holding up."""
+    query = (
+        select(FinanceAccount.institution_id, func.count(FinanceAccount.id))
+        .where(
+            FinanceAccount.institution_id.isnot(None),
+            FinanceAccount.deleted_at.is_(None),
+        )
+        .group_by(FinanceAccount.institution_id)
+    )
+    if owner_user_id is not None:
+        query = query.where(FinanceAccount.owner_user_id == owner_user_id)
+    return {inst: count for inst, count in (await db.exec(query)).all()}
+
+
+async def institution_by_id(
+    db: AsyncSession, institution_id: int
+) -> FinanceInstitution | None:
+    return await db.get(FinanceInstitution, institution_id)

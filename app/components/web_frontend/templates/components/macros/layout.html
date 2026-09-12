@@ -216,8 +216,11 @@
    ``payee_category`` to borrow when it has no category of its own. #}
 {% macro mark(row, name) %}{{ avatar(name, row.icon_url, row.category or row.payee_category) }}{% endmacro %}
 
-{% macro avatar(name, icon_url=None, category=None) %}
-{% set glyph = category_glyph(category) if not icon_url else None %}
+{% macro avatar(name, icon_url=None, category=None, glyph=None) %}
+{# ``glyph`` is for a row whose fallback is not a CATEGORY: an account
+   falls back to what kind of account it is. An explicit one wins; a
+   category still resolves its own. #}
+{% set glyph = None if icon_url else (glyph or category_glyph(category)) %}
 {% if icon_url %}
 <span class="inline-flex shrink-0 w-5 h-5 rounded-full brand-tile items-center justify-center overflow-hidden align-middle" aria-hidden="true"><img src="{{ icon_url }}" alt="" width="14" height="14" loading="lazy" class="w-3.5 h-3.5 object-contain"></span>
 {% elif glyph %}

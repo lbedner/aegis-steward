@@ -154,7 +154,9 @@ def picker_options(rows: list[Any], key: str = "id") -> list[Any]:
         SimpleNamespace(
             id=getattr(row, key),
             name=row.name,
-            fact=f"{row.transaction_count:,}" if row.transaction_count else "",
+            fact=f"{row.transaction_count:,}"
+            if getattr(row, "transaction_count", 0)
+            else "",
         )
         for row in rows
     ]

@@ -258,6 +258,10 @@ class Settings(
     GOOGLE_API_KEY: str | None = None
     GROQ_API_KEY: str | None = None
     MISTRAL_API_KEY: str | None = None
+    # OpenRouter aggregates many models behind the OpenAI API. Its own
+    # variable, never OPENAI_API_KEY: both can be set, and one must not
+    # stand in for the other.
+    OPEN_ROUTER_API_KEY: str | None = None
     COHERE_API_KEY: str | None = None
 
     # Ollama settings (local LLM inference)

@@ -36,12 +36,23 @@ def providers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestNav:
-    def test_four_tabs_as_sibling_routes(self, client: TestClient) -> None:
+    def test_every_tab_is_a_sibling_route(self, client: TestClient) -> None:
         page = client.get("/settings").text
-        assert nav(page) == ["Connections", "Categories", "Payees", "Comms"]
+        assert nav(page) == [
+            "Connections",
+            "Categories",
+            "Payees",
+            "Institutions",
+            "Comms",
+        ]
         current = one(page, '#settings-nav a[aria-current="page"]')
         assert text(current) == "Connections"
-        for path in ("/settings/categories", "/settings/payees", "/settings/comms"):
+        for path in (
+            "/settings/categories",
+            "/settings/payees",
+            "/settings/institutions",
+            "/settings/comms",
+        ):
             marked = one(client.get(path).text, '#settings-nav a[aria-current="page"]')
             assert marked.get("href") == path
 

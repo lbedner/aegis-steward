@@ -6,7 +6,7 @@
    shape (routes/finance/accounts.grouped), so a change to how an
    account is grouped, totalled or linked lands in both at once.
 #}
-{% from "components/macros/layout.html" import dropdown, TONE_TEXT %}
+{% from "components/macros/layout.html" import dropdown, avatar, TONE_TEXT %}
 
 {# Where an account's register lives. One answer, so a door added later
    opens the same way. #}
@@ -26,13 +26,16 @@
 
 {# The portfolio's row: the account, what it is worth, what it owes you
    next, and a door to its register. #}
-{% macro portfolio_row(path, row, statement=None) %}
+{% macro portfolio_row(path, row, statement=None, icon_url=None) %}
 <a href="{{ register_url(path, row.account) }}" {{ hx_page(register_url(path, row.account)) }}
    class="group flex items-baseline justify-between gap-4 px-4 py-2.5 rounded
           hover:bg-aegis-border/20 transition-colors">
-  <span class="min-w-0">
+  <span class="min-w-0 flex items-baseline gap-2.5">
+    {{ account_mark(row.account, icon_url) }}
+    <span class="min-w-0">
     <span data-name class="block text-sm text-aegis-text truncate">{{ row.account.name }}</span>
     {% if statement %}<span class="block text-xxs text-aegis-muted">{{ statement }}</span>{% endif %}
+    </span>
   </span>
   <span class="shrink-0 flex items-baseline gap-3">
     <span class="text-sm">{{ amount(row.balance, row.account.currency) }}</span>
@@ -67,3 +70,10 @@
   </a>
 </li>
 {% endmacro %}
+
+{# An account's mark: the logo of the bank it is held at, else the glyph
+   for what KIND of account it is, else the initial-letter tile. The same
+   three tiers every other row in this app uses, through the same
+   ``avatar`` - a bank's name resolves to a brand ("Fidelity" ->
+   fidelity.com) where an account's name never could ("ROTH IRA"). #}
+{% macro account_mark(account, icon_url=None) %}{{ avatar(account.name, icon_url, glyph=account_glyph(account.account_type)) }}{% endmacro %}

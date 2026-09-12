@@ -30,11 +30,20 @@ from app.services.finance.models.base import (
 
 
 class FinanceInstitution(SQLModel, table=True):
-    """Provider-agnostic institution directory (one row per provider view).
+    """Who an account is WITH: the ledger's address book for a bank.
 
-    Shared/global reference (not user-scoped). Carries the per-institution
-    capability flags the connection layer gates on (AMEX has no liabilities,
-    Chase uses tokenized account numbers, etc.).
+    Two kinds of row share the table, the way categories and merchants
+    do. ``owner_user_id`` NULL is a provider seed - one row per
+    Plaid/SnapTrade view of a bank, carrying the capability flags the
+    connection layer gates on (AMEX has no liabilities, Chase uses
+    tokenized account numbers). An owner id is curation: a bank someone
+    named themselves, with the homepage and phone they want to hand
+    back when they need to get in touch.
+
+    One row serves every account with it, so a brokerage typed once
+    covers all three of its accounts - and ``domain`` is what the icon
+    resolver already turns into a logo, so naming it is also how the
+    account gets its brand mark.
     """
 
     __tablename__ = "finance_institution"
@@ -47,6 +56,18 @@ class FinanceInstitution(SQLModel, table=True):
             sqlite_where=Column("provider_institution_id").isnot(None),
             postgresql_where=Column("provider_institution_id").isnot(None),
         ),
+        Index("ix_finance_institution_owner", "owner_user_id"),
+        Index("ix_finance_institution_normalized", "normalized_name"),
+        # Typed by hand, so one name is one row per owner - and a
+        # provider seed is never edited by someone naming their own.
+        Index(
+            "uq_finance_institution_owner_name",
+            "owner_user_id",
+            "normalized_name",
+            unique=True,
+            sqlite_where=Column("owner_user_id").isnot(None),
+            postgresql_where=Column("owner_user_id").isnot(None),
+        ),
         CheckConstraint(
             "provider IN ('plaid', 'snaptrade', 'coinbase', 'exchange_key', "
             "'onchain', 'manual')",
@@ -56,10 +77,13 @@ class FinanceInstitution(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None)
     provider: str = Field(max_length=16, index=True)
     # Plaid ins_xxx / SnapTrade brokerage id — provider taxonomy, plain text.
     provider_institution_id: str | None = Field(default=None)
     name: str = Field(max_length=128, index=True)
+    # The dedup key, as for a payee: typed names forgive case and spacing.
+    normalized_name: str = Field(default="", max_length=128)
     domain: str | None = Field(default=None, max_length=255)
     logo_url: str | None = Field(default=None)
     primary_color: str | None = Field(default=None, max_length=16)
