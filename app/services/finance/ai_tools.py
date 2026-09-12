@@ -409,6 +409,60 @@ async def quote(ticker: str) -> dict[str, Any]:
 # via the agent registry. replace=True keeps re-imports idempotent.
 
 
+async def projection(
+    days: int = 180,
+    account_ids: list[int] | None = None,
+) -> dict[str, Any]:
+    """Cash walked forward from today through the scheduled bills and
+    income, over any window: 'as_of', 'horizon_days', 'start_balance',
+    'end_balance', 'upcoming_total' (signed cents, net of the window),
+    'bills' (what is due, positive amounts, soonest first) and 'points'
+    (every occurrence with the running 'balance' after it, so the low
+    point and the date it happens are read off the walk rather than
+    re-derived).
+
+    ``days`` is the window - 365 for a year, 30 for the month - and
+    ``account_ids`` narrows the starting balance to particular accounts
+    ("only the checking, not savings"). Without this the only
+    forward-looking number available was the fixed 60-day figure in the
+    briefing, so any other horizon had to be hand-rolled from the bill
+    list and then disowned as untrustworthy.
+    """
+    from app.services.finance.domains.planning.recurring.forecast import (
+        project_balances,
+        upcoming_outflows,
+    )
+
+    async with get_async_session() as session:
+        walk = await project_balances(
+            session, owner_user_id=None, days=days, account_ids=account_ids
+        )
+    return {
+        "as_of": walk.as_of.isoformat(),
+        "horizon_days": walk.horizon_days,
+        "start_balance": walk.start_balance,
+        "end_balance": walk.end_balance,
+        "upcoming_total": walk.upcoming_total,
+        "bills": [
+            {**bill, "date": bill["date"].isoformat(),
+             "due_date": bill["due_date"].isoformat() if bill["due_date"] else None}
+            for bill in upcoming_outflows(walk)
+        ],
+        "points": [
+            {
+                "date": p.date.isoformat(),
+                "name": p.name,
+                "direction": p.direction,
+                "amount": p.amount,
+                "balance": p.balance,
+                "account": p.account,
+                "category": p.category,
+            }
+            for p in walk.points
+        ],
+    }
+
+
 register_tool(
     "ledger",
     ledger,
@@ -419,6 +473,12 @@ register_tool(
     "accounts",
     accounts,
     description="All accounts with balances, holdings, envelopes and goals",
+    replace=True,
+)
+register_tool(
+    "projection",
+    projection,
+    description="Cash walked forward through scheduled bills over any window",
     replace=True,
 )
 register_tool(

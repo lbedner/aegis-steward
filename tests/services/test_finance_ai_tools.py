@@ -1107,3 +1107,50 @@ async def test_asking_about_a_card_draws_it_even_when_decided(
 
     assert listing["pending"] == []
     assert len(listing["draw"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_projection_walks_cash_forward_over_a_requested_window(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Asked whether she could see the balance six months out, the agent
+    said no - there was no tool for it, only the 60-day figure baked
+    into her briefing, so she had to hand-roll a roll-forward from the
+    bill list and then disown it. ``project_balances`` had been sitting
+    in the forecast domain the whole time, taking the window as an
+    argument.
+    """
+    account = await seed_account(svc, "Chase Checking", current_balance=500_000)
+    await seed_stream(
+        svc,
+        name="Rent",
+        expected_amount=200_000,
+        next_expected_date=current_date() + timedelta(days=10),
+        account_id=account.id,
+    )
+    await session.commit()
+
+    result = await ai_tools.projection(days=365)
+
+    assert result["horizon_days"] == 365
+    assert result["start_balance"] == 500_000
+    assert any(bill["name"] == "Rent" for bill in result["bills"])
+    assert result["end_balance"] < result["start_balance"]
+
+
+@pytest.mark.asyncio
+async def test_projection_can_be_asked_about_one_account(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """"Let's only factor in the Chase checking, no savings" - a real
+    question, answered by hand last time. The walk already takes the
+    accounts it should start from."""
+    chase = await seed_account(svc, "Chase Checking", current_balance=100_000)
+    await seed_account(
+        svc, "Savings", account_type="savings", current_balance=900_000
+    )
+    await session.commit()
+
+    result = await ai_tools.projection(days=30, account_ids=[chase.id])
+
+    assert result["start_balance"] == 100_000

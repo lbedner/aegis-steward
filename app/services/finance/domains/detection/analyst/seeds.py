@@ -112,6 +112,11 @@ FINANCE_CHAT_TOOL_NAMES = (
     "ledger",
     "accounts",
     "quote",
+    # Cash walked forward over any window the question names. Without
+    # it the only forward-looking number was the fixed 60-day figure in
+    # the briefing, so "the balance six months out" got hand-rolled
+    # from the bill list and then disowned as untrustworthy.
+    "projection",
     # The ids a proposal's payload takes - names alone cannot propose.
     "categories",
     # The bill surface: live streams, and the ranked shortlist of
