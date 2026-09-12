@@ -1,0 +1,19 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import page_header, card %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/form.html" import action %}
+
+{% block title %}Institutions - {{ project_name }}{% endblock %}
+
+{# The address book: who you bank with, how to reach them, and how many
+   accounts sit behind each. Two rows for one bank are visible here
+   rather than discovered when half the accounts show the wrong logo. #}
+{% block app_content %}
+{{ page_header("Institutions", "Who you bank with, and how to reach them") }}
+{% include "components/sub_nav.html" %}
+{% call card(id="institutions") %}
+{% call(row) data_table(columns, rows, empty="No institutions yet", row_id="institution") %}
+  {{ action("Details", hx_dialog(path ~ "/institutions/" ~ row.id)) }}
+{% endcall %}
+{% endcall %}
+{% endblock %}

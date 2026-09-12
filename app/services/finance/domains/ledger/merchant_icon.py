@@ -188,6 +188,29 @@ async def payee_icons_by_name(
     )
 
 
+async def institution_icons(
+    db: AsyncSession, institutions: Iterable[Any]
+) -> dict[int, Icon]:
+    """``{institution id: Icon}`` for the banks behind a page of
+    accounts.
+
+    The same resolution a payee gets, and for the same reason: a stored
+    logo or domain is authoritative, and a bank's NAME guesses well where
+    an account's name never could ("Fidelity" -> fidelity.com resolves;
+    "ROTH IRA" -> rothira.com is nonsense). That asymmetry is why an
+    account borrows its mark from its institution rather than from
+    itself.
+    """
+    rows = [i for i in institutions if getattr(i, "id", None) and i.name]
+    overrides = {
+        i.name: key
+        for i in rows
+        if (key := getattr(i, "logo_url", None) or getattr(i, "domain", None))
+    }
+    keys = await resolve_icon_keys(db, [i.name for i in rows], overrides)
+    return {i.id: Icon(keys[i.name]) for i in rows if i.name in keys}
+
+
 def icon_url(key: str) -> str:
     """The same-origin URL that serves a stored icon (see the web
     frontend's ``/icons`` route)."""

@@ -24,7 +24,7 @@ from app.services.finance.models import (
     FinanceTransaction,
     FinanceValuation,
 )
-from app.services.finance.schemas import ReconcileResponse
+from app.services.finance.schemas import InstitutionUsage, ReconcileResponse
 from app.services.finance.service.base import FinanceServiceBase
 from app.services.finance.utils import DEFAULT_CURRENCY
 
@@ -51,15 +51,65 @@ class AccountsMixin(FinanceServiceBase):
     async def get_or_create_institution(
         self,
         *,
-        provider: str,
         name: str,
+        provider: str = "manual",
         provider_institution_id: str | None = None,
+        owner_user_id: int | None = None,
+        **fields: Any,
     ) -> FinanceInstitution:
         return await accounts.get_or_create_institution(
             self.db,
-            provider=provider,
             name=name,
+            provider=provider,
             provider_institution_id=provider_institution_id,
+            owner_user_id=owner_user_id,
+            **fields,
+        )
+
+    async def list_institutions(
+        self, *, owner_user_id: int | None = None
+    ) -> list[FinanceInstitution]:
+        return await accounts.list_institutions(self.db, owner_user_id=owner_user_id)
+
+    async def last_institution_used(
+        self, *, owner_user_id: int | None = None
+    ) -> int | None:
+        return await accounts.last_institution_used(
+            self.db, owner_user_id=owner_user_id
+        )
+
+    async def institution_usage(
+        self, *, owner_user_id: int | None = None
+    ) -> list[InstitutionUsage]:
+        return await accounts.institution_usage(self.db, owner_user_id=owner_user_id)
+
+    async def update_institution(
+        self,
+        institution_id: int,
+        *,
+        owner_user_id: int | None = None,
+        name: str | None = None,
+        url: str | None = None,
+        phone: str | None = None,
+    ) -> FinanceInstitution | None:
+        return await accounts.update_institution(
+            self.db,
+            institution_id,
+            owner_user_id=owner_user_id,
+            name=name,
+            url=url,
+            phone=phone,
+        )
+
+    async def set_account_institution(
+        self,
+        account_id: int,
+        institution_id: int | None,
+        *,
+        owner_user_id: int | None = None,
+    ) -> FinanceAccount | None:
+        return await accounts.set_account_institution(
+            self.db, account_id, institution_id, owner_user_id=owner_user_id
         )
 
     async def create_manual_account(

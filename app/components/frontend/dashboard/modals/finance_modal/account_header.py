@@ -21,16 +21,10 @@ from app.components.frontend.dashboard.modals.modal_sections import (
     headline_stat_color,
 )
 from app.components.frontend.theme import AegisTheme as Theme
-from app.services.finance.constants import account_actions
-
-_ACTION_LABELS = {
-    "rename": "Rename",
-    "reconcile": "Reconcile",
-    "property": "Property details",
-    "valuations": "Valuation history",
-    "secured_by": "Secured by",
-    "remove": "Remove",
-}
+from app.services.finance.constants import (
+    ACCOUNT_ACTION_LABELS,
+    account_actions,
+)
 
 
 def manage_menu_labels(account: dict[str, Any]) -> list[str]:
@@ -40,7 +34,7 @@ def manage_menu_labels(account: dict[str, Any]) -> list[str]:
     shared with the web frontend; this maps its keys to Flet's labels.
     """
     return [
-        _ACTION_LABELS[key]
+        ACCOUNT_ACTION_LABELS[key]
         for key in account_actions(
             account_type=account.get("account_type") or "",
             classification=account.get("classification") or "",

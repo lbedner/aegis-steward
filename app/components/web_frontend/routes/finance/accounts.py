@@ -30,6 +30,7 @@ from app.components.web_frontend.routes.finance.register import (
     register_filters,
 )
 from app.services.finance.constants import (
+    ACCOUNT_ACTION_LABELS,
     ACCOUNT_GROUPS,
     ADD_ACCOUNT_TYPES,
     account_actions,
@@ -44,15 +45,9 @@ from app.services.finance.service import FinanceService
 SECTION = section("accounts")
 router = APIRouter()
 
-# The Manage menu: action key (see account_actions) -> label, dialog URL.
-ACTION_LABELS = {
-    "rename": "Rename",
-    "reconcile": "Reconcile",
-    "property": "Property details",
-    "valuations": "Valuation history",
-    "secured_by": "Secured by",
-    "remove": "Remove",
-}
+# The Manage menu's labels live with the rule that orders them, so this
+# menu and Flet's cannot start reading differently.
+ACTION_LABELS = ACCOUNT_ACTION_LABELS
 
 
 def balance(account: AccountResponse) -> int:
@@ -133,6 +128,33 @@ async def _accounts(
         "groups": grouped(listing.items),
         "total": sum(balance(a) for a in listing.items),
         "statement_lines": {a.id: statement_line(a) for a in listing.items},
+        # A brand mark per account, borrowed from the bank it is held at.
+        # One resolution for the page, never one per row.
+        "account_icons": await _account_icons(service, listing.items, owner_user_id),
+    }
+
+
+async def _account_icons(
+    service: FinanceService,
+    accounts: list[AccountResponse],
+    owner_user_id: int | None,
+) -> dict[int, str]:
+    """``{account id: icon url}`` for the accounts whose institution
+    resolves to one. An account without a bank has no brand to show and
+    falls back to its type's glyph (see ``account_glyph``)."""
+    from app.services.finance.domains.ledger.merchant_icon import institution_icons
+
+    wanted = {a.institution_id for a in accounts if a.institution_id}
+    if not wanted:
+        return {}
+    banks = [
+        i
+        for i in await service.list_institutions(owner_user_id=owner_user_id)
+        if i.id in wanted
+    ]
+    icons = await institution_icons(service.db, banks)
+    return {
+        a.id: icons[a.institution_id].url for a in accounts if a.institution_id in icons
     }
 
 

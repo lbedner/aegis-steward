@@ -978,3 +978,104 @@ async def test_tags_tool_lists_the_directory_with_counts(
     assert {"name": "Business", "count": 2} in [
         {"name": t["name"], "count": t["count"]} for t in result["tags"]
     ]
+
+
+@pytest.mark.asyncio
+async def test_pending_draws_only_what_still_needs_the_user(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Reading what you filed must not repaint the thread.
+
+    The listing holds every card the agent filed in a fortnight, and the
+    tool's own guidance is to read it before filing a replacement - so
+    the blanket call is the common path. Drawing all of it put seven
+    cards in one turn, six of them decided weeks earlier.
+
+    A decided card is history: it stays in the RESULT so the model can
+    reason about it, and out of ``draw`` so the user is not handed a
+    rejected proposal from twelve days ago as though it were an offer.
+    """
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Auto:Transport",
+        slug="pc-t1",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    decided = await svc.create_transaction(
+        account_id=account.id,
+        amount=-100,
+        txn_date=date(2026, 9, 5),
+        owner_user_id=1,
+        name="Old one",
+    )
+    fresh = await svc.create_transaction(
+        account_id=account.id,
+        amount=-200,
+        txn_date=date(2026, 9, 6),
+        owner_user_id=1,
+        name="New one",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="c-1"):
+        old = await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": decided.id, "category_id": cat.id},
+        )
+        await ai_tools.withdraw(old["pending_change_id"], reason="superseded")
+        await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": fresh.id, "category_id": cat.id},
+        )
+        listing = await ai_tools.pending()
+
+    assert len(listing["pending"]) == 1
+    assert len(listing["decided"]) == 1
+    # Both are readable; only the live one is drawn.
+    drawn = {c["pending_change_ids"][0] for c in listing["draw"]}
+    assert drawn == {listing["pending"][0]["pending_change_ids"][0]}
+
+
+@pytest.mark.asyncio
+async def test_asking_about_a_card_draws_it_even_when_decided(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The documented use: "what became of that one?" answers with the
+    card in its resolved state, not a sentence about it."""
+    from app.services.ai.domains.chat.user_memory import memory_user
+    from app.services.finance.models import FinanceCategory
+
+    account = await seed_account(svc)
+    cat = FinanceCategory(
+        owner_user_id=1,
+        name="Auto:Transport",
+        slug="pc-t2",
+        classification="expense",
+    )
+    session.add(cat)
+    await session.flush()
+    txn = await svc.create_transaction(
+        account_id=account.id,
+        amount=-16840,
+        txn_date=date(2026, 9, 5),
+        owner_user_id=1,
+        name="State Farm Auto",
+    )
+    await session.commit()
+
+    with memory_user("1", agent_slug="finance-assistant", conversation_id="c-2"):
+        filed = await ai_tools.propose(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": cat.id},
+        )
+        await ai_tools.withdraw(filed["pending_change_id"], reason="superseded")
+        listing = await ai_tools.pending(about="state farm")
+
+    assert listing["pending"] == []
+    assert len(listing["draw"]) == 1

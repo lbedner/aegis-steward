@@ -31,7 +31,7 @@
   <section class="bg-aegis-card border border-aegis-border rounded-lg p-2" aria-labelledby="group-{{ loop.index }}">
     {{ group_heading(group, "px-4 pt-2 pb-1 micro-label text-aegis-muted") }}
     {% for row in group.accounts %}
-    {{ portfolio_row(section.path, row, statement_lines[row.account.id]) }}
+    {{ portfolio_row(section.path, row, statement_lines[row.account.id], account_icons.get(row.account.id)) }}
     {% endfor %}
   </section>
   {% else %}

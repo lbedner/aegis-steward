@@ -320,3 +320,15 @@ class SecuredDebtUpdate(BaseModel):
 
     secured_by_account_id: int | None
     lien_position: int | None = None
+
+
+class InstitutionUsage(BaseModel):
+    """A row of the institutions directory: a bank, how to reach it, and
+    how many accounts sit behind it."""
+
+    id: int
+    name: str
+    url: str | None = None
+    domain: str | None = None
+    phone: str | None = None
+    account_count: int = 0

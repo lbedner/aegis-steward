@@ -152,3 +152,68 @@ class TestPendingListingMarker:
         )
 
         assert "component" not in trace[0]
+
+
+class TestTheToolNominatesWhatIsDrawn:
+    """Reading what you filed should not repaint the thread.
+
+    ``pending()`` used to draw everything it listed, and it lists every
+    card the agent filed inside a fourteen-day window - 34 of them on a
+    real ledger. Its own docstring tells the model to call it before
+    filing a replacement, so the blanket call is the common path. One
+    turn came back with seven cards, six of them decided weeks earlier
+    (2026-09-11).
+
+    The tool decides now, because it is the only place that knows
+    whether the user asked about something. The trace marks what it
+    nominated and infers nothing.
+    """
+
+    def _card(self, batch: str, **over: Any) -> dict[str, Any]:
+        return {
+            "batch_id": batch,
+            "pending_change_ids": [1, 2],
+            "rows": 2,
+            "change_type": "transaction.split",
+            "title": "Split a transaction",
+            **over,
+        }
+
+    def test_only_what_the_tool_nominated_is_drawn(self) -> None:
+        from app.services.ai.service.trace import record_tool_result
+
+        listing = {
+            "pending": [self._card("b-new")],
+            "decided": [self._card("b-old"), self._card("b-older")],
+            "draw": [self._card("b-new")],
+        }
+        trace: list[dict[str, Any]] = [{"tool": "pending", "args": ""}]
+        record_tool_result(trace, _result_event("pending", json.dumps(listing)))
+
+        drawn = [m["batch_id"] for m in trace[0]["component"]]
+        assert drawn == ["b-new"], "a decided card is history, not an offer"
+
+    def test_nominating_nothing_draws_nothing(self) -> None:
+        """A listing the model read but the user did not ask to see."""
+        from app.services.ai.service.trace import record_tool_result
+
+        listing = {
+            "pending": [self._card("b-1")],
+            "decided": [self._card("b-2")],
+            "draw": [],
+        }
+        trace: list[dict[str, Any]] = [{"tool": "pending", "args": ""}]
+        record_tool_result(trace, _result_event("pending", json.dumps(listing)))
+
+        assert "component" not in trace[0]
+
+    def test_a_listing_from_before_the_change_still_draws(self) -> None:
+        """Stored traces have no ``draw``; their cards must keep
+        rendering rather than vanish from old conversations."""
+        from app.services.ai.service.trace import record_tool_result
+
+        listing = {"pending": [self._card("b-1")], "decided": []}
+        trace: list[dict[str, Any]] = [{"tool": "pending", "args": ""}]
+        record_tool_result(trace, _result_event("pending", json.dumps(listing)))
+
+        assert [m["batch_id"] for m in trace[0]["component"]] == ["b-1"]

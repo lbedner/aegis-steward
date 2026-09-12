@@ -1,0 +1,36 @@
+{# Dialog body: the institution an account is held at.
+
+   The same picker the payee and tag dialogs use, so naming a bank is
+   the same gesture as naming a payee: search what you have, or type one
+   that does not exist yet and it is made on the way through. Nobody
+   creates an institution as an errand of its own.
+
+   ``current`` marks the one already set, and the picker disables it -
+   choosing it again would write nothing. #}
+{% from "components/macros/form.html" import picker %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-1">Where {{ account.name }} is held</h2>
+<p class="text-xs text-aegis-muted mb-4">
+  Pick a bank, or type one that does not exist yet. Its homepage and logo
+  come with it, and every account you put here shares them.
+</p>
+{{ error_banner(errors) }}
+{% if suggestion %}
+{# The ledger can already see this one: the account's own name carries a
+   payee it knows. One button beats typing what is on the screen. #}
+<form data-suggestion {{ hx_dialog_post('/accounts/' ~ account.id ~ '/institution') }} class="mb-3">
+  <button type="submit" name="new_name" value="{{ suggestion }}"
+          class="w-full text-left rounded-lg border border-aegis-teal/50 bg-aegis-teal/5 px-3 py-2 text-sm text-aegis-text hover:bg-aegis-teal/10 transition-colors">
+    {{ suggestion }}<span class="block text-xxs text-aegis-muted">Looks like it from the account name</span>
+  </button>
+</form>
+{% endif %}
+{{ picker("institution-picker", "/accounts/" ~ account.id ~ "/institution",
+          "institution_id", institutions, hint="Search or name a bank",
+          create="new_name", current=current) }}
+{% if account.institution_id %}
+<form {{ hx_dialog_post('/accounts/' ~ account.id ~ '/institution') }} class="mt-3 text-right">
+  <input type="hidden" name="institution_id" value="">
+  <button type="submit" class="text-xs text-aegis-muted hover:text-aegis-text transition-colors">No institution</button>
+</form>
+{% endif %}

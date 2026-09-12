@@ -60,6 +60,7 @@ TABS: tuple[tuple[str, str, str], ...] = (
     ("connections", "Connections", ""),
     ("categories", "Categories", "/categories"),
     ("payees", "Payees", "/payees"),
+    ("institutions", "Institutions", "/institutions"),
     ("comms", "Comms", "/comms"),
 )
 CATEGORY_COLUMNS = [
@@ -80,6 +81,13 @@ CATEGORY_COLUMNS = [
     },
     {"key": "last_used", "label": "Last used", "kind": "date"},
 ]
+INSTITUTION_COLUMNS = [
+    {"key": "name", "label": "Name", "kind": "avatar"},
+    {"key": "domain", "label": "Website"},
+    {"key": "phone", "label": "Phone"},
+    {"key": "account_count", "label": "Accounts", "kind": "int", "align": "right"},
+]
+
 PAYEE_COLUMNS = [
     {"key": "name", "label": "Name", "kind": "avatar"},
     {
@@ -509,3 +517,84 @@ async def comms(
         "pages/settings/comms.html",
         {"section": SECTION, **nav_context("comms"), "email": email},
     )
+
+
+# --- institutions ----------------------------------------------------------
+
+
+@router.get("/institutions", include_in_schema=False)
+async def institutions(
+    request: Request,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The address book: who you bank with, and how to reach them."""
+    from app.services.finance.domains.ledger.merchant_icon import institution_icons
+
+    rows = await service.institution_usage(owner_user_id=owner_user_id)
+    icons = await institution_icons(service.db, rows)
+    return render(
+        request,
+        "pages/settings/institutions.html",
+        {
+            "section": SECTION,
+            **nav_context("institutions"),
+            "rows": [
+                {
+                    "id": row.id,
+                    "name": row.name,
+                    "icon_url": icons[row.id].url if row.id in icons else None,
+                    "domain": row.domain or "",
+                    "phone": row.phone or "",
+                    "account_count": row.account_count,
+                }
+                for row in rows
+            ],
+            "columns": INSTITUTION_COLUMNS,
+            "path": SECTION.path,
+        },
+    )
+
+
+@router.get("/institutions/{institution_id:int}", include_in_schema=False)
+async def institution_form(
+    request: Request,
+    institution_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    rows = await service.institution_usage(owner_user_id=owner_user_id)
+    row = next((r for r in rows if r.id == institution_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No such institution.")
+    return dialog(
+        request,
+        "partials/settings/institution.html",
+        institution=row,
+        errors=[],
+    )
+
+
+@router.post("/institutions/{institution_id:int}", include_in_schema=False)
+async def institution_save(
+    request: Request,
+    institution_id: int,
+    name: Annotated[str, Form()] = "",
+    url: Annotated[str, Form()] = "",
+    phone: Annotated[str, Form()] = "",
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Save how to reach a bank. The website is also where its logo comes
+    from, so the domain is derived rather than asked for twice."""
+    updated = await service.update_institution(
+        institution_id,
+        owner_user_id=owner_user_id,
+        name=name,
+        url=url,
+        phone=phone,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="No such institution.")
+    await service.db.commit()
+    return dialog_done(f"{SECTION.path}/institutions", f"Saved {updated.name}")

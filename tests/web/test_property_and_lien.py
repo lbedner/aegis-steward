@@ -32,6 +32,7 @@ class TestPropertyDetails:
         labels = [text(li) for li in select(page, "#manage-menu li")]
         assert labels == [
             "Rename",
+            "Institution",
             "Reconcile",
             "Property details",
             "Valuation history",

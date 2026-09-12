@@ -107,22 +107,22 @@ class AIServiceConfig(BaseModel):
 
     def get_provider_config(self, settings: Any) -> ProviderConfig:
         """Get provider-specific configuration."""
-        # Get API key based on provider
-        api_key_mapping = {
-            AIProvider.OPENAI: getattr(settings, "OPENAI_API_KEY", None),
-            AIProvider.ANTHROPIC: getattr(settings, "ANTHROPIC_API_KEY", None),
-            AIProvider.GOOGLE: getattr(settings, "GOOGLE_API_KEY", None),
-            AIProvider.GROQ: getattr(settings, "GROQ_API_KEY", None),
-            AIProvider.MISTRAL: getattr(settings, "MISTRAL_API_KEY", None),
-            AIProvider.COHERE: getattr(settings, "COHERE_API_KEY", None),
-            AIProvider.OLLAMA: None,  # Local provider, no API key required
-            AIProvider.PUBLIC: None,  # LLM7 key read directly in the provider path
-            AIProvider.POLLINATIONS: None,  # Key read directly in the provider path
-        }
+        # Where each provider's key lives is a fact about the provider,
+        # so it is read from the registry rather than restated here. A
+        # keyless endpoint or a local server has no key to find, and
+        # getattr returns None for a variable the settings never declared.
+        from app.services.ai.models import PROVIDERS
+
+        spec = PROVIDERS.get(self.provider)
+        api_key = (
+            getattr(settings, spec.env_var, None)
+            if spec and not spec.builds_own_client
+            else None
+        )
 
         return ProviderConfig(
             name=self.provider,
-            api_key=api_key_mapping.get(self.provider),
+            api_key=api_key,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             timeout_seconds=self.timeout_seconds,

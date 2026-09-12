@@ -1,0 +1,19 @@
+{# Dialog body: how to reach one bank.
+
+   The website earns its place twice - it is the answer to "get me to
+   their site" AND where the logo comes from, since the domain is
+   derived from it rather than asked for separately. #}
+{% from "components/macros/form.html" import field, text_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+<h2 class="text-lg font-semibold text-aegis-text mb-4">{{ institution.name }}</h2>
+<form {{ hx_dialog_post('/settings/institutions/' ~ institution.id) }} class="space-y-4">
+  {{ error_banner(errors) }}
+  {% call field("Name") %}{{ text_input("name", institution.name, required=True, autofocus=True) }}{% endcall %}
+  {% call field("Website") %}{{ text_input("url", institution.url, placeholder="https://fidelity.com") }}{% endcall %}
+  {% call field("Phone") %}{{ text_input("phone", institution.phone, placeholder="800-343-3548") }}{% endcall %}
+  <p class="text-xxs text-aegis-muted">
+    {{ institution.account_count }} account{{ "" if institution.account_count == 1 else "s" }} held here.
+    The website is also where the logo comes from.
+  </p>
+  {{ primary_button("Save", type="submit") }}
+</form>

@@ -7,6 +7,7 @@ Uses PydanticAI agents with support for multiple providers.
 """
 
 from collections.abc import Sequence
+import importlib
 import json
 import os
 from typing import Any
@@ -32,54 +33,7 @@ __all__ = [
 ]
 
 from app.services.ai.config import AIServiceConfig
-from app.services.ai.models import AIProvider
-
-
-# Lazy loading of provider model classes to avoid import errors
-def _get_model_class(provider: AIProvider):
-    """Get model class for provider with lazy import to avoid dependency issues."""
-    if provider == AIProvider.OPENAI:
-        # The Responses API, not Chat Completions: OpenAI's reasoning
-        # models (gpt-5.x, o-series) reject function tools on
-        # /v1/chat/completions ("use /v1/responses"), and pydantic-ai's
-        # Responses model speaks tools + streaming for the whole lineup.
-        from pydantic_ai.models.openai import OpenAIResponsesModel
-
-        return OpenAIResponsesModel
-    elif provider == AIProvider.ANTHROPIC:
-        from pydantic_ai.models.anthropic import AnthropicModel
-
-        return AnthropicModel
-    elif provider == AIProvider.GOOGLE:
-        from pydantic_ai.models.google import GoogleModel
-
-        return GoogleModel
-    elif provider == AIProvider.GROQ:
-        from pydantic_ai.models.groq import GroqModel
-
-        return GroqModel
-    elif provider == AIProvider.MISTRAL:
-        from pydantic_ai.models.openai import OpenAIChatModel
-
-        return OpenAIChatModel  # Mistral uses OpenAI-compatible API
-    elif provider == AIProvider.COHERE:
-        from pydantic_ai.models.openai import OpenAIChatModel
-
-        return OpenAIChatModel  # Cohere can use OpenAI-compatible interface
-    elif provider == AIProvider.OLLAMA:
-        from pydantic_ai.models.openai import OpenAIChatModel
-
-        return OpenAIChatModel  # Ollama uses OpenAI-compatible API
-    elif provider == AIProvider.PUBLIC:
-        from pydantic_ai.models.openai import OpenAIChatModel
-
-        return OpenAIChatModel  # Public endpoints use OpenAI-compatible API
-    elif provider == AIProvider.POLLINATIONS:
-        from pydantic_ai.models.openai import OpenAIChatModel
-
-        return OpenAIChatModel  # Pollinations uses OpenAI-compatible API
-    else:
-        raise ProviderError(f"Unsupported provider: {provider}")
+from app.services.ai.models import PROVIDERS, AIProvider
 
 
 class ProviderError(Exception):
@@ -95,6 +49,22 @@ class ProviderNotInstalledError(ProviderError):
         self.provider = provider
         self.cli_command = cli_command
         super().__init__(f"{provider} provider is not installed")
+
+
+# Lazy loading of provider model classes to avoid import errors
+def _get_model_class(provider: AIProvider):
+    """The pydantic-ai model class for a provider, imported lazily.
+
+    Lazily because a provider nobody selected must not drag its SDK in;
+    from the registry because the class is a FACT about the provider and
+    belongs beside the rest of them.
+    """
+    spec = PROVIDERS.get(provider)
+    if spec is None or spec.model is None:
+        raise ProviderError(f"Unsupported provider: {provider}")
+    module_name, class_name = spec.model
+    module = importlib.import_module(module_name)
+    return getattr(module, class_name)
 
 
 def _supports_custom_temperature(model: str | None) -> bool:
@@ -184,12 +154,41 @@ def model_for(config: AIServiceConfig, settings: Any) -> tuple[Any, str]:
     # PydanticAI 1.0+ reads credentials from the environment, not kwargs.
     _set_provider_env_var(config.provider, provider_config.api_key)
 
-    model_kwargs: dict[str, Any] = {"model_name": config.model}
-    if config.provider == AIProvider.MISTRAL:
-        model_kwargs["base_url"] = "https://api.mistral.ai/v1"
-    elif config.provider == AIProvider.COHERE:
-        model_kwargs["base_url"] = "https://api.cohere.ai/v1"
-    return _get_model_class(config.provider)(**model_kwargs), config.model
+    # An OpenAI-compatible provider is a base URL and a key, and the URL
+    # is the only thing distinguishing Mistral, Cohere and OpenRouter
+    # from OpenAI itself - so it rides the registry with everything else
+    # and they all take one path.
+    #
+    # That path builds a client. ``OpenAIChatModel`` takes no
+    # ``base_url``: passing one raises TypeError, which is what the old
+    # Mistral and Cohere branches did the moment anybody selected them.
+    spec = PROVIDERS.get(config.provider)
+    if spec is not None and spec.base_url:
+        return (
+            _openai_compatible(config.model, spec.base_url, provider_config.api_key),
+            config.model,
+        )
+    return _get_model_class(config.provider)(model_name=config.model), config.model
+
+
+def _openai_compatible(
+    model_name: str, base_url: str, api_key: str | None, profile: Any = None
+) -> Any:
+    """A model on any server that speaks the OpenAI API.
+
+    One client, pointed elsewhere. The key goes to the CLIENT rather than
+    into ``OPENAI_API_KEY``, so a stack with both a real OpenAI key and
+    an OpenRouter one keeps them apart - stamping the environment would
+    let whichever was built last answer for both.
+    """
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    client = AsyncOpenAI(api_key=api_key or "none", base_url=base_url)
+    kwargs: dict[str, Any] = {"provider": OpenAIProvider(openai_client=client)}
+    if profile is not None:
+        kwargs["profile"] = profile
+    return OpenAIChatModel(model_name, **kwargs)
 
 
 def _grant_kwargs(
@@ -561,41 +560,18 @@ def _create_ollama_agent(
 
 
 def _get_env_var_name(provider: AIProvider) -> str:
-    """Get the environment variable name for a provider."""
-    env_var_map = {
-        AIProvider.OPENAI: "OPENAI_API_KEY",
-        AIProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
-        AIProvider.GOOGLE: "GOOGLE_API_KEY",
-        AIProvider.GROQ: "GROQ_API_KEY",
-        AIProvider.MISTRAL: "MISTRAL_API_KEY",
-        AIProvider.COHERE: "COHERE_API_KEY",
-        AIProvider.OLLAMA: "OLLAMA_API_KEY",
-        AIProvider.PUBLIC: "PUBLIC_API_KEY",
-        AIProvider.POLLINATIONS: "POLLINATIONS_API_KEY",
-    }
-
-    result = env_var_map.get(provider)
-    if result:
-        return result
-    else:
-        return f"{str(provider).upper()}_API_KEY"
+    """Where this provider's key lives. One answer, from the registry."""
+    spec = PROVIDERS.get(provider)
+    return spec.env_var if spec else f"{str(provider).upper()}_API_KEY"
 
 
 def _set_provider_env_var(provider: AIProvider, api_key: str) -> None:
-    """Set environment variable for provider API key."""
-    env_var_map = {
-        AIProvider.OPENAI: "OPENAI_API_KEY",
-        AIProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
-        AIProvider.GOOGLE: "GOOGLE_API_KEY",
-        AIProvider.GROQ: "GROQ_API_KEY",
-        AIProvider.MISTRAL: "MISTRAL_API_KEY",
-        AIProvider.COHERE: "COHERE_API_KEY",
-        AIProvider.OLLAMA: "OLLAMA_API_KEY",
-        AIProvider.PUBLIC: "PUBLIC_API_KEY",
-        AIProvider.POLLINATIONS: "POLLINATIONS_API_KEY",
-    }
+    """Put the key where pydantic-ai will read it.
 
-    env_var = env_var_map.get(provider)
+    This was a second copy of the map above, byte for byte. One name per
+    provider now, so the two can never disagree about where a key lives.
+    """
+    env_var = _get_env_var_name(provider)
     if env_var and api_key:
         os.environ[env_var] = api_key
 
@@ -617,18 +593,9 @@ def validate_provider_support(provider: AIProvider) -> bool:
 
 
 def get_supported_providers() -> list[AIProvider]:
-    """Get list of supported providers."""
-    return [
-        AIProvider.OPENAI,
-        AIProvider.ANTHROPIC,
-        AIProvider.GOOGLE,
-        AIProvider.GROQ,
-        AIProvider.MISTRAL,
-        AIProvider.COHERE,
-        AIProvider.OLLAMA,
-        AIProvider.PUBLIC,
-        AIProvider.POLLINATIONS,
-    ]
+    """Every provider the registry describes - which is every member,
+    guarded by a test, so this cannot fall behind the enum again."""
+    return list(PROVIDERS)
 
 
 def get_provider_model_class(provider: AIProvider):
