@@ -463,6 +463,76 @@ async def projection(
     }
 
 
+async def transactions(
+    payee: str | None = None,
+    amount_cents: int | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Find PARTICULAR transactions, without reading the ledger.
+
+    Every filter is optional and they narrow together: ``payee`` matches
+    the payee or the raw descriptor, ``amount_cents`` matches by
+    magnitude (800 finds a $8.00 charge whichever way it is signed),
+    ``since``/``until`` are ISO dates. Returns 'total' (how many match)
+    and 'transactions' - id, date, payee, amount_cents, category,
+    account, memo - newest first, capped at ``limit``.
+
+    Use this, not ``ledger(detail="transactions")``, whenever the
+    question names a payee, an amount or a date: matching a receipt to
+    a charge used to mean pulling months of ledger into the sandbox and
+    filtering in Python, which is slow, easy to get wrong, and pulled
+    two years of rows to find three. ``ledger`` is for the SHAPE of
+    spending; this is for the rows.
+    """
+    from app.components.backend.api.finance.register import hydrate_transactions
+    from app.services.finance.service import FinanceService
+
+    def _date(raw: str | None) -> date | None:
+        return date.fromisoformat(raw) if raw else None
+
+    async with get_async_session() as session:
+        service = FinanceService(session)
+        rows, total = await service.list_transactions(
+            owner_user_id=None,
+            query=payee or None,
+            amount=amount_cents,
+            from_date=_date(since),
+            to_date=_date(until),
+            page_size=max(1, min(int(limit), 200)),
+        )
+        items = await hydrate_transactions(service, rows)
+        accounts = {
+            account.id: account.name
+            for account in (
+                await accounts_page(
+                    session,
+                    owner_user_id=None,
+                    include_hidden=True,
+                    page=1,
+                    page_size=500,
+                )
+            )[0]
+        }
+    return {
+        "total": total,
+        "returned": len(items),
+        "transactions": [
+            {
+                "id": item.id,
+                "date": item.date.isoformat(),
+                "payee": item.payee,
+                "amount_cents": item.amount,
+                "category": item.category,
+                "account": accounts.get(item.account_id, ""),
+                "memo": item.memo,
+            }
+            for item in items
+        ],
+    }
+
+
 register_tool(
     "ledger",
     ledger,
@@ -473,6 +543,12 @@ register_tool(
     "accounts",
     accounts,
     description="All accounts with balances, holdings, envelopes and goals",
+    replace=True,
+)
+register_tool(
+    "transactions",
+    transactions,
+    description="Find particular transactions by payee, amount or date",
     replace=True,
 )
 register_tool(

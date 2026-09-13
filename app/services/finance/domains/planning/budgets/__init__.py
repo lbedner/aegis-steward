@@ -15,6 +15,9 @@ from app.services.finance.domains.planning.budgets import (
     suggestions,
     summary,
 )
+from app.services.finance.domains.planning.budgets.drilldown import (
+    budget_line_transactions,
+)
 from app.services.finance.domains.planning.budgets.lines import (
     budget_line_status,
     delete_budget_line,
@@ -53,6 +56,7 @@ from app.services.finance.domains.planning.budgets.uncovered import (
 )
 
 __all__ = [
+    "budget_line_transactions",
     "_BUDGET_BILLED_SHARE",
     "_BUDGET_LOOKBACK_MONTHS",
     "_BUDGET_MAX_UNUSUAL_MONTHS",

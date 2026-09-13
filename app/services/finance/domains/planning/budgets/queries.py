@@ -218,6 +218,36 @@ async def outflow_tuples(
     return [*rows, *split_rows]
 
 
+async def outflow_rows(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None = None,
+    start: date,
+    end: date | None = None,
+    account_ids: list[int] | None = None,
+) -> list[FinanceTransaction]:
+    """The countable outflows in the window as ROWS, under the very same
+    ``spend_filters`` as ``outflow_tuples``.
+
+    The tuples exist so a tally stays O(1) in the number of lines; this
+    exists so a reader can see WHICH transactions made one line's total.
+    Both sides have to agree, which is why the predicate is shared
+    rather than restated - a drill-down that does not add up to the
+    figure it was opened from is worse than no drill-down.
+
+    Split parents come back whole: the caller decides whether a line
+    matched the parent or one of its lines.
+    """
+    rows = (
+        await db.exec(
+            select(FinanceTransaction)
+            .where(*spend_filters(owner_user_id, start, end, account_ids))
+            .order_by(FinanceTransaction.date_.desc())
+        )
+    ).all()
+    return list(rows)
+
+
 async def sum_amount_where(db: AsyncSession, filters: list) -> int:
     """Signed sum of ``FinanceTransaction.amount`` under caller-built
     predicate fragments (see ``spend_filters``)."""

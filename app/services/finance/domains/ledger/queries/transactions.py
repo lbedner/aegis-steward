@@ -22,6 +22,8 @@ from app.services.finance.domains.ledger.queries.filters import (
     uncategorized_catchall_ids,
 )
 from app.services.finance.models import (
+    FinanceAccount,
+    FinanceCategory,
     FinanceMerchant,
     FinanceTag,
     FinanceTransaction,
@@ -111,8 +113,17 @@ async def transactions_page(
     include_transfers: bool = False,
     page: int = 1,
     page_size: int = 20,
+    amount: int | None = None,
+    sort: str | None = None,
+    descending: bool = True,
 ) -> tuple[list[FinanceTransaction], int]:
-    """The register page + total count (two statements)."""
+    """The register page + total count (two statements).
+
+    ``sort`` names a COLUMN THE READER CAN SEE, and each sorts by what
+    that column prints rather than by the id behind it: ordering payees
+    or categories by foreign key would look like nothing at all. Newest
+    first stays the default, and every order falls back to it so a page
+    boundary cannot land mid-tie and repeat or skip a row."""
     filters = [
         FinanceTransaction.deleted_at.is_(None),
         FinanceTransaction.dedup_status != "duplicate",
@@ -153,12 +164,45 @@ async def transactions_page(
         )
     if query:
         filters.append(transaction_search_filter(query))
+    if amount is not None:
+        # By MAGNITUDE: a receipt says $8.00, not -800, and the sign is
+        # the ledger's business rather than the reader's. This is the
+        # filter that turns "which charge was the $8.00 Target one" from
+        # a page of ledger into a row.
+        filters.append(func.abs(FinanceTransaction.amount) == abs(amount))
     count_query = select(func.count()).select_from(FinanceTransaction).where(*filters)
     total = (await db.exec(count_query)).one()
+    query_obj = select(FinanceTransaction).where(*filters)
+    # The sortable columns and what each one is ordered BY. Name columns
+    # are joined so they sort alphabetically, which is what the reader
+    # sees; an outer join, because a row with no payee or no category
+    # still belongs on the page.
+    if sort == "account":
+        query_obj = query_obj.outerjoin(
+            FinanceAccount, FinanceAccount.id == FinanceTransaction.account_id
+        )
+        column = FinanceAccount.name
+    elif sort == "category":
+        query_obj = query_obj.outerjoin(
+            FinanceCategory, FinanceCategory.id == FinanceTransaction.category_id
+        )
+        column = FinanceCategory.name
+    elif sort == "payee":
+        query_obj = query_obj.outerjoin(
+            FinanceMerchant, FinanceMerchant.id == FinanceTransaction.merchant_id
+        )
+        column = func.coalesce(
+            FinanceMerchant.name,
+            FinanceTransaction.merchant_name,
+            FinanceTransaction.name,
+        )
+    elif sort == "amount":
+        column = FinanceTransaction.amount
+    else:
+        column = FinanceTransaction.date_
+    ordering = column.desc() if descending else column.asc()
     query_obj = (
-        select(FinanceTransaction)
-        .where(*filters)
-        .order_by(FinanceTransaction.date_.desc(), FinanceTransaction.id.desc())
+        query_obj.order_by(ordering, FinanceTransaction.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

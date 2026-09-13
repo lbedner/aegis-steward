@@ -1754,3 +1754,99 @@ class TestEnvelopesSection:
         )
         assert snapshot is not None
         assert "ENVELOPES" not in snapshot
+
+
+class TestPromptsInCodeReachTheInstall:
+    """The seeder never touches an agent that already exists - they are
+    editable from the dashboard - so a prompt improved in code reached
+    nobody, silently. Live: the agent kept filing a category and its
+    note as two cards because nothing had told it they were one, for
+    hours after the prompt said so."""
+
+    def test_resync_pushes_the_code_prompt_onto_a_stale_row(
+        self, db_session: Session
+    ) -> None:
+        from app.services.ai.models import Agent
+        from app.services.finance.domains.detection.analyst.seeds import (
+            finance_chat_agent_definition,
+            load_finance_agent_fixtures,
+            resync_finance_agent_prompts,
+        )
+
+        load_finance_agent_fixtures(db_session)
+        slug = finance_chat_agent_definition()["slug"]
+        row = db_session.exec(select(Agent).where(Agent.slug == slug)).first()
+        assert row is not None
+        row.system_prompt = "a prompt from an older release"
+        db_session.add(row)
+        db_session.commit()
+
+        result = resync_finance_agent_prompts(db_session)
+
+        assert result[slug] == "updated"
+        db_session.refresh(row)
+        assert row.system_prompt == finance_chat_agent_definition()["system_prompt"]
+
+    def test_a_current_row_is_left_alone(self, db_session: Session) -> None:
+        """Reporting "updated" for a row it did not touch would make the
+        command useless for telling whether anything moved."""
+        from app.services.finance.domains.detection.analyst.seeds import (
+            finance_chat_agent_definition,
+            load_finance_agent_fixtures,
+            resync_finance_agent_prompts,
+        )
+
+        load_finance_agent_fixtures(db_session)
+        resync_finance_agent_prompts(db_session)
+
+        again = resync_finance_agent_prompts(db_session)
+
+        assert again[finance_chat_agent_definition()["slug"]] == "unchanged"
+
+
+class TestTheSplitGuidanceStatesTheLimit:
+    """Live: a split proposing $39.98 + $7.99 against a $38.90 charge -
+    the Amazon invoice's LISTED prices against a total a promotion had
+    reduced. The ledger refused it, and the prompt had never said there
+    was a limit: it only said screenshot totals "rarely equal the charge
+    exactly", which reads as close-enough in both directions."""
+
+    def test_it_says_parts_can_never_exceed_the_charge(self) -> None:
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "can never total" in FINANCE_CHAT_SYSTEM_PROMPT
+
+    def test_an_overshoot_is_allocated_not_refused(self) -> None:
+        """The first wording told her to propose NOTHING, and she duly
+        refused a two-item Amazon order all evening: $39.98 earrings +
+        $7.99 scoop, subtotal $47.97, promo -$11.99, tax $2.92, charge
+        $38.90. Amazon never says how the promo and tax landed.
+
+        Refusing was the wrong lesson. The discount and the tax
+        certainly belong to those two items; only the split point went
+        unstated, and spreading it by listed price is arithmetic. That
+        is the whole difference from prorating ACROSS charges, where
+        WHICH charge an item landed on is a fact a proportion would
+        fabricate.
+        """
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "IN PROPORTION to their" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "arithmetic, not invention" in FINANCE_CHAT_SYSTEM_PROMPT
+        # And it still forbids the case that IS a fabrication.
+        assert "ACROSS charges" in FINANCE_CHAT_SYSTEM_PROMPT
+
+    def test_the_allocation_it_asks_for_totals_the_charge(self) -> None:
+        """The rule is only worth stating if the arithmetic lands: these
+        are the real numbers off that order."""
+        subtotal, promo, tax = 4_797, -1_199, 292
+        listed = [3_998, 799]
+
+        parts = [round(p / subtotal * (subtotal + promo + tax)) for p in listed]
+
+        assert parts == [3_242, 648]
+        assert sum(parts) == 3_890

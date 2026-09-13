@@ -9,7 +9,9 @@ kit's ``oob()`` so the row and the counters are asserted separately.
 import json
 
 from fastapi.testclient import TestClient
+import pytest
 
+from app.services.finance.service import FinanceService
 from tests.web.conftest import REGISTER, Ledger
 from tests.web.dom import none, one, oob, select, text, triggers
 
@@ -360,3 +362,70 @@ class TestTheSearchSwapsOnlyTheResults:
         filtered = client.get(f"{REGISTER}?q=gas").text
         assert text(one(filtered, "#register-clear")).strip() == "Clear"
         assert text(one(page, "#register-clear")).strip() == ""
+
+
+class TestASplitRowHasNoOneCategory:
+    """Live: a Target charge spread across Kids:Clothes, Home Supplies
+    and Groceries showed a select reading "Shopping" - the parent's
+    category - so the row looked like plain shopping AND looked like
+    something you could re-file with one pick. Neither was true."""
+
+    @pytest.mark.asyncio
+    async def test_the_select_is_replaced_by_what_it_actually_is(
+        self, client: TestClient, finance: FinanceService, ledger: Ledger
+    ) -> None:
+        page = client.get(REGISTER).text
+        gas = txn_id(page, "Gas")
+        groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
+        home = await finance.get_or_create_category_from_hint("Home:Supplies")
+        from app.services.finance.schemas import SplitPart
+
+        await finance.split_transaction(
+            int(gas),
+            [
+                SplitPart(amount=1_000, category_id=groceries.id),
+                SplitPart(amount=1_000, category_id=home.id),
+            ],
+            owner_user_id=None,
+        )
+        await finance.db.commit()
+
+        row = one(client.get(REGISTER).text, f"#txn-{gas}")
+
+        none(row, 'select[name="category_id"]')
+        opener = one(row, f'[hx-get="/transactions/{gas}/split"]')
+        assert "categories" in text(opener), "it says how many, not which one"
+
+    @pytest.mark.asyncio
+    async def test_the_dialog_opens_on_the_lines_it_already_has(
+        self,
+        client: TestClient,
+        hx: TestClient,
+        finance: FinanceService,
+        ledger: Ledger,
+    ) -> None:
+        """It offered three blanks over an existing split, which read as
+        though the split had been lost - and saving those blanks would
+        have replaced a real allocation with nothing."""
+        from app.services.finance.schemas import SplitPart
+
+        page = client.get(REGISTER).text
+        gas = txn_id(page, "Gas")
+        groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
+        await finance.split_transaction(
+            int(gas),
+            [SplitPart(amount=1_500, category_id=groceries.id, memo="snacks")],
+            owner_user_id=None,
+        )
+        await finance.db.commit()
+
+        body = hx.get(f"/transactions/{gas}/split").text
+
+        amounts = [i.get("value") for i in select(body, 'input[name="amount"]')]
+        assert "15.00" in amounts, amounts
+        assert any(
+            o.get("selected") is not None
+            for o in select(
+                body, f'select[name="category_id"] option[value="{groceries.id}"]'
+            )
+        )

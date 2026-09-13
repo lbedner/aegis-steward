@@ -107,6 +107,56 @@ class TestProposeApproveReject:
         assert resolved.resolved_at is not None
 
     @pytest.mark.asyncio
+    async def test_a_proposal_can_carry_why(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Live: asked to re-file an Amazon charge AND record what was
+        actually bought, the agent answered "I can't add or edit a
+        transaction memo with the available change tools" - and it was
+        right, the payload had no field for it. Filing IS when you know
+        why: "Ancient Nutrition collagen peptides" on an Amazon charge
+        is the whole reason it went under Medicine."""
+        groceries, txn = await self._fixture(svc, async_db_session)
+        row = await svc.propose_change(
+            "transaction.categorize",
+            {
+                "transaction_id": txn.id,
+                "category_id": groceries.id,
+                "memo": "Ancient Nutrition collagen peptides",
+            },
+            owner_user_id=1,
+        )
+        # The card says so before it is approved - a note approved
+        # unseen is a note nobody agreed to.
+        shown = await svc.describe_pending_change(row)
+        assert any("collagen" in line.value for line in shown)
+
+        await svc.approve_change(row.id, owner_user_id=1)
+
+        await async_db_session.refresh(txn)
+        assert txn.memo == "Ancient Nutrition collagen peptides"
+
+    @pytest.mark.asyncio
+    async def test_a_proposal_without_a_note_keeps_the_one_there(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """A re-file must never erase the last explanation."""
+        groceries, txn = await self._fixture(svc, async_db_session)
+        txn.memo = "kept"
+        async_db_session.add(txn)
+        await async_db_session.flush()
+
+        row = await svc.propose_change(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": groceries.id},
+            owner_user_id=1,
+        )
+        await svc.approve_change(row.id, owner_user_id=1)
+
+        await async_db_session.refresh(txn)
+        assert txn.memo == "kept"
+
+    @pytest.mark.asyncio
     async def test_reject_leaves_the_ledger_and_keeps_the_row(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
@@ -1036,3 +1086,53 @@ class TestLegacyInvalidPayloads:
             async_db_session, row.id, agent_slug="finance-assistant", owner_user_id=1
         )
         assert withdrawn.status == "rejected"
+
+
+class TestANoteIsItsOwnEdit:
+    """Live: asked to record what an Amazon order actually contained,
+    the agent proposed ``transaction.memo`` - a change type that did not
+    exist - because the category was ALREADY proposed and re-filing the
+    row just to carry a note is a change nobody asked for. It guessed
+    the name before it existed, which is a good sign it should."""
+
+    @pytest.mark.asyncio
+    async def test_it_records_what_something_was(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        _groceries, txn = await TestProposeApproveReject._fixture(
+            svc, async_db_session
+        )
+        before = txn.category_id
+
+        row = await svc.propose_change(
+            "transaction.memo",
+            {"transaction_id": txn.id, "memo": "collagen peptides"},
+            owner_user_id=1,
+        )
+        await svc.approve_change(row.id, owner_user_id=1)
+
+        await async_db_session.refresh(txn)
+        assert txn.memo == "collagen peptides"
+        assert txn.category_id == before, "a note must not re-file the row"
+
+    @pytest.mark.asyncio
+    async def test_the_card_says_what_it_replaces(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Replacing a note is a different decision from writing one."""
+        _groceries, txn = await TestProposeApproveReject._fixture(
+            svc, async_db_session
+        )
+        txn.memo = "old note"
+        async_db_session.add(txn)
+        await async_db_session.flush()
+
+        row = await svc.propose_change(
+            "transaction.memo",
+            {"transaction_id": txn.id, "memo": "new note"},
+            owner_user_id=1,
+        )
+
+        shown = await svc.describe_pending_change(row)
+        note = next(line for line in shown if line.label == "Note")
+        assert "old note" in note.value and "new note" in note.value

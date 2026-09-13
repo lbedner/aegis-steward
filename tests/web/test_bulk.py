@@ -24,7 +24,22 @@ class TestSelection:
             page, '#register tbody input[type="checkbox"][name="transaction_ids"]'
         )
         assert len(boxes) == 5
-        assert text(select(page, "#register thead th")[0]) == "Select"
+        # The header cell is now the select-all box itself, labelled for
+        # screen readers rather than printed.
+        assert one(page, "#register thead [data-select-all]") is not None
+
+    def test_select_all_ticks_every_row_on_the_page(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Nine rows wanting the same category, ticked one at a time."""
+        page = client.get(REGISTER).text
+
+        box = one(page, "#register thead [data-select-all]")
+
+        # It ticks the rows; their own change events never fire, but this
+        # one bubbles to the counter, which recounts from :checked.
+        assert "transaction_ids" in (box.get("@change") or "")
+        assert box.get("aria-label") == "Select all on this page"
 
     def test_action_bar_acts_on_the_checked_rows(
         self, client: TestClient, ledger: Ledger
@@ -39,6 +54,11 @@ class TestSelection:
         tag = one(bar, '[hx-get="/transactions/tag"]')
         assert (
             tag.get("hx-include") == include and tag.get("hx-target") == "#dialog-body"
+        )
+        categorize = one(bar, '[hx-get="/transactions/categorize"]')
+        assert (
+            categorize.get("hx-include") == include
+            and categorize.get("hx-target") == "#dialog-body"
         )
         remove = one(bar, '[hx-post="/transactions/delete"]')
         assert remove.get("hx-include") == include
@@ -299,6 +319,87 @@ class TestBulkTag:
             row = one(response.text, f"tr#txn-{i}")
             assert row.get("hx-swap-oob") == "outerHTML"
             assert text(one(row, ".tag")).startswith("audit")
+
+
+class TestBulkCategorize:
+    """Nine Hot Topic rows, all Shopping:Clothing, and the only way to
+    file them was one select at a time."""
+
+    def test_files_the_whole_selection(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get(REGISTER).text
+        ids = [txn_id(page, "Gas"), txn_id(page, "Payroll")]
+        category = _first_option(one(page, f'#txn-{ids[0]} select[name="category_id"]'))
+
+        response = client.post(
+            "/transactions/categorize",
+            data={"transaction_ids": ids, "category_id": category},
+        )
+
+        for i in ids:
+            row = one(response.text, f"tr#txn-{i}")
+            assert row.get("hx-swap-oob") == "outerHTML"
+            assert one(row, f'select option[value="{category}"]').get("selected")
+
+    def test_a_note_can_ride_along(self, client: TestClient, ledger: Ledger) -> None:
+        """Filing IS when you know why: "school supplies" on a Target
+        charge is the whole reason it went under Kids."""
+        page = client.get(REGISTER).text
+        ids = [txn_id(page, "Gas")]
+        category = _first_option(one(page, f'#txn-{ids[0]} select[name="category_id"]'))
+
+        client.post(
+            "/transactions/categorize",
+            data={
+                "transaction_ids": ids,
+                "category_id": category,
+                "memo": "school supplies",
+            },
+        )
+
+        row = one(client.get(REGISTER).text, f"#txn-{ids[0]}")
+        assert "school supplies" in text(row)
+
+    def test_a_blank_note_leaves_the_one_already_there(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Re-filing must not erase the last explanation."""
+        page = client.get(REGISTER).text
+        ids = [txn_id(page, "Gas")]
+        category = _first_option(one(page, f'#txn-{ids[0]} select[name="category_id"]'))
+        data = {"transaction_ids": ids, "category_id": category}
+        client.post("/transactions/categorize", data={**data, "memo": "kept"})
+
+        client.post("/transactions/categorize", data=data)
+
+        row = one(client.get(REGISTER).text, f"#txn-{ids[0]}")
+        assert "kept" in text(row)
+
+    def test_a_blank_pick_is_refused(self, client: TestClient, ledger: Ledger) -> None:
+        """Clearing every selected row's category is not what a blank
+        picker means - it means the user has not chosen yet."""
+        page = client.get(REGISTER).text
+        ids = [txn_id(page, "Gas")]
+
+        response = client.post(
+            "/transactions/categorize", data={"transaction_ids": ids}
+        )
+
+        assert response.status_code == 422
+        one(response.text, '[role="alert"]')
+
+    def test_the_dialog_opens_on_what_they_all_share(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """And on nothing when they disagree: pre-selecting one row's
+        answer for the others is how a bulk edit goes wrong quietly."""
+        page = client.get(REGISTER).text
+        gas = txn_id(page, "Gas")
+
+        body = client.get(f"/transactions/categorize?transaction_ids={gas}").text
+
+        one(body, "#category-picker")
 
 
 class TestTheCategoryHalfOfTheFollowUp:

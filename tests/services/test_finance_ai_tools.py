@@ -1202,3 +1202,77 @@ async def test_reading_your_own_cards_draws_nothing(
     # Drawn only when the user asked to see it.
     assert quiet["draw"] == []
     assert len(asked["draw"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_transactions_finds_rows_without_reading_the_ledger(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The question that cost a dozen turns: "are there two $8.00 Target
+    charges, one on the 4th and one on the 8th?"
+
+    It used to mean ``ledger(detail="transactions")`` over months of
+    rows and a filter written in Python - 23 of one session's 55 code
+    blocks were that shape, and 13 of them pulled six months or more to
+    find two or three rows.
+    """
+    account = await seed_account(svc)
+    for day, cents, name in (
+        (4, -800, "TARGET 00012345"),
+        (8, -800, "TARGET 00012345"),
+        (8, -4_000, "TARGET 00012345"),
+        (8, -800, "STARBUCKS"),
+    ):
+        await svc.create_transaction(
+            account_id=account.id,
+            amount=cents,
+            txn_date=date(2026, 9, day),
+            owner_user_id=1,
+            name=name,
+        )
+    await session.commit()
+
+    result = await ai_tools.transactions(payee="target", amount_cents=800)
+
+    assert result["total"] == 2
+    assert {t["date"] for t in result["transactions"]} == {"2026-09-04", "2026-09-08"}
+    # The id is what a proposal takes - a payee and a date cannot propose.
+    assert all(isinstance(t["id"], int) for t in result["transactions"])
+
+
+@pytest.mark.asyncio
+async def test_transactions_matches_the_amount_whichever_way_it_is_signed(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A receipt says $8.00. The sign is the ledger's business."""
+    account = await seed_account(svc)
+    await svc.create_transaction(
+        account_id=account.id,
+        amount=-800,
+        txn_date=date(2026, 9, 4),
+        owner_user_id=1,
+        name="TARGET",
+    )
+    await session.commit()
+
+    assert (await ai_tools.transactions(amount_cents=800))["total"] == 1
+    assert (await ai_tools.transactions(amount_cents=-800))["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_transactions_narrows_by_date(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    account = await seed_account(svc)
+    for day in (1, 20):
+        await svc.create_transaction(
+            account_id=account.id,
+            amount=-500,
+            txn_date=date(2026, 9, day),
+            owner_user_id=1,
+            name="COFFEE",
+        )
+    await session.commit()
+
+    assert (await ai_tools.transactions(since="2026-09-10"))["total"] == 1
+    assert (await ai_tools.transactions(until="2026-09-10"))["total"] == 1

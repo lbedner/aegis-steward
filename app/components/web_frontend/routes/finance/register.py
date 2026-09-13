@@ -46,6 +46,9 @@ def _blank_is_none(value: Any) -> Any:
 
 Blank = BeforeValidator(_blank_is_none)
 
+# The columns a click can order by, and the only values ``sort`` takes.
+SORTABLE = {"date", "account", "payee", "category", "amount"}
+
 TXN_COLUMNS = [
     {"key": "date", "label": "Date", "kind": "date"},
     {"key": "account", "label": "Account"},
@@ -87,6 +90,12 @@ class RegisterFilters:
     without_merchant: bool = False
     page: int = 1
     page_size: int = PAGE_SIZE
+    # Which visible column the rows are ordered by, and which way. Held
+    # as a STRING rather than a bool because ``query`` drops falsy
+    # values: a ``descending=False`` would vanish from the link that set
+    # it and the table would spring back on the next click.
+    sort: str | None = None
+    sort_dir: str = "desc"
 
     def query(self, **overrides: Any) -> str:
         """The filters as a query string (``from``/``to`` in URL form)."""
@@ -99,11 +108,27 @@ class RegisterFilters:
             and not (k == "page" and v == 1)
             and not (k == "page_size" and v == PAGE_SIZE)
             and not (k == "days" and v == ranges.ALL)
+            and not (k == "sort_dir" and v == "desc")
         }
         for key, value in pairs.items():
             if value is True:
                 pairs[key] = "on"
         return urlencode(pairs)
+
+    def sorted_by(self, key: str) -> str:
+        """The query string for clicking column ``key``: the same column
+        again flips the direction, a different one starts at the top of
+        that column. Paging resets, because page 3 of one order is
+        nothing in another."""
+        flipped = "asc" if self.sort == key and self.sort_dir == "desc" else "desc"
+        return self.query(sort=key, sort_dir=flipped, page=1)
+
+    def arrow(self, key: str) -> str:
+        """What the header shows: nothing unless this is the sorted
+        column, so four arrows do not compete for the reader."""
+        if self.sort != key:
+            return ""
+        return "\u2191" if self.sort_dir == "asc" else "\u2193"
 
     @property
     def start_date(self) -> date | None:
@@ -124,6 +149,8 @@ def register_filters(
     without_merchant: bool = False,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=PAGE_SIZE, ge=1, le=200),
+    sort: Annotated[str | None, Blank] = None,
+    sort_dir: str = "desc",
 ) -> RegisterFilters:
     return RegisterFilters(
         q=q or None,
@@ -138,6 +165,10 @@ def register_filters(
         without_merchant=without_merchant,
         page=page,
         page_size=page_size,
+        # Anything else is not a column the reader can click, so it is
+        # not an order the table will take.
+        sort=sort if sort in SORTABLE else None,
+        sort_dir="asc" if sort_dir == "asc" else "desc",
     )
 
 
@@ -158,6 +189,7 @@ def _row(txn: TransactionResponse, account_names: dict[int, str]) -> dict[str, A
         "category_id": txn.category_id,
         "amount": txn.amount,
         "currency": txn.currency,
+        "memo": txn.memo,
         "tags": txn.tags,
         "is_split": txn.is_split,
         "splits": txn.splits,
@@ -268,6 +300,8 @@ async def register_context(
         }
 
     listing = await list_transactions(
+        sort=filters.sort,
+        descending=filters.sort_dir != "asc",
         account_id=account.id if account else None,
         account_ids=None,
         from_date=filters.start_date,
