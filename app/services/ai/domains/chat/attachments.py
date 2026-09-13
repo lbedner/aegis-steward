@@ -123,13 +123,56 @@ def attachment_metadata(stored: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 async def prepare_turn(
-    message: str, attachments: list[ChatAttachment] | None
+    message: str, attachments: list[ChatAttachment] | None, user_id: str = ""
 ) -> tuple[str, dict[str, Any]]:
-    """The stored message text and metadata for one turn's attachments.
+    """The stored message text and metadata for one turn.
 
-    Both chat paths - streaming and not - need the same three steps in
-    the same order, and doing them by hand in each is how one of them
-    ends up missing a step. One call, both callers.
+    Both chat paths - streaming and not - need the same steps in the
+    same order, and doing them by hand in each is how one of them ends
+    up missing a step. One call, both callers.
+
+    A wall of PASTED text is lifted out of the message here (see
+    ``pastes``): the bytes go to the store, a one-line marker stands
+    where the wall was, and the agent reads the text back on demand.
+    Doing it at this door means every surface gets it - the browser, the
+    API, a CLI - rather than whichever one remembered to.
     """
+    text, metadata = await lift_pastes(message, user_id)
     stored = await persist_attachments(attachments)
-    return annotate_attachments(message, attachments), attachment_metadata(stored)
+    return annotate_attachments(text, attachments), {
+        **metadata,
+        **attachment_metadata(stored),
+    }
+
+
+async def lift_pastes(message: str, user_id: str) -> tuple[str, dict[str, Any]]:
+    """Replace each wall of text in ``message`` with its marker.
+
+    Storing is best-effort by design: a store that refuses must not cost
+    the user their turn, so the paste stays in the message text, which
+    is exactly what used to happen to every paste.
+    """
+    from app.services.ai.domains.chat import pastes
+
+    if not user_id:
+        return message, {}
+    # Already lifted by the composer, which knew it was a paste: the
+    # markers are the record of what this message carries.
+    already = await pastes.named_pastes(user_id, message)
+    text, blocks = pastes.lift(message)
+    if not blocks:
+        return message, {"pastes": already} if already else {}
+    kept: list[dict[str, Any]] = []
+    for block in blocks:
+        try:
+            paste = await pastes.store_paste(
+                user_id, block, title=pastes.title_of(block)
+            )
+        except OSError as exc:
+            logger.warning(f"Could not store pasted text: {exc}")
+            text = text.replace(pastes.PLACEHOLDER, block, 1)
+            continue
+        kept.append(paste)
+        text = text.replace(pastes.PLACEHOLDER, pastes.marker(paste), 1)
+    found = already + kept
+    return text, {"pastes": found} if found else {}

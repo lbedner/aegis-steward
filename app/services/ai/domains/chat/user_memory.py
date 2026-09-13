@@ -183,6 +183,30 @@ async def store_user_readings(
     await session.commit()
 
 
+async def load_user_pastes(user_id: str) -> list[dict[str, Any]]:
+    """The pastes this user has on file, oldest first."""
+    async with get_async_session() as session:
+        row = await get_user_memory(session, user_id)
+        return list(row.memory.get("pastes", [])) if row else []
+
+
+async def store_user_pastes(user_id: str, pastes: list[dict[str, Any]]) -> None:
+    """Replace the user's paste index.
+
+    Same document as the facts and the readings, a different key: the
+    index is a line per paste, and the text itself lives in the object
+    store under the key each line names.
+    """
+    async with get_async_session() as session:
+        row = await get_user_memory(session, user_id)
+        if row is None:
+            row = AgentUserMemory(user_id=user_id)
+        row.memory = {**row.memory, "pastes": pastes}
+        row.updated_at = utcnow_naive()
+        session.add(row)
+        await session.commit()
+
+
 async def replace_user_memory(
     user_id: str,
     memory_text: str,

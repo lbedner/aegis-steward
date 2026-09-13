@@ -82,10 +82,15 @@
     }
     const copy = event.target.closest('[data-copy]');
     if (copy) {
-      const raw = copy.closest('[data-role=assistant]').querySelector('template[data-raw]');
-      if (raw) {
+      // Either bubble. The answer keeps its markdown source in a
+      // template (what is drawn is rendered HTML); a question is already
+      // its own text, so there is nothing to stash a second copy of.
+      const bubble = copy.closest('[data-role]');
+      const raw = bubble?.querySelector('template[data-raw]');
+      const text = raw ? raw.innerHTML : bubble?.querySelector('[data-text]')?.textContent;
+      if (text) {
         copied(copy);
-        write(raw.innerHTML).catch(() => settle(copy));
+        write(text).catch(() => settle(copy));
       }
     }
     if (event.target.closest('#chat-stop') && controller) controller.abort();
@@ -301,11 +306,42 @@
     [...event.target.files].forEach(stage);
     event.target.value = '';
   });
+  // What counts as a document rather than something someone typed.
+  // The server holds the same number; this one decides whether to ask.
+  const PASTE_THRESHOLD = 2000;
   document.addEventListener('paste', (event) => {
     if (!document.getElementById('chat-composer')) return;
     const files = [...(event.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
     if (files.length) { event.preventDefault(); files.forEach(stage); }
+    // A wall of text is stored now and stands in the box as its marker.
+    // Only the browser knows a paste was a paste: the same characters
+    // typed out are a message, and finished text cannot tell you which
+    // it was.
+    const text = event.clipboardData?.getData('text') || '';
+    if (text.length > PASTE_THRESHOLD && event.target.matches?.('textarea')) {
+      event.preventDefault();
+      keepPaste(event.target, text);
+    }
   });
+
+  // The marker replaces the selection, so pasting twice leaves two
+  // markers where two pages went. A refusal puts the text in as text -
+  // the paste must land somewhere, and that is what used to happen to
+  // every one of them.
+  const keepPaste = async (box, text) => {
+    const body = new FormData();
+    body.append('text', text);
+    let marker = text;
+    try {
+      const answer = await fetch('/chat/pastes', { method: 'POST', body });
+      if (answer.ok) marker = (await answer.json()).marker;
+    } catch (_) { /* offline: the text goes in as text */ }
+    const at = box.selectionStart ?? box.value.length;
+    const to = box.selectionEnd ?? at;
+    box.value = box.value.slice(0, at) + marker + box.value.slice(to);
+    box.selectionStart = box.selectionEnd = at + marker.length;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  };
   document.addEventListener('drop', (event) => {
     if (!event.target.closest?.('#chat')) return;
     event.preventDefault();

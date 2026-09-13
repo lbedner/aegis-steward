@@ -87,6 +87,10 @@ class TestTurn:
         user = one(html, "li[data-role=user]")
         assert text(one(user, "[data-text]")) == "How much is due?"
         one(user, "button[data-replay]")
+        # What you asked is as worth copying as what you were told, and
+        # a question pasted from somewhere else is the one most likely to
+        # be wanted back.
+        one(user, "button[data-copy]")
         bubble = one(html, "li[data-role=assistant][data-stream]")
         assert bubble.get("data-text") == "How much is due?"
         assert bubble.get("data-conversation-id") is None
@@ -195,6 +199,19 @@ class TestSettledMessage:
         )
         assert text(one(bubble, "[data-footer]")) == "gpt-5.6-luna · 58.5 tps · $0.0063"
         one(bubble, "button[data-copy]")
+
+    def test_both_bubbles_draw_the_same_copy_button(
+        self, hx: TestClient, stored: tuple[str, str]
+    ) -> None:
+        """One definition: two copies of an icon plus its tick-and-settle
+        markup is exactly the duplication that drifts."""
+        conversation_id, _ = stored
+        thread = hx.get(f"/chat?conversation_id={conversation_id}").text
+
+        for role in ("user", "assistant"):
+            button = one(thread, f"[data-role={role}] button[data-copy]")
+            one(button, "[data-copy-idle]")
+            assert "hidden" in (one(button, "[data-copy-done]").get("class") or "")
 
     def test_a_run_opens_in_the_dialog_with_its_script_and_output(
         self, hx: TestClient, stored: tuple[str, str]
@@ -884,3 +901,89 @@ class TestDrawer:
             headers={"HX-Current-URL": "http://testserver/overview"},
         ).text
         none(plain, "#review-nav")
+
+
+class TestAPastedWallBecomesAChip:
+    """A page pasted into the composer used to land in the transcript as
+    a page: the conversation disappeared into it, and because history is
+    replayed it rode every later turn until the budget pushed it out."""
+
+    def test_the_turn_draws_a_chip_and_keeps_the_sentence(
+        self, hx: TestClient
+    ) -> None:
+        page = "Your Orders\n" + ("Amazon order line. " * 200)
+
+        html = hx.post(
+            "/chat/turns", data={"message": f"here is another page\n\n{page}"}
+        ).text
+
+        user = one(html, "li[data-role=user]")
+        assert text(one(user, "[data-text]")).startswith("here is another page")
+        assert "Amazon order line." not in text(one(user, "[data-text]"))
+        chip = one(user, "[data-pastes] button[data-paste]")
+        assert chip.get("hx-target") == "#dialog-body"
+
+    def test_the_model_still_gets_the_marker(self, hx: TestClient) -> None:
+        """The reader sees a chip; the model sees the line that names the
+        paste, because that is how it asks for the text."""
+        page = "Your Orders\n" + ("Amazon order line. " * 200)
+
+        html = hx.post("/chat/turns", data={"message": page}).text
+
+        sent = one(html, "li[data-role=assistant][data-stream]").get("data-text")
+        assert "pasted text #" in sent
+        assert "Amazon order line." not in sent
+
+    def test_the_chip_opens_the_whole_page_in_the_dialog(
+        self, hx: TestClient
+    ) -> None:
+        page = "Your Orders\n" + ("Amazon order line. " * 200)
+        html = hx.post("/chat/turns", data={"message": page}).text
+        chip = one(html, "[data-pastes] button[data-paste]")
+
+        body = hx.get(chip.get("hx-get")).text
+
+        assert "Amazon order line." in text(one(body, "pre"))
+
+    def test_a_question_is_left_alone(self, hx: TestClient) -> None:
+        html = hx.post("/chat/turns", data={"message": "what is my budget?"}).text
+
+        user = one(html, "li[data-role=user]")
+        assert text(one(user, "[data-text]")) == "what is my budget?"
+        assert select(user, "[data-pastes]") == []
+
+    def test_the_composer_stages_a_paste_and_gets_its_marker(
+        self, hx: TestClient
+    ) -> None:
+        """Only the browser knows a paste was a paste. Finished text
+        cannot tell you: an order page is thousands of SINGLE-newline
+        lines, so a server splitting on blank lines lifts the handful of
+        long paragraphs and leaves the page behind - which is exactly
+        what it did, on screen, with the chips sitting under the wall."""
+        page = "Your Orders\n" + "\n".join(["Buy it again"] * 400)
+
+        staged = hx.post("/chat/pastes", data={"text": page}).json()
+
+        assert staged["title"] == "Your Orders"
+        assert staged["chars"] == len(page)
+        assert f'pasted("{staged["id"]}")' in staged["marker"]
+
+    def test_a_message_carrying_a_marker_draws_its_chip(
+        self, hx: TestClient
+    ) -> None:
+        """By the time the message arrives its wall is already lifted,
+        so the marker is what says which paste to draw."""
+        page = "Your Orders\n" + "\n".join(["Buy it again"] * 400)
+        staged = hx.post("/chat/pastes", data={"text": page}).json()
+
+        html = hx.post(
+            "/chat/turns", data={"message": f"another page\n\n{staged['marker']}"}
+        ).text
+
+        user = one(html, "li[data-role=user]")
+        assert text(one(user, "[data-text]")).strip() == "another page"
+        chip = one(user, "[data-pastes] button[data-paste]")
+        assert chip.get("data-paste") == staged["id"]
+        # The model still gets the marker; only the reader gets the chip.
+        sent = one(html, "li[data-role=assistant][data-stream]").get("data-text")
+        assert f'pasted("{staged["id"]}")' in sent

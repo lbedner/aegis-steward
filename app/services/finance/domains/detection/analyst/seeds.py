@@ -157,6 +157,10 @@ FINANCE_CHAT_TOOL_NAMES = (
     # be recorded before it is answered from - the recording is what
     # later turns get instead of the pixels.
     "record_reading",
+    # The text the user pasted, read back on demand. A pasted page
+    # stands in the conversation as a one-line marker; without this
+    # there is no way to reach what it stands for.
+    "pasted",
     # Her own context window, reported rather than guessed at. History
     # is budgeted by size and the oldest turns drop silently, so an
     # agent that has lost four pasted pages answers "no match found" in

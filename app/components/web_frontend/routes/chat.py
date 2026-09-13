@@ -19,7 +19,7 @@ from typing import Annotated, Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.components.backend.api.ai.router import ai_service, sync_active_model
 from app.components.backend.api.finance.changes import (
@@ -50,11 +50,13 @@ from app.components.web_frontend.rendering import (
 from app.core.chat_transcript import (
     footer_line,
     strip_attachment_marker,
+    strip_paste_markers,
     trace_failed,
     trace_label,
     trace_output,
 )
 from app.core.storage import get_storage, validate_key
+from app.services.ai.domains.chat.attachments import lift_pastes
 from app.services.ai.domains.llm.picker import (
     display_title,
     filter_models,
@@ -243,6 +245,17 @@ def batch_card(batch_id: str, items: list[PendingChangeResponse]) -> dict[str, A
 
 
 ATTACHMENTS = SECTION.path + "/attachments"
+PASTES = SECTION.path + "/pastes"
+
+
+def paste_chip(paste: dict[str, Any]) -> dict[str, Any]:
+    """One stored paste, as the chip that stands in for it."""
+    return {
+        "id": paste["id"],
+        "title": paste.get("title") or "pasted text",
+        "chars": paste.get("chars") or 0,
+        "url": f"{PASTES}/{paste['id']}",
+    }
 
 
 def attachment_url(stored: dict[str, Any]) -> str:
@@ -285,7 +298,8 @@ def settled(
         # A replayed user message must not carry its attachment marker:
         # the bytes rode one turn only, and re-sending the marker would
         # claim images the model cannot see.
-        "content": strip_attachment_marker(message.content),
+        "pastes": [paste_chip(p) for p in meta.get("pastes") or []],
+        "content": strip_paste_markers(strip_attachment_marker(message.content)),
         "at": message.timestamp.isoformat(),
         "trail": trail(trace, conversation_id, message.id),
         "components": components(trace),
@@ -586,15 +600,67 @@ async def start_turn(
         text = "See the attached images."
     if not text:
         return Response(status_code=422)
+    # A wall of pasted text is lifted HERE as well as in the service, so
+    # it never lands on screen as a wall and the text the script posts
+    # on already carries its markers. Storing is content-addressed and
+    # the index de-duplicates, so the service lifting the same message
+    # again costs nothing and lands on the same ids.
+    text, pastes = await lift_pastes(text, str(STANDALONE_USER_ID))
     return templates.TemplateResponse(
         request=request,
         name="partials/chat/turn.html",
         context={
             "assistant": ASSISTANT_NAME,
-            "text": text,
+            # The reader sees the chip; the MODEL sees the marker, which
+            # rides ``data-text`` on the bubble the script posts from.
+            "text": strip_paste_markers(text),
+            "sent": text,
+            "pastes": [paste_chip(p) for p in pastes.get("pastes") or []],
             "conversation_id": conversation_id or None,
             "attachment_names": [n for n in attachment_names if n],
         },
+    )
+
+
+@router.post(PASTES, include_in_schema=False)
+async def stage_paste(text: Annotated[str, Form()] = "") -> Response:
+    """Store a wall of text the moment it is pasted, and answer with the
+    marker that stands in for it.
+
+    The BROWSER is the only thing that knows a paste was a paste. A
+    server looking at finished message text can only guess from its
+    shape, and that guess is wrong on the documents people actually
+    paste: an order page is thousands of single-newline lines, so
+    splitting on blank lines lifts the few paragraphs that happen to be
+    long and leaves the page behind. So the composer says so at paste
+    time, and everything downstream sees a message that already carries
+    its marker.
+    """
+    from app.services.ai.domains.chat.pastes import marker, store_paste, title_of
+
+    if not text.strip():
+        return Response(status_code=422)
+    paste = await store_paste(
+        str(STANDALONE_USER_ID), text, title=title_of(text)
+    )
+    return JSONResponse({"marker": marker(paste), **paste_chip(paste)})
+
+
+@router.get(PASTES + "/{paste_id}", include_in_schema=False)
+async def paste(request: Request, paste_id: str) -> Response:
+    """A pasted block, in the one modal. The text is shown as text -
+    monospaced and scrolling - because what was pasted was a page, and
+    rendering it as markdown would reflow the thing the reader came to
+    check."""
+    from app.services.ai.domains.chat.pastes import read_paste
+
+    found = await read_paste(str(STANDALONE_USER_ID), paste_id)
+    if found is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/chat/paste.html",
+        context={"paste": paste_chip(found[0]), "text": found[1]},
     )
 
 
