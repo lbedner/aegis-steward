@@ -3,7 +3,8 @@
    account has no register). #}
 {% from "components/macros/form.html" import field, date_input, money_input, primary_button, button_classes %}
 {% from "components/macros/feedback.html" import error_banner %}
-<h2 class="text-lg font-semibold text-aegis-text mb-4">Reconcile {{ account.name }}</h2>
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Reconcile " ~ account.name) }}
 <form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/reconcile') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Statement date") %}{{ date_input("statement_date", statement_date) }}{% endcall %}

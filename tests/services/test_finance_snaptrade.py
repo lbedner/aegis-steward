@@ -13,6 +13,7 @@ from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.adapters.providers import connections
+from app.services.finance.constants import Provider
 from app.services.finance.models import FinanceSecurity
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
@@ -182,10 +183,14 @@ def _client() -> FakeSnapTradeClient:
     )
 
 
-async def _connect_and_complete(db: AsyncSession, client: FakeSnapTradeClient):
-    await connections.start_snaptrade_connect(db, owner_user_id=1, client=client)
+async def _connect_and_complete(
+    db: AsyncSession, client: FakeSnapTradeClient, owner_user_id: int | None = 1
+):
+    await connections.start_snaptrade_connect(
+        db, owner_user_id=owner_user_id, client=client
+    )
     return await connections.complete_snaptrade_connect(
-        db, owner_user_id=1, client=client
+        db, owner_user_id=owner_user_id, client=client
     )
 
 
@@ -246,6 +251,121 @@ class TestSnapTradeConnect:
         )
         # One SnapTrade user per owner: the second connect must NOT re-register.
         assert client.registered == ["user-1"]
+
+    @pytest.mark.asyncio
+    async def test_a_sync_that_works_clears_the_error_that_did_not(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The failure path writes ``status_detail`` and nothing cleared
+        it, so a connection that recovered still carried the sentence
+        that broke it: the live Settings page read "healthy" over
+        "missing_credentials: ... are not configured" for four days after
+        the credentials were configured.
+        """
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+        rows = await connections.list_provider_connections(
+            async_db_session, provider=Provider.SNAPTRADE, owner_user_id=1
+        )
+        connection = next(r for r in rows if r.provider_item_id)
+        connection.status = "error"
+        connection.status_detail = "missing_credentials: ... are not configured."
+        connection.last_error_code = "missing_credentials"
+        async_db_session.add(connection)
+        await async_db_session.flush()
+
+        await connections.sync_snaptrade_connection(
+            async_db_session, connection, client=client
+        )
+
+        assert connection.status == "healthy"
+        assert connection.status_detail is None
+        assert connection.last_error_code is None
+
+    @pytest.mark.asyncio
+    async def test_every_run_is_recorded_with_what_it_brought(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """"It says it updated today - did it pull anything?" had no
+        answer: the tally was computed on every pass and thrown away, and
+        ``job_execution`` records only that a job ran.
+
+        It lands in ``finance_import_batch``, which has said since it was
+        written that it holds "a Plaid/SnapTrade sync pass" - it was
+        simply never given one. So a sync and an uploaded file now answer
+        the same question in the same place.
+        """
+        from sqlmodel import select
+
+        from app.services.finance.models.imports import FinanceImportBatch
+
+        client = _client()
+        await _connect_and_complete(async_db_session, client)
+
+        runs = (
+            await async_db_session.exec(
+                select(FinanceImportBatch).where(
+                    FinanceImportBatch.source_type == "snaptrade_sync"
+                )
+            )
+        ).all()
+        assert len(runs) == 1, "one row per sync pass"
+        run = runs[0]
+        assert run.status == "committed"
+        assert run.finished_at is not None
+        # The counts a file cannot carry ride in ``detail``: what a run
+        # brought differs by where it came from.
+        assert run.detail["holdings"] == 1
+        assert run.detail["trades"] == 2
+
+    @pytest.mark.asyncio
+    async def test_a_run_records_when_nobody_owns_the_connection(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """``owner_user_id`` is NOT NULL and a single-user install has
+        nobody to name, so the run used 0 - the convention the CSV import
+        already follows. Every other test names owner 1, so this only
+        showed up against the live ledger."""
+        from sqlmodel import select
+
+        from app.services.finance.models.imports import FinanceImportBatch
+
+        client = _client()
+        await _connect_and_complete(async_db_session, client, owner_user_id=None)
+
+        runs = (
+            await async_db_session.exec(
+                select(FinanceImportBatch).where(
+                    FinanceImportBatch.source_type == "snaptrade_sync"
+                )
+            )
+        ).all()
+        assert [run.owner_user_id for run in runs] == [0]
+
+    @pytest.mark.asyncio
+    async def test_a_personal_key_leaves_no_dead_cards(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A personal key has no connect portal, so a connect that finds
+        nothing new to adopt can only time out - and it used to leave its
+        ``loading`` row behind. Three attempts, three dead cards on the
+        Connections page, one per click.
+
+        Safe to reap only here: a personal key's pending row holds an
+        empty user secret. The commercial row holds the registered one
+        (see ``test_start_reuses_the_owners_existing_secret``).
+        """
+        client = _client()
+        client.is_personal = True
+        for _ in range(3):
+            await connections.start_snaptrade_connect(
+                async_db_session, owner_user_id=1, client=client
+            )
+        rows = await connections.list_provider_connections(
+            async_db_session, provider=Provider.SNAPTRADE, owner_user_id=1
+        )
+        pending = [r for r in rows if r.provider_item_id is None]
+        assert len(pending) == 1, f"one pending connect at a time, got {len(pending)}"
 
     @pytest.mark.asyncio
     async def test_complete_pending_returns_empty(

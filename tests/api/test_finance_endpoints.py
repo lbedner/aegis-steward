@@ -1262,6 +1262,72 @@ async def test_top_payees_ranks_outflows_and_skips_transfers(
 
 
 @pytest.mark.asyncio
+async def test_top_payees_uses_the_name_you_gave_the_payee(
+    authenticated_client: TestClient,
+    async_db_session: AsyncSession,
+    acting_owner_user_id: int | None,
+) -> None:
+    """Naming a payee is what makes its rows add up.
+
+    Grouped on the bank's descriptor, a payee with a per-charge
+    description never aggregates and never reaches this list: the live
+    ledger had seven Shop Rite charges under seven descriptors, so the
+    card showed a single $566 car payment instead. It also read
+    "Recurring Withdrawal Debit Card CK *Eleanor Nu..." where the
+    register read "Eleanor Nursing Care" - the same transaction, called
+    two different things on two pages.
+    """
+    service = FinanceService(async_db_session)
+    account = await service.create_manual_account(
+        owner_user_id=acting_owner_user_id,
+        name="Checking",
+        account_type="checking",
+        classification="asset",
+    )
+    store = await service.create_merchant(
+        "Shop Rite", owner_user_id=acting_owner_user_id
+    )
+    # One payee, three descriptors - the shape a real import arrives in.
+    for descriptor, amount in (
+        ("SHOPRITE S0123 POUGHKEEPSIE NY", -4_000),
+        ("SHOPRITE #445 APPLE PAY 8821", -3_000),
+        ("TST* SHOP RITE 0099", -2_000),
+    ):
+        txn = await service.create_transaction(
+            owner_user_id=acting_owner_user_id,
+            account_id=account.id,
+            amount=amount,
+            txn_date=current_date(),
+            name=descriptor,
+        )
+        await service.assign_merchant(
+            [txn.id], store.id, owner_user_id=acting_owner_user_id
+        )
+    # A bigger single charge nobody has named stays as its descriptor.
+    await service.create_transaction(
+        owner_user_id=acting_owner_user_id,
+        account_id=account.id,
+        amount=-7_500,
+        txn_date=current_date(),
+        name="CENTRALHUDSON UTILITY XXX4968 WEB ID:",
+    )
+    await async_db_session.commit()
+
+    items = authenticated_client.get(
+        "/api/v1/finance/payees", params={"days": 30, "limit": 5}
+    ).json()["items"]
+    by_payee = {item["payee"]: item for item in items}
+
+    assert "Shop Rite" in by_payee, f"named payee missing: {list(by_payee)}"
+    assert by_payee["Shop Rite"]["amount"] == 9_000
+    assert by_payee["Shop Rite"]["transaction_count"] == 3
+    # Named, it outranks the single charge that would otherwise lead.
+    assert [item["payee"] for item in items][0] == "Shop Rite"
+    # Nothing named it, so the descriptor is still the best name there is.
+    assert "CENTRALHUDSON UTILITY XXX4968 WEB ID:" in by_payee
+
+
+@pytest.mark.asyncio
 async def test_cashflow_splits_income_from_spend_and_skips_transfers(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,

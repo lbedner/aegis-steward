@@ -29,6 +29,89 @@ _ACCESS_TOKEN_CONTEXT = "finance.plaid.access_token"
 _SNAPTRADE_SECRET_CONTEXT = "finance.snaptrade.user_secret"
 
 
+def record_run(
+    db: AsyncSession,
+    *,
+    connection_id: int | None,
+    owner_user_id: int | None,
+    provider: str,
+    started: datetime,
+    result: SyncResult | None,
+    error: str | None = None,
+) -> None:
+    """One row per ingestion run, in the table that holds every other one.
+
+    ``finance_import_batch`` has said since it was written that it holds
+    "a Plaid/SnapTrade sync pass" - it was simply never given one. So a
+    sync and an uploaded file now answer the same question in the same
+    place: what came in, from where, and what did it bring.
+
+    Takes plain values, never the connection row. On the failure path the
+    savepoint has just rolled back, and touching a mapped attribute there
+    can go to the database - which would make the bookkeeping raise and
+    MASK the error it was recording.
+    """
+    from app.services.finance.models.imports import FinanceImportBatch
+
+    tally = result.model_dump(exclude={"connection_id"}) if result else {}
+    db.add(
+        FinanceImportBatch(
+            # 0 for "nobody in particular", the convention the CSV import
+            # already uses: the column is NOT NULL, and a single-user
+            # install has no owner to name. Caught live rather than in a
+            # test, because every test names owner 1.
+            owner_user_id=0 if owner_user_id is None else owner_user_id,
+            connection_id=connection_id,
+            source_type=f"{provider}_sync"[:16],
+            status="committed" if result else "failed",
+            error=error,
+            rows_total=tally.get("added", 0) + tally.get("updated", 0),
+            rows_inserted=tally.get("added", 0),
+            rows_updated=tally.get("updated", 0),
+            detail=tally or None,
+            started_at=started,
+            finished_at=_utcnow(),
+        )
+    )
+
+
+def finished(
+    db: AsyncSession,
+    connection: FinanceConnection,
+    *,
+    started: datetime,
+    result: SyncResult,
+) -> None:
+    """A sync that worked: the connection is fine, and the run is on the
+    record. One call, because a pass that updates one without the other
+    is a connection claiming to be current with nothing behind it."""
+    mark_healthy(connection)
+    record_run(
+        db,
+        connection_id=connection.id,
+        owner_user_id=connection.owner_user_id,
+        provider=str(connection.provider),
+        started=started,
+        result=result,
+    )
+
+
+def mark_healthy(connection: FinanceConnection) -> None:
+    """A connection that just synced is fine, and says nothing else.
+
+    Clearing the error is the half that was missing: the failure path
+    writes ``status_detail`` and ``last_error_code``, nothing cleared
+    them, so a connection that recovered still carried the sentence that
+    broke it. A card read "healthy" over "missing_credentials: ... are
+    not configured" for as long as it had once been true.
+    """
+    connection.status = "healthy"
+    connection.needs_user_action = False
+    connection.status_detail = None
+    connection.last_error_code = None
+    connection.last_successful_sync_at = _utcnow()
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 

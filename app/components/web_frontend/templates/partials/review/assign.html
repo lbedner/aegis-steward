@@ -1,7 +1,8 @@
 {% from "components/macros/form.html" import field, select, text_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
-<h2 class="text-lg font-semibold text-aegis-text mb-1">Set the payee</h2>
-<p class="text-xs text-aegis-muted mb-4">Every transaction under {{ keys|length }} descriptor{{ "s" if keys|length != 1 }} gets it, and future imports will too.</p>
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Set the payee",
+                "Every transaction under " ~ keys|length ~ " descriptor" ~ ("s" if keys|length != 1 else "") ~ " gets it, and future imports will too.") }}
 <form {{ hx_dialog_post('/review/no-payee/assign') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% for key in keys %}<input type="hidden" name="keys" value="{{ key }}">{% endfor %}

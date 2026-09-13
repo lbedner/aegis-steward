@@ -1,7 +1,7 @@
 {% extends layout %}
-{% from "components/macros/layout.html" import dropdown, menu_item, page_header %}
+{% from "components/macros/layout.html" import page_header, stats_strip %}
 {% from "components/macros/form.html" import action %}
-{% from "components/macros/accounts.html" import switcher, amount %}
+{% from "components/macros/accounts.html" import account_header %}
 
 {% block title %}{{ (selected.name if selected else "All accounts") }} - {{ project_name }}{% endblock %}
 
@@ -10,35 +10,22 @@
    is where you go to see them all at once. #}
 {% block app_content %}
 <section id="account-detail" class="space-y-6">
-  <header class="flex flex-wrap items-start justify-between gap-4">
-    <h1 class="sr-only">{{ selected.name if selected else "All accounts" }}</h1>
-    <div class="min-w-0">
-      <div class="flex items-center gap-3 min-w-0">
-        {{ switcher(section.path, groups, total, selected) }}
-        {% if selected %}
-        <span class="shrink-0 font-semibold micro-label px-2 py-0.5 rounded border border-aegis-teal text-aegis-teal">{{ selected.account_type|replace("_", " ")|upper }}</span>
-        {% endif %}
-      </div>
-      <p class="text-xs text-aegis-muted mt-1">
-        {% if selected %}
-        {{ selected.classification|capitalize }} · {{ "Manual" if not selected.connection_id else "Connected" }} · {{ selected.currency|upper }}{% if statement_line %} · {{ statement_line }}{% endif %}
-        {% else %}
-        <a href="{{ section.path }}" {{ hx_page(section.path) }} class="hover:text-aegis-text transition-colors">{{ groups|length }} group{{ "s" if groups|length != 1 }} · back to accounts</a>
-        {% endif %}
-      </p>
-    </div>
-    <div class="flex items-center gap-3">
-      <p data-balance class="text-2xl font-semibold">{{ amount(selected_balance if selected else total, selected.currency if selected else "USD") }}</p>
-      {{ action("Import", hx_dialog(section.path ~ "/import" ~ ("?account_id=" ~ selected.id if selected else ""))) }}
-      {% if selected %}
-      <div id="manage-menu">
-      {% call dropdown("Manage") %}
-        {% for act in actions %}{{ menu_item(act.label, hx_dialog(act.url)) }}{% endfor %}
-      {% endcall %}
-      </div>
-      {% endif %}
-    </div>
-  </header>
+  {% call account_header(section, groups, total, selected,
+                         selected_balance if selected else total,
+                         actions=actions if selected else (),
+                         held_with=held_with, statement_line=statement_line,
+                         updated=updated) %}
+    {{ action("Import", hx_dialog(section.path ~ "/import" ~ ("?account_id=" ~ selected.id if selected else ""))) }}
+  {% endcall %}
+
+  {% if sub_nav %}{% include "components/sub_nav.html" %}{% endif %}
+
+  {# A debt's terms, above its rows: what is owed, at what rate, what is
+     due and when it started. The register answers "what happened"; none
+     of it answers "what is this costing me". #}
+  {% if loan_terms %}
+  {{ stats_strip(loan_terms) }}
+  {% endif %}
 
   {% include "components/register.html" %}
 </section>

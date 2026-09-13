@@ -1,0 +1,24 @@
+{# What one figure on a stats strip means: the words, then the arithmetic
+   that made THIS number, then the caveat. Both halves come from the cell
+   itself (``secured_strip``), so the dialog cannot describe a derivation
+   the page no longer does.
+
+   ``data-narrow`` because an explanation is a column of prose, and the
+   modal's default width would set it in one long line. #}
+{% from "components/macros/layout.html" import TONE_TEXT, dialog_title %}
+<div data-narrow class="pb-1">
+  {% call dialog_title(cell.label) %}
+  <p class="text-2xl font-semibold tabular-nums {{ TONE_TEXT.get(cell.tone, 'text-aegis-text') }}">{{ cell.value }}</p>
+  {% endcall %}
+  <p class="mt-4 text-sm text-aegis-muted leading-relaxed">{{ cell.explain.lead }}</p>
+  <dl class="mt-4 border-t border-aegis-border/60">
+    {% for label, amount in cell.explain.math %}
+    <div class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60
+                {{ 'text-aegis-text font-medium' if loop.last else 'text-aegis-muted' }}">
+      <dt class="text-sm min-w-0 truncate">{{ label }}</dt>
+      <dd class="text-sm tabular-nums shrink-0">{{ amount }}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  <p class="mt-4 text-xs text-aegis-muted leading-relaxed">{{ cell.explain.note }}</p>
+</div>

@@ -3,6 +3,20 @@
 from datetime import UTC, datetime
 
 
+def format_slug(slug: str) -> str:
+    """A slug as a name for people: ``aegis-steward`` -> ``Aegis Steward``.
+
+    A word that already carries a capital is left exactly as typed, so
+    "PyPI" and "iOS" survive - the first flattened by ``str.title()``,
+    the second by ``str.capitalize()`` AND by raising the first letter,
+    which is why neither is a one-liner that would do.
+    """
+    return " ".join(
+        word if any(c.isupper() for c in word) else word[:1].upper() + word[1:]
+        for word in slug.replace("_", " ").replace("-", " ").split()
+    )
+
+
 def format_number(num: int) -> str:
     """Format large numbers with commas (e.g., 1234567 -> '1,234,567')."""
     return f"{num:,}"

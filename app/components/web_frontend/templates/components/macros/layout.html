@@ -8,27 +8,56 @@
 {% from "components/macros/form.html" import button_classes %}
 
 
+{# The kit's tone vocabulary: one word to one text colour, wherever a
+   value, a dot or a cell is coloured by what it means. #}
+{% set TONE_TEXT = {"ok": "text-aegis-teal", "warn": "text-aegis-amber", "error": "text-error", "muted": "text-aegis-muted", "accent": "text-aegis-accent"} %}
+
+{# The app's mark and its name, the lockup Pulse carries in the same
+   place: the glyph in brand teal, the name in the text colour so it
+   holds in both modes.
+
+   A pen nib over the line it just wrote. A steward's job is the
+   keeping of the record, not the guarding of a box - and a vault is
+   the glyph every finance app already uses.
+
+   Filled, so it carries weight the outlined nav icons below it do not:
+   this is the one mark on the page, not another item in the list. The
+   breather hole and the slit are cut THROUGH the shape (one path,
+   ``fill-rule="evenodd"``) rather than drawn in the background colour,
+   so the mark sits on any surface a theme gives it. And the ink line
+   earns its place: without it a filled nib at 24px is a map pin. #}
+{% macro brand(name) %}
+<a href="/" class="rail-row flex items-center gap-2.5 min-w-0">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+       class="w-6 h-6 shrink-0 text-aegis-teal" aria-hidden="true">
+    <path fill="currentColor" fill-rule="evenodd"
+          d="M12 2.8 16.9 9C18.1 12 15.9 15.6 12 19 8.1 15.6 5.9 12 7.1 9Z
+             M12 8.4a1.45 1.45 0 1 0 0 2.9 1.45 1.45 0 1 0 0-2.9Z
+             M11.3 11.9h1.4v5.3l-.7 1-.7-1Z"/>
+    <path d="M4.6 21.4c2.6-1.3 4.8-1.3 7.4 0 2.6 1.3 4.8 1.3 7.4 0"
+          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  </svg>
+  <span class="rail-hide text-base font-semibold text-aegis-text truncate">{{ name }}</span>
+</a>
+{% endmacro %}
+
 {# One sidebar link. ``href`` and ``hx-get`` are the same URL: a cold load
    gets the shell, the htmx swap gets the fragment, one route decides
    (see ``render()``). ``aria-current`` is set server-side from
    ``current_path`` and moved client-side by app.js as htmx pushes URLs.
    Clicking closes the mobile drawer (``mobileOpen`` from the shell). #}
-{# The kit's tone vocabulary: one word to one text colour, wherever a
-   value, a dot or a cell is coloured by what it means. #}
-{% set TONE_TEXT = {"ok": "text-aegis-teal", "warn": "text-aegis-amber", "error": "text-error", "muted": "text-aegis-muted", "accent": "text-aegis-accent"} %}
-
 {% macro nav_item(section, current_path) %}
 <a href="{{ section.path }}" {{ hx_page(section.path) }}
    @click="mobileOpen = false"
    {% if section.path == current_path %}aria-current="page"{% endif %}
-   class="group flex items-center gap-3 px-3 py-2 text-sm rounded transition-colors whitespace-nowrap
+   class="rail-row group flex items-center gap-3 px-3 py-2 text-sm rounded transition-colors whitespace-nowrap
           text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20
           aria-[current=page]:text-aegis-text aria-[current=page]:bg-aegis-teal/10">
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
        stroke-width="1.5" stroke="currentColor" class="w-5 h-5 shrink-0" aria-hidden="true">
     <path stroke-linecap="round" stroke-linejoin="round" d="{{ section.icon }}"/>
   </svg>
-  <span>{{ section.label }}</span>
+  <span class="rail-hide">{{ section.label }}</span>
 </a>
 {% endmacro %}
 
@@ -101,20 +130,39 @@
    app.js opens the dialog when a swap lands there, and closing clears it
    so a stale body never flashes on the next open. Mounted once by the
    app shell, outside ``#app-content``. #}
+{# The one modal. Its width is the BODY's call, not the opener's: a
+   rename form wants a column and a lender's amortization schedule wants
+   a page, and the thing that knows which is the thing being shown. A
+   body marks itself ``data-wide`` and the dialog grows around it -
+   ``has-[]`` rather than a class the opener has to remember to pass,
+   because an opener that forgets it renders a table into a slot. #}
 {% macro dialog() %}
 <dialog id="dialog"
         @close="$el.querySelector('#dialog-body').innerHTML = ''"
         class="bg-aegis-card text-aegis-text border border-aegis-border rounded-lg shadow-2xl p-0 w-full max-w-4xl
+               max-h-[90vh] overflow-hidden
+               has-[[data-wide]]:max-w-[92rem] has-[[data-narrow]]:max-w-md
                backdrop:bg-aegis-scrim/60 backdrop:backdrop-blur-sm">
-  <div class="flex justify-end px-3 pt-3">
-    <button type="button" aria-label="Close" @click="$el.closest('dialog').close()"
-            class="text-aegis-muted/70 hover:text-aegis-text transition-colors">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-      </svg>
-    </button>
+  {# The BODY scrolls, never the dialog. A dialog that scrolls as a whole
+     takes its own close button off the top of the screen, and the way
+     out of a document dialog is then a keystroke the embedded PDF viewer
+     has already swallowed - which is a trap, not a dialog.
+
+     ``flex`` lives on this wrapper rather than on the dialog element: an
+     author ``display: flex`` beats the UA sheet's rule hiding a dialog
+     that is not ``[open]``, whatever the specificity says, and the
+     dialog would render on the page while closed. #}
+  <div class="flex flex-col max-h-[90vh]">
+    <div class="shrink-0 flex justify-end px-3 pt-3">
+      <button type="button" aria-label="Close" @click="$el.closest('dialog').close()"
+              class="flex items-center justify-center w-8 h-8 rounded text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/40 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div id="dialog-body" class="px-6 pb-6 overflow-y-auto overscroll-contain"></div>
   </div>
-  <div id="dialog-body" class="px-6 pb-6"></div>
 </dialog>
 {% endmacro %}
 
@@ -157,8 +205,14 @@
 {% macro stats_strip(cells, id=None, attrs="") %}
 <dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 {{ {2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4"}[cells|length] }} divide-x divide-aegis-border/60 bg-aegis-card border border-aegis-border rounded-lg">
   {% for cell in cells %}
-  <div {{ cell.attrs|safe if cell.attrs else "" }} class="px-5 py-4 min-w-0{% if cell.attrs %} cursor-pointer hover:bg-aegis-border/20 transition-colors{% endif %}">
-    <dt class="text-aegis-muted micro-label">{{ cell.label }}</dt>
+  <div {{ cell.attrs|safe if cell.attrs else "" }} class="group px-5 py-4 min-w-0{% if cell.attrs %} cursor-pointer hover:bg-aegis-border/20 transition-colors{% endif %}">
+    {# A figure that can explain itself has to LOOK like it does: the
+       hover fill is only found by the mouse already on it. The mark is
+       for ``explain`` alone, not for any clickable cell - a cell that
+       filters a list is not offering to define a word. #}
+    <dt class="text-aegis-muted micro-label flex items-center gap-1.5"><span class="truncate">{{ cell.label }}</span>
+      {% if cell.explain %}<span aria-hidden="true" class="inline-flex shrink-0 w-3.5 h-3.5 rounded-full border border-current items-center justify-center text-xxs leading-none opacity-50 group-hover:opacity-100 transition-opacity">?</span>{% endif %}
+    </dt>
     <dd class="mt-1 text-2xl font-semibold tabular-nums {{ TONE_TEXT.get(cell.tone, 'text-aegis-text') }}">{{ cell.value }}</dd>
     {% if cell.caption %}<dd class="mt-1 text-xxs text-aegis-muted truncate">{{ cell.caption }}</dd>{% endif %}
   </div>
@@ -234,6 +288,22 @@
 {% endmacro %}
 
 
+{# A file's type, wearing the mark people already know from every file
+   manager they have used. The same circular tile every other row wears
+   - a payee, an account, a model - so a list of paper reads like the
+   rest of the app rather than like a second design. The label rides in
+   ``title``: a mark answers the glance, the word answers the doubt.
+
+   Bigger than the 20px a payee or an account wears, on purpose: those
+   sit in dense money rows where the NAME is the thing being scanned,
+   and a shelf of paper is scanned by its marks. Tailwind's steps go 20,
+   24, 28, 32 - 32 is the nearest to half again as big, and keeping to
+   the scale is what stops a one-off size becoming a second scale. #}
+{% macro file_mark(badge) %}
+<span data-file="{{ badge.label }}" title="{{ badge.label }}" class="inline-flex shrink-0 w-8 h-8 rounded-full bg-aegis-border/60 items-center justify-center overflow-hidden align-middle"><img src="{{ badge.icon }}" alt="" width="20" height="20" loading="lazy" class="w-5 h-5 object-contain"></span>
+{% endmacro %}
+
+
 {# A small status word with a dot: ``tone`` is ok, warn, error, muted or
    accent; no tone renders the label plain. One shape for every "state"
    cell and chip, so tests find them by role. #}
@@ -267,13 +337,36 @@
 {% endmacro %}
 
 
+{# A dialog's heading: what this is, and the one line under it.
+
+   ``subtitle`` is a sentence - what the dialog is for, or what it will
+   do. ``facts`` is a metadata line (kind, date, size) and is set in the
+   label voice instead. A ``{% call %}`` block supplies that line itself
+   when it carries markup.
+
+   The margin belongs here because it depends on whether anything
+   follows: a title with a line under it sits close to it, a title alone
+   stands off from the form below. Written out at each dialog it was
+   four different answers across thirty-five of them. #}
+{% macro dialog_title(title, subtitle=None, facts=None) %}
+{%- set under = subtitle or facts or caller is defined %}
+<h2 class="text-lg font-semibold text-aegis-text {{ "mb-1" if under else "mb-4" }}">{{ title }}</h2>
+{%- if facts %}
+<p class="text-aegis-muted micro-label mb-4">{{ facts }}</p>
+{%- elif subtitle %}
+<p class="text-xs text-aegis-muted mb-4">{{ subtitle }}</p>
+{%- elif caller is defined %}
+{{ caller() }}
+{%- endif %}
+{% endmacro %}
+
+
 {# A confirmation as dialog body: what will happen, one destructive
    action (``method`` is delete or post to ``url``), and a way out. The
    action's response closes the dialog and navigates or swaps as it sees
    fit; nothing swaps here (hx-swap="none"). #}
 {% macro confirm(title, body, url, label="Remove", method="delete") %}
-<h2 class="text-lg font-semibold text-aegis-text mb-2">{{ title }}</h2>
-<p class="text-sm text-aegis-muted mb-5">{{ body }}</p>
+{{ dialog_title(title, body) }}
 <div class="flex items-center gap-3">
   <button type="button" {% if method == "delete" %}hx-delete="{{ url }}"{% else %}hx-post="{{ url }}"{% endif %} hx-swap="none"
           class="px-4 py-2 rounded text-sm border border-aegis-error/40 text-error hover:border-aegis-error transition-colors">{{ label }}</button>

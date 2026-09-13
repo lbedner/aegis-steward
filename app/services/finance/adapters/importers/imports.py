@@ -59,6 +59,73 @@ def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+
+# What a source is CALLED where a person reads it. The stored value is
+# the machine's word (``snaptrade_sync``, ``csv``), constrained by the
+# batch table itself; this is the answer to "where did this come from",
+# which is the question actually being asked.
+SOURCE_LABELS: dict[str, str] = {
+    "snaptrade_sync": "SnapTrade",
+    "plaid_sync": "Plaid",
+    "csv": "CSV",
+    "ofx": "OFX",
+    "qfx": "QFX",
+    "qif": "QIF",
+    "manual": "By hand",
+}
+
+
+def run_title(batch: Any) -> str:
+    """What to call one run: where it came from, and the file if it had
+    one. Beside ``run_summary`` because a list of runs and a single run
+    must not name the same row two ways."""
+    source = getattr(batch, "source_type", "") or ""
+    named = SOURCE_LABELS.get(source, source)
+    file_name = getattr(batch, "file_name", None)
+    return f"{named} · {file_name}" if file_name else named
+
+
+# What a run is counted in, in the order a reader wants it. The counts a
+# FILE has live on the batch; the ones only a provider has (holdings,
+# trades) ride in ``detail`` - which is the whole reason ``detail`` is a
+# JSON column and not five more.
+RUN_COUNTS: tuple[tuple[str, str], ...] = (
+    ("rows_inserted", "new"),
+    ("rows_updated", "updated"),
+    ("holdings", "holdings"),
+    ("trades", "trades"),
+    ("rows_duplicate", "duplicate"),
+    ("rows_error", "failed"),
+)
+
+
+def run_summary(batch: Any) -> str:
+    """What one run actually brought, in its own terms.
+
+    A file counts rows; a brokerage counts holdings and trades. Reading
+    "0 transactions" off a sync that restated ten positions is how a
+    working import gets reported as broken, so each source answers in the
+    units it deals in.
+
+    Lives here rather than in a page because the answer is a fact about
+    the run: the Activity list, a run dialog, the CLI and anything else
+    that reports one must not each invent their own wording for the same
+    five numbers.
+    """
+    detail = getattr(batch, "detail", None) or {}
+    said = [
+        f"{count} {word}"
+        for attr, word in RUN_COUNTS
+        for count in [getattr(batch, attr, None) or detail.get(attr) or 0]
+        if count
+    ]
+    if said:
+        return " · ".join(said)
+    # A run that brought nothing is the most interesting kind, so it says
+    # so rather than rendering an empty cell.
+    return "nothing" if getattr(batch, "status", "") == "committed" else "-"
+
+
 async def _resolve_account_id(
     db: AsyncSession,
     *,

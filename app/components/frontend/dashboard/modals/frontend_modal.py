@@ -311,8 +311,12 @@ class FrontendDetailDialog(BaseDetailPopup):
     """
     Frontend detail popup dialog.
 
-    Displays comprehensive frontend framework information including Flet capabilities,
-    configuration, and integration status.
+    Serves BOTH frontends - Flet at /dashboard and the htmx pages at / -
+    because every section it draws reads the component's own metadata
+    (framework, version, integration) rather than anything Flet-specific.
+    It takes its name from the component it was handed for the same
+    reason: a modal that hardcodes one component's title can only ever
+    open for that one.
     """
 
     def __init__(self, component_data: ComponentStatus, page: ft.Page) -> None:
@@ -338,8 +342,8 @@ class FrontendDetailDialog(BaseDetailPopup):
         super().__init__(
             page=page,
             component_data=component_data,
-            title_text=get_component_title("frontend"),
-            subtitle_text=get_component_subtitle("frontend", metadata),
+            title_text=get_component_title(component_data.name),
+            subtitle_text=get_component_subtitle(component_data.name, metadata),
             sections=sections,
             status_detail=get_status_detail(component_data),
         )

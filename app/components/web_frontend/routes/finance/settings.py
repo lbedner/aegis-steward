@@ -62,6 +62,7 @@ TABS: tuple[tuple[str, str, str], ...] = (
     ("payees", "Payees", "/payees"),
     ("institutions", "Institutions", "/institutions"),
     ("comms", "Comms", "/comms"),
+    ("activity", "Activity", "/activity"),
 )
 CATEGORY_COLUMNS = [
     {"key": "name", "label": "Name"},
@@ -516,6 +517,117 @@ async def comms(
         request,
         "pages/settings/comms.html",
         {"section": SECTION, **nav_context("comms"), "email": email},
+    )
+
+
+# --- activity ---------------------------------------------------------------
+
+RUN_COLUMNS = [
+    {"key": "when", "label": "When"},
+    {"key": "source", "label": "From"},
+    {"key": "brought", "label": "Brought"},
+    {"key": "state", "label": "", "kind": "status"},
+]
+
+@router.get("/activity", include_in_schema=False)
+async def activity(
+    request: Request,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Every run that brought data in, newest first.
+
+    One list for files and provider syncs alike, because they answer the
+    same question and ``finance_import_batch`` has always held both.
+    Until this page the tally was computed and dropped: a connection
+    could say "synced today" and nothing could say what it pulled.
+    """
+    from sqlmodel import select
+
+    from app.components.web_frontend.filters import freshness
+    from app.services.finance.adapters.importers.imports import (
+        run_summary,
+        run_title,
+    )
+    from app.services.finance.models.imports import FinanceImportBatch
+
+    runs = (
+        await service.db.exec(
+            select(FinanceImportBatch)
+            .order_by(FinanceImportBatch.started_at.desc())
+            .limit(100)
+        )
+    ).all()
+    return render(
+        request,
+        "pages/settings/activity.html",
+        {
+            "section": SECTION,
+            **nav_context("activity"),
+            "rows": [
+                {
+                    "id": run.id,
+                    "when": freshness(run.started_at, "sync")["label"],
+                    "source": run_title(run),
+                    "brought": run_summary(run),
+                    "state": {
+                        "label": run.status,
+                        "tone": "ok" if run.status == "committed" else "error",
+                    },
+                }
+                for run in runs
+            ],
+            "columns": RUN_COLUMNS,
+            "path": SECTION.path,
+        },
+    )
+
+
+@router.get("/activity/{run_id:int}", include_in_schema=False)
+async def run_detail(
+    request: Request,
+    run_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """One run: what it was, and what it brought.
+
+    Opened from the mark on a row, which is the question that mark
+    provokes - "this is new, where did it come from?" - so the answer is
+    one click from the row rather than a page away.
+    """
+    from app.components.web_frontend.filters import freshness
+    from app.services.finance.adapters.importers.imports import (
+        run_summary,
+        run_title,
+    )
+    from app.services.finance.models.imports import FinanceImportBatch
+
+    run = await service.db.get(FinanceImportBatch, run_id)
+    if run is None:
+        raise HTTPException(status_code=404)
+    detail = run.detail or {}
+    took = None
+    if run.finished_at and run.started_at:
+        seconds = (run.finished_at - run.started_at).total_seconds()
+        took = f"{seconds:.0f}s" if seconds >= 1 else "under a second"
+    return dialog(
+        request,
+        "partials/imports/run.html",
+        run={
+            "title": run_title(run),
+            "when": freshness(run.started_at, "sync")["label"],
+            "took": took,
+            "status": run.status,
+            "counts": run,
+            "extras": [
+                f"{detail[key]} {key}"
+                for key in ("holdings", "trades", "accounts")
+                if detail.get(key)
+            ],
+            "note": f"It brought {run_summary(run)}.",
+        },
+        errors=[run.error] if run.error else [],
     )
 
 

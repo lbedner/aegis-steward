@@ -9,7 +9,7 @@ by the CLI and dashboard tests that consume them.
 
 from datetime import UTC, datetime
 
-from app.core.formatting import format_relative_time
+from app.core.formatting import format_relative_time, format_slug
 
 NOW = datetime(2026, 5, 19, 12, 0, 0, tzinfo=UTC)
 
@@ -117,3 +117,40 @@ class TestFormatBytes:
         assert format_bytes(9_400_000) == "9.0 MB"
         assert format_bytes(222_298_112) == "212.0 MB"
         assert format_bytes(3 * 1024**3) == "3.0 GB"
+
+
+class TestFormatSlug:
+    """A slug is the only name a generated project is given; this is the
+    one place it becomes a name for people."""
+
+    def test_a_project_slug_reads_as_a_name(self):
+        assert format_slug("aegis-steward") == "Aegis Steward"
+        assert format_slug("my_cool_app") == "My Cool App"
+
+    def test_a_word_that_is_already_cased_keeps_its_case(self):
+        """``str.title()`` and ``str.capitalize()`` both flatten these,
+        which is the reason this is not a one-liner around either."""
+        assert format_slug("PyPI-watch") == "PyPI Watch"
+        assert format_slug("iOS_metrics") == "iOS Metrics"
+
+    def test_nothing_in_nothing_out(self):
+        assert format_slug("") == ""
+        assert format_slug("  -_- ") == ""
+
+
+class TestTheDisplayNameSettings:
+    def test_it_is_derived_from_the_slug_when_nobody_set_one(self):
+        """The hyphens reached the sidebar, the browser tab and the FROM
+        line of every email because this defaulted to the slug itself."""
+        from app.core.config import Settings
+
+        assert Settings(PROJECT_NAME="aegis-steward").PROJECT_DISPLAY_NAME == (
+            "Aegis Steward"
+        )
+
+    def test_an_explicit_name_wins(self):
+        from app.core.config import Settings
+
+        assert Settings(
+            PROJECT_NAME="aegis-steward", PROJECT_DISPLAY_NAME="Steward"
+        ).PROJECT_DISPLAY_NAME == "Steward"

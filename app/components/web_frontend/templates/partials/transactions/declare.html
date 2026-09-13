@@ -1,7 +1,8 @@
 {# What the selection would become as recurring bills. Cadence, amount
    and next date are measured; the name is the one thing to confirm. #}
 {% from "components/macros/form.html" import primary_button %}
-<h2 class="text-lg font-semibold text-aegis-text mb-4">Make recurring</h2>
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Make recurring") }}
 {% if note or not plan.items %}
 <p id="dialog-note" class="text-sm text-aegis-muted">{{ note or "No rhythm found in this selection yet; pick two or more payments of the same bill." }}</p>
 {% else %}

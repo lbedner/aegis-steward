@@ -5,12 +5,12 @@
    lookalikes, the category) is the offer the route answers with. #}
 {% from "components/macros/form.html" import picker %}
 {% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
 {% set hidden %}
 {% for id in transaction_ids %}<input type="hidden" name="transaction_ids" value="{{ id }}">{% endfor %}
 {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
 {% endset %}
-<h2 class="text-lg font-semibold text-aegis-text mb-1">Set payee for {{ title }}</h2>
-<p class="text-xs text-aegis-muted mb-4">Pick one, or type a name that does not exist yet.</p>
+{{ dialog_title("Set payee for " ~ title, "Pick one, or type a name that does not exist yet.") }}
 {{ error_banner(errors) }}
 {{ picker("payee-picker", "/transactions/payee", "merchant_id", merchants,
           hint="Search or name a payee", create="new_name", hidden=hidden, current=current) }}

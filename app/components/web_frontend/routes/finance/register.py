@@ -10,7 +10,7 @@ account.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
@@ -30,6 +30,7 @@ from app.components.backend.api.finance.register import (
     uncategorized_transactions,
 )
 from app.components.web_frontend import ranges
+from app.components.web_frontend.filters import mark_new
 from app.core.formatting import payee_label
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
 from app.services.finance.models import FinanceTransaction
@@ -193,6 +194,8 @@ def _row(txn: TransactionResponse, account_names: dict[int, str]) -> dict[str, A
         "tags": txn.tags,
         "is_split": txn.is_split,
         "splits": txn.splits,
+        "import_batch_id": txn.import_batch_id,
+        "created_at": txn.created_at,
     }
 
 
@@ -254,6 +257,7 @@ def _pager(path: str, filters: RegisterFilters, total: int) -> dict[str, Any] | 
 async def register_context(
     *,
     path: str,
+    seen: datetime | None = None,
     account: AccountResponse | None,
     accounts: list[AccountResponse],
     filters: RegisterFilters,
@@ -330,7 +334,9 @@ async def register_context(
         "filters": filters,
         "ranges": ranges.WINDOWS,
         "columns": columns,
-        "rows": [_row(t, names) for t in listing.items],
+        "rows": await mark_new(
+            service.db, [_row(t, names) for t in listing.items], seen
+        ),
         "total": listing.total,
         "pager": _pager(path, filters, listing.total),
         "categories": (await list_category_options(service=service)).items,

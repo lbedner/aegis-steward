@@ -4,12 +4,12 @@
    on the same row. #}
 {% from "components/macros/form.html" import picker %}
 {% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
 {% set hidden %}
 {% for id in transaction_ids %}<input type="hidden" name="transaction_ids" value="{{ id }}">{% endfor %}
 {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
 {% endset %}
-<h2 class="text-lg font-semibold text-aegis-text mb-1">Tag {{ title }}</h2>
-<p class="text-xs text-aegis-muted mb-4">Pick a tag, or type one that does not exist yet.</p>
+{{ dialog_title("Tag " ~ title, "Pick a tag, or type one that does not exist yet.") }}
 {{ error_banner(errors) }}
 {{ picker("tag-picker", "/transactions/tag", "tag_id", tags,
           hint="Search or name a tag", create="name", hidden=hidden, current=current) }}

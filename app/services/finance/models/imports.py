@@ -141,6 +141,11 @@ class FinanceImportBatch(SQLModel, table=True):
     rows_updated: int = Field(default=0)
     rows_duplicate: int = Field(default=0)
     rows_error: int = Field(default=0)
+    # What this run brought, in whatever terms its source counts in: a
+    # file counts rows, a brokerage counts holdings and trades, a bank
+    # counts transactions it retracted. A column per tally would grow one
+    # every time a new source counts something new.
+    detail: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     status: str = Field(default="pending", max_length=16)
     error: str | None = Field(default=None)
     started_at: datetime | None = Field(default=None)

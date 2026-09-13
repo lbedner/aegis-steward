@@ -43,6 +43,21 @@ class LiabilitySummary(BaseModel):
     last_payment_date: date | None = None
     is_overdue: bool | None = None
     aprs: list[Any] = Field(default_factory=list)
+    # What a LOAN carries where a card carries ``aprs``: the lender's own
+    # figure for what is still owed, the flat rate, and where it started.
+    # Held on the detail row since the beginning and reported by nothing,
+    # so a debt's cost had nowhere to appear.
+    outstanding_balance: int | None = None
+    interest_rate_bps: int | None = None
+    origination_date: date | None = None
+    origination_principal: int | None = None
+    loan_term_months: int | None = None
+    prepayment_penalty: str | None = None
+    extra_payment_treatment: str | None = None
+    # The headline rate, whichever shape it came in: a card's purchase
+    # APR, else its highest reported, else the flat one. One answer, so
+    # a page and an alert cannot quote different rates.
+    apr_bps: int | None = None
     # FW-04: the property this liability encumbers, as the user confirmed
     # it (1 = first mortgage, 2 = second/HELOC). None = unlinked.
     secured_by_account_id: int | None = None
@@ -50,6 +65,10 @@ class LiabilitySummary(BaseModel):
 
     @classmethod
     def from_row(cls, row: FinanceLiabilityDetail) -> LiabilitySummary:
+        from app.services.finance.domains.detection.insights.formatting import (
+            card_apr_bps,
+        )
+
         return cls(
             last_statement_balance=row.last_statement_balance,
             last_statement_issue_date=row.last_statement_issue_date,
@@ -59,6 +78,14 @@ class LiabilitySummary(BaseModel):
             last_payment_date=row.last_payment_date,
             is_overdue=row.is_overdue,
             aprs=row.aprs or [],
+            outstanding_balance=row.outstanding_balance,
+            interest_rate_bps=row.interest_rate_bps,
+            origination_date=row.origination_date,
+            origination_principal=row.origination_principal,
+            loan_term_months=row.loan_term_months,
+            prepayment_penalty=row.prepayment_penalty,
+            extra_payment_treatment=row.extra_payment_treatment,
+            apr_bps=card_apr_bps(row),
             secured_by_account_id=row.secured_by_account_id,
             lien_position=row.lien_position,
         )

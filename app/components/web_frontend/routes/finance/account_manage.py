@@ -24,12 +24,21 @@ from app.components.backend.api.finance.accounts import (
     update_property_details,
     update_secured_debt,
 )
-from app.components.web_frontend.filters import cents_to_input, money_to_cents
+from app.components.web_frontend.filters import (
+    cents_to_input,
+    money_to_cents,
+    positions_from_text,
+)
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    where_from,
     with_toast,
+)
+from app.components.web_frontend.routes.finance.accounts import (
+    VALUATION_COLUMNS,
+    valuation_row,
 )
 from app.components.web_frontend.routes.finance.transactions import (
     picker_options,
@@ -111,7 +120,9 @@ async def rename(
         owner_user_id=owner_user_id,
     )
     await service.db.commit()
-    return dialog_done(f"{SECTION.path}/{account_id}", f"Renamed to {label}")
+    return dialog_done(
+        where_from(request, f"{SECTION.path}/{account_id}"), f"Renamed to {label}"
+    )
 
 
 @router.get("/{account_id:int}/institution", include_in_schema=False)
@@ -303,7 +314,10 @@ async def reconcile(
             errors=[],
         )
     await service.db.commit()
-    return dialog_done(f"{SECTION.path}/{account_id}", "Reconciled to the statement")
+    return dialog_done(
+        where_from(request, f"{SECTION.path}/{account_id}"),
+        "Reconciled to the statement",
+    )
 
 
 @router.get("/{account_id:int}/remove", include_in_schema=False)
@@ -453,7 +467,11 @@ async def _valuations_dialog(
         "partials/accounts/valuations.html",
         status_code,
         account=account,
-        history=sorted(history.items, key=lambda v: v.as_of_date, reverse=True),
+        history=[
+            valuation_row(row)
+            for row in sorted(history.items, key=lambda v: v.as_of_date, reverse=True)
+        ],
+        valuation_columns=list(VALUATION_COLUMNS),
         sources=PASTE_SOURCES,
         errors=errors,
         text=text,
@@ -508,6 +526,223 @@ async def valuations_paste(
         request, service, owner_user_id, account, [], source=source
     )
     return with_toast(response, f"Added {result.added}, updated {result.updated}")
+
+
+# --- terms -------------------------------------------------------------------
+
+
+async def _terms_dialog(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    account: FinanceAccount,
+    errors: list[str],
+    status_code: int = 200,
+    values: dict[str, str] | None = None,
+) -> Response:
+    """The shape this kind of debt has, filled with what is on record."""
+    from app.services.finance.domains.writes.terms import shape_for, shown
+
+    terms = shape_for(account.account_type)
+    current = await _liability_detail(service, account.id)
+    on_record = {
+        term.name: _as_input(term, getattr(current, term.name, None))
+        for term in terms
+    }
+    return dialog(
+        request,
+        "partials/accounts/terms.html",
+        status_code,
+        account=account,
+        terms=terms,
+        values={**on_record, **(values or {})},
+        errors=errors,
+        shown=shown,
+    )
+
+
+def _as_input(term: Any, value: Any) -> str:
+    """A stored value back in the units the input is typed in."""
+    if value is None:
+        return ""
+    if term.kind == "money":
+        return cents_to_input(value)
+    if term.kind == "rate":
+        return f"{value / 100:g}"
+    if term.kind == "date":
+        return value.isoformat()
+    return str(value)
+
+
+async def _liability_detail(service: FinanceService, account_id: int) -> Any:
+    from app.services.finance.domains.ledger.accounts import liability_details
+
+    details = await liability_details(service.db, [account_id])
+    return details.get(account_id)
+
+
+@router.get("/{account_id:int}/terms", include_in_schema=False)
+async def terms_form(
+    request: Request,
+    account_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    account = await _account(service, account_id, owner_user_id)
+    return await _terms_dialog(request, service, owner_user_id, account, [])
+
+
+@router.post("/{account_id:int}/terms", include_in_schema=False)
+async def terms_save(
+    request: Request,
+    account_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Save the terms this shape asks for.
+
+    The form is read back through the same declaration that rendered it,
+    so a field cannot be written that the shape does not name - and the
+    parse rule for a rate lives beside the rule that displays one.
+    """
+    from app.services.finance.domains.writes.terms import (
+        LoanTermsPayload,
+        loan_terms_execute,
+        shape_for,
+        typed,
+    )
+
+    account = await _account(service, account_id, owner_user_id)
+    form = await request.form()
+    terms = shape_for(account.account_type)
+    values = {term.name: str(form.get(term.name) or "") for term in terms}
+    stated: dict[str, Any] = {}
+    errors: list[str] = []
+    for term in terms:
+        value, why = typed(term, values[term.name])
+        if why:
+            errors.append(f"{term.label}: {values[term.name]!r} {why}")
+        elif value is not None:
+            stated[term.name] = value
+    if errors:
+        return await _terms_dialog(
+            request, service, owner_user_id, account, errors, 422, values=values
+        )
+    # The same executor the approval card runs. A form that wrote the
+    # columns itself would be a second implementation of "what recording
+    # terms means", and the two would drift the first time one grew a
+    # rule - which is exactly what the shape declaration exists to stop.
+    await loan_terms_execute(
+        service.db,
+        LoanTermsPayload(account_id=account.id, **stated),
+        owner_user_id,
+    )
+    await service.db.commit()
+    response = await _terms_dialog(request, service, owner_user_id, account, [])
+    return with_toast(response, "Terms saved")
+
+
+# --- positions ---------------------------------------------------------------
+
+
+async def _positions_dialog(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    account: FinanceAccount,
+    errors: list[str],
+    status_code: int = 200,
+    positions: str = "",
+    as_of_date: str = "",
+) -> Response:
+    from app.components.backend.api.finance.investments import list_account_holdings
+
+    held = await list_account_holdings(
+        account.id, service=service, owner_user_id=owner_user_id
+    )
+    return dialog(
+        request,
+        "partials/accounts/positions.html",
+        status_code,
+        account=account,
+        errors=errors,
+        positions=positions,
+        as_of_date=as_of_date or current_date().isoformat(),
+        holdings=[
+            {
+                "ticker": h.ticker,
+                "quantity": f"{h.quantity:g}",
+                "value": h.market_value,
+            }
+            for h in held.items
+        ],
+    )
+
+
+@router.get("/{account_id:int}/positions", include_in_schema=False)
+async def positions_form(
+    request: Request,
+    account_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    account = await _account(service, account_id, owner_user_id)
+    return await _positions_dialog(request, service, owner_user_id, account, [])
+
+
+@router.post("/{account_id:int}/positions", include_in_schema=False)
+async def positions_save(
+    request: Request,
+    account_id: int,
+    positions: Annotated[str, Form()] = "",
+    as_of_date: Annotated[str, Form()] = "",
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Pasted positions, all-or-nothing.
+
+    A paste of twenty rows where two are malformed files NOTHING and says
+    which two: filing eighteen leaves the account wrong in a way that
+    looks right, and the reader has no way to tell which two are missing.
+    """
+    from app.components.backend.api.finance.investments import upsert_holding
+    from app.services.finance.schemas.investments import HoldingCreate
+
+    account = await _account(service, account_id, owner_user_id)
+    rows, errors = positions_from_text(positions)
+    if not errors and not rows:
+        errors = ["Nothing to save - one position per line."]
+    try:
+        as_of = date.fromisoformat(as_of_date) if as_of_date else current_date()
+    except ValueError:
+        errors.append(f"{as_of_date!r} is not a date")
+        as_of = current_date()
+    if errors:
+        return await _positions_dialog(
+            request,
+            service,
+            owner_user_id,
+            account,
+            errors,
+            422,
+            positions=positions,
+            as_of_date=as_of_date,
+        )
+    for row in rows:
+        await upsert_holding(
+            account.id,
+            HoldingCreate(
+                ticker=row["ticker"],
+                quantity=row["quantity"],
+                price=row["price"],
+                as_of_date=as_of,
+            ),
+            service=service,
+            owner_user_id=owner_user_id,
+        )
+    await service.db.commit()
+    response = await _positions_dialog(request, service, owner_user_id, account, [])
+    return with_toast(response, f"Saved {len(rows)} position{'s' if len(rows) != 1 else ''}")
 
 
 # --- secured by --------------------------------------------------------------

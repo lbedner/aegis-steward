@@ -7,7 +7,10 @@ through the filters, so a page never hand-writes a ``<table>``.
 from dataclasses import dataclass
 from datetime import date
 
+from fastapi.testclient import TestClient
+
 from app.components.web_frontend.rendering import templates
+from tests.web.conftest import Ledger
 from tests.web.dom import none, one, select, text
 
 COLUMNS = [
@@ -107,3 +110,98 @@ class TestAvatarCell:
         assert one(cells[2], "[data-glyph] svg path").get("d")
         none(cells[2], "[data-avatar]")
         assert text(cells[2]) == "Landlord"
+
+
+class TestTheRegisterIsATableLikeAnyOther:
+    """The register hand-rolled its own ``<table>`` because it needed
+    selection, sortable headers and a row that is an editing surface
+    rather than a list of cells. Two implementations means every table
+    feature is built twice or built wrong once - and the mark for "this
+    arrived since you last looked" would have landed in the macro and
+    missed the one ledger where it matters most."""
+
+    def test_the_register_writes_no_table_markup(self) -> None:
+        from pathlib import Path
+
+        markup = Path(
+            "app/components/web_frontend/templates/components/register.html"
+        ).read_text()
+        for tag in ("<table", "<thead", "<tbody", "<tr ", "<th "):
+            assert tag not in markup, f"{tag} is the kit's job now"
+
+    def test_selection_and_sorting_are_the_macro_s(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get(f"/accounts/{ledger.checking}").text
+        # the chrome the register needs, rendered by the macro
+        one(page, "#register th input[data-select-all]")
+        sortable = select(page, "#register th a[href*='sort=']")
+        assert sortable, "headers sort"
+        # Every sortable header states its state; the select-all and the
+        # actions columns are headers too and sort by nothing.
+        assert len(select(page, "#register thead th[aria-sort]")) == len(sortable)
+
+    def test_the_row_is_still_the_register_s_own(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """The kit owns the chrome; the caller owns the row. A column
+        declaration cannot describe an inline category select."""
+        page = client.get(f"/accounts/{ledger.checking}").text
+        assert select(page, "#register tbody tr select[name=category_id]")
+
+
+class TestWhatArrivedSinceYouLooked:
+    """The mark means "you have not seen this", not "this is recent".
+
+    By age it would re-mark the whole ledger after every import and could
+    never be cleared: after a nightly Quicken run, 54 rows glow whether
+    or not they have been read. A watermark clears because you looked.
+    """
+
+    def test_a_first_visit_marks_nothing(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """A ledger that lights up entirely on a first look has told the
+        reader nothing."""
+        page = client.get(f"/accounts/{ledger.checking}").text
+        assert not select(page, "#register tbody .sr-only")
+
+    def test_the_visit_is_remembered(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        client.get(f"/accounts/{ledger.checking}")
+        assert "seen_register" in client.cookies
+
+    def test_refreshing_does_not_clear_the_marks(self) -> None:
+        """Seeing a list is not reading it. A highlight that vanishes on a
+        refresh is one you cannot come back to, so the watermark advances
+        only after a gap away."""
+        from datetime import UTC, datetime, timedelta
+
+        from starlette.requests import Request
+        from starlette.responses import Response
+
+        from app.components.web_frontend.seen import AWAY, remember, watermark
+
+        first = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
+
+        def request_with(cookie: str | None) -> Request:
+            headers = [(b"cookie", cookie.encode())] if cookie else []
+            return Request({"type": "http", "headers": headers, "method": "GET", "path": "/"})
+
+        # First visit: nothing seen before, so nothing is marked.
+        response = remember(request_with(None), Response(), "register", first)
+        jar = response.headers["set-cookie"].split(";")[0]
+        assert watermark(request_with(jar), "register") == first
+
+        # A refresh a minute later keeps the same watermark.
+        soon = first + timedelta(minutes=1)
+        response = remember(request_with(jar), Response(), "register", soon)
+        jar2 = response.headers["set-cookie"].split(";")[0]
+        assert watermark(request_with(jar2), "register") == first
+
+        # Coming back after the gap advances it: the last visit is read.
+        later = soon + AWAY + timedelta(minutes=1)
+        response = remember(request_with(jar2), Response(), "register", later)
+        jar3 = response.headers["set-cookie"].split(";")[0]
+        assert watermark(request_with(jar3), "register") == soon

@@ -666,8 +666,16 @@ async def setup_dashboard(view: BaseView) -> None:
             # Map component names to their stunning card classes
             if component_name == "backend":
                 return ServerCard(component_data).build()
-            elif component_name == "frontend":
-                # Frontend is merged into ServerCard, return empty
+            elif component_name in ("frontend", "web_frontend"):
+                # Both frontends are faces of ONE webserver process - Flet
+                # at /dashboard, htmx pages at / - and ServerCard already
+                # reports that process, so neither gets a card of its own.
+                #
+                # ``web_frontend`` reports its own health (it is a
+                # component, and the modal names it), so leaving it out of
+                # this branch did not hide it - it fell through to the
+                # unknown-component fallback and logged a warning on every
+                # dashboard refresh, about twice a minute, forever.
                 return ft.Container()
 
             elif component_name == "worker":

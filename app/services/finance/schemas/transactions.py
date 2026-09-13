@@ -98,6 +98,12 @@ class TransactionResponse(BaseModel):
     # Filled by the list endpoint (batched), like ``category``/``merchant``.
     tags: list[TagRef] = Field(default_factory=list)
     splits: list[SplitLineResponse] = Field(default_factory=list)
+    # When this row ARRIVED, which is not when it happened: a statement
+    # from March imported tonight is new to the reader and old to the
+    # ledger. The run it came in on answers better than ``created_at``,
+    # since an import writes its rows over several seconds.
+    import_batch_id: int | None = None
+    created_at: datetime | None = None
 
     @classmethod
     def from_row(cls, row: FinanceTransaction) -> TransactionResponse:
@@ -105,6 +111,8 @@ class TransactionResponse(BaseModel):
             id=row.id,
             account_id=row.account_id,
             date=row.date_,
+            import_batch_id=row.import_batch_id,
+            created_at=row.created_at,
             authorized_date=row.authorized_date,
             posted_at=row.datetime_,
             name=row.name,

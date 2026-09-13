@@ -261,3 +261,24 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 <textarea name="{{ name }}" rows="{{ rows }}" placeholder="{{ placeholder }}"
           class="{{ control("textarea") }} w-full mt-1 font-mono text-xs">{{ value or "" }}</textarea>
 {% endmacro %}
+
+
+{# A declared field set, rendered. ``terms`` are ``Term`` rows (name,
+   label, kind, choices) and the KIND picks the control - which is the
+   only reason this can exist: the field list is declared once in the
+   finance domain, and the form, the parser and the change card all read
+   it rather than each carrying their own copy of what a loan has.
+
+   Adding a term to a shape adds an input here, a parse rule there and a
+   row on the approval card, with no edit to any of the three. #}
+{% macro term_fields(terms, values) %}
+{% for term in terms %}
+{% call field(term.label) %}
+  {%- if term.kind == "money" %}{{ money_input(term.name, values.get(term.name, "")) }}
+  {%- elif term.kind == "date" %}{{ date_input(term.name, values.get(term.name, ""), block=True) }}
+  {%- elif term.kind == "choice" %}{{ select(term.name, term.choices|as_options, values.get(term.name, ""), blank="Not stated", block=True) }}
+  {%- else %}{{ text_input(term.name, values.get(term.name, "")) }}
+  {%- endif %}
+{% endcall %}
+{% endfor %}
+{% endmacro %}

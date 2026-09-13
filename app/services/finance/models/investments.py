@@ -186,6 +186,9 @@ class FinanceHolding(SQLModel, table=True):
     metadata_: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("metadata", JSON)
     )
+    # The run that brought this row, when one did (migration 012).
+    # Null is a real answer: a position typed by hand arrived from nobody.
+    import_batch_id: int | None = Field(default=None)
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 

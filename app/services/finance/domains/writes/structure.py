@@ -11,7 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection.insights.formatting import format_usd
 from app.services.finance.domains.ledger import categories, splits
-from app.services.finance.domains.writes.display import txn_subject
+from app.services.finance.domains.writes.display import txn_row
 from app.services.finance.schemas import ChangeDisplayRow, SplitPart
 
 
@@ -54,7 +54,7 @@ async def match_describe(
 ) -> list[ChangeDisplayRow]:
     from app.services.finance.domains.planning.recurring import streams
 
-    txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
+    txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     stream = await streams.get_recurring(db, payload.stream_id, owner_user_id)
     # A match is a MOVE too: from whichever live bill holds the row now
     # (usually none) to the proposed one, read from the row so the card
@@ -66,7 +66,7 @@ async def match_describe(
             before = holder.name
     after = stream.name if stream is not None else f"bill {payload.stream_id} (missing)"
     return [
-        ChangeDisplayRow(label="Payment", value=subject),
+        subject.model_copy(update={"label": "Payment"}),
         ChangeDisplayRow(label="Bill", value=f"{before} \u2192 {after}"),
     ]
 
@@ -113,14 +113,14 @@ async def split_execute(
 async def split_describe(
     db: AsyncSession, payload: SplitChangePayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
+    txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     wanted = [p.category_id for p in payload.parts if p.category_id is not None]
     if txn is not None and txn.category_id is not None:
         wanted.append(txn.category_id)
     names = await categories.category_names(db, wanted)
     # One card row PER LINE - the user reviews the itemization the way
     # it will land: category, amount, and what the amount covers.
-    rows = [ChangeDisplayRow(label="Transaction", value=subject)]
+    rows = [subject]
     for part in payload.parts:
         value = format_usd(part.amount)
         if part.memo:

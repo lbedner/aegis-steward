@@ -21,6 +21,12 @@ lines of history instead of 144k characters, and nothing evicts them.
 The index lives beside the saved facts and readings in
 ``agent_user_memory``: one row per user, so a paste is still reachable
 from the next conversation - the same reason readings moved there.
+
+An ATTACHED DOCUMENT lands in the same index. A PDF is read by the
+documents service (its text layer per page, a vision model over the
+pages that have none) and the entry points at the document rather than
+at a blob, so the text has ONE home and the agent has one way to ask for
+it. The marker, the tool and the chip do not care which kind it is.
 """
 
 from __future__ import annotations
@@ -54,6 +60,11 @@ ID_LENGTH = 8
 # Stands in the message where a wall of text was, until the paste is
 # stored and knows its own id.
 PLACEHOLDER = "\x00paste\x00"
+
+# Pages are named rather than run together: a figure's meaning often
+# depends on which page it came off, and statements repeat their
+# headings.
+PAGE_HEADING = "--- page {number} ---\n"
 
 # The id inside a marker this module wrote.
 _MARKER_ID = re.compile(r"\[pasted text #([0-9a-f]+)")
@@ -152,8 +163,39 @@ def lift(text: str) -> tuple[str, list[str]]:
     return "\n\n".join(kept), lifted
 
 
+async def store_document(
+    user_id: str,
+    document_id: int,
+    title: str,
+    chars: int,
+    session: Any = None,
+) -> dict[str, Any]:
+    """Index an already-read document so the agent can ask for it.
+
+    The text stays where extraction put it - one home - and the entry
+    is the handle: the same marker, the same tool, the same chip as a
+    pasted page, because from the conversation's side they are the same
+    thing.
+    """
+    paste = {
+        "id": f"{document_id:08x}"[-ID_LENGTH:],
+        "document_id": document_id,
+        "title": title,
+        "chars": chars,
+        "at": datetime.now(UTC).isoformat(),
+    }
+    index = await load_user_pastes(user_id, session)
+    index = [p for p in index if p.get("id") != paste["id"]]
+    index.append(paste)
+    await store_user_pastes(user_id, index[-MAX_PASTES_PER_USER:], session)
+    return paste
+
+
 async def store_paste(
-    user_id: str, text: str, title: str | None = None
+    user_id: str,
+    text: str,
+    title: str | None = None,
+    session: Any = None,
 ) -> dict[str, Any]:
     """Keep the text, index it for this user, and describe it.
 
@@ -171,32 +213,65 @@ async def store_paste(
         "chars": len(text),
         "at": datetime.now(UTC).isoformat(),
     }
-    index = await load_user_pastes(user_id)
+    index = await load_user_pastes(user_id, session)
     # Re-pasting the same page is the same bytes and so the same id;
     # keep one entry rather than a row per paste of it.
     index = [p for p in index if p.get("id") != paste["id"]]
     index.append(paste)
-    await store_user_pastes(user_id, index[-MAX_PASTES_PER_USER:])
+    await store_user_pastes(user_id, index[-MAX_PASTES_PER_USER:], session)
     return paste
 
 
-async def read_paste(
-    user_id: str, paste_id: str
-) -> tuple[dict[str, Any], str] | None:
+async def read_paste(user_id: str, paste_id: str) -> tuple[dict[str, Any], str] | None:
     """The descriptor and the text, or None when there is no such paste.
 
     The one lookup. ``pasted`` is the agent's door onto it and the
-    viewer route is the reader's; neither re-implements the search.
+    viewer route is the reader's; neither re-implements the search, and
+    neither has to know whether the text came off the clipboard or out
+    of a PDF.
     """
     index = await load_user_pastes(user_id)
     match = next((p for p in index if p.get("id") == paste_id), None)
     if match is None:
         return None
+    if match.get("document_id"):
+        text = await document_text(int(match["document_id"]))
+        if text is None:
+            logger.warning("paste index points at an unread document", id=paste_id)
+            return None
+        return match, text
     data = await get_storage().get(str(match["key"]))
     if data is None:
         logger.warning("paste index points at missing bytes", paste_id=paste_id)
         return None
     return match, data.decode("utf-8", errors="replace")
+
+
+async def document_text(document_id: int) -> str | None:
+    """Every read page of a document, in order, as one body of text.
+
+    A page that could not be read is a row too, with its reason, so it
+    is named here rather than silently skipped: the agent must be able
+    to tell a page that said nothing from one nobody could read.
+    """
+    from app.core.db import get_async_session
+    from app.services.documents.queries import pages_for
+
+    async with get_async_session() as session:
+        pages = await pages_for(session, document_id)
+    if not pages:
+        return None
+    parts = [
+        PAGE_HEADING.format(number=page.page_number)
+        + (
+            page.text.strip()
+            if page.status == "read" and page.text
+            else f"[page {page.page_number} could not be read: "
+            f"{page.detail or 'no text'}]"
+        )
+        for page in pages
+    ]
+    return "\n\n".join(parts).strip() or None
 
 
 async def pasted(paste_id: str) -> str:

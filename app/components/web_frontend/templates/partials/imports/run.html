@@ -1,0 +1,28 @@
+{# One run, opened from the mark on a row it brought.
+
+   The same five numbers the import review and summary show, in the same
+   strip: a reader comparing "what will happen", "what did happen" and
+   "what happened that night" should not have to work out whether three
+   screens mean the same thing by the same word. #}
+{% from "components/macros/imports.html" import count_cells, footnote %}
+{% from "components/macros/layout.html" import badge, dialog_title %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% call dialog_title(run.title) %}
+<p class="text-aegis-muted micro-label mb-4">{{ run.when }}{% if run.took %} · {{ run.took }}{% endif %} · {{ run.status }}</p>
+{% endcall %}
+{{ error_banner(errors) }}
+{{ count_cells(run.counts, [
+     ("Added", "new rows"),
+     ("Updated", "rows it changed"),
+     ("Duplicate", "already here"),
+   ]) }}
+{% if run.extras %}
+{# What only this SOURCE counts. A brokerage restates positions and
+   trades nothing; a file has neither. #}
+<div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+  {% for extra in run.extras %}{{ badge(extra, "ok") }}{% endfor %}
+</div>
+{% endif %}
+<div class="mt-5">
+{{ footnote(run.note) }}
+</div>

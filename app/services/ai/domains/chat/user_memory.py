@@ -13,8 +13,8 @@ the tool reads it when the model calls ``save_memory``. Without it the
 tool declines politely instead of guessing.
 """
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
@@ -183,28 +183,56 @@ async def store_user_readings(
     await session.commit()
 
 
-async def load_user_pastes(user_id: str) -> list[dict[str, Any]]:
+@asynccontextmanager
+async def session_or(session: AsyncSession | None) -> AsyncIterator[AsyncSession]:
+    """The caller's session, or one opened for the length of the call.
+
+    Callers come from both sides: a TOOL runs inside a model call with
+    no session of its own, while a change type's describe or execute
+    already holds the request's. Opening a second one inside the first
+    is not merely wasteful - every transaction takes the write lock now
+    (see ``_async_sqlite_emit_begin``), so the inner session waits on a
+    lock its own caller is holding and spends the entire busy timeout
+    doing it. That reads as a hang, and it cost two of them.
+    """
+    if session is not None:
+        yield session
+        return
+    async with get_async_session() as opened:
+        yield opened
+
+
+async def load_user_pastes(
+    user_id: str, session: AsyncSession | None = None
+) -> list[dict[str, Any]]:
     """The pastes this user has on file, oldest first."""
-    async with get_async_session() as session:
-        row = await get_user_memory(session, user_id)
+    async with session_or(session) as db:
+        row = await get_user_memory(db, user_id)
         return list(row.memory.get("pastes", [])) if row else []
 
 
-async def store_user_pastes(user_id: str, pastes: list[dict[str, Any]]) -> None:
+async def store_user_pastes(
+    user_id: str,
+    pastes: list[dict[str, Any]],
+    session: AsyncSession | None = None,
+) -> None:
     """Replace the user's paste index.
 
     Same document as the facts and the readings, a different key: the
     index is a line per paste, and the text itself lives in the object
     store under the key each line names.
     """
-    async with get_async_session() as session:
-        row = await get_user_memory(session, user_id)
+    async with session_or(session) as db:
+        row = await get_user_memory(db, user_id)
         if row is None:
             row = AgentUserMemory(user_id=user_id)
         row.memory = {**row.memory, "pastes": pastes}
         row.updated_at = utcnow_naive()
-        session.add(row)
-        await session.commit()
+        db.add(row)
+        # A caller that brought its own session owns the commit: the
+        # change queue commits the whole approval at once.
+        if session is None:
+            await db.commit()
 
 
 async def replace_user_memory(

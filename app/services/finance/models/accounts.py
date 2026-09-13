@@ -152,6 +152,13 @@ class FinanceLiabilityDetail(SQLModel, table=True):
     ytd_interest_paid: int | None = _bigint("ytd_interest_paid")
     ytd_principal_paid: int | None = _bigint("ytd_principal_paid")
     loan_term_months: int | None = Field(default=None)
+    # How the debt can be paid DOWN, which is a different question from
+    # what it costs: whether early payoff is penalised, and whether money
+    # above the required payment reduces principal or merely pays future
+    # instalments early. Stated by the borrower, never inferred - both
+    # are claims about somebody's contract.
+    prepayment_penalty: str | None = Field(default=None, max_length=16)
+    extra_payment_treatment: str | None = Field(default=None, max_length=24)
     is_overdue: bool | None = Field(default=None)
     # FW-04: which property secures this liability, as CONFIRMED by the
     # user - lien priority is never inferred. 1 = first mortgage,
@@ -275,11 +282,24 @@ class FinanceValuation(SQLModel, table=True):
     source_ref: str | None = Field(default=None)
     is_estimate: bool = Field(default=False)
     fetched_at: datetime | None = Field(default=None)
-    is_stale: bool = Field(default=False)
+    # This row's own answer to "how long until this is old?", because a
+    # quarterly appraisal and a daily quote are both valuations. Read by
+    # ``freshness(after=...)``.
+    #
+    # Its neighbour ``is_stale`` is gone from the model: a stored
+    # staleness boolean is wrong the day after it is written, and
+    # nothing ever read or wrote it. The COLUMN stays until a migration
+    # can prove it dropped - every stamp signature is a positive proof
+    # object (a table, a column, a constraint) and there is no form for
+    # "this is absent", so a drop would ship unprovable and re-create
+    # the incident those signatures exist to prevent.
     stale_after_days: int | None = Field(default=None)
     note: str | None = Field(default=None)
     metadata_: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("metadata", JSON)
     )
+    # The run that brought this row, when one did (migration 012).
+    # Null is a real answer: a position typed by hand arrived from nobody.
+    import_batch_id: int | None = Field(default=None)
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

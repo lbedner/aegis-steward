@@ -8,14 +8,16 @@
    it starts on whatever this payee mostly uses, and unticking it writes
    no category at all. #}
 {% from "components/macros/form.html" import primary_button, select, control %}
-<h2 class="text-lg font-semibold text-aegis-text mb-1">{{ "Also " ~ merchant_name ~ "?" if similar else "File " ~ merchant_name ~ " the same way?" }}</h2>
-<p class="text-sm text-aegis-muted mb-4">
+{% from "components/macros/layout.html" import dialog_title %}
+{% call dialog_title("Also " ~ merchant_name ~ "?" if similar else "File " ~ merchant_name ~ " the same way?") %}
+<p class="text-xs text-aegis-muted mb-4">
   {%- if similar -%}
   {{ similar|length }} similar transaction{{ "s" if similar|length != 1 }} without a payee look like this one. Untick anything that is not a match.
   {%- else -%}
   This payee's transactions are not all filed the same way.
   {%- endif -%}
 </p>
+{% endcall %}
 {# Apply is dead while it would write nothing: every lookalike unticked
    and the category too. A button that does nothing is a step to undo. #}
 <form id="similar-offer" {{ hx_dialog_post('/transactions/payee') }} class="space-y-6"

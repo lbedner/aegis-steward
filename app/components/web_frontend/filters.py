@@ -4,7 +4,7 @@ Registered on the environment by ``rendering.py``. Amounts arrive from the
 finance service as integer minor units with a currency code.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
 import html
 from typing import Any
@@ -28,18 +28,39 @@ def _utc_today() -> date:
     return datetime.now(UTC).date()
 
 
-def money(cents: int | None, currency: str = "USD") -> str:
+def money(cents: int | None, currency: str = "USD", whole: bool = False) -> str:
     """Minor units -> ``-$1,234.56`` (the Flet register's ``_usd`` rule,
-    widened to honour the currency code)."""
+    widened to honour the currency code).
+
+    ``whole`` rounds the cents away for somewhere they are noise rather
+    than precision - a month chip reading ``Nov $4,208`` where the
+    figure is a projection, not a statement. It is the only reason to
+    format money any other way, which is why it lives here instead of in
+    the f-string that wanted it.
+    """
     code = (currency or "USD").upper()
     if code in _ZERO_DECIMAL_CURRENCIES:
         value, number = cents or 0, f"{abs(cents or 0):,}"
+    elif whole:
+        value = (cents or 0) / 100
+        number = f"{abs(round(value)):,}"
     else:
         value = (cents or 0) / 100
         number = f"{abs(value):,.2f}"
     sign = "-" if value < 0 else ""
     symbol = _CURRENCY_SYMBOLS.get(code)
     return f"{sign}{symbol}{number}" if symbol else f"{sign}{code} {number}"
+
+
+def dollars(cents: int | None) -> float:
+    """Minor units as dollars, for a chart's SCALE.
+
+    Charts are drawn in dollars. Cents on the axis drew a $711,200 house
+    at seventy million, and the mistake is invisible until a chart has a
+    figure somebody knows by heart - so the conversion has one home
+    rather than a ``/ 100`` in every series that gets written.
+    """
+    return (cents or 0) / 100
 
 
 def short_date(value: date | datetime | str | None, today: date | None = None) -> str:
@@ -64,6 +85,30 @@ def date_range(start: date | str | None, end: date | str | None) -> str:
     return format_date_range(start, end)
 
 
+def as_options(pairs: Any) -> list[dict[str, Any]]:
+    """``(key, label)`` pairs, or bare strings, as ``select`` options.
+
+    The macro takes ``{id, name}`` and the constants are pairs, so every
+    form that needed one had been hand-rolling its own ``<select>``.
+    One shaping, one macro.
+
+    A Mapping is taken as key -> label: the vocabularies that describe a
+    choice (``PREPAYMENT``, ``EXTRA_PAYMENT``) are dicts, and iterating
+    one yields its keys, which would have put "Unknown" on screen where
+    the value says "not confirmed with the lender".
+    """
+    if isinstance(pairs, Mapping):
+        pairs = tuple(pairs.items())
+    shaped: list[dict[str, Any]] = []
+    for pair in pairs or []:
+        if isinstance(pair, str):
+            shaped.append({"id": pair, "name": pair.replace("_", " ").capitalize()})
+        else:
+            key, label = pair
+            shaped.append({"id": key, "name": label})
+    return shaped
+
+
 def pct(ratio: float | None, digits: int = 0) -> str:
     """A 0-1 ratio -> ``15%`` (``digits`` decimals). Blank stays blank."""
     if ratio is None:
@@ -74,6 +119,166 @@ def pct(ratio: float | None, digits: int = 0) -> str:
 def cents_to_input(cents: int | None) -> str:
     """The inverse of ``money_to_cents`` for form values: ``350,000.00``."""
     return "" if cents is None else f"{cents / 100:,.2f}"
+
+
+# How old a figure is allowed to get before it is worth saying so, by
+# what KIND of thing it is. A brokerage that syncs daily is stale in a
+# week; a house's valuation is not stale at three months, and colouring
+# it amber would teach the reader to ignore the colour.
+STALE_AFTER: dict[str, tuple[int, int]] = {
+    "sync": (2, 7),
+    "holdings": (7, 30),
+    "valuation": (120, 400),
+    "default": (7, 30),
+}
+
+
+def arrived(row: Any, batches: Mapping[int, datetime] | None = None) -> Any:
+    """When a ledger row came in.
+
+    The run's finishing time when the row came in on one, else the row's
+    own ``created_at``. The batch time is the better answer: a 40,000-row
+    import writes its rows over several seconds and they all arrived
+    together, so ordering by ``created_at`` would scatter one delivery
+    across a minute and mark half of it as newer than the other half.
+
+    ``batches`` maps batch id to when it finished - passed in, because a
+    page draws fifty rows and must not ask the database fifty times.
+    """
+    batch_id = getattr(row, "import_batch_id", None)
+    if batch_id is None and isinstance(row, Mapping):
+        batch_id = row.get("import_batch_id")
+    if batch_id is not None and batches:
+        finished = batches.get(batch_id)
+        if finished is not None:
+            return finished
+    created = getattr(row, "created_at", None)
+    if created is None and isinstance(row, Mapping):
+        created = row.get("created_at")
+    return created
+
+
+async def mark_new(
+    db: Any, rows: list[dict[str, Any]], since: datetime | None
+) -> list[dict[str, Any]]:
+    """Flag the rows that arrived after ``since``.
+
+    One pass, one query: the batches these rows came in on are fetched
+    together, because a page of fifty rows must not ask fifty times when
+    its delivery finished.
+
+    No watermark means no marks. A ledger that lights up entirely on a
+    first visit has told the reader nothing.
+    """
+    if since is None or not rows:
+        return rows
+    ids = {row.get("import_batch_id") for row in rows} - {None}
+    finished: dict[int, datetime] = {}
+    if ids:
+        from sqlmodel import select
+
+        from app.services.finance.models.imports import FinanceImportBatch
+
+        found = (
+            await db.exec(
+                select(FinanceImportBatch).where(FinanceImportBatch.id.in_(ids))
+            )
+        ).all()
+        finished = {b.id: b.finished_at or b.started_at for b in found if b.id}
+    for row in rows:
+        when = arrived(row, finished)
+        if when is not None and when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        row["is_new"] = bool(when and when > since)
+    return rows
+
+
+def freshness(
+    when: date | datetime | str | None,
+    kind: str = "default",
+    today: date | None = None,
+    after: int | None = None,
+) -> dict[str, str]:
+    """How current a figure is: the words, and a tone for how it reads.
+
+    ``{"label": "2 days ago", "tone": "ok"}``. One helper because the
+    connection card, the account header and a holdings table all answer
+    "is this still true?" and must not disagree about when the answer
+    becomes no.
+
+    Nothing at all is not stale - it is unknown, which is a different
+    thing and says so.
+
+    ``after`` is a row's own answer, overriding its kind's: a valuation
+    carries ``stale_after_days`` because a quarterly appraisal and a
+    daily quote are both valuations. It is the ONE staleness rule either
+    way - the column used to imply a second mechanism, and a stored
+    ``is_stale`` boolean is wrong the day after it is written.
+    """
+    if not when:
+        return {"label": "never", "tone": "muted"}
+    if isinstance(when, str):
+        try:
+            when = datetime.fromisoformat(when)
+        except ValueError:
+            return {"label": str(when), "tone": "muted"}
+    seen = when.date() if isinstance(when, datetime) else when
+    days = ((today or _utc_today()) - seen).days
+    warn, bad = STALE_AFTER.get(kind, STALE_AFTER["default"])
+    if after is not None:
+        warn, bad = after, after
+    tone = "ok" if days <= warn else ("warn" if days <= bad else "error")
+    if days <= 0:
+        label = "today"
+    elif days == 1:
+        label = "yesterday"
+    elif days < 30:
+        label = f"{days} days ago"
+    elif days < 365:
+        label = f"{days // 30} month{'s' if days // 30 != 1 else ''} ago"
+    else:
+        label = f"{days // 365} year{'s' if days // 365 != 1 else ''} ago"
+    return {"label": label, "tone": tone}
+
+
+def positions_from_text(raw: str) -> tuple[list[dict[str, Any]], list[str]]:
+    """Pasted positions -> rows, and a complaint per line that is not one.
+
+    ``VOO 14.2 512.30`` a line: ticker, shares, unit price. Commas,
+    dollar signs, tabs and multiple spaces are all normal in a paste off
+    a statement or a brokerage screen, so they are taken out rather than
+    rejected. The price is optional - a position with no price still
+    tells you what is held.
+
+    Bad lines are REPORTED, not skipped: a paste of twenty rows where two
+    are malformed must not silently file eighteen.
+    """
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for line in (raw or "").splitlines():
+        cleaned = line.replace("$", "").replace(",", "").strip()
+        if not cleaned:
+            continue
+        parts = cleaned.split()
+        if len(parts) < 2:
+            errors.append(f"{line.strip()} - needs a ticker and a quantity")
+            continue
+        ticker, quantity, *rest = parts
+        try:
+            shares = float(quantity)
+        except ValueError:
+            errors.append(f"{line.strip()} - {quantity!r} is not a quantity")
+            continue
+        price: int | None = None
+        if rest:
+            price = money_to_cents(rest[0])
+            if price is None:
+                errors.append(f"{line.strip()} - {rest[0]!r} is not a price")
+                continue
+        rows.append(
+            {"ticker": ticker.upper(), "quantity": shares, "price": price}
+        )
+    return rows, errors
 
 
 def money_to_cents(raw: str | None) -> int | None:
@@ -150,6 +355,7 @@ def assistant(slug: str | None) -> str:
 
 
 FILTERS: dict[str, Callable[..., str]] = {
+    "as_options": as_options,
     "money": money,
     "cents_to_input": cents_to_input,
     "short_date": short_date,

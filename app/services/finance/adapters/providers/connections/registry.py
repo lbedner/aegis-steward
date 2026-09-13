@@ -34,6 +34,7 @@ from app.services.finance.adapters.providers.connections.common import (
     get_connection,
     list_plaid_connections,
     list_provider_connections,
+    record_run,
 )
 from app.services.finance.adapters.providers.plaid import PlaidClient, PlaidError
 from app.services.finance.adapters.providers.snaptrade import (
@@ -173,6 +174,9 @@ async def _sync_isolated(
     detail, and returns None — one failing bank never kills the others.
     """
     connection_id = connection.id
+    owner_user_id = connection.owner_user_id
+    provider = str(connection.provider)
+    started = _utcnow()
     try:
         async with db.begin_nested():
             result = await sync()
@@ -183,6 +187,15 @@ async def _sync_isolated(
         connection.last_error_code = getattr(exc, "error_code", None)
         connection.last_sync_attempt_at = _utcnow()
         db.add(connection)
+        record_run(
+            db,
+            connection_id=connection_id,
+            owner_user_id=owner_user_id,
+            provider=provider,
+            started=started,
+            result=None,
+            error=str(exc)[:500],
+        )
         await db.flush()
         return None
     logger.info(

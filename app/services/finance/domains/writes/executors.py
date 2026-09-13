@@ -49,6 +49,24 @@ register(
 )
 register(
     ChangeExecutor(
+        change_type="account.valuation",
+        title="Record what an asset was worth",
+        payload_model=terms.ValuationPayload,
+        execute=terms.valuation_execute,
+        describe=terms.valuation_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="document.file",
+        title="File a document against an account",
+        payload_model=terms.FileDocumentPayload,
+        execute=terms.file_document_execute,
+        describe=terms.file_document_describe,
+    )
+)
+register(
+    ChangeExecutor(
         change_type="account.loan_terms",
         title="Record a loan's terms",
         payload_model=terms.LoanTermsPayload,

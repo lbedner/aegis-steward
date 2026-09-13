@@ -17,9 +17,23 @@
 
    ``row_id`` names each ``<tr>`` (``row_id ~ "-" ~ row.id``) so an action
    can swap one row back; a ``{% call(row) data_table(...) %}`` block adds
-   an actions column rendered per row. #}
+   an actions column rendered per row.
+
+   Three parameters exist for the register, which is a table like any
+   other until you look at a row: ``select`` adds the checkbox column and
+   its select-all, ``sort`` (with ``path`` and ``target``) makes the
+   headers sortable links, and ``row`` hands the row markup back to the
+   caller - a macro taking one row. A register row is an editing surface,
+   not a list of cells, and that is the one thing a column declaration
+   cannot describe. The kit owns the chrome either way, which is what
+   stops a table feature being built twice.
+
+   ``flush`` is the card bleed. On by default, because a table spans its
+   card; off where the CALLER already bleeds and a second ``-mx-5`` would
+   pull the table a further 1.25rem off the left of the page. #}
 {% from "components/macros/feedback.html" import empty_state %}
-{% from "components/macros/layout.html" import badge, mark %}
+{% from "components/macros/form.html" import control %}
+{% from "components/macros/layout.html" import avatar, badge, file_mark, mark %}
 
 {% macro _cell(row, col) -%}
 {%- set value = row[col.key] -%}
@@ -32,6 +46,21 @@
 {{ badge(value.label, value.tone) }}
 {%- elif col.kind == "avatar" -%}
 <span class="inline-flex items-center gap-2">{{ mark(row, value) }}<span>{{ value }}</span></span>
+{%- elif col.kind == "open" -%}
+{# A cell that opens the one modal (pattern 4). ``value`` is
+   ``{label, url}``, plus an optional ``badge`` (a file's type) or
+   ``glyph``: the cell, not the row,
+   because a row of a table is often several things and only one of them
+   is the door.
+
+   It READS as a door. Drawn plain it is indistinguishable from the
+   cells beside it, so the only way to discover it is to click text that
+   looks like text - which is how a working control gets reported as
+   broken. #}
+<button type="button" {{ hx_dialog(value.url) }} class="inline-flex items-center gap-2 text-left text-aegis-teal hover:underline transition-colors" data-open>
+  {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
+  <span>{{ value.label }}</span>
+</button>
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}
@@ -51,33 +80,100 @@ text-aegis-text
 {%- endif -%}
 {%- endmacro %}
 
+{# "This arrived since you last looked." In the row's own gutter rather
+   than a column: a table that is already wide does not get wider, and no
+   ledger has to make room for it.
+
+   A row that is not new carries NOTHING - not a grey dot, nothing. A
+   mark that is always present is not a mark.
+
+   The dot is decoration; the word is the meaning. A colour alone says
+   nothing to a screen reader, and "new" is a word worth reading aloud.
+
+   Where the row names the run that brought it, the mark opens that run
+   - which is the question a mark provokes. A row typed by hand has no
+   run, so it gets the dot and no door rather than a link to nothing.
+
+   Rendered inside a cell that is ``relative``; see ``table_row``. #}
+{% macro new_mark(row) %}
+{%- if row.is_new -%}
+{%- set dot %}<span class="w-1.5 h-1.5 rounded-full bg-aegis-teal" aria-hidden="true"></span>{% endset -%}
+{%- if row.import_batch_id -%}
+{# The mark provokes exactly one question - "this is new, where did it
+   come from?" - so it answers it. A button, not the dot alone: a 6px
+   target is not a control, so the hit area is the padding around it. #}
+<button type="button" {{ hx_dialog("/settings/activity/" ~ row.import_batch_id) }}
+        class="absolute left-0 top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-6"
+        aria-label="New. See the run that brought this">{{ dot }}</button>
+{%- else -%}
+<span class="absolute left-1 top-1/2 -translate-y-1/2">{{ dot }}</span><span class="sr-only">New. </span>
+{%- endif -%}
+{%- endif -%}
+{% endmacro %}
+
+
 {# One row. ``id`` lets an action swap this row back by itself; ``oob``
    marks it as an out-of-band answer (pattern 2); ``actions`` is a macro
    (a call block's ``caller``) rendering the trailing actions cell. #}
 {% macro table_row(columns, row, id=None, oob=False, actions=None) %}
 <tr {% if id %}id="{{ id }}"{% endif %} {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="hover:bg-aegis-border/20 transition-colors">
   {% for col in columns %}
-  <td class="px-5 py-2 whitespace-nowrap {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{{ _cell(row, col) }}</td>
+  {# The mark rides in the FIRST cell, which is made its positioning
+     context: a dot positioned against the row element is not reliable,
+     and a column of its own would make every ledger wider for a thing
+     that is usually absent. #}
+  <td class="{{ 'relative ' if loop.first }}px-5 py-2 whitespace-nowrap {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{% if loop.first %}{{ new_mark(row) }}{% endif %}{{ _cell(row, col) }}</td>
   {% endfor %}
   {% if actions %}<td class="px-2 py-2 text-right">{{ actions(row) }}</td>{% endif %}
 </tr>
 {% endmacro %}
 
-{% macro data_table(columns, rows, empty="Nothing here yet", row_id=None) %}
+{# ``scroll`` caps the table's height and lets it scroll inside the card
+   instead of running the page. For the lists that are long by nature - a
+   decade of monthly valuations - where the first rows are the answer and
+   the rest is there to be checked. The header sticks, because a column
+   of numbers with its labels scrolled away is a column of numbers. #}
+{% macro data_table(columns, rows, empty="Nothing here yet", row_id=None, scroll=False,
+                    select=False, sort=None, path=None, target=None, row=None,
+                    flush=True) %}
 {% if rows %}
-<div class="overflow-x-auto -mx-5">
+<div class="overflow-x-auto{{ " -mx-5" if flush }}{% if scroll %} max-h-80 overflow-y-auto{% endif %}">
   <table class="w-full text-sm">
-    <thead>
+    <thead{% if scroll %} class="sticky top-0 z-10 bg-aegis-card"{% endif %}>
       <tr class="text-aegis-muted micro-label border-b border-aegis-border">
+        {% if select %}
+        {# Select all on this page. The rows fire no change of their own,
+           but this one bubbles to whatever is counting ``:checked``, so
+           the count is right either way. #}
+        <th scope="col" class="pl-5 pr-2 py-2">
+          <input type="checkbox" aria-label="Select all on this page" data-select-all
+                 class="{{ control('checkbox') }}"
+                 @change="$root.querySelectorAll('input[name=transaction_ids]').forEach(b => b.checked = $el.checked)">
+        </th>
+        {% endif %}
         {% for col in columns %}
+        {% if sort %}
+        {# A header the reader can click. The link carries the whole
+           filter set, so sorting a filtered table keeps its filters, and
+           it swaps the rows only - whatever is above stays put. #}
+        {% set sort_url = path ~ "?" ~ sort.sorted_by(col.key) %}
+        <th scope="col" aria-sort="{{ 'ascending' if sort.sort == col.key and sort.sort_dir == 'asc' else ('descending' if sort.sort == col.key else 'none') }}"
+            class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">
+          <a href="{{ sort_url }}" {{ hx_replace(sort_url, target) }}
+             class="inline-flex items-center gap-1 hover:text-aegis-text transition-colors">{{ col.label }}<span class="text-xxs">{{ sort.arrow(col.key) }}</span></a>
+        </th>
+        {% else %}
         <th scope="col" class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.label }}</th>
+        {% endif %}
         {% endfor %}
-        {% if caller is defined %}<th scope="col"><span class="sr-only">Actions</span></th>{% endif %}
+        {% if caller is defined or row %}<th scope="col"{% if row %} class="px-2 py-2"{% endif %}><span class="sr-only">Actions</span></th>{% endif %}
       </tr>
     </thead>
     <tbody class="divide-y divide-aegis-border/60">
-      {% for row in rows %}
-      {{ table_row(columns, row, id=(row_id ~ "-" ~ row.id) if row_id else None, actions=caller if caller is defined else None) }}
+      {% for item in rows %}
+      {% if row %}{{ row(item) }}{% else %}
+      {{ table_row(columns, item, id=(row_id ~ "-" ~ item.id) if row_id else None, actions=caller if caller is defined else None) }}
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>

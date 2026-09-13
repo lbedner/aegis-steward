@@ -1,0 +1,71 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import card, chart_panel, stats_strip %}
+{% from "components/macros/accounts.html" import account_header %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/form.html" import range_chips %}
+
+{% block title %}{{ selected.name }} - {{ project_name }}{% endblock %}
+
+{# An account's cover sheet: what it IS, rather than what happened in
+   it. The register is a thousand rows and the facts would scroll away
+   above them, so the two are sibling pages under one sub-nav. Sections
+   appear by KIND - a loan has terms, a property has a valuation - and
+   an account shows only the ones it can answer. #}
+{% block app_content %}
+<section id="account-detail" class="space-y-6">
+  {{ account_header(section, groups, total, selected, selected_balance,
+                    actions=actions, held_with=held_with, statement_line=statement_line,
+                    updated=updated) }}
+
+  {% include "components/sub_nav.html" %}
+
+  {% if loan_terms %}{{ stats_strip(loan_terms) }}{% endif %}
+  {# What the place is worth against what is secured on it. Derived from
+     the confirmed lien links at read time, so it cannot disagree with
+     the accounts it came from. #}
+  {% if secured %}{{ stats_strip(secured) }}{% endif %}
+
+  {# How it can be paid DOWN, which a rate does not answer. Unconfirmed
+     is drawn as unconfirmed: a loan nobody has asked about must not
+     read as a loan with no penalty, because that is the reading a
+     payoff plan gets built on. #}
+  {% if payoff %}
+  {% call card("Paying it down") %}
+  <dl class="grid gap-3 sm:grid-cols-2">
+    {% for row in payoff %}
+    <div>
+      <dt class="micro-label text-aegis-muted">{{ row.label }}</dt>
+      <dd class="text-sm {{ 'text-aegis-muted italic' if row.unknown else 'text-aegis-text' }}" data-payoff>{{ row.value }}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  {% endcall %}
+  {% endif %}
+
+  {# What it has been worth, on the PAGE rather than only behind a
+     Manage dialog: what a house fell to and what it recovered to is the
+     reason for keeping the history, and a history nobody passes is a
+     history nobody reads. #}
+  {# The line first and the rows under it: the shape is the answer -
+     what it fell to, what it recovered to - and the table is where
+     somebody goes to check a figure they just read off the line. #}
+  {# The window is the same row, the same field and the same macro the
+     register and the bills page use - only the scale differs, because a
+     ledger is read in days and a house is held in decades. #}
+  {% if valuation_chart %}
+  {% set here = section.path ~ "/" ~ selected.id ~ "/overview" %}
+  <form id="value-window" method="get" action="{{ here }}" {{ hx_page(here) }}
+        hx-trigger="change" class="flex justify-end">
+    {{ range_chips(value_ranges, days) }}
+  </form>
+  {{ chart_panel("valuations", "Value over time", "line", valuation_chart) }}
+  {% endif %}
+
+  {% if valuations %}
+  {% call card(named.valuations.noun) %}
+  {{ data_table(valuation_columns, valuations, scroll=True) }}
+  {% endcall %}
+  {% endif %}
+
+</section>
+{% endblock %}

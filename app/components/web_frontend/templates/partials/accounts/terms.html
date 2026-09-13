@@ -1,0 +1,18 @@
+{# Dialog body: the terms of a debt, typed rather than told to Illiana.
+
+   Every input here is DECLARED, not written: ``shape_for(account_type)``
+   says which terms this kind of debt is asked for, each term says what
+   kind of thing it is, and ``term_fields`` turns that into controls. A
+   card is asked four questions and a loan nine because the shape says
+   so, not because this file lists them twice. #}
+{% from "components/macros/form.html" import term_fields, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{% call dialog_title("Terms") %}
+<p class="text-xs text-aegis-muted mb-4">What the lender says, in the units the statement says it: a rate as 7.99, money as you would read it. Anything left blank stays unstated rather than becoming a zero.</p>
+{% endcall %}
+{{ error_banner(errors) }}
+<form {{ hx_dialog_post('/accounts/' ~ account.id ~ '/terms') }} class="space-y-4">
+  {{ term_fields(terms, values) }}
+  {{ primary_button("Save terms", type="submit") }}
+</form>

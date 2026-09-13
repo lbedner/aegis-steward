@@ -6,6 +6,7 @@ exercised here; these cover everything the page renders around it.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -646,7 +647,11 @@ class TestAttachments:
     def test_composer_has_the_attach_control(self, client: TestClient) -> None:
         page = client.get("/chat").text
         attach = one(page, "input#chat-attach[type=file]")
-        assert attach.get("accept") == "image/png,image/jpeg,image/webp,image/gif"
+        # PDFs too: a statement is one file, and screenshotting it a
+        # page at a time is what the picker used to force.
+        assert attach.get("accept") == (
+            "image/png,image/jpeg,image/webp,image/gif,application/pdf"
+        )
         assert attach.get("multiple") is not None
         one(page, "#chat-attachments[hidden]")
 
@@ -987,3 +992,89 @@ class TestAPastedWallBecomesAChip:
         # The model still gets the marker; only the reader gets the chip.
         sent = one(html, "li[data-role=assistant][data-stream]").get("data-text")
         assert f'pasted("{staged["id"]}")' in sent
+
+
+class TestIdenticalChangesReadAsOne:
+    """Seventy-one rows tagging the same payee differ only in a date, and
+    reading seventy-one of them is not review, it is scrolling."""
+
+    def _batch(self, n: int, payee: str = "GreenSky") -> list:
+        from app.services.finance.schemas.changes import (
+            ChangeDisplayRow,
+            PendingChangeResponse,
+        )
+
+        return [
+            PendingChangeResponse(
+                id=i,
+                change_type="transaction.tag",
+                title="Tag a transaction",
+                status="pending",
+                payee=payee,
+                proposed_by_agent="finance-assistant",
+                conversation_id="c1",
+                batch_id="b",
+                error=None,
+                created_at=datetime(2025, 12, 1, tzinfo=UTC),
+                resolved_at=None,
+                display=[
+                    ChangeDisplayRow(
+                        label="Transaction",
+                        value=f"{payee} ($224.00 on Dec {i}, 2025)",
+                        amount=22_400,
+                        at=f"2025-12-{i:02d}",
+                    ),
+                    ChangeDisplayRow(label="Tags", value="none → Pool Loan"),
+                ],
+            )
+            for i in range(1, n + 1)
+        ]
+
+    def test_a_group_says_the_count_the_total_and_the_span(self) -> None:
+        from app.components.web_frontend.routes.chat import batch_card
+
+        card = batch_card("b1", self._batch(71))
+
+        assert len(card["groups"]) == 1
+        group = card["groups"][0]
+        assert group["count"] == 71
+        # The number worth seeing before approving seventy-one of
+        # anything, and the one the card never showed.
+        assert group["total"] == 71 * 22_400
+        assert group["span"] == ("2025-12-01", "2025-12-71")
+
+    def test_different_changes_stay_apart(self) -> None:
+        from app.components.web_frontend.routes.chat import batch_card
+
+        card = batch_card("b2", self._batch(3) + self._batch(2, payee="Amazon"))
+
+        assert [g["count"] for g in card["groups"]] == [3, 2]
+
+    def test_one_row_is_never_a_group(self) -> None:
+        """A wrapper around a single thing is another thing to open."""
+        from app.components.web_frontend.routes.chat import batch_card
+
+        card = batch_card("b3", self._batch(1))
+
+        assert card["groups"][0]["single"] is True
+
+    def test_the_per_row_veto_survives_behind_the_expander(
+        self, hx: TestClient
+    ) -> None:
+        """What collapses is the reading, never the control."""
+        from app.components.web_frontend.rendering import templates
+        from app.components.web_frontend.routes.chat import batch_card
+
+        card = batch_card("b4", self._batch(5))
+        markup = templates.get_template(
+            "components/macros/changes.html"
+        ).module.pending_change_batch_card(card, "/chat/components")
+
+        assert len(select(markup, "input[name=exclude_ids]")) == 5
+        one(markup, "input[data-skip-group]")
+        # The control says which way it goes next: a label still reading
+        # "Show" while the rows are showing reads as a button that did
+        # nothing.
+        summary = one(markup, "details summary")
+        assert "Show all 5" in text(summary)
+        assert "Hide" in text(summary)
