@@ -133,7 +133,7 @@ class StreamingMixin(ChatMixin):
             # Kept, not just carried: the bytes ride this turn's model
             # call and the message remembers where the image was stored,
             # so reopening the conversation still shows it.
-            stored_text, stored_metadata = await prepare_turn(message, attachments)
+            stored_text, stored_metadata = await prepare_turn(message, attachments, user_id)
             conversation = self._setup_conversation(
                 stored_text,
                 conversation_id,

@@ -44,6 +44,18 @@ def image_media_type(filename: str) -> str | None:
 _ATTACHMENT_MARKER = re.compile(r"\n\n\[attached \d+ images?: [^\]\n]*\]$")
 
 
+# The service's stored marker for a lifted paste - the format written by
+# ``services/ai/domains/chat/pastes.marker``.
+_PASTE_MARKER = re.compile(r'\[pasted text #[0-9a-f]+[^\]]*\]')
+
+
+def strip_paste_markers(text: str) -> str:
+    """What the reader sees instead of a marker: nothing, because the
+    paste is drawn beside the message as a chip they can open. The
+    MODEL still gets the marker - it is how the text is asked for."""
+    return _PASTE_MARKER.sub("", text).strip()
+
+
 def strip_attachment_marker(text: str) -> str:
     """A replayed message must not carry its old attachment marker: the
     bytes are gone (they ride one turn only), so re-sending the marker

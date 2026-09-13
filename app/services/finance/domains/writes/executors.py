@@ -2,13 +2,13 @@
 
 FW-05 shipped categorize to prove the loop end to end; later FW tickets
 add theirs HERE. Definitions live in the topic modules (``curation`` for
-the label axes, ``structure`` for what a row is); importing this module
-arms the whole surface.
+the label axes, ``structure`` for what a row is, ``terms`` for what a
+debt costs); importing this module arms the whole surface.
 """
 
 from __future__ import annotations
 
-from app.services.finance.domains.writes import curation, structure
+from app.services.finance.domains.writes import curation, structure, terms
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
 
 register(
@@ -36,6 +36,24 @@ register(
         payload_model=curation.AssignPayeePayload,
         execute=curation.assign_payee_execute,
         describe=curation.assign_payee_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="account.create",
+        title="Add an account the ledger cannot see",
+        payload_model=terms.CreateAccountPayload,
+        execute=terms.create_account_execute,
+        describe=terms.create_account_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="account.loan_terms",
+        title="Record a loan's terms",
+        payload_model=terms.LoanTermsPayload,
+        execute=terms.loan_terms_execute,
+        describe=terms.loan_terms_describe,
     )
 )
 register(
