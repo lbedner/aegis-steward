@@ -144,7 +144,10 @@ class TestSeededLedger:
         await finance.db.commit()
 
         section = card(client.get("/overview").text, "Uncategorized")
-        row = next(r for r in select(section, "tbody tr") if "Gas" in text(r))
+        # Found by its amount: the row is named after its PAYEE now, the
+        # same as every other transaction list, and the payee here is
+        # the merchant just assigned rather than the raw "Gas".
+        row = next(r for r in select(section, "tbody tr") if "$40.00" in text(r))
         assert one(row, "[data-glyph]").get("data-glyph") == "Transportation"
 
     def test_top_payees(self, client: TestClient, ledger: Ledger) -> None:

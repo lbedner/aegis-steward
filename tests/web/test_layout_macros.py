@@ -2,7 +2,10 @@
 
 import json
 
+from fastapi.testclient import TestClient
+
 from app.components.web_frontend.rendering import templates
+from tests.web.conftest import Ledger
 from tests.web.dom import none, one, select, text
 
 IMPORT = (
@@ -181,3 +184,38 @@ class TestRankedRows:
         items = select(html, ".ranked li")
         assert len(items) == 2 and "Market" in text(items[0])
         assert one(items[1], "[style]").get("style") == "width: 44%"
+
+
+class TestTheAccountFilterIsSectioned:
+    """Fifteen accounts in one flat list made the reader scan for a name
+    whose KIND they already knew."""
+
+    def test_groups_are_in_ledger_order_and_empty_ones_are_dropped(self) -> None:
+        from types import SimpleNamespace
+
+        from app.services.finance.constants import account_sections
+
+        accounts = [
+            SimpleNamespace(id=1, name="Card", account_type="credit_card"),
+            SimpleNamespace(id=2, name="Checking", account_type="checking"),
+            SimpleNamespace(id=3, name="House", account_type="property"),
+        ]
+
+        sections = account_sections(accounts)
+
+        assert [label for label, _ in sections] == [
+            "Banking",
+            "Credit Cards",
+            "Property",
+        ]
+        assert [a.name for a in sections[0][1]] == ["Checking"]
+
+    def test_the_filter_renders_a_heading_per_group(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get("/overview").text
+
+        labels = [text(p) for p in select(page, "#filter details p")]
+
+        assert "Banking" in labels
+        assert len(labels) == len(set(labels)), "a group is listed once"

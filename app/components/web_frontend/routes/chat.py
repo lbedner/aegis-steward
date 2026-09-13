@@ -715,7 +715,28 @@ async def resolve_change_component(
     handler = {"approve": approve_change, "reject": reject_change}.get(verb)
     if handler is None:
         raise HTTPException(status_code=404)
-    change = await handler(change_id, service=service, owner_user_id=owner_user_id)
+    try:
+        change = await handler(change_id, service=service, owner_user_id=owner_user_id)
+    except HTTPException as refused:
+        # A refused execution is an ANSWER, not a failure to respond.
+        # The queue already recorded why and left the row pending (the
+        # decision is still the user's), but a 400 does not swap - see
+        # the htmx-config responseHandling - so letting it out meant
+        # clicking Approve did nothing at all, forever, with no hint
+        # that the split did not add up. Re-render the card: it carries
+        # the recorded error, and the toast says it out loud.
+        await service.db.commit()
+        refused_change = await get_change(
+            change_id, service=service, owner_user_id=owner_user_id
+        )
+        response = await _card(
+            request,
+            "partials/chat/change.html",
+            change_card(refused_change),
+            service,
+            owner_user_id,
+        )
+        return with_toast(response, str(refused.detail), tone="error")
     await service.db.commit()
     return await _card(
         request,

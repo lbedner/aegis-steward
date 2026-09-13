@@ -442,6 +442,9 @@ async def list_transactions(
     include_transfers: bool = False,
     page: int = 1,
     page_size: int = 20,
+    amount: int | None = None,
+    sort: str | None = None,
+    descending: bool = True,
 ) -> tuple[list[FinanceTransaction], int]:
     """The register: not soft-deleted, never the losing side of a dedup,
     accounts still live, paired transfer legs hidden unless asked for."""
@@ -461,4 +464,7 @@ async def list_transactions(
         include_transfers=include_transfers,
         page=page,
         page_size=page_size,
+        amount=amount,
+        sort=sort,
+        descending=descending,
     )

@@ -19,6 +19,7 @@ from app.components.web_frontend.filters import FILTERS, assistant
 from app.components.web_frontend.glyphs import account_glyph, category_glyph
 from app.components.web_frontend.nav import NAV
 from app.core.config import settings
+from app.services.finance.constants import account_sections
 
 templates = Jinja2Templates(directory=str(COMPONENT_DIR / "templates"))
 
@@ -36,6 +37,7 @@ templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
 templates.env.globals["nav"] = NAV
 templates.env.globals["category_glyph"] = category_glyph
 templates.env.globals["account_glyph"] = account_glyph
+templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.
 templates.env.globals["chat_path"] = "/chat"
@@ -49,8 +51,20 @@ def hx_dialog(url: str, extra: str = "") -> Markup:
     """The attributes for "open this in the one modal" (pattern 4), so no
     template has to remember which element the dialog swaps into.
     ``extra`` rides along for the openers that carry more (an
-    ``hx-include`` of the checked rows, a role for a clickable cell)."""
-    return Markup(f'hx-get="{escape(url)}" hx-target="#dialog-body" {extra}')
+    ``hx-include`` of the checked rows, a role for a clickable cell).
+
+    ``hx-swap`` is stated, not left to the default, because htmx
+    INHERITS it from ancestors: an opener inside a row form that swaps
+    itself ``outerHTML`` borrowed that and replaced ``#dialog-body``
+    with the dialog's own content. The modal opened once and then every
+    later open failed with ``htmx:targetError``, because the element it
+    targets no longer existed - "I can't open a new one until I
+    refresh". Saying it here costs nothing and cannot be borrowed
+    against.
+    """
+    return Markup(
+        f'hx-get="{escape(url)}" hx-target="#dialog-body" hx-swap="innerHTML" {extra}'
+    )
 
 
 def hx_dialog_post(url: str) -> Markup:

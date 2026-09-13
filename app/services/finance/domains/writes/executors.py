@@ -22,6 +22,15 @@ register(
 )
 register(
     ChangeExecutor(
+        change_type="transaction.memo",
+        title="Note what a transaction was",
+        payload_model=curation.MemoPayload,
+        execute=curation.memo_execute,
+        describe=curation.memo_describe,
+    )
+)
+register(
+    ChangeExecutor(
         change_type="transaction.assign_payee",
         title="Assign a payee",
         payload_model=curation.AssignPayeePayload,

@@ -25,8 +25,11 @@ class TestAllAccountsRegister:
     ) -> None:
         page = client.get(REGISTER).text
         heads = [text(th) for th in select(page, "#register thead th")]
+        # The first cell is the select-all checkbox, labelled for screen
+        # readers rather than printed.
+        assert one(page, "#register thead [data-select-all]") is not None
         assert heads == [
-            "Select",
+            "",
             "Date",
             "Account",
             "Payee",
@@ -50,7 +53,7 @@ class TestAccountRegister:
     ) -> None:
         page = client.get(f"/accounts/{ledger.checking}").text
         heads = [text(th) for th in select(page, "#register thead th")]
-        assert heads == ["Select", "Date", "Payee", "Category", "Amount", "Actions"]
+        assert heads == ["", "Date", "Payee", "Category", "Amount", "Actions"]
         assert names(page) == ["Market", "Market", "Payroll"]
 
     def test_rows_are_addressable(self, client: TestClient, ledger: Ledger) -> None:
@@ -295,3 +298,76 @@ class TestFragment:
         fragment = hx.get(f"/accounts/{ledger.checking}?q=Market").text
         none(fragment, "aside")
         one(fragment, "#register")
+
+
+class TestSortableColumns:
+    """Every column the reader can see is a column they can order by."""
+
+    def test_a_header_links_to_its_own_order(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get(REGISTER).text
+        head = select(page, "#register thead th")[1]  # Date, after Select
+
+        link = one(head, "a")
+        assert "sort=date" in (link.get("href") or "")
+        assert link.get("hx-target") == "#register"
+
+    def test_clicking_the_sorted_column_flips_it(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """The same column again reverses; a different one starts at the
+        top of that column."""
+        page = client.get(f"{REGISTER}?sort=amount").text
+        heads = {
+            text(th).rstrip("↑↓").strip(): th
+            for th in select(page, "#register thead th")
+        }
+
+        amount = one(heads["Amount"], "a").get("href") or ""
+        date = one(heads["Date"], "a").get("href") or ""
+
+        assert "sort_dir=asc" in amount, "the sorted column offers the reverse"
+        assert "sort_dir=asc" not in date, "a different column starts fresh"
+
+    def test_the_sorted_column_says_so(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get(f"{REGISTER}?sort=amount&sort_dir=asc").text
+        sorted_heads = [
+            text(th)
+            for th in select(page, "#register thead th")
+            if th.get("aria-sort") == "ascending"
+        ]
+
+        assert len(sorted_heads) == 1 and "Amount" in sorted_heads[0]
+
+    def test_the_order_actually_changes(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        def amounts(url: str) -> list[str]:
+            rows = select(client.get(url).text, "#register tbody tr")
+            return [text(tr.getchildren()[-2]) for tr in rows]
+
+        assert amounts(f"{REGISTER}?sort=amount") == list(
+            reversed(amounts(f"{REGISTER}?sort=amount&sort_dir=asc"))
+        )
+
+    def test_sorting_keeps_the_filters_and_resets_the_page(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Page 3 of one order is nothing in another."""
+        # page_size=1 so page 2 exists on a small fixture.
+        page = client.get(f"{REGISTER}?include_transfers=on&page=2&page_size=1").text
+        link = one(select(page, "#register thead th")[1], "a").get("href") or ""
+
+        assert "include_transfers=on" in link
+        assert "page=2" not in link
+
+    def test_a_column_nobody_can_click_is_not_an_order(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """``sort`` is not a way to name a database column."""
+        page = client.get(f"{REGISTER}?sort=owner_user_id").text
+
+        assert not select(page, '#register thead th[aria-sort="descending"]')

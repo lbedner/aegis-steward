@@ -5,14 +5,22 @@
 {% from "components/macros/form.html" import money_input %}
 {% set ratio = (line.spent_amount / line.allocated_amount) if line.allocated_amount else 0 %}
 {% set tone = {"good": "ok", "warn": "warn", "critical": "error"}.get(line.status, "ok") %}
+{# Truncated, not rounded: the tone flips at exactly 80% of the limit
+   (budget_line_status), and rounding 79.96% up to "80%" showed the
+   reader a figure that had reached the threshold beside a bar that had
+   not. The number shown and the number judged are the same number. #}
 <li id="line-{{ line.id }}" class="flex items-start gap-3">
   <form hx-post="/budget/lines" hx-target="#line-{{ line.id }}" hx-swap="outerHTML" hx-trigger="submit, change" class="flex-1 min-w-0">
     <input type="hidden" name="category_id" value="{{ line.category_id or '' }}">
     <input type="hidden" name="payee_key" value="{{ line.payee_key or '' }}">
     <input type="hidden" name="payee_label" value="{{ line.payee_label or '' }}">
     <div class="flex items-baseline justify-between gap-3 text-sm">
-      <span class="text-aegis-text truncate">{{ line.category_name or line.payee_label or "Overall" }}</span>
-      <span class="tabular-nums text-xs {{ 'text-error' if ratio > 1 else 'text-aegis-muted' }}">{{ (ratio * 100)|round|int }}%</span>
+      {# The name opens what the figure is made of (pattern 4). A button
+         rather than the whole row: the row is a form, and its limit
+         input has to stay clickable. #}
+      <button type="button" {{ hx_dialog("/budget/lines/" ~ line.id ~ "/transactions") }}
+              class="text-aegis-text truncate text-left hover:underline">{{ line.category_name or line.payee_label or "Overall" }}</button>
+      <span class="tabular-nums text-xs {{ 'text-error' if ratio > 1 else 'text-aegis-muted' }}">{{ (ratio * 100)|int }}%</span>
     </div>
     {{ progress(ratio, tone) }}
     <div class="flex items-center gap-1.5 text-xs text-aegis-muted tabular-nums">

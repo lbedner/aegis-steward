@@ -1,0 +1,14 @@
+{# Dialog body: the transactions behind one figure - a donut slice, a
+   budget limit. A fragment-only response (never a page), so no layout.
+
+   The table sits in a bordered card because ``data_table`` pulls itself
+   out with ``-mx-5`` to meet a page card's padding; in a dialog that
+   cancelled the dialog's own padding and ran the rows into the rounded
+   corners, clipping the last column. The card gives the padding back
+   and draws the edge the rows were missing. #}
+{% from "components/macros/table.html" import data_table %}
+<h2 class="text-lg font-semibold text-aegis-text">{{ title }}</h2>
+<p class="text-aegis-muted micro-label mb-4">{{ subtitle }}</p>
+<div class="rounded-lg border border-aegis-border px-5 py-1">
+{{ data_table(columns, rows, empty=empty) }}
+</div>

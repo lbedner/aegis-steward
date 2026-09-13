@@ -295,10 +295,17 @@ async def categorize_transaction(
     *,
     owner_user_id: int | None = None,
     source: str = "user",
+    memo: str | None = None,
 ) -> FinanceTransaction | None:
     """Set a transaction's category. ``source`` is ``"user"`` for a
     manual pick, ``"rule"`` for the payee-precedent auto-categorize
-    sweep. Returns None if the transaction isn't found/owned."""
+    sweep. Returns None if the transaction isn't found/owned.
+
+    ``memo`` rides along because filing IS when you know why: a Target
+    charge gets "school supplies" at the moment it is filed under Kids,
+    not in a second visit nobody makes. Left out, the memo stands - a
+    re-file must not silently erase the note that explains the last one.
+    """
     txn = await transactions.get_transaction(
         db, transaction_id, owner_user_id=owner_user_id
     )
@@ -306,6 +313,8 @@ async def categorize_transaction(
         return None
     txn.category_id = category_id
     txn.category_source = source
+    if memo is not None:
+        txn.memo = memo or None
     txn.is_user_categorized = source == "user"
     txn.is_reviewed = True
     # The transfer flag follows the category, in the same gesture -
