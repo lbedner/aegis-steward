@@ -41,7 +41,8 @@ from app.components.backend.api.finance.planning import (
     list_envelopes,
     update_envelope,
 )
-from app.components.web_frontend.filters import cents_to_input, money_to_cents
+from app.components.backend.api.finance.register import hydrate_transactions
+from app.components.web_frontend.filters import cents_to_input, money, money_to_cents
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
@@ -324,6 +325,16 @@ async def _with_strip(
 # --- the page, the strip, the details ----------------------------------------
 
 
+# What a drill-down row shows. The same four the Overview's slice dialog
+# uses: a transaction reads the same way wherever it is listed.
+LINE_TXN_COLUMNS = [
+    {"key": "date", "label": "Date", "kind": "date"},
+    {"key": "payee", "label": "Payee", "kind": "avatar"},
+    {"key": "category", "label": "Category"},
+    {"key": "amount", "label": "Amount", "kind": "money", "align": "right"},
+]
+
+
 @router.get("", include_in_schema=False)
 async def page(
     request: Request,
@@ -407,6 +418,54 @@ def _line_response(
 ) -> Any:
     return _with_strip(
         request, service, owner_user_id, "partials/budget/line.html", {"line": line}
+    )
+
+
+@router.get("/lines/{line_id:int}/transactions", include_in_schema=False)
+async def line_transactions(
+    request: Request,
+    line_id: int,
+    account_ids: list[int] | None = Query(default=None),
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The transactions behind one limit (pattern 4). "$535.16 of
+    $1,000.00" was a figure with no way to ask what it was made of."""
+    rows = await service.budget_line_transactions(
+        line_id, owner_user_id=owner_user_id, account_ids=account_ids
+    )
+    summary = await budget_summary(
+        month=None,
+        account_ids=account_ids,
+        service=service,
+        owner_user_id=owner_user_id,
+    )
+    # The FLEXIBLE bucket only. A commitment line's ``id`` is its
+    # recurring stream's, not a budget line's, so searching every bucket
+    # matches the wrong row on a collision - which it promptly did.
+    line = next(
+        (
+            item
+            for bucket in summary.buckets
+            if bucket.name == "flexible"
+            for item in bucket.lines
+            if item.id == line_id
+        ),
+        None,
+    )
+    if line is None:
+        raise HTTPException(status_code=404)
+    return dialog(
+        request,
+        "partials/transactions_dialog.html",
+        title=line.category_name or line.payee_label or "Limit",
+        subtitle=(
+            f"{money(line.spent_amount)} of "
+            f"{money(line.allocated_amount)} this month"
+        ),
+        rows=await hydrate_transactions(service, rows),
+        columns=LINE_TXN_COLUMNS,
+        empty="Nothing has been spent against this limit yet",
     )
 
 

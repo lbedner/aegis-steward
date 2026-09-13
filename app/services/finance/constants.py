@@ -6,9 +6,10 @@ DB enums) so adding a value is a normal migration on both SQLite and Postgres.
 """
 
 import calendar
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 SERVICE_NAME = "finance"
 
@@ -242,6 +243,24 @@ def account_group(account_type: str) -> str:
         if account_type in types:
             return label
     return "Other"
+
+
+def account_sections(accounts: Sequence[Any]) -> list[tuple[str, list[Any]]]:
+    """``(label, accounts)`` in ACCOUNT_GROUPS order, empty groups
+    dropped.
+
+    One bucketing for every surface that shows accounts in sections: the
+    Accounts page reads it for its groups and the account filter reads
+    it for its own, so a new account type appears in both or neither.
+    Takes anything with an ``account_type`` - a model row or a response
+    - because both sides of the app ask the same question.
+    """
+    buckets: dict[str, list[Any]] = {}
+    for account in accounts:
+        buckets.setdefault(account_group(account.account_type), []).append(account)
+    return [
+        (label, buckets[label]) for label, _types in ACCOUNT_GROUPS if label in buckets
+    ]
 
 
 # Action key -> the label both frontends show. The keys are the rule

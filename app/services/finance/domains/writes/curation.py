@@ -23,6 +23,12 @@ class CategorizePayload(BaseModel):
 
     transaction_id: int
     category_id: int
+    # Why, in the same proposal. Filing IS when you know why - an Amazon
+    # charge filed under Medicine with "Ancient Nutrition collagen" on
+    # it explains itself six months later, and the bare category does
+    # not. Omitted leaves whatever note is there; a re-file must never
+    # erase the last explanation.
+    memo: str | None = None
 
 
 async def categorize_execute(
@@ -34,6 +40,7 @@ async def categorize_execute(
         payload.category_id,
         owner_user_id=owner_user_id,
         source="user",
+        memo=payload.memo,
     )
     if txn is None:
         raise ValueError(f"Transaction {payload.transaction_id} not found.")
@@ -57,10 +64,60 @@ async def categorize_describe(
         else "Uncategorized"
     )
     after = names.get(payload.category_id, f"category {payload.category_id}")
-    return [
+    rows = [
         ChangeDisplayRow(label="Transaction", value=subject),
         ChangeDisplayRow(label="Category", value=f"{before} \u2192 {after}"),
     ]
+    # Shown on the card, because a note the user approves unseen is a
+    # note they did not agree to.
+    if payload.memo:
+        rows.append(ChangeDisplayRow(label="Note", value=payload.memo))
+    return rows
+
+
+class MemoPayload(BaseModel):
+    """A note on a transaction, and nothing else.
+
+    Its own change type because a note is its own edit: the category may
+    already be right, or already proposed, and re-filing a row just to
+    record what was in the bag is a change nobody asked for. Live, the
+    agent reached for exactly this name before it existed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    transaction_id: int
+    memo: str
+
+
+async def memo_execute(
+    db: AsyncSession, payload: MemoPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    txn = await transactions.get_transaction(
+        db, payload.transaction_id, owner_user_id=owner_user_id
+    )
+    if txn is None:
+        raise ValueError(f"Transaction {payload.transaction_id} not found.")
+    txn.memo = payload.memo or None
+    db.add(txn)
+    await db.flush()
+    return {"transaction_id": txn.id, "memo": txn.memo}
+
+
+async def memo_describe(
+    db: AsyncSession, payload: MemoPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
+    rows = [ChangeDisplayRow(label="Transaction", value=subject)]
+    # A note that REPLACES one is a different decision from a first
+    # note, so the card says which it is.
+    if txn is not None and txn.memo:
+        rows.append(
+            ChangeDisplayRow(label="Note", value=f"{txn.memo} \u2192 {payload.memo}")
+        )
+    else:
+        rows.append(ChangeDisplayRow(label="Note", value=payload.memo))
+    return rows
 
 
 class AssignPayeePayload(BaseModel):

@@ -35,6 +35,7 @@ from app.services.ai.domains.chat.module_context import render_memory_modules
 from app.services.ai.domains.chat.readings import (
     merge_staged_readings,
     reading_stage,
+    user_readings,
 )
 from app.services.ai.domains.chat.user_memory import (
     build_user_memory_context,
@@ -164,6 +165,9 @@ class StreamingMixin(ChatMixin):
             # Guarded per-user memory block (saved via the save_memory tool)
             memory_context = await build_user_memory_context(user_id)
 
+            # Recorded readings, from the same per-user store.
+            readings = await user_readings(user_id)
+
             # History budget scales with the EFFECTIVE model for this
             # request (the agent's pin wins over the active default).
             from app.services.ai.domains.llm.catalog import context_window_for
@@ -173,9 +177,8 @@ class StreamingMixin(ChatMixin):
                 if agent_config is not None and agent_config.model_id
                 else current.model
             )
-            history_budget = history_char_budget(
-                await context_window_for(effective_model)
-            )
+            context_window = await context_window_for(effective_model)
+            history_budget = history_char_budget(context_window)
 
             # The agent row's memory modules (e.g. the finance snapshot)
             agent_modules_context = await render_memory_modules(
@@ -193,6 +196,8 @@ class StreamingMixin(ChatMixin):
                 memory_context=memory_context,
                 agent_modules_context=agent_modules_context,
                 history_budget=history_budget,
+                context_window=context_window,
+                readings=readings,
             )
 
             # Start streaming
@@ -357,9 +362,12 @@ class StreamingMixin(ChatMixin):
                 f"stream_chat:{agent_config.slug}", stream_usage, user_id
             )
 
-            # Extractions recorded mid-run outlive the image: fold them
-            # into the conversation before finalize persists it.
-            merge_staged_readings(conversation.metadata, staged_readings)
+            # Extractions recorded mid-run outlive the image AND the
+            # thread: they belong to the user, so a new conversation
+            # opens still holding them.
+            await merge_staged_readings(
+                user_id, staged_readings, legacy=conversation.metadata.get("readings")
+            )
             # Finalize conversation (update metadata and save)
             self._finalize_conversation(
                 conversation, response_time_ms, is_streaming=True

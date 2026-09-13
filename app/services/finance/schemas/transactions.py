@@ -60,6 +60,21 @@ class TransactionResponse(BaseModel):
     # descriptor.
     merchant_id: int | None = None
     merchant: str | None = None
+
+    @property
+    def payee(self) -> str:
+        """What this transaction is CALLED - the payee someone named,
+        then the one the source supplied, then the raw descriptor.
+
+        ``payee_label`` is the rule; this is where a response carries
+        it, so a surface listing transactions cannot reach for ``name``
+        and undo a rename on screen. The budget limit's drill-down did
+        exactly that: renamed rows came back as
+        "SHPRTE NTH RD&WNSW GT XXX-XXX-6086 NY 09/11".
+        """
+        from app.core.formatting import payee_label
+
+        return payee_label(self.merchant, self.merchant_name, self.name)
     # Where the payee is usually filed; a row with no category of its own
     # borrows it for its brand mark's glyph.
     payee_category: str | None = None

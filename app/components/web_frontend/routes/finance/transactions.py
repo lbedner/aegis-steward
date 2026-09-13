@@ -33,7 +33,7 @@ from app.components.backend.api.finance.register import (
     split_transaction,
     unsplit_transaction,
 )
-from app.components.web_frontend.filters import money_to_cents
+from app.components.web_frontend.filters import cents_to_input, money_to_cents
 from app.components.web_frontend.rendering import close_dialog, templates, with_toast
 from app.components.web_frontend.routes.finance.register import (
     payee_label,
@@ -174,6 +174,97 @@ async def _payee_options(
         listing.items, key=lambda m: (-m.transaction_count, m.name.casefold())
     )
     return picker_options(ranked)
+
+
+@router.get("/categorize", include_in_schema=False)
+async def categorize_form(
+    request: Request,
+    transaction_ids: list[int] = Query(default=[]),
+    show_account: bool = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """File the whole selection at once. Declared BEFORE the
+    ``/{transaction_id}/...`` routes so a literal path is never read as
+    an id."""
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    return await _categorize_dialog(request, service, owner_user_id, txns, show_account)
+
+
+async def _categorize_dialog(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    txns: list[FinanceTransaction],
+    show_account: bool,
+    errors: list[str] | None = None,
+    status_code: int = 200,
+) -> Response:
+    categories = (await list_category_options(service=service)).items
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/transactions/categorize.html",
+        context={
+            "title": await _title(service, txns, owner_user_id),
+            "transaction_ids": [t.id for t in txns],
+            "show_account": show_account,
+            "categories": picker_options(categories),
+            "current": _shared_category(txns),
+            "errors": errors or [],
+        },
+        status_code=status_code,
+    )
+
+
+def _shared_category(txns: list[FinanceTransaction]) -> set[int]:
+    """The category they ALL already carry, marked in the picker as the
+    answer they already have - and empty when they disagree, because
+    pre-selecting one row's answer for nine others is how a bulk edit
+    goes wrong quietly. A set because that is what ``picker`` reads
+    ``current`` as, the same as the tag dialog's."""
+    ids = {t.category_id for t in txns if t.category_id is not None}
+    return ids if len(ids) == 1 else set()
+
+
+@router.post("/categorize", include_in_schema=False)
+async def categorize_selection(
+    request: Request,
+    transaction_ids: Annotated[list[int], Form()] = [],
+    category_id: Annotated[str, Form()] = "",
+    memo: Annotated[str, Form()] = "",
+    show_account: Annotated[bool, Form()] = False,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """File every selected row under one category, with an optional note
+    on each - filing IS when you know why, and "school supplies" on a
+    Target charge is the whole reason it went under Kids."""
+    txns = await _txns(service, transaction_ids, owner_user_id)
+    note = memo.strip()
+    if not category_id:
+        return await _categorize_dialog(
+            request,
+            service,
+            owner_user_id,
+            txns,
+            show_account,
+            errors=["Pick a category."],
+            status_code=422,
+        )
+    for txn in txns:
+        await service.categorize_transaction(
+            txn.id,
+            int(category_id),
+            owner_user_id=owner_user_id,
+            source="user",
+            # Blank means "leave the note alone", never "erase it".
+            memo=note or None,
+        )
+    await service.db.commit()
+    names = await service.category_names({int(category_id)})
+    label = names.get(int(category_id), "that category")
+    response = await _rows_response(request, service, txns, owner_user_id, show_account)
+    return close_dialog(with_toast(response, f"Filed {len(txns)} under {label}"))
 
 
 @router.get("/tag", include_in_schema=False)
@@ -520,7 +611,19 @@ async def split_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     (txn,) = await _txns(service, [transaction_id], owner_user_id)
-    return await _split_dialog(request, service, txn, [])
+    # An ALREADY split row opens on its own lines. Handing it three
+    # blanks looked like the split had been lost, and saving those
+    # blanks would have replaced a real allocation with nothing.
+    lines = (await service.transaction_splits([transaction_id])).get(transaction_id, [])
+    parts = [
+        {
+            "amount": cents_to_input(abs(line.amount)),
+            "category_id": line.category_id,
+            "memo": line.memo or "",
+        }
+        for line in lines
+    ]
+    return await _split_dialog(request, service, txn, [], parts=parts or None)
 
 
 @router.post("/{transaction_id}/split", include_in_schema=False)

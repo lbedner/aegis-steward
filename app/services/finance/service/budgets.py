@@ -13,6 +13,7 @@ from app.services.finance.domains.planning import budgets
 from app.services.finance.models import (
     FinanceBudget,
     FinanceBudgetCategory,
+    FinanceTransaction,
 )
 from app.services.finance.schemas import (
     BudgetLineResponse,
@@ -126,6 +127,22 @@ class BudgetsMixin(FinanceServiceBase):
             self.db,
             line_id,
             owner_user_id=owner_user_id,
+        )
+
+    async def budget_line_transactions(
+        self,
+        line_id: int,
+        *,
+        owner_user_id: int | None = None,
+        period_month: int | None = None,
+        account_ids: list[int] | None = None,
+    ) -> list[FinanceTransaction]:
+        return await budgets.budget_line_transactions(
+            self.db,
+            line_id=line_id,
+            owner_user_id=owner_user_id,
+            period_month=period_month,
+            account_ids=account_ids,
         )
 
     async def budget_summary(

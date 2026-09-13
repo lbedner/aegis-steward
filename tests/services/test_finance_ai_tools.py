@@ -1202,3 +1202,146 @@ async def test_reading_your_own_cards_draws_nothing(
     # Drawn only when the user asked to see it.
     assert quiet["draw"] == []
     assert len(asked["draw"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_transactions_finds_rows_without_reading_the_ledger(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The question that cost a dozen turns: "are there two $8.00 Target
+    charges, one on the 4th and one on the 8th?"
+
+    It used to mean ``ledger(detail="transactions")`` over months of
+    rows and a filter written in Python - 23 of one session's 55 code
+    blocks were that shape, and 13 of them pulled six months or more to
+    find two or three rows.
+    """
+    account = await seed_account(svc)
+    for day, cents, name in (
+        (4, -800, "TARGET 00012345"),
+        (8, -800, "TARGET 00012345"),
+        (8, -4_000, "TARGET 00012345"),
+        (8, -800, "STARBUCKS"),
+    ):
+        await svc.create_transaction(
+            account_id=account.id,
+            amount=cents,
+            txn_date=date(2026, 9, day),
+            owner_user_id=1,
+            name=name,
+        )
+    await session.commit()
+
+    result = await ai_tools.transactions(payee="target", amount_cents=800)
+
+    assert result["total"] == 2
+    assert {t["date"] for t in result["transactions"]} == {"2026-09-04", "2026-09-08"}
+    # The id is what a proposal takes - a payee and a date cannot propose.
+    assert all(isinstance(t["id"], int) for t in result["transactions"])
+
+
+@pytest.mark.asyncio
+async def test_transactions_matches_the_amount_whichever_way_it_is_signed(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A receipt says $8.00. The sign is the ledger's business."""
+    account = await seed_account(svc)
+    await svc.create_transaction(
+        account_id=account.id,
+        amount=-800,
+        txn_date=date(2026, 9, 4),
+        owner_user_id=1,
+        name="TARGET",
+    )
+    await session.commit()
+
+    assert (await ai_tools.transactions(amount_cents=800))["total"] == 1
+    assert (await ai_tools.transactions(amount_cents=-800))["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_transactions_narrows_by_date(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    account = await seed_account(svc)
+    for day in (1, 20):
+        await svc.create_transaction(
+            account_id=account.id,
+            amount=-500,
+            txn_date=date(2026, 9, day),
+            owner_user_id=1,
+            name="COFFEE",
+        )
+    await session.commit()
+
+    assert (await ai_tools.transactions(since="2026-09-10"))["total"] == 1
+    assert (await ai_tools.transactions(until="2026-09-10"))["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_budget_reports_the_limit_the_user_set(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Asked "what is our budget for Medicine/Drugs?" the agent answered
+    that the target "isn't exposed here" - and it was right. Every other
+    tool reports what was SPENT; a limit is a number the user chose, and
+    it lived nowhere a tool could reach."""
+    account = await seed_account(svc)
+    category = await svc.get_or_create_category_from_hint(
+        "Health & Fitness:Medicine/Drugs"
+    )
+    await svc.upsert_budget_line(
+        owner_user_id=1,
+        period_month=None,
+        category_id=category.id,
+        payee_key=None,
+        payee_label=None,
+        allocated_amount=20_000,
+    )
+    await svc.create_transaction(
+        account_id=account.id,
+        amount=-4_500,
+        txn_date=current_date(),
+        owner_user_id=1,
+        name="CVS",
+        category_id=category.id,
+    )
+    await session.commit()
+
+    result = await ai_tools.budget()
+
+    line = next(
+        row
+        for row in result["limits"]
+        if row["category"] == "Health & Fitness:Medicine/Drugs"
+    )
+    assert line["limit"] == 20_000
+    assert line["spent"] == 4_500
+    assert line["remaining"] == 15_500
+    assert line["status"] == "good"
+
+
+@pytest.mark.asyncio
+async def test_budget_keeps_commitments_out_of_the_limits(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A bill's own cost is not a limit anyone set, and reporting one as
+    a budget - or as over it - is how a mortgage becomes "overspending"."""
+    await seed_account(svc)
+    category = await svc.get_or_create_category_from_hint("Food & Dining:Groceries")
+    await svc.upsert_budget_line(
+        owner_user_id=1,
+        period_month=None,
+        category_id=category.id,
+        payee_key=None,
+        payee_label=None,
+        allocated_amount=50_000,
+    )
+    await session.commit()
+
+    result = await ai_tools.budget()
+
+    assert [row["category"] for row in result["limits"]] == ["Food & Dining:Groceries"]
+    assert all(
+        row["category"] != "Food & Dining:Groceries" for row in result["commitments"]
+    )

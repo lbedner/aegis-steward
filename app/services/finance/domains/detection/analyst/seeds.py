@@ -110,6 +110,11 @@ def deep_dive_agent_definition() -> dict[str, Any]:
 # error, so seed order cannot brick the chat tab.
 FINANCE_CHAT_TOOL_NAMES = (
     "ledger",
+    # The rows, when the question names one: a payee, an amount, a date.
+    # Without it, matching a receipt to a charge meant pulling months of
+    # ledger into the sandbox and filtering in Python - 23 of one
+    # session's 55 code blocks were exactly that.
+    "transactions",
     "accounts",
     "quote",
     # Cash walked forward over any window the question names. Without
@@ -124,6 +129,12 @@ FINANCE_CHAT_TOOL_NAMES = (
     # proposed FROM the shortlist, never from lookalike guessing.
     "bills",
     "bill_candidates",
+    # The limits the user actually SET, and spend against them. Asked
+    # "what is our budget for Medicine/Drugs?" the agent answered that
+    # the budget target "isn't exposed here" - correctly: every other
+    # tool reports what was spent, and a limit is a number the user
+    # chose that lives nowhere else.
+    "budget",
     # The tag directory: the label axis a transaction.tag payload
     # names; listed so spellings are reused, not coined per turn.
     "tags",
@@ -146,6 +157,11 @@ FINANCE_CHAT_TOOL_NAMES = (
     # be recorded before it is answered from - the recording is what
     # later turns get instead of the pixels.
     "record_reading",
+    # Her own context window, reported rather than guessed at. History
+    # is budgeted by size and the oldest turns drop silently, so an
+    # agent that has lost four pasted pages answers "no match found" in
+    # exactly the voice of one that still has them.
+    "context",
 )
 
 
@@ -196,6 +212,46 @@ def _attach_chat_tools(session: Session) -> int:
         session.add(AgentTool(agent_id=agent.id, tool_id=tool.id))
         attached += 1
     return attached
+
+
+def resync_finance_agent_prompts(session: Session) -> dict[str, str]:
+    """Push the system prompts in CODE onto the agent rows.
+
+    The seeder deliberately never touches a row that exists - the agents
+    are editable from the dashboard and a re-seed must not undo that -
+    which means a prompt improved in code reaches nobody's install, and
+    does so SILENTLY. That is how a session's worth of tool guidance sat
+    dead: the agent kept proposing a category and its note as two cards
+    because nothing had told it they were one.
+
+    So this is the explicit verb, and it says what it overwrites: the
+    ``system_prompt`` only. A model, a temperature or a tool set tuned
+    in the dashboard is a choice about THIS install; the prompt is the
+    app's own instructions and belongs to the code.
+
+    Returns slug -> "updated" or "unchanged".
+    """
+    result: dict[str, str] = {}
+    for definition in (
+        analyst_agent_definition(),
+        deep_dive_agent_definition(),
+        finance_chat_agent_definition(),
+    ):
+        row = session.exec(
+            select(Agent).where(Agent.slug == definition["slug"])
+        ).first()
+        if row is None:
+            continue
+        wanted = definition["system_prompt"]
+        if row.system_prompt == wanted:
+            result[definition["slug"]] = "unchanged"
+            continue
+        row.system_prompt = wanted
+        session.add(row)
+        result[definition["slug"]] = "updated"
+    if any(v == "updated" for v in result.values()):
+        session.commit()
+    return result
 
 
 def load_finance_agent_fixtures(session: Session) -> dict[str, int]:

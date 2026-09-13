@@ -33,13 +33,22 @@
     <summary class="list-none {{ button_classes("default", "xs") }}">
       Accounts{% if selected_ids %} ({{ selected_ids|length }}){% endif %}
     </summary>
-    <div class="absolute right-0 top-full mt-1 z-30 min-w-[14rem] bg-aegis-card border border-aegis-border rounded-lg shadow-lg p-2 space-y-1">
-      {% for account in accounts %}
-      <label class="flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-aegis-border/30 cursor-pointer">
-        <input type="checkbox" name="account_ids" value="{{ account.id }}"
-               class="accent-aegis-teal" {% if account.id in selected_ids %}checked{% endif %}>
-        <span class="text-aegis-text truncate">{{ account.name }}</span>
-      </label>
+    {# Sectioned, in the same ledger order the Accounts page uses - a
+       flat list of fifteen made the reader scan for a name they already
+       knew the KIND of. ``account_sections`` is the one bucketing, so a
+       new account type appears in both places or neither. #}
+    <div class="absolute right-0 top-full mt-1 z-30 min-w-[16rem] max-h-[70vh] overflow-y-auto bg-aegis-card border border-aegis-border rounded-lg shadow-lg p-2">
+      {% for label, group in account_sections(accounts) %}
+      <p class="px-2 pt-2 pb-1 micro-label text-aegis-muted">{{ label }}</p>
+      <div class="space-y-1 pb-1">
+        {% for account in group %}
+        <label class="flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-aegis-border/30 cursor-pointer">
+          <input type="checkbox" name="account_ids" value="{{ account.id }}"
+                 class="accent-aegis-teal" {% if account.id in selected_ids %}checked{% endif %}>
+          <span class="text-aegis-text truncate">{{ account.name }}</span>
+        </label>
+        {% endfor %}
+      </div>
       {% endfor %}
     </div>
   </details>

@@ -297,6 +297,9 @@ class TransactionsMixin(FinanceServiceBase):
         include_transfers: bool = False,
         page: int = 1,
         page_size: int = 20,
+        amount: int | None = None,
+        sort: str | None = None,
+        descending: bool = True,
     ) -> tuple[list[FinanceTransaction], int]:
         # Default view: not soft-deleted, and never the losing side of a dedup.
         # Also hide transactions whose account was removed/disconnected — the
@@ -320,4 +323,7 @@ class TransactionsMixin(FinanceServiceBase):
             include_transfers=include_transfers,
             page=page,
             page_size=page_size,
+            amount=amount,
+            sort=sort,
+            descending=descending,
         )
