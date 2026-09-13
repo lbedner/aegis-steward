@@ -39,6 +39,7 @@ dependencies = [
     "greenlet>=1.1.0",
     "jinja2>=3.1.0",
     "alembic==1.16.5",
+    "pypdfium2>=5.0,<6",
 
     "pydantic-ai-slim[openai]>=1.0.10",
     "pydantic-ai-harness[codemode]>=0.24.0",

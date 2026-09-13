@@ -8,6 +8,8 @@ test_card_modal_keys.py`` walks every card to make sure none is.
 
 import flet as ft
 
+from app.services.documents.health import DOCUMENTS_MODAL_ID
+
 
 def modal_registry() -> dict[str, type[ft.Container]]:
     """Every detail modal, keyed by the component id its card passes.
@@ -26,6 +28,9 @@ def modal_registry() -> dict[str, type[ft.Container]]:
     from app.components.frontend.dashboard.modals.database_modal import (
         DatabaseDetailDialog,
     )
+    from app.components.frontend.dashboard.modals.documents_modal import (
+        DocumentsDetailDialog,
+    )
     from app.components.frontend.dashboard.modals.finance_modal import (
         FinanceDetailDialog,
     )
@@ -42,6 +47,7 @@ def modal_registry() -> dict[str, type[ft.Container]]:
     modal_map: dict[str, type[ft.Container]] = {
         "service_ai": AIDetailDialog,
         "service_comms": CommsDetailDialog,
+        DOCUMENTS_MODAL_ID: DocumentsDetailDialog,
         "service_finance": FinanceDetailDialog,
         "backend": BackendDetailDialog,
         "frontend": FrontendDetailDialog,

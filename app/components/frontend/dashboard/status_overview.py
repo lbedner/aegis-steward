@@ -8,6 +8,7 @@ Uses DataTable for consistent styling with other tables in the app.
 import flet as ft
 
 from app.components.frontend.controls import DataTable, DataTableColumn
+from app.services.documents.health import DOCUMENTS_MODAL_ID
 from app.services.finance.constants import FINANCE_COMPONENT_NAME
 from app.services.system.models import ComponentStatus
 from app.services.system.ui import get_component_subtitle, get_database_subtitle
@@ -66,6 +67,9 @@ def get_component_display_info(
 
     elif component_name == "service_comms":
         return ("Comms Service", "Resend + Twilio")
+
+    elif component_name == DOCUMENTS_MODAL_ID:
+        return ("Documents", get_component_subtitle(DOCUMENTS_MODAL_ID, metadata))
 
     elif component_name == f"service_{FINANCE_COMPONENT_NAME}":
         return (
@@ -165,6 +169,7 @@ class StatusOverviewPanel(ft.Container):
             "scheduler",
             "service_ai",
             "service_comms",
+            DOCUMENTS_MODAL_ID,
             f"service_{FINANCE_COMPONENT_NAME}",
         ]
 

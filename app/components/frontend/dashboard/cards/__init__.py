@@ -2,6 +2,7 @@
 
 from app.components.frontend.dashboard.cards.ai_card import AICard
 from app.components.frontend.dashboard.cards.comms_card import CommsCard
+from app.components.frontend.dashboard.cards.documents_card import DocumentsCard
 from app.components.frontend.dashboard.cards.finance_card import FinanceCard
 
 from .database_card import DatabaseCard
@@ -16,6 +17,7 @@ __all__ = [
     "ServerCard",
     "AICard",
     "CommsCard",
+    "DocumentsCard",
     "FinanceCard",
     "ServicesCard",
     "DatabaseCard",

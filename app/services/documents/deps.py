@@ -1,0 +1,33 @@
+"""FastAPI dependency providers for the document service.
+
+Mirrors ``finance/deps.py``. ``get_owner_user_id`` centralizes owner
+scoping in one place: it resolves to the authenticated user's id when the
+auth service is present, else ``None`` (single-user / standalone) - so
+route handlers stay auth-agnostic and never repeat the guard per
+endpoint. Documents dedupe PER OWNER, so getting this wrong would make
+one person's scan collide with another's.
+"""
+
+from fastapi import Depends
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.core.db import get_async_db
+from app.services.documents.service import DocumentService
+
+
+async def get_document_service(
+    db: AsyncSession = Depends(get_async_db),
+) -> DocumentService:
+    """Provide a DocumentService.
+
+    ``get_async_db`` is the FastAPI-dependency form of the session, and
+    what every other service injects; ``get_async_session`` is the same
+    transaction handling wrapped as a context manager, for scripts and
+    background jobs that own their own scope. Both commit on success.
+    """
+    return DocumentService(db)
+
+
+async def get_owner_user_id() -> int | None:
+    """No auth service - the store is single-user, so rows are unscoped."""
+    return None

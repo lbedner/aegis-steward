@@ -1885,7 +1885,7 @@ class TestMatchingAnOrderToItsCharge:
         assert "within a month has not" in FINANCE_CHAT_SYSTEM_PROMPT
 
     def test_a_budget_question_goes_to_the_budget_tool(self) -> None:
-        """"what is our budget for Medicine/Drugs?" got "the budget
+        """ "what is our budget for Medicine/Drugs?" got "the budget
         target isn't exposed here" - true at the time. The ledger holds
         what was SPENT, which is a different question."""
         from app.services.finance.domains.detection.analyst.prompts import (

@@ -75,6 +75,7 @@ class TransactionResponse(BaseModel):
         from app.core.formatting import payee_label
 
         return payee_label(self.merchant, self.merchant_name, self.name)
+
     # Where the payee is usually filed; a row with no category of its own
     # borrows it for its brand mark's glyph.
     payee_category: str | None = None
