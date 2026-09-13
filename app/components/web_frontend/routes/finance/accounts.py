@@ -31,11 +31,10 @@ from app.components.web_frontend.routes.finance.register import (
 )
 from app.services.finance.constants import (
     ACCOUNT_ACTION_LABELS,
-    ACCOUNT_GROUPS,
     ADD_ACCOUNT_TYPES,
     account_actions,
     account_classification,
-    account_group,
+    account_sections,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.accounts import effective_balance
@@ -61,14 +60,8 @@ def balance(account: AccountResponse) -> int:
 
 def grouped(accounts: list[AccountResponse]) -> list[dict[str, Any]]:
     """Ledger-order groups, each with a subtotal, largest balance first."""
-    buckets: dict[str, list[AccountResponse]] = {}
-    for account in accounts:
-        buckets.setdefault(account_group(account.account_type), []).append(account)
     groups = []
-    for label, _types in ACCOUNT_GROUPS:
-        members = buckets.get(label)
-        if not members:
-            continue
+    for label, members in account_sections(accounts):
         rows = sorted(members, key=balance, reverse=True)
         groups.append(
             {

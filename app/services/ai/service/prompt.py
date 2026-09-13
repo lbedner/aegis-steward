@@ -17,6 +17,11 @@ from app.services.ai.domains.chat.prompts import (
     build_system_prompt,
 )
 from app.services.ai.domains.chat.readings import format_readings
+from app.services.ai.domains.chat.self_context import (
+    Block,
+    begin_turn_context,
+    record_turn_context,
+)
 from app.services.ai.domains.chat.tools import resolve_tools
 from app.services.ai.domains.chat.usage_context import UsageContext
 from app.services.ai.domains.llm.providers import get_agent
@@ -91,6 +96,8 @@ class PromptMixin(ContextsMixin):
         memory_context: str | None = None,
         agent_modules_context: str | None = None,
         history_budget: int | None = None,
+        context_window: int | None = None,
+        readings: list[dict[str, Any]] | None = None,
     ) -> tuple[Any, str]:
         """
         Create agent for request and build conversation context.
@@ -104,10 +111,19 @@ class PromptMixin(ContextsMixin):
             catalog_context: Optional LLM catalog context for model awareness
             agent_config: Resolved agent definition; supplies sampling
                 parameters, an optional model pin, and an optional persona
+            context_window: The effective model's window, for the stamp
+                the ``context`` tool reports from
+            readings: The user's recorded extractions, replayed ahead of
+                history
 
         Returns:
             tuple[Any, str]: (agent instance, conversation context string)
         """
+        # One stamp per turn, opened here because this is the one place
+        # both the streaming and non-streaming entrypoints pass through.
+        begin_turn_context()
+        record_turn_context(context_window=context_window)
+
         # Build system prompt with project context and optional contexts
         # Get fresh config for current model/provider
         config = self._apply_agent_config(self.config, agent_config)
@@ -171,13 +187,37 @@ class PromptMixin(ContextsMixin):
 
         # Build conversation context for AI
         conversation_context = self._build_conversation_context(
-            conversation, history_budget=history_budget
+            conversation, history_budget=history_budget, readings=readings
+        )
+
+        # Stamp the shape for the ``context`` tool: an agent asked what it
+        # can still see answers from this, not from a guess.
+        record_turn_context(
+            model=config.model,
+            provider=config.provider.value,
+            blocks=[
+                b
+                for b in (
+                    Block("persona", len(self._agent_persona(agent_config) or "")),
+                    Block("system status", len(formatted_health or "")),
+                    Block("saved memory", len(memory_context or "")),
+                    Block("usage", len(formatted_usage or "")),
+                    Block("model catalog", len(catalog_context or "")),
+                    Block("briefings", len(agent_modules_context or "")),
+                )
+                if b.chars
+            ],
+            tools=list(agent_config.tool_names) if agent_config else [],
+            code_mode=bool(agent_config and agent_config.code_mode),
         )
 
         return agent, conversation_context
 
     def _build_conversation_context(
-        self, conversation: Conversation, history_budget: int | None = None
+        self,
+        conversation: Conversation,
+        history_budget: int | None = None,
+        readings: list[dict[str, Any]] | None = None,
     ) -> str:
         """
         Build conversation context for AI from message history.
@@ -193,16 +233,19 @@ class PromptMixin(ContextsMixin):
 
         # Recorded readings (extractions from since-gone images) ride
         # every turn, ahead of history - they are the durable record the
-        # ephemeral attachment left behind.
-        readings_block = format_readings(conversation.metadata)
+        # ephemeral attachment left behind, and they belong to the user
+        # rather than to the thread they were read in.
+        readings_block = format_readings(readings)
         prefix = f"{readings_block}\n\n" if readings_block else ""
 
         # Budget history by SIZE, newest first, rather than by message
         # count: one agent's answers can run 1k+ tokens each, so "last 10
         # messages" re-prefills an essay collection on every model call.
         # Oldest messages drop first; the current message always rides.
+        budget = history_budget or HISTORY_CHAR_BUDGET_DEFAULT
         context_parts: list[str] = []
         used = 0
+        dropped = 0
         for msg in reversed(conversation.messages[:-1]):
             if msg.role == MessageRole.USER:
                 line = f"User: {msg.content}"
@@ -210,10 +253,20 @@ class PromptMixin(ContextsMixin):
                 line = f"Assistant: {msg.content}"
             else:
                 continue
-            if used + len(line) > (history_budget or HISTORY_CHAR_BUDGET_DEFAULT):
-                break
+            if dropped or used + len(line) > budget:
+                # Keep counting once the budget is spent: how much the
+                # agent LOST is the number worth being able to report.
+                dropped += 1
+                continue
             context_parts.insert(0, line)
             used += len(line) + 1
+
+        record_turn_context(
+            history_chars=used,
+            history_budget=budget,
+            messages_kept=len(context_parts),
+            messages_dropped=dropped,
+        )
 
         # Add the current user message
         latest_message = conversation.get_last_message()

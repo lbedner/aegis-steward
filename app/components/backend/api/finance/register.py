@@ -127,6 +127,8 @@ async def list_transactions(
     include_transfers: bool = False,
     page: int = 1,
     page_size: int = 50,
+    sort: str | None = None,
+    descending: bool = True,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> TransactionListResponse:
@@ -149,6 +151,8 @@ async def list_transactions(
         include_transfers=include_transfers,
         page=page,
         page_size=page_size,
+        sort=sort,
+        descending=descending,
     )
     items = await hydrate_transactions(service, transactions)
     return TransactionListResponse(items=items, total=total)

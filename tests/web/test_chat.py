@@ -441,6 +441,41 @@ class TestComponents:
         none(after, "button[hx-post]")
         none(client.get("/review").text, f"#change-{review.change}")
 
+    @pytest.mark.asyncio
+    async def test_a_refused_approval_says_why_instead_of_nothing(
+        self, hx: TestClient, finance: FinanceService, ledger: Ledger
+    ) -> None:
+        """Live: a split proposing $39.98 + $7.99 against a $38.90
+        charge. The queue refused it, recorded why and left the row
+        pending - the decision is still the user's - but the route let
+        the 400 out, and a 4xx does not swap (see htmx-config
+        responseHandling). So Approve did nothing at all, forever, with
+        no hint that the parts did not add up.
+
+        A refusal is an ANSWER: the card comes back carrying the
+        recorded error, and the toast says it out loud.
+        """
+        rows, _ = await finance.list_transactions(owner_user_id=None, page_size=50)
+        txn = next(t for t in rows if t.name == "Gas")  # $40.00
+        change = await finance.propose_change(
+            "transaction.split",
+            {
+                "transaction_id": txn.id,
+                "parts": [{"amount": 3_998}, {"amount": 799}],
+            },
+            owner_user_id=None,
+        )
+        await finance.db.commit()
+
+        response = hx.post(f"/chat/components/change/{change.id}/approve")
+
+        assert response.status_code == 200, "a refusal must still answer"
+        assert "exceed" in triggers(response)["toast"]["text"]
+        card = one(response.text, "[data-component=pending_change]")
+        assert "exceed" in text(card), "the card carries the recorded reason"
+        # Still the user's call: pending, not failed.
+        assert text(one(card, "[data-tone=warn]")) == "Awaiting your approval"
+
     def test_batch_card_vetoes_then_reads_as_an_outcome(
         self, hx: TestClient, review: Review
     ) -> None:

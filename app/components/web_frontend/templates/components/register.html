@@ -3,7 +3,7 @@
    with ``register`` (see routes/finance/register.py) in context. #}
 {% from "components/macros/layout.html" import card %}
 {% from "components/macros/table.html" import data_table, pager %}
-{% from "components/macros/form.html" import select, date_input, checkbox, search_input, action, range_chips %}
+{% from "components/macros/form.html" import select, date_input, checkbox, search_input, action, range_chips, control %}
 {% from "components/macros/feedback.html" import empty_state %}
 
 {% if register.kind == "investment" %}
@@ -82,6 +82,7 @@
     {% set checked = "hx-include=\"[name='transaction_ids']:checked\"" %}
     {% set account = ' hx-vals=\'{"show_account": true}\'' if register.show_account else "" %}
     {{ action("Set payee", hx_dialog("/transactions/payee", checked ~ account)) }}
+    {{ action("Categorize", hx_dialog("/transactions/categorize", checked ~ account)) }}
     {{ action("Tag", hx_dialog("/transactions/tag", checked ~ account)) }}
     {{ action("Make recurring", hx_dialog("/transactions/declare", checked)) }}
     {{ action("Remove", 'hx-post="/transactions/delete" ' ~ checked ~ ' hx-swap="none" hx-confirm="Remove the selected transactions? A re-import will not bring them back."', tone="danger") }}
@@ -90,9 +91,25 @@
     <table class="w-full text-sm">
       <thead>
         <tr class="text-aegis-muted micro-label border-b border-aegis-border">
-          <th scope="col" class="pl-5 pr-2 py-2"><span class="sr-only">Select</span></th>
+          {# Select all on this page. Ticking the rows fires no change of
+             their own, but this one bubbles to the counter above, which
+             recounts from ``:checked`` - so the bar is right either way. #}
+          <th scope="col" class="pl-5 pr-2 py-2">
+            <input type="checkbox" aria-label="Select all on this page" data-select-all
+                   class="{{ control('checkbox') }}"
+                   @change="$root.querySelectorAll('input[name=transaction_ids]').forEach(b => b.checked = $el.checked)">
+          </th>
+          {# A header the reader can click. The link carries the whole
+             filter set, so sorting a filtered register keeps its
+             filters, and it swaps the rows only - the bar above stays
+             put, the same as search. #}
           {% for col in register.columns %}
-          <th scope="col" class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.label }}</th>
+          {% set sort_url = register.path ~ "?" ~ register.filters.sorted_by(col.key) %}
+          <th scope="col" aria-sort="{{ 'ascending' if register.filters.sort == col.key and register.filters.sort_dir == 'asc' else ('descending' if register.filters.sort == col.key else 'none') }}"
+              class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">
+            <a href="{{ sort_url }}" {{ hx_replace(sort_url, "#register") }}
+               class="inline-flex items-center gap-1 hover:text-aegis-text transition-colors">{{ col.label }}<span class="text-xxs">{{ register.filters.arrow(col.key) }}</span></a>
+          </th>
           {% endfor %}
           <th scope="col" class="px-2 py-2"><span class="sr-only">Actions</span></th>
         </tr>

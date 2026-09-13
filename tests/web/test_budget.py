@@ -91,6 +91,72 @@ class TestStatDetails:
         dialog = hx.get("/budget/stats/bills").text
         assert "Rent" in text(one(dialog, "#stat-rows"))
 
+    def test_a_limit_opens_what_it_is_made_of(
+        self, client: TestClient, hx: TestClient, budget: Budget
+    ) -> None:
+        """ "$535.16 of $1,000.00" was a figure with no way to ask what
+        it was made of."""
+        page = client.get("/budget").text
+        opener = one(page, f'[hx-get="/budget/lines/{budget.line}/transactions"]')
+        assert opener.get("hx-target") == "#dialog-body"
+
+        body = hx.get(f"/budget/lines/{budget.line}/transactions").text
+
+        assert "Food:Groceries" in text(one(body, "h2"))
+        assert select(body, "tbody tr"), "no transactions behind the limit"
+
+    def test_the_opener_states_its_own_swap(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """htmx INHERITS hx-swap from ancestors, and this opener sits
+        inside the limit's row form, which swaps ITSELF outerHTML. The
+        modal borrowed that and replaced #dialog-body with the dialog's
+        own content: it opened once, and every later open failed with
+        htmx:targetError because the element it targets was gone - "I
+        can't open a new one until I refresh". ``hx_dialog`` states the
+        swap so nothing can be borrowed against it."""
+        page = client.get("/budget").text
+        opener = one(page, f'[hx-get="/budget/lines/{budget.line}/transactions"]')
+
+        assert opener.get("hx-swap") == "innerHTML"
+
+    def test_a_renamed_row_shows_the_name_it_was_given(
+        self, client: TestClient, hx: TestClient, budget: Budget, ledger: Ledger
+    ) -> None:
+        """Live: the drill-down listed "SHPRTE NTH RD&WNSW GT
+        XXX-XXX-6086 NY 09/11" for a row long since named Shop Rite.
+        It read ``name``, the raw descriptor, where every other
+        transaction list reads ``payee_label`` - whose own docstring
+        says showing the descriptor after a rename reads as though the
+        rename never took."""
+        body = hx.get(f"/budget/lines/{budget.line}/transactions").text
+
+        headers = [text(th) for th in select(body, "thead th")]
+
+        assert "Payee" in headers and "Name" not in headers
+
+    def test_the_rows_add_up_to_the_figure_they_were_opened_from(
+        self, client: TestClient, hx: TestClient, budget: Budget
+    ) -> None:
+        """The point of a drill-down. The spend comes from one tally
+        over the period's outflows, so the list answers with the same
+        window, the same predicate and the same matching - exact
+        category, never the parent-prefix rollup the Overview pie uses,
+        because a limit on a leaf never included its siblings."""
+        body = hx.get(f"/budget/lines/{budget.line}/transactions").text
+
+        subtitle = text(one(body, "p"))
+        shown = sum(
+            int(
+                round(
+                    float(text(tr.getchildren()[3]).replace("$", "").replace(",", ""))
+                    * 100
+                )
+            )
+            for tr in select(body, "tbody tr")
+        )
+        assert f"${abs(shown) / 100:,.2f}" in subtitle
+
     def test_unknown_cell_is_404(self, hx: TestClient, budget: Budget) -> None:
         assert hx.get("/budget/stats/nope").status_code == 404
 
@@ -226,6 +292,20 @@ class TestGoals:
         assert pause.get("hx-target") == f"#goal-{budget.goal}"
         one(card, f'[hx-get="/budget/goals/{budget.goal}/contribute"]')
         one(card, f'[hx-get="/budget/goals/{budget.goal}/edit"]')
+
+    def test_the_percent_shown_is_the_percent_judged(self) -> None:
+        """The tone flips at exactly 80% of the limit. Rounding 79.96%
+        up to "80%" showed a figure that had reached the threshold
+        beside a bar that had not - live, on Gas & Fuel."""
+        from app.services.finance.domains.planning.budgets.lines import (
+            budget_line_status,
+        )
+
+        allocated, spent = 20_000, 15_992  # 79.96%
+
+        assert int(spent / allocated * 100) == 79
+        assert budget_line_status(allocated, spent) == "good"
+        assert budget_line_status(allocated, 16_000) == "warn"
 
     def test_a_limit_bar_carries_its_tone_as_a_text_colour(
         self, client: TestClient, ledger: Ledger

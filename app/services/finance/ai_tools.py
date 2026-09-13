@@ -444,8 +444,11 @@ async def projection(
         "end_balance": walk.end_balance,
         "upcoming_total": walk.upcoming_total,
         "bills": [
-            {**bill, "date": bill["date"].isoformat(),
-             "due_date": bill["due_date"].isoformat() if bill["due_date"] else None}
+            {
+                **bill,
+                "date": bill["date"].isoformat(),
+                "due_date": bill["due_date"].isoformat() if bill["due_date"] else None,
+            }
             for bill in upcoming_outflows(walk)
         ],
         "points": [
@@ -463,6 +466,141 @@ async def projection(
     }
 
 
+async def transactions(
+    payee: str | None = None,
+    amount_cents: int | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Find PARTICULAR transactions, without reading the ledger.
+
+    Every filter is optional and they narrow together: ``payee`` matches
+    the payee or the raw descriptor, ``amount_cents`` matches by
+    magnitude (800 finds a $8.00 charge whichever way it is signed),
+    ``since``/``until`` are ISO dates. Returns 'total' (how many match)
+    and 'transactions' - id, date, payee, amount_cents, category,
+    account, memo - newest first, capped at ``limit``.
+
+    Use this, not ``ledger(detail="transactions")``, whenever the
+    question names a payee, an amount or a date: matching a receipt to
+    a charge used to mean pulling months of ledger into the sandbox and
+    filtering in Python, which is slow, easy to get wrong, and pulled
+    two years of rows to find three. ``ledger`` is for the SHAPE of
+    spending; this is for the rows.
+    """
+    from app.components.backend.api.finance.register import hydrate_transactions
+    from app.services.finance.service import FinanceService
+
+    def _date(raw: str | None) -> date | None:
+        return date.fromisoformat(raw) if raw else None
+
+    async with get_async_session() as session:
+        service = FinanceService(session)
+        rows, total = await service.list_transactions(
+            owner_user_id=None,
+            query=payee or None,
+            amount=amount_cents,
+            from_date=_date(since),
+            to_date=_date(until),
+            page_size=max(1, min(int(limit), 200)),
+        )
+        items = await hydrate_transactions(service, rows)
+        accounts = {
+            account.id: account.name
+            for account in (
+                await accounts_page(
+                    session,
+                    owner_user_id=None,
+                    include_hidden=True,
+                    page=1,
+                    page_size=500,
+                )
+            )[0]
+        }
+    return {
+        "total": total,
+        "returned": len(items),
+        "transactions": [
+            {
+                "id": item.id,
+                "date": item.date.isoformat(),
+                "payee": item.payee,
+                "amount_cents": item.amount,
+                "category": item.category,
+                "account": accounts.get(item.account_id, ""),
+                "memo": item.memo,
+            }
+            for item in items
+        ],
+    }
+
+
+async def budget(period_month: int | None = None) -> dict[str, Any]:
+    """The limits the user actually set, and how the month is going
+    against them: 'period_month' (YYYYMM), 'limits' (every FLEXIBLE
+    line - 'category' or 'payee', 'limit' and 'spent' in cents,
+    'remaining', and 'status' of good/warn/critical), 'commitments' (the
+    recurring bills shown for context, which are NOT limits anyone set),
+    and 'stats' (the month's totals, how many limits are over, and the
+    days left in the period).
+
+    Reach for this whenever the question is what something is BUDGETED
+    at, what is left, or what is over - "what is our budget for
+    Medicine/Drugs?". A limit is a number the user chose and it lives
+    nowhere else: `ledger` shows what was SPENT, which is a different
+    question and cannot answer this one. ``period_month`` is YYYYMM for
+    an earlier month; omitted means the current period.
+
+    Only 'limits' carry a real spend-vs-limit status. A commitment's
+    'limit' is just what that bill typically costs, so never report one
+    as a budget the user set, or as being over or under.
+    """
+    from app.services.finance.domains.planning.budgets.summary import budget_summary
+
+    async with get_async_session() as session:
+        summary = await budget_summary(
+            session, owner_user_id=None, period_month=period_month
+        )
+
+    def line(row: Any) -> dict[str, Any]:
+        return {
+            "category": row.category_name,
+            "payee": row.payee_label,
+            "limit": row.allocated_amount,
+            "spent": row.spent_amount,
+            "remaining": row.allocated_amount - row.spent_amount,
+            "status": row.status,
+        }
+
+    limits = [
+        line(row)
+        for bucket in summary.buckets
+        if bucket.name == "flexible"
+        for row in bucket.lines
+    ]
+    commitments = [
+        line(row)
+        for bucket in summary.buckets
+        if bucket.name != "flexible"
+        for row in bucket.lines
+    ]
+    stats = summary.stats
+    return {
+        "period_month": summary.period_month,
+        "limits": limits,
+        "commitments": commitments,
+        "stats": {
+            "flexible_spent": stats.flexible_spent,
+            "flexible_allocated": stats.flexible_allocated,
+            "days_left_in_period": stats.days_left_in_period,
+            "over_budget_count": stats.over_budget_count,
+            "over_budget_labels": stats.over_budget_labels,
+            "fixed_total": stats.fixed_total,
+        },
+    }
+
+
 register_tool(
     "ledger",
     ledger,
@@ -476,6 +614,12 @@ register_tool(
     replace=True,
 )
 register_tool(
+    "transactions",
+    transactions,
+    description="Find particular transactions by payee, amount or date",
+    replace=True,
+)
+register_tool(
     "projection",
     projection,
     description="Cash walked forward through scheduled bills over any window",
@@ -485,6 +629,12 @@ register_tool(
     "quote",
     quote,
     description="Latest stored closing price for a ticker",
+    replace=True,
+)
+register_tool(
+    "budget",
+    budget,
+    description="The limits the user set, and spend against them this period",
     replace=True,
 )
 

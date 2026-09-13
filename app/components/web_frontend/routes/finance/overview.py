@@ -49,7 +49,7 @@ MAX_CASHFLOW_BARS = 12
 
 TXN_COLUMNS = [
     {"key": "date", "label": "Date", "kind": "date"},
-    {"key": "name", "label": "Name", "kind": "avatar"},
+    {"key": "payee", "label": "Payee", "kind": "avatar"},
     {"key": "category", "label": "Category"},
     {"key": "amount", "label": "Amount", "kind": "money", "align": "right"},
 ]
@@ -284,11 +284,12 @@ async def spending(
     )
     return templates.TemplateResponse(
         request=request,
-        name="partials/overview/spending.html",
+        name="partials/transactions_dialog.html",
         context={
             "title": category[0] if len(category) == 1 else "Other",
-            "days": days,
+            "subtitle": f"last {days} days",
             "rows": rows.items,
-            "txn_columns": TXN_COLUMNS,
+            "columns": TXN_COLUMNS,
+            "empty": "No transactions behind this slice",
         },
     )

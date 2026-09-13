@@ -2,6 +2,9 @@
 
 from pathlib import Path
 import sqlite3
+from typing import Any
+
+import pytest
 
 from app.core.db import SQLITE_BUSY_TIMEOUT_MS, apply_sqlite_pragmas
 
@@ -22,3 +25,65 @@ def test_a_connection_gets_its_keys_and_its_wait(tmp_path: Path) -> None:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] != "wal"
     finally:
         connection.close()
+
+
+class TestTwoWritersInOneTurn:
+    """Live: a turn that proposed a change and then saved a memory died
+    on "database is locked" - after the answer had already streamed and
+    the fact had been said aloud.
+
+    The 30-second ``busy_timeout`` was never reached. A bare BEGIN is
+    DEFERRED: SQLite takes no lock until the first write and then has to
+    UPGRADE, and an upgrade that finds another writer fails AT ONCE
+    rather than waiting, because a transaction holding a read lock and
+    waiting for a write lock is how two of them deadlock.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_second_writer_queues_instead_of_failing(
+        self, tmp_path: Path
+    ) -> None:
+        import asyncio
+
+        from sqlalchemy import event, text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        from app.core.db import apply_sqlite_pragmas
+
+        db = tmp_path / "probe.db"
+        engine = create_async_engine(f"sqlite+aiosqlite:///{db}")
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _connect(dbapi: Any, record: Any) -> None:
+            dbapi.isolation_level = None
+            apply_sqlite_pragmas(dbapi)
+
+        @event.listens_for(engine.sync_engine, "begin")
+        def _begin(conn: Any) -> None:
+            # The very statement under test.
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
+
+        async with engine.begin() as conn:
+            await conn.execute(text("create table t (v int)"))
+
+        async def read_then_write(value: int) -> None:
+            async with engine.begin() as conn:
+                await conn.execute(text("select count(*) from t"))
+                await asyncio.sleep(0.2)  # hold it, the way a turn does
+                await conn.execute(text("insert into t values (:v)"), {"v": value})
+
+        await asyncio.gather(read_then_write(1), read_then_write(2))
+
+        async with engine.begin() as conn:
+            landed = (await conn.execute(text("select count(*) from t"))).scalar()
+        await engine.dispose()
+        assert landed == 2, "both writers must land, not one and an error"
+
+    def test_the_engine_emits_it(self) -> None:
+        """The behaviour above is only true while the app says IMMEDIATE
+        - a bare BEGIN reads identically and fails."""
+        import inspect
+
+        from app.core.db import _async_sqlite_emit_begin
+
+        assert "BEGIN IMMEDIATE" in inspect.getsource(_async_sqlite_emit_begin)

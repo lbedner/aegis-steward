@@ -101,6 +101,7 @@ class CategoriesMixin(FinanceServiceBase):
         *,
         owner_user_id: int | None = None,
         source: str = "user",
+        memo: str | None = None,
     ) -> FinanceTransaction | None:
         return await categories.categorize_transaction(
             self.db,
@@ -108,6 +109,7 @@ class CategoriesMixin(FinanceServiceBase):
             category_id,
             owner_user_id=owner_user_id,
             source=source,
+            memo=memo,
         )
 
     async def suggest_categories(

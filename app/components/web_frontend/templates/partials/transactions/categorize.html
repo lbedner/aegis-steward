@@ -1,0 +1,22 @@
+{# Dialog body: file the selected transactions under one category. The
+   same picker the payee and tag dialogs use - one control for "choose
+   one of many", so the three bulk edits read identically. #}
+{% from "components/macros/form.html" import picker, control %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% set hidden %}
+{% for id in transaction_ids %}<input type="hidden" name="transaction_ids" value="{{ id }}">{% endfor %}
+{% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
+{# Why, at the moment you decide it. A Target charge filed under Kids
+   with "school supplies" on it explains itself six months later; the
+   same charge with a bare category does not. Blank leaves whatever note
+   is already there - re-filing must not erase the last explanation. #}
+<label class="block text-xs text-aegis-muted mt-3">Note (optional)
+  <input type="text" name="memo" placeholder="school supplies, birthday gift..."
+         class="{{ control('input') }} w-full mt-1">
+</label>
+{% endset %}
+<h2 class="text-lg font-semibold text-aegis-text mb-1">Categorize {{ title }}</h2>
+<p class="text-xs text-aegis-muted mb-4">Every selected transaction is filed under the one you pick.</p>
+{{ error_banner(errors) }}
+{{ picker("category-picker", "/transactions/categorize", "category_id", categories,
+          hint="Search categories", hidden=hidden, current=current) }}

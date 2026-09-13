@@ -129,7 +129,27 @@ def _async_sqlite_take_over_transactions(
 
 @event.listens_for(async_engine.sync_engine, "begin")
 def _async_sqlite_emit_begin(conn: Any) -> None:
-    conn.exec_driver_sql("BEGIN")
+    """BEGIN IMMEDIATE, not a bare BEGIN.
+
+    A bare BEGIN is DEFERRED: SQLite takes no lock until the first write
+    and then has to UPGRADE. If another writer holds the lock at that
+    moment the upgrade fails with "database is locked" AT ONCE -
+    ``busy_timeout`` deliberately does not apply to it, because a
+    transaction that already holds a read lock and waits for a write
+    lock is how two of them deadlock.
+
+    So the 30-second timeout above was never reached. It cost a turn
+    live: the answer streamed, the proposal landed, and then
+    ``save_memory`` - a second session opened inside the same turn -
+    died on "database is locked" with the fact already spoken aloud.
+
+    IMMEDIATE takes the write lock up front, where waiting is safe and
+    the timeout DOES apply, so a second writer queues instead of
+    failing. The cost is that read-only transactions on this engine also
+    queue behind a writer, which on a single-user ledger is the cheaper
+    of the two.
+    """
+    conn.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 # Configure session factory with SQLModel Session (sync)

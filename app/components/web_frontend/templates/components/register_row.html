@@ -16,6 +16,9 @@
   {% if show_account %}<td class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
   <td data-cell="payee" class="px-5 py-2 text-aegis-text">
     <span class="inline-flex items-center gap-2">{{ mark(row, row.payee) }}<span>{{ row.payee }}</span></span>
+    {# The note, under the payee where a split's lines go: a memo the
+       user can write and never see is not a memo. #}
+    {% if row.memo and not row.is_split %}<p class="mt-0.5 text-xxs text-aegis-muted" data-memo>{{ row.memo }}</p>{% endif %}
     {% if row.is_split %}
     <ul class="mt-1 space-y-0.5 text-xxs text-aegis-muted">
       {% for line in row.splits %}<li class="split-line">{{ line.amount|money(row.currency) }} · {{ line.category or "Uncategorized" }}{% if line.memo %} · {{ line.memo }}{% endif %}</li>{% endfor %}
@@ -42,6 +45,21 @@
     {% endfor %}
   </td>
   <td class="px-5 py-2 whitespace-nowrap">
+    {# A split row has no ONE category, and the select said it did: it
+       showed the parent's - "Shopping" over a charge actually spread
+       across Kids:Clothes, Home Supplies and Groceries - and offered to
+       change it, which is not a change this row can take. The lines are
+       the answer, and they are already listed under the payee; this
+       says how many there are and sends an edit to the one place that
+       can make it, the split dialog. #}
+    {% if row.is_split %}
+    {% set kinds = row.splits|map(attribute="category")|reject("none")|unique|list %}
+    <button type="button" {{ hx_dialog('/transactions/' ~ row.id ~ '/split') }}
+            title="{{ kinds|join(', ') if kinds else 'Split' }}"
+            class="border border-transparent hover:border-aegis-border rounded px-1.5 py-1 text-sm text-aegis-muted">
+      Split{% if kinds|length > 1 %} · {{ kinds|length }} categories{% elif kinds %} · {{ kinds[0] }}{% endif %}
+    </button>
+    {% else %}
     <select name="category_id" aria-label="Category" data-options="category-options"
             hx-post="/transactions/{{ row.id }}/categorize" hx-trigger="change"
             hx-target="closest tr" hx-swap="outerHTML"
@@ -57,6 +75,7 @@
       <option value="{{ row.category_id }}" selected>{{ row.category or "Uncategorized" }}</option>
       {% endif %}
     </select>
+    {% endif %}
   </td>
   <td class="px-5 py-2 whitespace-nowrap text-right tabular-nums {{ 'text-aegis-teal' if row.amount > 0 else 'text-aegis-text' }}">{{ row.amount|money(row.currency) }}</td>
   <td class="px-2 py-2 text-right">
