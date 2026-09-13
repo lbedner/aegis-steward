@@ -1,0 +1,54 @@
+"""The vision reader extraction hands a rendered page to.
+
+The same model the chat surface reads a pasted screenshot with, called
+headlessly: a page image in, its transcription out. Usage is recorded
+under its own surface so the cost of reading paper is visible.
+"""
+
+from __future__ import annotations
+
+from app.core.config import settings
+from app.services.ai.domains.llm import active_model
+from app.services.ai.domains.llm.providers import ProviderError
+from app.services.ai.usage_recording import extract_usage, record_usage
+from app.services.documents.domains.extraction.pages import VisionReader
+
+SURFACE = "documents:extract"
+INSTRUCTIONS = (
+    "You transcribe one page of a scanned document. Return the page's text "
+    "faithfully in reading order, keeping headings, labels, amounts, dates "
+    "and account numbers exactly as printed. Render tables one row per "
+    "line with cells separated by ' | '. Do not summarize, interpret, or add "
+    "anything that is not on the page."
+)
+
+
+async def read_page(image: bytes, media_type: str) -> tuple[str, str]:
+    """Transcribe one page image; returns (text, model name)."""
+    from pydantic_ai import Agent as PydanticAgent
+    from pydantic_ai.messages import BinaryContent
+
+    model, model_name = await active_model.model_for_active(settings)
+    agent: PydanticAgent[None, str] = PydanticAgent(model, instructions=INSTRUCTIONS)
+    result = await agent.run(
+        ["Transcribe this page.", BinaryContent(data=image, media_type=media_type)]
+    )
+    record_usage(
+        action=SURFACE, model_name=model_name, usage=extract_usage(result), user_id=None
+    )
+    return str(result.output), model_name
+
+
+async def vision_reader() -> VisionReader | None:
+    """The reader, or None when the provider in force cannot hand out
+    a bare model (the keyless public endpoints build their own client).
+
+    Asks the selection that is actually active, not the .env bootstrap:
+    a worker resolving the wrong provider would refuse to read a page the
+    chosen model can see, or hand one to a model that cannot.
+    """
+    try:
+        await active_model.model_for_active(settings)
+    except ProviderError:
+        return None
+    return read_page

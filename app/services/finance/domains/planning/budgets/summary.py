@@ -500,9 +500,7 @@ async def budget_stat_details(
     income_rows = [
         StatDetailRow(
             label=s.name,
-            value=monthly_share_of(
-                s.amount, s.frequency
-            ),
+            value=monthly_share_of(s.amount, s.frequency),
             frequency=shown_cadence(s.frequency),
         )
         for s in streams

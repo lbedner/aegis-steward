@@ -574,5 +574,10 @@ async def startup_hook() -> None:
 
     register_service_health_check("finance", check_finance_service_health)
     logger.info("Finance service health check registered")
+    # Register documents service health check
+    from app.services.documents.health import check_documents_service_health
+
+    register_service_health_check("documents", check_documents_service_health)
+    logger.info("Documents service health check registered")
 
     logger.info("Service health detection complete")

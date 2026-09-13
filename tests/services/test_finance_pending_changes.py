@@ -1099,9 +1099,7 @@ class TestANoteIsItsOwnEdit:
     async def test_it_records_what_something_was(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        _groceries, txn = await TestProposeApproveReject._fixture(
-            svc, async_db_session
-        )
+        _groceries, txn = await TestProposeApproveReject._fixture(svc, async_db_session)
         before = txn.category_id
 
         row = await svc.propose_change(
@@ -1120,9 +1118,7 @@ class TestANoteIsItsOwnEdit:
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         """Replacing a note is a different decision from writing one."""
-        _groceries, txn = await TestProposeApproveReject._fixture(
-            svc, async_db_session
-        )
+        _groceries, txn = await TestProposeApproveReject._fixture(svc, async_db_session)
         txn.memo = "old note"
         async_db_session.add(txn)
         await async_db_session.flush()

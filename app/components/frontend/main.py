@@ -27,6 +27,7 @@ from app.components.frontend.state.session_state import (
 )
 from app.core.client import APIClient
 from app.core.log import logger
+from app.services.documents.health import DOCUMENTS_MODAL_ID
 from app.services.finance.constants import FINANCE_COMPONENT_NAME
 from app.services.system.models import ComponentStatus, ComponentStatusType
 
@@ -35,6 +36,7 @@ from .dashboard.cards import (
     AICard,
     CommsCard,
     DatabaseCard,
+    DocumentsCard,
     FinanceCard,
     OllamaCard,
     RedisCard,
@@ -693,6 +695,9 @@ async def setup_dashboard(view: BaseView) -> None:
 
             elif component_name == "service_comms":
                 return CommsCard(component_data).build()
+
+            elif component_name == DOCUMENTS_MODAL_ID:
+                return DocumentsCard(component_data).build()
 
             elif component_name == f"{SERVICE_PREFIX}{FINANCE_COMPONENT_NAME}":
                 return FinanceCard(component_data).build()

@@ -460,8 +460,7 @@ async def line_transactions(
         "partials/transactions_dialog.html",
         title=line.category_name or line.payee_label or "Limit",
         subtitle=(
-            f"{money(line.spent_amount)} of "
-            f"{money(line.allocated_amount)} this month"
+            f"{money(line.spent_amount)} of {money(line.allocated_amount)} this month"
         ),
         rows=await hydrate_transactions(service, rows),
         columns=LINE_TXN_COLUMNS,

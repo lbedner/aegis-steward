@@ -103,8 +103,7 @@ class TestDialog:
             "the summary - a live file picker above the import just done"
         )
         assert "data-import-retry" in watched, (
-            "a rejected file is the one case where picking another one is "
-            "the next step"
+            "a rejected file is the one case where picking another one is the next step"
         )
 
     def test_only_a_rejected_file_puts_the_chooser_back(

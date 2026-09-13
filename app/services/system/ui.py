@@ -54,6 +54,7 @@ def get_component_title(component_name: str) -> str:
         "scheduler": "Scheduler",
         "service_ai": "AI Service",
         "service_comms": "Communications",
+        "service_documents": "Documents",
         "service_finance": "Finance",
     }
     return mapping.get(component_name, component_name.replace("_", " ").title())
@@ -72,6 +73,7 @@ def get_component_label(component_name: str) -> str:
         "scheduler": "APScheduler",
         "service_ai": "LLM Provider",
         "service_comms": "Resend + Twilio",
+        "service_documents": "Document store",
         "service_finance": "Aggregator",
     }
     return mapping.get(component_name, component_name.replace("_", " ").title())

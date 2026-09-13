@@ -14,6 +14,7 @@ from app.components.backend.api import (
 )
 from app.components.backend.api.ai.router import router as ai_router
 from app.components.backend.api.comms.router import router as comms_router
+from app.components.backend.api.documents.router import router as documents_router
 from app.components.backend.api.finance.router import router as finance_router
 from app.components.backend.api.llm.router import router as llm_router
 
@@ -33,4 +34,5 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(ai_router, prefix="/api/v1")
     app.include_router(llm_router, prefix="/api/v1")
     app.include_router(comms_router, prefix="/api/v1")
+    app.include_router(documents_router, prefix="/api/v1")
     app.include_router(finance_router, prefix="/api/v1")

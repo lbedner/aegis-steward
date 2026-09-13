@@ -159,7 +159,8 @@ class TestReadingsBelongToTheUser:
         )
 
         await merge_staged_readings(
-            "reader-2", [{"kind": "order", "title": "theirs", "items": [{"label": "x"}]}]
+            "reader-2",
+            [{"kind": "order", "title": "theirs", "items": [{"label": "x"}]}],
         )
 
         assert await user_readings("reader-3") == []

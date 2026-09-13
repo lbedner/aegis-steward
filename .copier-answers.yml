@@ -25,7 +25,7 @@ include_blog: false
 include_cache: false
 include_comms: true
 include_database: true
-include_documents: false
+include_documents: true
 include_finance: true
 include_htmx: true
 include_ingress: false
