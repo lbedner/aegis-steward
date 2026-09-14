@@ -141,3 +141,42 @@ class TestTheAgentCanActuallyCallIt:
         )
 
         assert "pasted" in FINANCE_CHAT_TOOL_NAMES
+
+
+class TestTheCallersSession:
+    """Every transaction takes the write lock now, so a second session
+    opened inside a request waits on a lock its own caller is holding
+    and spends the whole busy timeout doing it. That reads as a hang,
+    and it cost two of them - a page that would not load and a proposal
+    that would not appear."""
+
+    @pytest.mark.asyncio
+    async def test_a_caller_with_a_session_is_not_given_a_second_one(
+        self, async_db_session: object
+    ) -> None:
+        from app.services.ai.domains.chat.user_memory import session_or
+
+        async with session_or(async_db_session) as db:
+            assert db is async_db_session
+
+    @pytest.mark.asyncio
+    async def test_a_caller_without_one_gets_a_session(self) -> None:
+        """A tool runs inside a model call and has none of its own."""
+        from app.services.ai.domains.chat.user_memory import session_or
+
+        async with session_or(None) as db:
+            assert db is not None
+
+    @pytest.mark.asyncio
+    async def test_a_write_through_a_borrowed_session_is_visible_to_it(
+        self, async_db_session: object
+    ) -> None:
+        """The caller owns the commit; the queue commits the whole
+        approval at once, so the write has to be readable before then."""
+        from app.services.ai.domains.chat.pastes import store_document
+        from app.services.ai.domains.chat.user_memory import load_user_pastes
+
+        await store_document("borrowed", 42, "Statement.pdf", 100, async_db_session)
+
+        found = await load_user_pastes("borrowed", async_db_session)
+        assert [p["title"] for p in found] == ["Statement.pdf"]

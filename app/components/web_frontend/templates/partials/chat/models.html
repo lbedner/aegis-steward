@@ -4,6 +4,7 @@
    over the mode. Every control re-requests this partial into the dialog. #}
 {% from "components/macros/chat.html" import model_chip %}
 {% from "components/macros/form.html" import control %}
+{% from "components/macros/layout.html" import dialog_title %}
 {# One section's rows: a pick posts the model id with the search and the
    mode, so the dialog re-renders in the same view. #}
 {% macro rows(section, picker) %}
@@ -30,8 +31,7 @@
 {% endmacro %}
 {% if chip_oob %}{{ model_chip(chip, picker.path, oob=True) }}{% endif %}
 <div id="model-picker" hx-target="#dialog-body" hx-swap="innerHTML">
-  <h2 class="text-lg font-semibold text-aegis-text mb-1">Active model</h2>
-  <p class="text-xs text-aegis-muted mb-4">One model for the whole app; a pick takes effect on the next message.</p>
+  {{ dialog_title("Active model", "One model for the whole app; a pick takes effect on the next message.") }}
   {# Only the list moves: swapping the search box mid-keystroke takes the
      caret with it (the ``hx_filter`` recipe). #}
   <form {{ hx_filter(picker.path, "#model-list") }}

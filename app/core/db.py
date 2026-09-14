@@ -6,13 +6,15 @@ This module provides SQLite database connectivity using SQLModel and SQLAlchemy.
 Includes proper session management with transaction handling and foreign key support.
 """
 
-from collections.abc import AsyncGenerator, Generator
+import asyncio
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 from urllib.parse import urlparse
 
 from sqlalchemy import create_engine, event
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -109,6 +111,74 @@ def apply_sqlite_pragmas(dbapi_connection: Any) -> None:
     dbapi_connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
 
 
+# A deferred transaction that reads and then writes has to UPGRADE its
+# lock, and SQLite fails that upgrade AT ONCE rather than waiting: a
+# transaction holding a read lock while waiting for a write lock is how
+# two of them deadlock, so ``busy_timeout`` deliberately does not cover
+# it. Taking the write lock up front instead (BEGIN IMMEDIATE) makes
+# every read a writer, which on a stack of four containers sharing one
+# file is a hang. So the upgrade is retried where it happens.
+T = TypeVar("T")
+
+LOCK_RETRIES = 4
+LOCK_BACKOFF_SECONDS = 0.25
+
+
+async def retry_on_locked(write: Callable[[], Awaitable[T]]) -> T:
+    """Run an async write, retrying the lock-upgrade failure.
+
+    For the turn that reads and then writes - a chat answer that saves a
+    memory, a proposal that files a change - where the read has already
+    taken a shared lock and the write cannot have it. Nothing else
+    retries: a lock held for longer than this is a problem to see, not
+    to paper over.
+    """
+    for attempt in range(LOCK_RETRIES):
+        try:
+            return await write()
+        except OperationalError as exc:
+            if "database is locked" not in str(exc) or attempt == LOCK_RETRIES - 1:
+                raise
+            await asyncio.sleep(LOCK_BACKOFF_SECONDS * (attempt + 1))
+    raise AssertionError("unreachable")
+
+
+def warn_if_wal(dbapi_connection: Any) -> str | None:
+    """Say so, loudly, when the file is in WAL after all.
+
+    The mode above is a decision this module makes and cannot enforce:
+    ``journal_mode`` lives in the FILE, survives every restart, and
+    changing it needs exclusive access, so a connection that finds WAL
+    cannot simply turn it off. It is also how a ledger ends up running
+    for weeks in the configuration its own code says would risk it -
+    found exactly that way, after a night of "database is locked" with
+    five containers and a host CLI sharing one bind-mounted file.
+
+    Called once at startup rather than per connection: a pragma read
+    leaves a cursor open, and doing that inside the connect hook is how
+    a session that has not run a query yet fails to commit.
+
+    Returns the mode when it is not what was intended, so a caller can
+    act; silence is what let it drift in the first place.
+    """
+    try:
+        cursor = dbapi_connection.execute("PRAGMA journal_mode")
+        mode = cursor.fetchone()[0]
+        cursor.close()
+    except Exception:  # noqa: BLE001 - a pragma read must never break startup
+        return None
+    if str(mode).lower() != "wal":
+        return None
+    logger.warning(
+        "SQLite is in WAL mode, which this stack does not intend: its -shm "
+        "coordination is not coherent across a bind mount, and several "
+        "containers plus the host CLI share this file. Stop the stack and "
+        "run PRAGMA journal_mode=DELETE.",
+        journal_mode=mode,
+    )
+    return str(mode)
+
+
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
     apply_sqlite_pragmas(dbapi_connection)
@@ -129,7 +199,7 @@ def _async_sqlite_take_over_transactions(
 
 @event.listens_for(async_engine.sync_engine, "begin")
 def _async_sqlite_emit_begin(conn: Any) -> None:
-    """BEGIN IMMEDIATE, not a bare BEGIN.
+    """A deferred BEGIN, with the upgrade failure handled elsewhere.
 
     A bare BEGIN is DEFERRED: SQLite takes no lock until the first write
     and then has to UPGRADE. If another writer holds the lock at that
@@ -144,12 +214,19 @@ def _async_sqlite_emit_begin(conn: Any) -> None:
     died on "database is locked" with the fact already spoken aloud.
 
     IMMEDIATE takes the write lock up front, where waiting is safe and
-    the timeout DOES apply, so a second writer queues instead of
-    failing. The cost is that read-only transactions on this engine also
-    queue behind a writer, which on a single-user ledger is the cheaper
-    of the two.
+    the timeout DOES apply. It was tried, and it is NOT the answer here:
+    it makes every transaction a writer, including reads, and this stack
+    runs four containers and a host CLI against one file. Under WAL that
+    was survivable because readers proceed anyway; with a rollback
+    journal - which this stack intends, see ``apply_sqlite_pragmas`` -
+    every read queues behind every write and the app deadlocks itself
+    into a hang.
+
+    So: a deferred BEGIN, and the upgrade failure is handled where it
+    actually happens - ``retry_on_locked`` around the write - rather than
+    by making the whole application single-file-serial.
     """
-    conn.exec_driver_sql("BEGIN IMMEDIATE")
+    conn.exec_driver_sql("BEGIN")
 
 
 # Configure session factory with SQLModel Session (sync)

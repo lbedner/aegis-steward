@@ -28,10 +28,21 @@ class ChangeProposal(BaseModel):
 
 class ChangeDisplayRow(BaseModel):
     """One label/value line of the card body - resolved from the
-    database at read time, never authored by a model."""
+    database at read time, never authored by a model.
+
+    ``amount`` and ``at`` are what the SUBJECT line is about, carried
+    beside the sentence rather than only inside it, so a card holding
+    seventy of these can total them and name their span without parsing
+    money back out of its own prose.
+    """
 
     label: str
     value: str
+    amount: int | None = None
+    # ISO, not a date: these rows are frozen into the audit column as
+    # plain JSON when a change resolves, and ISO sorts the way a date
+    # does anyway.
+    at: str | None = None
 
 
 class PendingChangeResponse(BaseModel):

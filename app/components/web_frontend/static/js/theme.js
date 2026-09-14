@@ -13,8 +13,13 @@
     mode: ['dark', 'light', 'system'],
     // The floating "Ask Illiana" button; hidden by CSS on [data-assistant="hide"].
     assistant: ['show', 'hide'],
+    // The sidebar railed down to its icons; styled by CSS on
+    // [data-sidebar="rail"]. A preference and not Alpine state, so it is
+    // on <html> before the first paint like the theme is - a sidebar that
+    // starts wide and snaps narrow is worse than one that never collapsed.
+    sidebar: ['wide', 'rail'],
   };
-  const DEFAULTS = { theme: 'aegis', mode: 'dark', assistant: 'show' };
+  const DEFAULTS = { theme: 'aegis', mode: 'dark', assistant: 'show', sidebar: 'wide' };
   const media = window.matchMedia('(prefers-color-scheme: dark)');
 
   const read = (key) => {
@@ -33,11 +38,12 @@
     const resolved = mode === 'system' ? (media.matches ? 'dark' : 'light') : mode;
     root.dataset.theme = `${theme}-${resolved}`;
     root.dataset.assistant = read('assistant');
+    root.dataset.sidebar = read('sidebar');
     document.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme, mode } }));
   };
 
   /* The sidebar menu's Alpine state; what the user chose, not what resolved. */
-  window.appearance = () => ({ theme: read('theme'), mode: read('mode'), assistant: read('assistant') });
+  window.appearance = () => ({ theme: read('theme'), mode: read('mode'), assistant: read('assistant'), sidebar: read('sidebar') });
   window.setAppearance = (key, value) => {
     try {
       localStorage.setItem(key, value);

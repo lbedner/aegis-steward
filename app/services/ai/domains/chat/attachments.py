@@ -137,12 +137,120 @@ async def prepare_turn(
     Doing it at this door means every surface gets it - the browser, the
     API, a CLI - rather than whichever one remembered to.
     """
-    text, metadata = await lift_pastes(message, user_id)
-    stored = await persist_attachments(attachments)
-    return annotate_attachments(text, attachments), {
-        **metadata,
+    # A PDF is READ, not shipped: the documents service takes the bytes,
+    # extracts them page by page, and the text joins the message as a
+    # marker like a pasted page. Only the images ride on as bytes.
+    images = [a for a in attachments or [] if a.media_type.startswith("image/")]
+    documents = [a for a in attachments or [] if not a.media_type.startswith("image/")]
+    text, read = await read_documents(message, documents, user_id)
+    text, lifted = await lift_pastes(text, user_id)
+    stored = await persist_attachments(images)
+    # The markers ``read_documents`` just wrote are markers, so
+    # ``lift_pastes`` reports them too: the lists overlap by
+    # construction and the message must not draw two chips for one file.
+    pastes = _by_id((read.get("pastes") or []) + (lifted.get("pastes") or []))
+    return annotate_attachments(text, images), {
+        **({"pastes": pastes} if pastes else {}),
         **attachment_metadata(stored),
     }
+
+
+def _by_id(pastes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The pastes, first mention kept, in the order they were named."""
+    seen: dict[str, dict[str, Any]] = {}
+    for paste in pastes:
+        seen.setdefault(str(paste.get("id")), paste)
+    return list(seen.values())
+
+
+# Why a document produced no text, in the words the reader needs. The
+# two cases are not the same advice and must not share a message: a scan
+# is answered with a screenshot, and a reader that could not RUN is
+# answered by nobody - the text is simply not there yet, and telling
+# someone to screenshot a perfectly good PDF sends them to do work that
+# will not help. Live: the extraction library was missing from a running
+# image, and every statement came back reported as a scan.
+UNREAD = {
+    "unreadable": (
+        "no text could be read from it - most likely a scan with no text "
+        "layer. A screenshot of the part that matters will work"
+    ),
+    "broken": (
+        "it could not be processed, which is not the same as it being "
+        "unreadable - the text may be perfectly good. Say so rather than "
+        "guessing at its contents"
+    ),
+}
+
+
+async def read_documents(
+    message: str, documents: list[ChatAttachment], user_id: str
+) -> tuple[str, dict[str, Any]]:
+    """Ingest and extract each attached document; append its marker.
+
+    A document that cannot be read says so IN the message rather than
+    vanishing: an attachment the user watched upload and then never
+    hears about again reads as the app losing it.
+    """
+    from app.services.ai.domains.chat import pastes
+
+    if not documents or not user_id:
+        return message, {}
+    kept: list[dict[str, Any]] = []
+    lines: list[str] = []
+    for attachment in documents:
+        name = attachment.name or "document"
+        reason = "unreadable"
+        try:
+            entry = await ingest_and_read(attachment, name, user_id)
+        except Exception as exc:  # noqa: BLE001 - see below
+            # Deliberately broad: this is a third-party parser over bytes
+            # somebody uploaded, and a turn must not be lost to a
+            # malformed file. But WHY it failed is not the same answer -
+            # see below.
+            logger.warning(f"Could not read attached document: {exc}")
+            entry, reason = None, "broken"
+        if entry is None:
+            lines.append(f"[{name}: {UNREAD[reason]}]")
+            continue
+        kept.append(entry)
+        lines.append(pastes.marker(entry))
+    text = "\n\n".join([message, *lines]) if lines else message
+    return text.strip(), {"pastes": kept} if kept else {}
+
+
+async def ingest_and_read(
+    attachment: ChatAttachment, name: str, user_id: str
+) -> dict[str, Any] | None:
+    """Store one document, read it, and index it for the agent.
+
+    Extraction runs INLINE rather than on the worker: the person is
+    waiting on the answer that needs it, and a queued job would have the
+    turn reply about a document it cannot see yet.
+    """
+    from app.core.db import get_async_session
+    from app.services.ai.domains.chat import pastes
+    from app.services.documents.domains.extraction.jobs import run_extraction
+    from app.services.documents.service import DocumentService
+
+    async with get_async_session() as session:
+        document = await DocumentService(session).ingest(
+            attachment.decoded(),
+            title=name,
+            media_type=attachment.media_type,
+            source="chat",
+        )
+        await session.commit()
+        document_id = int(document.id or 0)
+    if not document_id:
+        return None
+    await run_extraction(
+        document_id, owner_user_id=None, force=False, report=lambda _: None
+    )
+    text = await pastes.document_text(document_id)
+    if not text:
+        return None
+    return await pastes.store_document(user_id, document_id, name, len(text))
 
 
 async def lift_pastes(message: str, user_id: str) -> tuple[str, dict[str, Any]]:

@@ -9,7 +9,7 @@ import calendar
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 SERVICE_NAME = "finance"
 
@@ -266,14 +266,42 @@ def account_sections(accounts: Sequence[Any]) -> list[tuple[str, list[Any]]]:
 # Action key -> the label both frontends show. The keys are the rule
 # (``account_actions``); this is the one place they are put into words,
 # because a menu that reads differently in two places is two menus.
+class AccountThing(NamedTuple):
+    """One thing about an account: what a page CALLS it, and what the
+    menu says you can do to it.
+
+    Both, in one row, because they were drifting apart. The cover sheet
+    said "Value history" while the menu offered "Valuation history"; the
+    register said "Holdings" while the menu offered "Positions". Two
+    names for one thing is a reader wondering whether they are the same
+    thing, and they never find out except by clicking.
+
+    ``noun`` is None where nothing on a page is titled after it.
+    """
+
+    action: str
+    noun: str | None = None
+
+
+# The menu is read by someone looking for a thing to change, so it says
+# what they would go looking for. "Terms" is correct and nobody would
+# hunt for it to edit an APR; "Reconcile" is the right accounting word
+# and stays the DIALOG's title, where there is room to mean it.
+ACCOUNT_THINGS: dict[str, AccountThing] = {
+    "rename": AccountThing("Rename"),
+    "institution": AccountThing("Set the bank", "Institution"),
+    "reconcile": AccountThing("Correct the balance", "Balance"),
+    "property": AccountThing("Edit property details", "Property details"),
+    "valuations": AccountThing("Edit value history", "Value history"),
+    "positions": AccountThing("Edit holdings", "Holdings"),
+    "terms": AccountThing("Edit rates & payments", "Rates & payments"),
+    "secured_by": AccountThing("Link to collateral", "Collateral"),
+    "remove": AccountThing("Remove"),
+}
+
+# The menu labels, derived. Both frontends import this name.
 ACCOUNT_ACTION_LABELS: dict[str, str] = {
-    "rename": "Rename",
-    "institution": "Institution",
-    "reconcile": "Reconcile",
-    "property": "Property details",
-    "valuations": "Valuation history",
-    "secured_by": "Secured by",
-    "remove": "Remove",
+    key: thing.action for key, thing in ACCOUNT_THINGS.items()
 }
 
 
@@ -283,15 +311,23 @@ def account_actions(
     """What a UI may offer to do to an account, in menu order.
 
     Rename, institution and reconcile always; property details and
-    valuation history only where there is a property to describe; the
-    lien link only on a debt; remove only for a manual account (a
-    provider account belongs to its bank connection). Both frontends map
-    these keys to their labels.
+    valuation history only where there is a property to describe;
+    positions only on a MANUAL investment account, since a connected
+    one has its holdings rewritten by every sync; the lien link only on
+    a debt; remove only for a manual account (a provider account belongs
+    to its bank connection). Both frontends map these keys to their
+    labels.
     """
     actions = ["rename", "institution", "reconcile"]
     if account_type == PROPERTY_ACCOUNT_TYPE:
         actions.extend(("property", "valuations"))
+    # Positions only where a provider does not keep them: a SnapTrade
+    # account's holdings are rewritten on every sync, so a hand-typed row
+    # would be overwritten by the next one and read as data loss.
+    if account_type in INVESTMENT_ACCOUNT_TYPES and is_manual:
+        actions.append("positions")
     if classification == "liability":
+        actions.append("terms")
         actions.append("secured_by")
     if is_manual:
         actions.append("remove")
@@ -318,3 +354,14 @@ LIABILITY_ACCOUNT_TYPES = frozenset({"credit_card", "loan", "other_liability"})
 
 def account_classification(account_type: str) -> str:
     return "liability" if account_type in LIABILITY_ACCOUNT_TYPES else "asset"
+
+
+def account_tag(account_id: int) -> str:
+    """The one label that files a document against an account.
+
+    The document service says outright that what a tag MEANS differs per
+    application and the framework has no business guessing, so this is
+    steward's meaning, written once: the change type that files a
+    document and the page that lists them both read it from here.
+    """
+    return f"account:{account_id}"

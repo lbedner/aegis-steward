@@ -94,6 +94,14 @@
       }
     }
     if (event.target.closest('#chat-stop') && controller) controller.abort();
+    // A group's skip is the group's rows' skip: the summary stands for
+    // them, so its control has to as well - and the form only ever reads
+    // the per-row boxes, which is what keeps one source of truth.
+    const group = event.target.closest('[data-skip-group]');
+    if (group) {
+      const rows = group.closest('li').querySelectorAll('input[name=exclude_ids]');
+      rows.forEach((box) => { box.checked = group.checked; });
+    }
     const view = event.target.closest('[data-view-image]');
     if (view) viewImage(view.dataset.viewImage, view.title || view.getAttribute('alt') || '');
   });
@@ -254,10 +262,16 @@
       const chip = clone('chat-chip');
       chip.dataset.chip = file.name;
       const img = chip.querySelector('img');
-      img.src = file.url;
-      img.dataset.viewImage = file.url;
+      // A PDF has no thumbnail: the chip carries its name alone rather
+      // than a broken image box.
+      if (file.url) {
+        img.src = file.url;
+        img.dataset.viewImage = file.url;
+      } else {
+        img.remove();
+      }
       chip.querySelector('[data-name]').textContent = file.name;
-      chip.querySelector('[data-remove]').addEventListener('click', () => { URL.revokeObjectURL(file.url); staged.splice(i, 1); drawChips(); });
+      chip.querySelector('[data-remove]').addEventListener('click', () => { if (file.url) URL.revokeObjectURL(file.url); staged.splice(i, 1); drawChips(); });
       return chip;
     }));
     window.dispatchEvent(new CustomEvent('chat-staged', { detail: staged.length }));
@@ -283,23 +297,33 @@
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.9));
     return new File([blob], file.name, { type });
   };
+  // A PDF rides as itself and is READ on the server - the documents
+  // service extracts it page by page and its text reaches the turn as a
+  // marker. Only an image is shrunk, and only an image has a thumbnail.
+  const DOCUMENT_TYPES = ['application/pdf'];
   const stage = async (file) => {
-    if (!IMAGE_TYPES.includes(file.type)) { toast(`${file.name || 'That'} is not an image.`, 'error'); return; }
+    const isImage = IMAGE_TYPES.includes(file.type);
+    if (!isImage && !DOCUMENT_TYPES.includes(file.type)) {
+      toast(`${file.name || 'That'} is not an image or a PDF.`, 'error');
+      return;
+    }
     if (file.size > MAX_BYTES) { toast(`${file.name} is over 10 MB.`, 'error'); return; }
-    if (staged.length >= MAX_FILES) { toast(`Up to ${MAX_FILES} images per message.`, 'error'); return; }
-    let image = file;
-    try { image = await shrink(file); } catch (_) { /* undecodable: send as pasted, the model will say so */ }
+    if (staged.length >= MAX_FILES) { toast(`Up to ${MAX_FILES} files per message.`, 'error'); return; }
+    let payload = file;
+    if (isImage) {
+      try { payload = await shrink(file); } catch (_) { /* undecodable: send as pasted, the model will say so */ }
+    }
     const reader = new FileReader();
     reader.onload = () => {
       staged.push({
-        name: file.name || 'image',
-        media_type: image.type,
+        name: file.name || (isImage ? 'image' : 'document'),
+        media_type: payload.type,
         data_b64: String(reader.result).split(',')[1],
-        url: URL.createObjectURL(image),
+        url: isImage ? URL.createObjectURL(payload) : '',
       });
       drawChips();
     };
-    reader.readAsDataURL(image);
+    reader.readAsDataURL(payload);
   };
   document.addEventListener('change', (event) => {
     if (event.target.id !== 'chat-attach') return;

@@ -38,20 +38,16 @@ def providers(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestNav:
     def test_every_tab_is_a_sibling_route(self, client: TestClient) -> None:
         page = client.get("/settings").text
-        assert nav(page) == [
-            "Connections",
-            "Categories",
-            "Payees",
-            "Institutions",
-            "Comms",
-        ]
+        from app.components.web_frontend.routes.finance.settings import TABS
+
+        # The tabs are declared once; the test walks that list rather
+        # than repeating it, so adding one is a route to write and not a
+        # string to remember in two places.
+        assert nav(page) == [label for _key, label, _suffix in TABS]
         current = one(page, '#settings-nav a[aria-current="page"]')
         assert text(current) == "Connections"
         for path in (
-            "/settings/categories",
-            "/settings/payees",
-            "/settings/institutions",
-            "/settings/comms",
+            f"/settings{suffix}" for _key, _label, suffix in TABS if suffix
         ):
             marked = one(client.get(path).text, '#settings-nav a[aria-current="page"]')
             assert marked.get("href") == path
@@ -325,3 +321,65 @@ class TestComms:
         monkeypatch.setattr("app.services.comms.email.send_email_simple", _send)
         client.get("/settings/comms")
         assert sent == []
+
+
+class TestActivity:
+    """Every run that brought something in, files and syncs alike. The
+    tally used to be computed on every pass and dropped, so a connection
+    could say "synced today" and nothing could say what it pulled."""
+
+    def test_a_run_says_what_it_brought(
+        self, client: TestClient, async_db_session
+    ) -> None:
+        from app.services.finance.adapters.importers.imports import run_summary
+
+        class Run:
+            status = "committed"
+            rows_inserted = 54
+            rows_updated = 0
+            rows_duplicate = 2
+            rows_error = 0
+            detail = None
+
+        # A file counts rows.
+        assert run_summary(Run()) == "54 new · 2 duplicate"
+
+        # A brokerage counts what only it has, and reading "0
+        # transactions" off a sync that restated ten positions is how a
+        # working import gets reported as broken.
+        class Sync(Run):
+            rows_inserted = 0
+            rows_duplicate = 0
+            detail = {"holdings": 5, "trades": 2}
+
+        assert run_summary(Sync()) == "5 holdings · 2 trades"
+
+        # A run that brought nothing is the most interesting kind.
+        class Quiet(Run):
+            rows_inserted = 0
+            rows_duplicate = 0
+            detail = None
+
+        assert run_summary(Quiet()) == "nothing"
+
+    def test_the_page_lists_runs_newest_first(self, client: TestClient) -> None:
+        page = client.get("/settings/activity").text
+        one(page, "#runs")
+        marked = one(page, '#settings-nav a[aria-current="page"]')
+        assert marked.get("href") == "/settings/activity"
+
+    def test_a_list_row_and_the_run_itself_name_it_the_same_way(self) -> None:
+        """A list of runs and a single run must not name the same row two
+        ways, so both read ``run_title``."""
+        from app.services.finance.adapters.importers.imports import run_title
+
+        class Csv:
+            source_type = "csv"
+            file_name = "House Bedner Finances-export-2026-09-14.csv"
+
+        class Sync:
+            source_type = "snaptrade_sync"
+            file_name = None
+
+        assert run_title(Csv()).startswith("CSV · House Bedner")
+        assert run_title(Sync()) == "SnapTrade"

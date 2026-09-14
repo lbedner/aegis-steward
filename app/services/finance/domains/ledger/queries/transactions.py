@@ -309,6 +309,28 @@ async def uncategorized_page(
     return list(rows), int(total or 0)
 
 
+async def newest_transaction_date(
+    db: AsyncSession, account_id: int, *, owner_user_id: int | None = None
+) -> date | None:
+    """The last day this account saw anything.
+
+    What "updated" MEANS for a bank account or a card: not when the row
+    was touched, but when money last moved in it. An account's own
+    ``updated_at`` moves when anything is edited, which makes a rename
+    look like fresh data.
+    """
+    filters = [
+        FinanceTransaction.account_id == account_id,
+        FinanceTransaction.deleted_at.is_(None),
+        FinanceTransaction.dedup_status != "duplicate",
+    ]
+    if owner_user_id is not None:
+        filters.append(FinanceTransaction.owner_user_id == owner_user_id)
+    return (
+        await db.exec(select(func.max(FinanceTransaction.date_)).where(*filters))
+    ).one()
+
+
 async def top_payees_over_window(
     db: AsyncSession,
     *,
@@ -317,9 +339,26 @@ async def top_payees_over_window(
     limit: int = 8,
 ) -> list[tuple[str, int, int]]:
     """(payee, outflow total as positive cents, transaction count) grouped
-    by merchant (falling back to raw payee), biggest first, transfers
-    excluded."""
-    payee = func.coalesce(FinanceTransaction.merchant_name, FinanceTransaction.name)
+    by payee, biggest first, transfers excluded.
+
+    The payee is ``payee_label``'s rule in SQL: the payee somebody NAMED
+    first, then the one the source supplied, then the raw descriptor.
+    Grouping on the source's name alone made this list disagree with
+    every other surface - the register showed "Eleanor Nursing Care"
+    while this showed "Recurring Withdrawal Debit Card CK *Eleanor Nu...".
+
+    It is not only the label. Naming a payee is what makes its rows ADD
+    UP: on the live ledger one Shop Rite reached this list at $662.78
+    across seven transactions that had been seven separate descriptors,
+    and two American Express charges that had been filed under two
+    different interest-charge descriptions became one row. A list of
+    biggest payees built on descriptors ranks the wrong things.
+    """
+    payee = func.coalesce(
+        FinanceMerchant.name,
+        FinanceTransaction.merchant_name,
+        FinanceTransaction.name,
+    )
     filters = [
         FinanceTransaction.deleted_at.is_(None),
         FinanceTransaction.dedup_status != "duplicate",
@@ -338,6 +377,10 @@ async def top_payees_over_window(
                 payee,
                 func.sum(FinanceTransaction.amount),
                 func.count(FinanceTransaction.id),
+            )
+            .select_from(FinanceTransaction)
+            .outerjoin(
+                FinanceMerchant, FinanceMerchant.id == FinanceTransaction.merchant_id
             )
             .where(*filters)
             .group_by(payee)

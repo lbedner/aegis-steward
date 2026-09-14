@@ -117,6 +117,23 @@ async def startup_database_init() -> None:
             logger.warning(f"Database verification failed: {e}")
             # Don't fail startup - let the app run and show clear errors
 
+        # The journal mode is a decision the db module makes and cannot
+        # enforce: it lives in the FILE and changing it needs exclusive
+        # access. Say so at startup rather than discover it after a
+        # night of locks.
+        try:
+            import sqlite3
+
+            from app.core.db import DATABASE_PATH, warn_if_wal
+
+            connection = sqlite3.connect(DATABASE_PATH)
+            try:
+                warn_if_wal(connection)
+            finally:
+                connection.close()
+        except Exception as e:  # noqa: BLE001 - never block startup on a check
+            logger.debug(f"Journal-mode check skipped: {e}")
+
         # Seed finance reference data: currencies + CSV import profiles
         # (idempotent). Import profiles are what CSV header-detection matches
         # against, so a fresh DB can import Chase/AMEX files immediately.

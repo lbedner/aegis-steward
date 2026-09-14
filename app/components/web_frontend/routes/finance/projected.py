@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import Response
 
 from app.components.web_frontend import ranges
-from app.components.web_frontend.filters import short_date
+from app.components.web_frontend.filters import dollars, short_date
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render
 from app.services.finance.deps import get_finance_service, get_owner_user_id
@@ -70,8 +70,8 @@ def balance_chart(projection: ProjectionResponse) -> dict[str, Any] | None:
         if events:
             balance = events[-1].balance
         labels.append(short_date(key))
-        values.append(balance / 100)
-        overdue.append(balance / 100 if any(e.due_date for e in events) else None)
+        values.append(dollars(balance))
+        overdue.append(dollars(balance) if any(e.due_date for e in events) else None)
     return {
         "labels": labels,
         "series": [

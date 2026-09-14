@@ -16,7 +16,7 @@ from starlette.responses import Response
 from app.components.backend.api.finance.categories import spending_transactions
 from app.components.backend.api.finance.overview import finance_overview
 from app.components.web_frontend import ranges
-from app.components.web_frontend.filters import money
+from app.components.web_frontend.filters import dollars, money
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render, templates
 from app.services.finance.deps import get_finance_service, get_owner_user_id
@@ -95,7 +95,7 @@ def net_worth_chart(points: list[NetWorthPoint]) -> dict[str, Any] | None:
     return {
         "labels": [p.as_of_date.isoformat() for p in points],
         "series": [
-            {"label": "Net worth", "values": [p.net_worth_amount / 100 for p in points]}
+            {"label": "Net worth", "values": [dollars(p.net_worth_amount) for p in points]}
         ],
     }
 
@@ -134,8 +134,8 @@ def cashflow_chart(months: list[CashflowMonth]) -> dict[str, Any] | None:
     return {
         "labels": [b["label"] for b in bars],
         "series": [
-            {"label": "Income", "values": [b["income"] / 100 for b in bars]},
-            {"label": "Spending", "values": [b["expense"] / 100 for b in bars]},
+            {"label": "Income", "values": [dollars(b["income"]) for b in bars]},
+            {"label": "Spending", "values": [dollars(b["expense"]) for b in bars]},
         ],
     }
 
@@ -147,11 +147,11 @@ def spending_chart(rows: list[SpendingCategory]) -> dict[str, Any] | None:
         return None
     top, tail = rows[:PIE_SLICES], rows[PIE_SLICES:]
     labels = [r.category for r in top]
-    values = [r.amount / 100 for r in top]
+    values = [dollars(r.amount) for r in top]
     slices = [{"categories": [r.category]} for r in top]
     if tail:
         labels.append("Other")
-        values.append(sum(r.amount for r in tail) / 100)
+        values.append(dollars(sum(r.amount for r in tail)))
         slices.append({"categories": [r.category for r in tail]})
     return {
         "labels": labels,

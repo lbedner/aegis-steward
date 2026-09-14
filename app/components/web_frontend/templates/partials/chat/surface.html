@@ -49,7 +49,7 @@
               @input="$el.style.height = 'auto'; $el.style.height = $el.scrollHeight + 'px'"
               class="{{ control('textarea') }} flex-1 resize-none max-h-40 leading-relaxed min-h-0 py-3"></textarea>
     <label class="{{ button_classes('default') }} cursor-pointer" title="Attach images">
-      <input type="file" id="chat-attach" accept="image/png,image/jpeg,image/webp,image/gif" multiple class="sr-only" aria-label="Attach images">
+      <input type="file" id="chat-attach" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple class="sr-only" aria-label="Attach images or PDFs">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
     </label>
     <button type="button" id="chat-stop" hidden class="{{ button_classes('default') }}" aria-label="Stop">Stop</button>

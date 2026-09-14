@@ -1,0 +1,27 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import card %}
+{% from "components/macros/accounts.html" import account_header %}
+{% from "components/macros/table.html" import data_table %}
+
+{% block title %}{{ selected.name }} documents - {{ project_name }}{% endblock %}
+
+{# An account's paper, on its own page. A statement is what turns an
+   unknown rate into a known one, and every figure on the Overview came
+   off one of these - so it is a sibling of the register rather than a
+   card squeezed between a chart and a lien. #}
+{% block app_content %}
+<section id="account-detail" class="space-y-6">
+  {{ account_header(section, groups, total, selected, selected_balance,
+                    actions=actions, held_with=held_with, updated=updated) }}
+
+  {% include "components/sub_nav.html" %}
+
+  {% call card("Documents") %}
+  {% if documents %}
+  {{ data_table(document_columns, documents) }}
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>Nothing filed here yet. A statement attached in chat can be filed against this account.</p>
+  {% endif %}
+  {% endcall %}
+</section>
+{% endblock %}

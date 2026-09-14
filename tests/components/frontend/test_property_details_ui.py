@@ -10,27 +10,28 @@ from app.components.frontend.dashboard.modals.finance_modal.account_header impor
 from app.components.frontend.dashboard.modals.finance_modal.transactions_panel.property_details import (
     property_payload,
 )
+from app.services.finance.constants import ACCOUNT_ACTION_LABELS as LABELS
 
 
 class TestManageMenu:
     def test_a_property_account_offers_property_details(self) -> None:
         labels = manage_menu_labels({"account_type": "property", "is_manual": True})
 
-        assert "Property details" in labels
+        assert LABELS["property"] in labels
 
     def test_a_cash_account_does_not(self) -> None:
         labels = manage_menu_labels({"account_type": "checking", "is_manual": True})
 
-        assert "Property details" not in labels
-        assert "Rename" in labels  # the ordinary items are untouched
+        assert LABELS["property"] not in labels
+        assert LABELS["rename"] in labels  # the ordinary items are untouched
 
     def test_a_connected_account_still_hides_remove(self) -> None:
         """Provider accounts belong to the bank connection; the existing
         rule survives the new item."""
         labels = manage_menu_labels({"account_type": "property", "is_manual": False})
 
-        assert "Remove" not in labels
-        assert "Property details" in labels
+        assert LABELS["remove"] not in labels
+        assert LABELS["property"] in labels
 
 
 class TestFieldsAreUsable:
@@ -76,12 +77,12 @@ class TestValuationHistoryMenu:
     def test_a_property_offers_valuation_history(self) -> None:
         labels = manage_menu_labels({"account_type": "property", "is_manual": True})
 
-        assert "Valuation history" in labels
+        assert LABELS["valuations"] in labels
 
     def test_a_cash_account_does_not(self) -> None:
         labels = manage_menu_labels({"account_type": "checking", "is_manual": True})
 
-        assert "Valuation history" not in labels
+        assert LABELS["valuations"] not in labels
 
 
 class TestValuationPayload:
@@ -160,11 +161,11 @@ class TestSecuredByMenu:
         labels = manage_menu_labels(
             {"account_type": "loan", "classification": "liability", "is_manual": True}
         )
-        assert "Secured by" in labels
+        assert LABELS["secured_by"] in labels
 
     def test_an_asset_does_not(self) -> None:
         labels = manage_menu_labels({"account_type": "checking", "is_manual": True})
-        assert "Secured by" not in labels
+        assert LABELS["secured_by"] not in labels
 
 
 class TestSecuredByPayload:

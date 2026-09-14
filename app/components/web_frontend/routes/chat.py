@@ -230,6 +230,61 @@ def change_card(change: PendingChangeResponse) -> dict[str, Any]:
     }
 
 
+def same_change(change: PendingChangeResponse) -> tuple[Any, ...]:
+    """What makes two proposals THE SAME proposal, for grouping.
+
+    Everything the card says except which row it is about: the payee and
+    every label/value line under the subject. Seventy-one rows tagged
+    Pool Loan differ only in a date, and reading seventy-one of them is
+    not review, it is scrolling.
+
+    The payee is part of it because the group's summary NAMES one, and
+    "71 transactions · GreenSky" is only true if they all are.
+    """
+    return (
+        change.payee,
+        tuple((row.label, row.value) for row in change.display[1:]),
+    )
+
+
+def group_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows folded into groups of identical changes, in first-seen order.
+
+    A group carries the rows themselves, so the per-row veto survives
+    behind an expander: what collapses is the READING, never the
+    control. One row is never a group - a wrapper around a single thing
+    is just another thing to open.
+    """
+    order: list[tuple[Any, ...]] = []
+    found: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for row in rows:
+        key = same_change(row["change"])
+        if key not in found:
+            order.append(key)
+            found[key] = []
+        found[key].append(row)
+    return [summarize(found[key]) for key in order]
+
+
+def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """One group: what its rows have in common, and what varies."""
+    first = rows[0]["change"]
+    subjects = [r["change"].display[0] for r in rows if r["change"].display]
+    amounts = [s.amount for s in subjects if s.amount is not None]
+    dates = sorted(s.at for s in subjects if s.at)
+    return {
+        "rows": rows,
+        "change": first,
+        "count": len(rows),
+        # The number worth seeing before approving seventy-one of
+        # anything, and the one the card never showed.
+        "total": sum(amounts) if len(amounts) == len(rows) else None,
+        "span": (dates[0], dates[-1]) if dates else None,
+        "pending": any(r["pending"] for r in rows),
+        "single": len(rows) == 1,
+    }
+
+
 def batch_card(batch_id: str, items: list[PendingChangeResponse]) -> dict[str, Any]:
     rows = [change_card(c) for c in items]
     counts: dict[str, int] = {}
@@ -239,6 +294,7 @@ def batch_card(batch_id: str, items: list[PendingChangeResponse]) -> dict[str, A
         "batch_id": batch_id,
         "title": items[0].title if items else "",
         "rows": rows,
+        "groups": group_rows(rows),
         "pending": any(r["pending"] for r in rows),
         "outcome": ", ".join(f"{n} {word}" for word, n in sorted(counts.items())),
     }

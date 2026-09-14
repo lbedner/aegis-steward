@@ -2,15 +2,12 @@
    re-renders here, success closes the dialog and opens the account. #}
 {% from "components/macros/form.html" import field, text_input, select, money_input, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner %}
-<h2 class="text-lg font-semibold text-aegis-text mb-4">Add account</h2>
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Add account") }}
 <form {{ hx_dialog_post('/accounts/new') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Name") %}{{ text_input("name", name, placeholder="Ally Savings", required=True, autofocus=True) }}{% endcall %}
-  {% call field("Type") %}
-  <select name="account_type" class="mt-1 w-full {{ control("select") }}">
-    {% for key, label in types %}<option value="{{ key }}" {% if key == account_type %}selected{% endif %}>{{ label }}</option>{% endfor %}
-  </select>
-  {% endcall %}
+  {% call field("Type") %}{{ select("account_type", types|as_options, account_type, blank=None, block=True) }}{% endcall %}
   {% call field("Opening balance") %}{{ money_input("opening_balance", opening_balance) }}{% endcall %}
   <p class="text-xxs text-aegis-muted">For a card or loan, enter what you owe.</p>
   {{ primary_button("Add account", type="submit") }}

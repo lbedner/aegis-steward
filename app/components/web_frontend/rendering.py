@@ -16,7 +16,11 @@ from starlette.responses import Response
 from app.components.web_frontend import ranges
 from app.components.web_frontend.assets import COMPONENT_DIR, static_url
 from app.components.web_frontend.filters import FILTERS, assistant
-from app.components.web_frontend.glyphs import account_glyph, category_glyph
+from app.components.web_frontend.glyphs import (
+    account_glyph,
+    category_glyph,
+    file_badge,
+)
 from app.components.web_frontend.nav import NAV
 from app.core.config import settings
 from app.services.finance.constants import account_sections
@@ -27,6 +31,11 @@ templates.env.globals["static"] = static_url
 # Every page's <title> and sidebar name the project, so these are globals
 # rather than something each route has to remember to pass through.
 templates.env.globals["project_name"] = settings.PROJECT_DISPLAY_NAME
+# What an account's things are CALLED, so a card title and the menu item
+# that edits it cannot drift apart (services.finance.constants).
+from app.services.finance.constants import ACCOUNT_THINGS  # noqa: E402
+
+templates.env.globals["named"] = ACCOUNT_THINGS
 templates.env.globals["project_description"] = settings.PROJECT_DESCRIPTION
 # Whether the auth service is wired up. Templates gate sign-in affordances
 # on this at render time. AUTH_ENABLED is False when the service was not
@@ -37,6 +46,7 @@ templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
 templates.env.globals["nav"] = NAV
 templates.env.globals["category_glyph"] = category_glyph
 templates.env.globals["account_glyph"] = account_glyph
+templates.env.globals["file_badge"] = file_badge
 templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.
@@ -238,6 +248,31 @@ def navigate(response: Response, path: str, target: str = "#app-content") -> Res
     """
     response.headers["HX-Location"] = json.dumps({"path": path, "target": target})
     return trigger(response, "dialog:close")
+
+
+def where_from(request: Request, fallback: str) -> str:
+    """The page this dialog was opened from.
+
+    htmx sends ``HX-Current-URL`` with every request, so a dialog already
+    knows where the reader was standing and does not need to be told
+    twice. Saving used to land you wherever the route happened to name -
+    editing a document from the Documents tab dropped you on Overview,
+    renaming from anywhere dropped you on the register - and each dialog
+    had picked its own answer to a question the browser was already
+    answering.
+
+    Only the path and query are taken, never the header whole: it is
+    same-origin by construction, and a redirect target read off a header
+    is not a thing to hand to a browser unexamined.
+    """
+    from urllib.parse import urlsplit
+
+    current = request.headers.get("HX-Current-URL") or ""
+    if not current:
+        return fallback
+    split = urlsplit(current)
+    path = split.path + (f"?{split.query}" if split.query else "")
+    return path if path.startswith("/") else fallback
 
 
 def dialog_done(path: str, toast: str) -> Response:

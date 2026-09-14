@@ -23,11 +23,29 @@ from sqlmodel import Field, SQLModel
 DOCUMENT_KINDS = (
     "letter",
     "statement",
+    # Paper that says what WILL happen rather than what did: an
+    # amortization schedule, a payment plan, a delivery or appointment
+    # schedule. Deliberately broad - a kind narrow enough to name one
+    # lender's document is a kind nobody else can file anything under.
+    "schedule",
     "form",
     "identification",
     "receipt",
     "other",
 )
+
+
+def kind_check() -> str:
+    """The CHECK clause for ``DOCUMENT_KINDS``.
+
+    Derived, not typed out again. The list lived twice - this tuple and
+    the same strings hand-written into the constraint - and two copies
+    of one truth is how a kind ends up legal in Python and rejected by
+    the database. A migration is still needed to CHANGE the constraint
+    (SQLite cannot alter one in place; Postgres drops and re-adds it),
+    but the migration is then the only place the change is written.
+    """
+    return "kind IN (" + ", ".join(f"'{kind}'" for kind in DOCUMENT_KINDS) + ")"
 
 
 def utcnow() -> datetime:
@@ -63,11 +81,7 @@ class Document(SQLModel, table=True):
         ),
         Index("ix_document_kind", "kind"),
         Index("ix_document_supersedes", "supersedes_id"),
-        CheckConstraint(
-            "kind IN ('letter', 'statement', 'form', 'identification', "
-            "'receipt', 'other')",
-            name="ck_document_kind",
-        ),
+        CheckConstraint(kind_check(), name="ck_document_kind"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -102,6 +116,11 @@ class Document(SQLModel, table=True):
     meta_data: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("meta_data", JSON, nullable=False)
     )
+    # The run that brought this document, when one did (migration
+    # 012). Null is a real answer: a file dragged in arrived from
+    # nobody, and the documents service is deliberately ignorant of
+    # finance - the id is a plain column, never a foreign key.
+    import_batch_id: int | None = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime | None = None
     deleted_at: datetime | None = None

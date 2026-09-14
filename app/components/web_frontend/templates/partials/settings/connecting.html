@@ -5,7 +5,8 @@
    forgotten tab forever. No JavaScript, no browser-side SDK. #}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/form.html" import action, button_classes %}
-<h2 class="text-lg font-semibold text-aegis-text mb-1">{{ provider.what }}</h2>
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title(provider.what) }}
 {{ error_banner(errors) }}
 {% if started %}
 <div id="connect-status" class="space-y-4">
@@ -13,6 +14,15 @@
   <p class="text-sm text-aegis-muted">Finish it on {{ provider.label }}'s own page. This waits here and picks up the accounts when you are done.</p>
   <a href="{{ started.url }}" target="_blank" rel="noopener"
      class="{{ button_classes() }}">Open {{ provider.label }}</a>
+  {% else %}
+  {# No portal URL means a personal API key: SnapTrade hosts no connect
+     portal for those, so the brokerage is linked in their dashboard and
+     this app adopts what is already there. Without saying so the dialog
+     is a spinner with no way forward and no explanation. #}
+  <p class="text-sm text-aegis-muted">This key has no connect portal. Link the brokerage in {{ provider.label }}'s own dashboard; this picks it up within a few seconds of it appearing.</p>
+  <a href="https://dashboard.snaptrade.com" target="_blank" rel="noopener"
+     class="{{ button_classes() }}">Open the {{ provider.label }} dashboard</a>
+  <p class="text-xs text-aegis-muted">Already linked everything? Then there is nothing new to adopt and you can close this.</p>
   {% endif %}
   {% if waited %}
   <p class="text-xs text-aegis-muted">Still nothing from {{ provider.label }}. The session may have been abandoned; start again when you are ready.</p>

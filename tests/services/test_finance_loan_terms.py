@@ -104,6 +104,26 @@ class TestRecordingTheTerms:
                 OWNER,
             )
 
+    def test_unset_fields_may_be_sent_as_nulls(self) -> None:
+        """Every field here is optional, and a caller sending the whole
+        shape with nulls where it has no answer is the normal case. A
+        validator refusing one turns an approvable card into "payload no
+        longer valid" at READ time, long after the card was written -
+        which is what it did, on a live card."""
+        payload = LoanTermsPayload(
+            account_id=44,
+            outstanding_balance=4_868_272,
+            interest_rate_bps=None,
+            prepayment_penalty=None,
+            extra_payment_treatment=None,
+        )
+
+        assert payload.stated == {"outstanding_balance": 4_868_272}
+
+    def test_a_value_that_is_not_one_of_the_answers_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="One of: none, penalty, unknown"):
+            LoanTermsPayload(account_id=1, prepayment_penalty="maybe")
+
     def test_an_empty_change_is_refused(self) -> None:
         """A card with nothing on it is one nobody can approve."""
         with pytest.raises(ValueError, match="at least one term"):
@@ -339,3 +359,262 @@ class TestAddingTheAccountItself:
         assert "account.create" in FINANCE_CHAT_SYSTEM_PROMPT
         assert "Call accounts() FIRST" in FINANCE_CHAT_SYSTEM_PROMPT
         assert "SEPARATE card AFTER" in FINANCE_CHAT_SYSTEM_PROMPT
+
+
+class TestFilingADocumentAgainstAnAccount:
+    """A statement, an amortization schedule, a payoff letter is
+    EVIDENCE about one account - and evidence that lives only in a
+    conversation is evidence nobody can find again. The account's page
+    lists what is filed against it; nothing could write that list."""
+
+    @pytest.mark.asyncio
+    async def test_the_document_is_tagged_with_the_account(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.service import DocumentService
+        from app.services.finance.constants import account_tag
+        from app.services.finance.domains.writes.terms import (
+            FileDocumentPayload,
+            file_document_execute,
+        )
+
+        account = await seed_account(
+            svc, name="Citizens", account_type="loan", classification="liability"
+        )
+        documents = DocumentService(async_db_session)
+        document = await documents.ingest(
+            b"%PDF-1.4 schedule", title="Amortization_Schedule.pdf"
+        )
+        from app.services.ai.domains.chat.pastes import store_document
+
+        # The paste is the handle the conversation holds; it points at
+        # the document the marker named.
+        paste = await store_document(
+            "0", int(document.id), "Amortization_Schedule.pdf", 19_105,
+            async_db_session,
+        )
+
+        await file_document_execute(
+            async_db_session,
+            FileDocumentPayload(
+                paste_id=str(paste["id"]), account_id=int(account.id)
+            ),
+            None,
+        )
+        await async_db_session.commit()
+
+        filed, _ = await documents.list_documents(tag=account_tag(int(account.id)))
+        assert [d.title for d in filed] == ["Amortization_Schedule.pdf"]
+
+    @pytest.mark.asyncio
+    async def test_pasted_text_cannot_be_filed(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """A wall of text is not evidence about an account; only a file
+        that was attached and read is."""
+        from app.services.ai.domains.chat.pastes import store_paste
+        from app.services.finance.domains.writes.terms import (
+            FileDocumentPayload,
+            file_document_execute,
+        )
+
+        account = await seed_account(
+            svc, name="Citizens", account_type="loan", classification="liability"
+        )
+        paste = await store_paste(
+            "0", "a wall of pasted text", title="Orders", session=async_db_session
+        )
+
+        with pytest.raises(ValueError, match="not an attached document"):
+            await file_document_execute(
+                async_db_session,
+                FileDocumentPayload(
+                    paste_id=str(paste["id"]), account_id=int(account.id)
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_the_card_names_both_sides(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.ai.domains.chat.pastes import store_document
+        from app.services.finance.domains.writes.terms import (
+            FileDocumentPayload,
+            file_document_describe,
+        )
+
+        account = await seed_account(
+            svc, name="Citizens", account_type="loan", classification="liability"
+        )
+        paste = await store_document(
+            "0", 7, "Amortization_Schedule.pdf", 19_105, async_db_session
+        )
+
+        rows = await file_document_describe(
+            async_db_session,
+            FileDocumentPayload(
+                paste_id=str(paste["id"]), account_id=int(account.id)
+            ),
+            None,
+        )
+
+        assert {r.label: r.value for r in rows} == {
+            "Document": "Amortization_Schedule.pdf",
+            "File against": "Citizens",
+        }
+
+    def test_the_prompt_says_to_file_it_when_it_is_matched(self) -> None:
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "document.file" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "in the same turn you read it" in FINANCE_CHAT_SYSTEM_PROMPT
+
+
+class TestRecordingWhatAnAssetWasWorth:
+    """A property's price history had nowhere to go - "we don't currently
+    have a dedicated place to store a full property price-history
+    timeline" - while the ledger has held a dated, source-tagged
+    valuation series all along. Nothing could write one."""
+
+    @pytest.mark.asyncio
+    async def test_a_whole_history_lands_in_one_change(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        from datetime import date
+
+        from app.services.finance.domains.ledger.valuations import list_valuations
+        from app.services.finance.domains.writes.terms import (
+            ValuationPayload,
+            valuation_execute,
+        )
+
+        house = await seed_account(
+            svc, name="House Bedner", account_type="property", classification="asset"
+        )
+        await valuation_execute(
+            async_db_session,
+            ValuationPayload(
+                account_id=int(house.id),
+                source="zillow",
+                points=[
+                    {
+                        "as_of_date": date(2007, 1, 29),
+                        "value": 45_100_000,
+                        "note": "Prior sale",
+                    },
+                    {
+                        "as_of_date": date(2015, 11, 18),
+                        "value": 28_500_000,
+                        "note": "Sold",
+                    },
+                    {
+                        "as_of_date": date(2026, 8, 1),
+                        "value": 71_120_000,
+                        "note": "Zestimate",
+                        "is_estimate": True,
+                    },
+                ],
+            ),
+            1,
+        )
+        await async_db_session.commit()
+
+        rows = await list_valuations(async_db_session, account_id=int(house.id))
+        assert len(rows) == 3
+        assert {r.note for r in rows} == {"Prior sale", "Sold", "Zestimate"}
+        # A site's guess is not a price somebody paid.
+        assert [r.is_estimate for r in sorted(rows, key=lambda r: r.as_of_date)] == [
+            False,
+            False,
+            True,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_debt_has_no_value(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """What a thing is WORTH is a question for an asset; a debt
+        records what is owed."""
+        from datetime import date
+
+        from app.services.finance.domains.writes.terms import (
+            ValuationPayload,
+            valuation_execute,
+        )
+
+        loan = await seed_account(
+            svc, name="Citizens", account_type="loan", classification="liability"
+        )
+
+        with pytest.raises(ValueError, match="is a debt"):
+            await valuation_execute(
+                async_db_session,
+                ValuationPayload(
+                    account_id=int(loan.id),
+                    points=[{"as_of_date": date(2026, 9, 1), "value": 100}],
+                ),
+                1,
+            )
+
+    def test_two_figures_on_one_date_are_refused(self) -> None:
+        """The later write would silently replace the earlier, and the
+        card would have promised both."""
+        from datetime import date
+
+        from app.services.finance.domains.writes.terms import ValuationPayload
+
+        with pytest.raises(ValueError, match="Two figures on one date"):
+            ValuationPayload(
+                account_id=1,
+                points=[
+                    {"as_of_date": date(2026, 9, 1), "value": 100},
+                    {"as_of_date": date(2026, 9, 1), "value": 200},
+                ],
+            )
+
+    @pytest.mark.asyncio
+    async def test_the_card_reads_forwards(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """A history reads oldest first: what it fell to and what it
+        recovered to is the reason for recording it."""
+        from datetime import date
+
+        from app.services.finance.domains.writes.terms import (
+            ValuationPayload,
+            valuation_describe,
+        )
+
+        house = await seed_account(
+            svc, name="House Bedner", account_type="property", classification="asset"
+        )
+
+        rows = await valuation_describe(
+            async_db_session,
+            ValuationPayload(
+                account_id=int(house.id),
+                points=[
+                    {"as_of_date": date(2026, 8, 1), "value": 71_120_000,
+                     "note": "Zestimate", "is_estimate": True},
+                    {"as_of_date": date(2015, 11, 18), "value": 28_500_000,
+                     "note": "Sold"},
+                ],
+            ),
+            1,
+        )
+
+        assert rows[0].value == "House Bedner"
+        assert "Sold" in rows[1].value
+        assert "$285,000.00" in rows[1].value
+        assert "(estimate)" in rows[2].value
+
+    def test_the_prompt_says_to_send_the_whole_history(self) -> None:
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "account.valuation" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "Send the WHOLE history in one card" in FINANCE_CHAT_SYSTEM_PROMPT

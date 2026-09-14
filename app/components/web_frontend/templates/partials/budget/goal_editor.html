@@ -2,7 +2,8 @@
    on every change of the rule, factor or scope, without a submit. #}
 {% from "components/macros/form.html" import field, text_input, money_input, select, date_input, checkbox, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner %}
-<h2 class="text-lg font-semibold text-aegis-text mb-4">{{ "Edit " ~ goal.name if goal else "New goal" }}</h2>
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Edit " ~ goal.name if goal else "New goal") }}
 <form {{ hx_dialog_post(path ~ '/goals/' ~ goal.account_id ~ '/edit' if goal else path ~ '/goals/new') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Name") %}{{ text_input("name", values.name, required=not goal, autofocus=True) }}{% endcall %}

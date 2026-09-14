@@ -26,6 +26,43 @@
    * overridden by a utility class at the call site, because utilities are
    * emitted after this layer. */
 
+  /* The sidebar railed down to its icons.
+
+     One place decides what collapsing MEANS - the column narrows, every
+     row centres, every label goes - so a row added to the sidebar later
+     collapses correctly by wearing `rail-row` and `rail-hide` rather
+     than by remembering a width somewhere.
+
+     Labels are hidden the sr-only way, not `display: none`: an icon-only
+     link still has to say which section it is. Things that cannot be
+     used at 4rem wide (the appearance panel) take `rail-none` instead
+     and are gone outright.
+
+     Desktop only. On mobile the sidebar is an off-canvas drawer that is
+     either open or not there at all; railing it would collapse the one
+     thing the user just opened. */
+  @media (min-width: 768px) {
+    [data-sidebar="rail"] #sidebar {
+      width: 4rem;
+    }
+    [data-sidebar="rail"] #sidebar .rail-row {
+      justify-content: center;
+      padding-left: 0;
+      padding-right: 0;
+    }
+    [data-sidebar="rail"] #sidebar .rail-hide {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    [data-sidebar="rail"] #sidebar .rail-none {
+      display: none;
+    }
+  }
+
   /* A micro-label: the small caption over a figure or a column. The
      theme decides its voice (aegis: uppercase and tracked; steward:
      sentence case), so templates never say `uppercase` themselves. */

@@ -29,6 +29,35 @@ WINDOWS: tuple[tuple[int, str], ...] = (
 )
 
 
+# The same chips at a different scale. A ledger is read in days and a
+# house is held in decades, so a value history offers years - but it is
+# the same row, the same field and the same ``since()``, because a second
+# way to say "how far back" is a second thing to keep in step.
+LONG_WINDOWS: tuple[tuple[int, str], ...] = (
+    (365, "1y"),
+    (1825, "5y"),
+    (3650, "10y"),
+    (ALL, "All"),
+)
+
+
+# Two windows that are not a number of days back from today, but a
+# position in this asset's own story: everything up to the day it was
+# bought, and everything after. Negative so they cannot be confused with
+# a day count, and offered only where a purchase is actually known.
+BEFORE_PURCHASE = -1
+SINCE_PURCHASE = -2
+PURCHASE_WINDOWS: tuple[tuple[int, str], ...] = (
+    (BEFORE_PURCHASE, "Before I bought"),
+    (SINCE_PURCHASE, "Since I bought"),
+)
+
+
+def relative_to_purchase(days: int) -> bool:
+    """Whether this window is measured from the purchase, not from today."""
+    return days in {BEFORE_PURCHASE, SINCE_PURCHASE}
+
+
 def since(days: int | None) -> date | None:
     """The date a window starts at; ``None`` when it means everything."""
     if days is None or days >= ALL:

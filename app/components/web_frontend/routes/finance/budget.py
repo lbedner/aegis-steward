@@ -212,14 +212,14 @@ def eta_caption(goal: GoalResponse) -> str:
         return "Reached"
     if goal.status == "paused":
         return "Paused"
-    monthly = f"{goal.monthly_need / 100:,.2f}"
+    monthly = money(goal.monthly_need)
     if goal.contribution_kind == "percent_income":
         monthly += f" ({(goal.contribution_pct_bps or 0) / 100:g}% of income)"
     elif goal.contribution_kind == "surplus":
         monthly += " (surplus)"
     if goal.eta is None:
-        return f"${monthly}/mo · at this rate: never"
-    return f"${monthly}/mo · lands {goal.eta:%b %d, %Y}"
+        return f"{monthly}/mo · at this rate: never"
+    return f"{monthly}/mo · lands {goal.eta:%b %d, %Y}"
 
 
 # --- context --------------------------------------------------------------
@@ -259,10 +259,10 @@ async def budget_context(
         {
             "index": i,
             "label": (
-                f"Now ${round(e.start_balance / 100):,}"
+                f"Now {money(e.start_balance, whole=True)}"
                 if i == 0
                 else f"{calendar.month_abbr[e.period_month % 100]} "
-                f"{'-' if e.end_balance < 0 else ''}${abs(round(e.end_balance / 100)):,}"
+                f"{money(e.end_balance, whole=True)}"
             ),
             "tone": "error" if i and e.end_balance < 0 else None,
         }
@@ -376,7 +376,7 @@ async def stat_details(
                 {
                     "label": line.category_name or line.payee_label or "Overall",
                     "value": line.allocated_amount,
-                    "caption": f"{line.spent_amount / 100:,.2f} spent",
+                    "caption": f"{money(line.spent_amount)} spent",
                 }
                 for line in (flexible.lines if flexible else [])
             ),
@@ -811,8 +811,8 @@ async def goal_preview(
             owner_user_id=owner_user_id,
         )
         text = (
-            f"= ${preview.target_amount / 100:,.2f} "
-            f"({factor} months × ${preview.expenses / 100:,.2f} of monthly expenses)"
+            f"= {money(preview.target_amount)} "
+            f"({factor} months × {money(preview.expenses)} of monthly expenses)"
         )
     return dialog(request, "partials/budget/target_preview.html", text=text)
 
@@ -1009,7 +1009,7 @@ async def contribute(
         )
     response = await _goal_card(request, service, owner_user_id, account, oob=True)
     return close_dialog(
-        with_toast(response, f"Added ${cents / 100:,.2f} to {account.name}.")
+        with_toast(response, f"Added {money(cents)} to {account.name}.")
     )
 
 
@@ -1171,7 +1171,7 @@ async def envelope_move(
     move = service.credit_envelope if verb == "credit" else service.spend_from_envelope
     await move(account_id, amount=cents, owner_user_id=owner_user_id, note=note or None)
     response = await _envelope_card(request, service, account, oob=True)
-    return close_dialog(with_toast(response, f"{verb.title()}: ${cents / 100:,.2f}."))
+    return close_dialog(with_toast(response, f"{verb.title()}: {money(cents)}."))
 
 
 def _envelope_values(account: FinanceAccount | None) -> dict[str, str]:

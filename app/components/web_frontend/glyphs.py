@@ -11,6 +11,14 @@ from __future__ import annotations
 
 # Heroicons 24px outline path data, by icon name.
 _PATHS: dict[str, str] = {
+    # A page with a folded corner: what a stored FILE looks like, used
+    # where the row is a document rather than money.
+    "document": (
+        "M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1"
+        "13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0"
+        "-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 "
+        "1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+    ),
     "home": (
         "m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.12"
         "5c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h"
@@ -196,3 +204,66 @@ def account_glyph(account_type: str | None) -> str | None:
         return None
     icon = _BY_ACCOUNT_TYPE.get(account_type)
     return _PATHS[icon] if icon else None
+
+
+# What a file IS. A list of paper reads the way it does in any file
+# manager: the mark people already know, in the colour they know it by.
+#
+# Each format names the vendored SVG it wears (static/icons/files) and
+# keeps a LABEL, because a mark is not always enough - a format with no
+# icon of its own still needs something to say, and "CSV" beside a green
+# sheet is the difference between a spreadsheet and a spreadsheet.
+_FILE_BADGES: dict[str, tuple[str, str]] = {
+    "pdf": ("PDF", "pdf"),
+    "doc": ("DOC", "doc"),
+    "docx": ("DOC", "doc"),
+    "xls": ("XLS", "xls"),
+    "xlsx": ("XLS", "xls"),
+    "csv": ("CSV", "xls"),
+    "ppt": ("PPT", "ppt"),
+    "pptx": ("PPT", "ppt"),
+    "png": ("IMG", "img"),
+    "jpg": ("IMG", "img"),
+    "jpeg": ("IMG", "img"),
+    "webp": ("IMG", "img"),
+    "gif": ("IMG", "img"),
+    "txt": ("TXT", "file"),
+    "zip": ("ZIP", "file"),
+}
+
+# Served, not inlined: one request per format, cached by the browser for
+# every row and every account after the first.
+ICON_ROOT = "/static/icons/files"
+
+_BY_MEDIA_TYPE = {
+    "application/pdf": "pdf",
+    "text/csv": "csv",
+    "text/plain": "txt",
+    "application/zip": "zip",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+}
+
+_UNKNOWN_FILE = ("FILE", "file")
+
+
+def file_badge(
+    media_type: str | None = None, filename: str | None = None
+) -> dict[str, str]:
+    """``{label, icon}`` for a stored file's type mark.
+
+    The media type first, because it is what the store recorded; the
+    filename's extension is the fallback for anything uploaded without
+    one. An unknown format gets the plain sheet of paper rather than a
+    guess: a wrong mark is worse than a neutral one, because it is read
+    as a fact about the file.
+    """
+    key = _BY_MEDIA_TYPE.get((media_type or "").lower())
+    if key is None and media_type and media_type.lower().startswith("image/"):
+        key = media_type.lower().split("/", 1)[1]
+    if key is None and filename and "." in filename:
+        key = filename.rsplit(".", 1)[-1].lower()
+    label, icon = _FILE_BADGES.get(key or "", _UNKNOWN_FILE)
+    return {"label": label, "icon": f"{ICON_ROOT}/{icon}.svg"}

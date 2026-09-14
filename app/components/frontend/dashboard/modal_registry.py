@@ -51,6 +51,10 @@ def modal_registry() -> dict[str, type[ft.Container]]:
         "service_finance": FinanceDetailDialog,
         "backend": BackendDetailDialog,
         "frontend": FrontendDetailDialog,
+        # The htmx pages are a component in their own right: they report
+        # their own health and the status row and the diagram node both
+        # open a modal by this key. Without it those clicks were dead.
+        "web_frontend": FrontendDetailDialog,
         "database": DatabaseDetailDialog,
         "ollama": OllamaDetailDialog,
         "cache": RedisDetailDialog,

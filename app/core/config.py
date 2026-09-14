@@ -11,6 +11,8 @@ from typing import Any
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.formatting import format_slug
+
 # Default placeholder bundled with the template — anyone reading the
 # template source knows this value, so leaving it unchanged in a non-dev
 # deploy would let an attacker forge JWTs. Pinned as a module constant
@@ -30,10 +32,12 @@ class Settings(
     # Project identity
     PROJECT_NAME: str = "aegis-steward"
     # Friendly display name shown to humans (email FROM/body, browser
-    # titles, etc.). PROJECT_NAME above is the URL-safe slug; this is
-    # the marketing-friendly form. Defaults to the value you typed when
-    # generating the project; override per-environment via env var.
-    PROJECT_DISPLAY_NAME: str = "aegis-steward"
+    # titles, sidebar brand). PROJECT_NAME above is the URL-safe slug;
+    # this is the form with the hyphens taken out. Left blank it is
+    # derived from the slug, so a generated project reads as a name
+    # without anyone editing config; override per-environment via env
+    # var when the name is not just the slug prettied up.
+    PROJECT_DISPLAY_NAME: str = ""
 
     # Public-facing base URL (used to build absolute links in outgoing
     # emails - receipts, password reset, subscription welcome, etc.).
@@ -425,6 +429,18 @@ class Settings(
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.ports"), env_file_encoding="utf-8"
     )
+
+    @model_validator(mode="after")
+    def _name_for_people(self) -> Settings:
+        """Fill the display name from the slug when nobody set one.
+
+        A generated project's slug is the only name it is given, and
+        left alone it reached the sidebar, the browser tab and the FROM
+        line of every email with its hyphens still in.
+        """
+        if not self.PROJECT_DISPLAY_NAME:
+            self.PROJECT_DISPLAY_NAME = format_slug(self.PROJECT_NAME)
+        return self
 
     @model_validator(mode="after")
     def _guard_against_placeholder_secret_in_prod(self) -> Settings:

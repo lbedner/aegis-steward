@@ -5,11 +5,18 @@
 {% from "components/macros/table.html" import data_table, pager %}
 {% from "components/macros/form.html" import select, date_input, checkbox, search_input, action, range_chips, control %}
 {% from "components/macros/feedback.html" import empty_state %}
+{% from "components/macros/register_row.html" import register_row %}
+
+{# What ``data_table`` calls for each row. A macro rather than an include
+   because a macro's locals are not an include's context: the table macro
+   has to be able to hand the row back, and this closes over the page's
+   categories and account column. #}
+{% macro _register_row(row) %}{{ register_row(row, register.categories, register.show_account) }}{% endmacro %}
 
 {% if register.kind == "investment" %}
 <section id="register" class="space-y-6">
   <div id="holdings">
-  {% call card("Holdings", (register.portfolio_value|money) ~ " total") %}
+  {% call card(named.positions.noun, (register.portfolio_value|money) ~ " total") %}
   {{ data_table(register.holding_columns, register.holdings, empty="No positions yet") }}
   {% endcall %}
   </div>
@@ -87,42 +94,11 @@
     {{ action("Make recurring", hx_dialog("/transactions/declare", checked)) }}
     {{ action("Remove", 'hx-post="/transactions/delete" ' ~ checked ~ ' hx-swap="none" hx-confirm="Remove the selected transactions? A re-import will not bring them back."', tone="danger") }}
   </div>
-  <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="text-aegis-muted micro-label border-b border-aegis-border">
-          {# Select all on this page. Ticking the rows fires no change of
-             their own, but this one bubbles to the counter above, which
-             recounts from ``:checked`` - so the bar is right either way. #}
-          <th scope="col" class="pl-5 pr-2 py-2">
-            <input type="checkbox" aria-label="Select all on this page" data-select-all
-                   class="{{ control('checkbox') }}"
-                   @change="$root.querySelectorAll('input[name=transaction_ids]').forEach(b => b.checked = $el.checked)">
-          </th>
-          {# A header the reader can click. The link carries the whole
-             filter set, so sorting a filtered register keeps its
-             filters, and it swaps the rows only - the bar above stays
-             put, the same as search. #}
-          {% for col in register.columns %}
-          {% set sort_url = register.path ~ "?" ~ register.filters.sorted_by(col.key) %}
-          <th scope="col" aria-sort="{{ 'ascending' if register.filters.sort == col.key and register.filters.sort_dir == 'asc' else ('descending' if register.filters.sort == col.key else 'none') }}"
-              class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">
-            <a href="{{ sort_url }}" {{ hx_replace(sort_url, "#register") }}
-               class="inline-flex items-center gap-1 hover:text-aegis-text transition-colors">{{ col.label }}<span class="text-xxs">{{ register.filters.arrow(col.key) }}</span></a>
-          </th>
-          {% endfor %}
-          <th scope="col" class="px-2 py-2"><span class="sr-only">Actions</span></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-aegis-border/60">
-        {% for row in register.rows %}
-        {% with categories = register.categories, show_account = register.show_account %}
-        {% include "components/register_row.html" %}
-        {% endwith %}
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {# The selection wrapper already bleeds, so the table must not bleed
+     again - see ``flush``. #}
+  {{ data_table(register.columns, register.rows, row=_register_row, select=True,
+                sort=register.filters, path=register.path, target="#register",
+                flush=False) }}
   </div>
   {{ pager(register.pager, "#register") }}
   {% elif register.filtered %}

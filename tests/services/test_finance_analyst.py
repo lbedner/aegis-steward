@@ -1884,6 +1884,42 @@ class TestMatchingAnOrderToItsCharge:
         assert "IS the match" in FINANCE_CHAT_SYSTEM_PROMPT
         assert "within a month has not" in FINANCE_CHAT_SYSTEM_PROMPT
 
+    def test_she_looks_before_she_asks(self) -> None:
+        """Three times in one session the user had to say "check the
+        account, you will see": the card's interest history was eight
+        rows in the ledger, and what they would pay this month was a
+        $1,800 recurring stream already on file."""
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "LOOK BEFORE YOU ASK" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "name which tool could hold it" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "Ask only for what the ledger CANNOT know" in (
+            FINANCE_CHAT_SYSTEM_PROMPT
+        )
+
+    def test_one_question_at_a_time(self) -> None:
+        """A list of five things to go and find is a list nobody works
+        through; the user twice had to say so."""
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "One question at a time" in FINANCE_CHAT_SYSTEM_PROMPT
+
+    def test_a_figure_carries_when_it_is_from(self) -> None:
+        """An export lags the lender. The user had to point that out
+        after a balance was quoted flat, as though it were current."""
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "as fresh as its last IMPORT" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "say WHEN a figure is from" in FINANCE_CHAT_SYSTEM_PROMPT
+        # Which source wins is not a matter of taste.
+        assert "portal wins for what is OWED" in FINANCE_CHAT_SYSTEM_PROMPT
+
     def test_a_budget_question_goes_to_the_budget_tool(self) -> None:
         """ "what is our budget for Medicine/Drugs?" got "the budget
         target isn't exposed here" - true at the time. The ledger holds

@@ -1,6 +1,7 @@
+{% from "components/macros/layout.html" import dialog_title %}
 {# How a payee's transactions are filed today. One dominant category is
    the healthy case; several is a payee arguing with itself. #}
-<h2 class="text-lg font-semibold text-aegis-text mb-4">How {{ name }} is filed</h2>
+{{ dialog_title("How " ~ name ~ " is filed") }}
 {% if summary.total %}
 <ul id="stat-rows" class="divide-y divide-aegis-border/60 text-sm">
   <li class="flex items-center justify-between gap-3 py-1.5">

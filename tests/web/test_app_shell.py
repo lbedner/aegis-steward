@@ -5,7 +5,7 @@ shell is pinned independently of any route (routes arrive in #8).
 """
 
 from app.components.web_frontend.rendering import templates
-from tests.web.dom import none, one
+from tests.web.dom import none, one, select, text
 
 PROBE = '<p id="probe">hello</p>'
 
@@ -31,6 +31,38 @@ class TestAppShell:
         one(page, "aside#sidebar nav")
         # The base layout's top bar is replaced, not stacked on top.
         none(page, 'a[href="/dashboard"]')
+
+    def test_the_sidebar_opens_with_the_mark_and_closes_with_its_maker(
+        self,
+    ) -> None:
+        """Top of the column, the app says what it is; foot of it, what
+        built it. Both are markup rather than pictures, so both follow
+        the theme."""
+        page = render_shell()
+        mark = one(page, "aside#sidebar a[href='/'] svg")
+        assert "text-aegis-teal" in (mark.get("class") or "")
+        assert text(one(page, "aside#sidebar a[href='/'] span"))
+        assert text(one(page, "[data-powered-by]")) == "Powered by Aegis Stack"
+
+    def test_the_sidebar_rails_down_to_its_icons(self) -> None:
+        """Collapsing is a stored preference, not page state: theme.js
+        puts it on <html> before the first paint, so a railed sidebar
+        never starts wide and snaps narrow.
+
+        Every row that collapses says so by wearing the kit's classes,
+        and the labels go the sr-only way - an icon-only link still has
+        to say which section it is.
+        """
+        page = render_shell()
+        rail = one(page, "aside#sidebar button[data-rail]")
+        assert rail.get("aria-controls") == "sidebar"
+        assert "setAppearance('sidebar'" in (rail.get("@click") or "")
+        # desktop only: on mobile the sidebar is a drawer, not a column
+        assert "md:flex" in (rail.get("class") or "")
+        assert "hidden" in (rail.get("class") or "")
+        labelled = [text(one(el, "span.rail-hide")) for el in select(page, ".rail-row")]
+        assert "Overview" in labelled
+        assert "Collapse" in labelled
 
     def test_mobile_toggle_controls_the_sidebar(self) -> None:
         toggle = one(render_shell(), 'button[aria-label="Toggle navigation"]')

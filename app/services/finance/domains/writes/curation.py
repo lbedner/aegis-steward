@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger import categories, merchants, transactions
-from app.services.finance.domains.writes.display import txn_subject
+from app.services.finance.domains.writes.display import txn_row
 from app.services.finance.schemas import ChangeDisplayRow
 
 
@@ -50,7 +50,7 @@ async def categorize_execute(
 async def categorize_describe(
     db: AsyncSession, payload: CategorizePayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
+    txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     wanted = [payload.category_id]
     if txn is not None and txn.category_id is not None:
         wanted.append(txn.category_id)
@@ -65,7 +65,7 @@ async def categorize_describe(
     )
     after = names.get(payload.category_id, f"category {payload.category_id}")
     rows = [
-        ChangeDisplayRow(label="Transaction", value=subject),
+        subject,
         ChangeDisplayRow(label="Category", value=f"{before} \u2192 {after}"),
     ]
     # Shown on the card, because a note the user approves unseen is a
@@ -107,8 +107,8 @@ async def memo_execute(
 async def memo_describe(
     db: AsyncSession, payload: MemoPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
-    rows = [ChangeDisplayRow(label="Transaction", value=subject)]
+    txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
+    rows = [subject]
     # A note that REPLACES one is a different decision from a first
     # note, so the card says which it is.
     if txn is not None and txn.memo:
@@ -159,7 +159,7 @@ async def assign_payee_execute(
 async def assign_payee_describe(
     db: AsyncSession, payload: AssignPayeePayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
+    txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     # An assignment is a MOVE like the rest: from the payee holding the
     # row now (usually none), read at render time so the card shows the
     # current truth.
@@ -168,7 +168,7 @@ async def assign_payee_describe(
         names = await merchants.merchant_names(db, {txn.merchant_id})
         before = names.get(txn.merchant_id, before)
     return [
-        ChangeDisplayRow(label="Transaction", value=subject),
+        subject,
         ChangeDisplayRow(label="Payee", value=f"{before} \u2192 {payload.payee}"),
     ]
 
@@ -194,7 +194,7 @@ def _tag_rows(
     subject: str, before: list[str], after: list[str]
 ) -> list[ChangeDisplayRow]:
     return [
-        ChangeDisplayRow(label="Transaction", value=subject),
+        subject,
         ChangeDisplayRow(
             label="Tags",
             value=f"{', '.join(before) or 'none'} \u2192 {', '.join(after) or 'none'}",
@@ -221,7 +221,7 @@ async def tag_describe(
 ) -> list[ChangeDisplayRow]:
     from app.services.finance.utils import normalize_payee
 
-    _txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
+    _txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     before = await _tag_names(db, payload.transaction_id)
     # Predict with the executor's own rule: attach dedupes by normalized
     # name, so "business" against an existing "Business" changes nothing
@@ -261,7 +261,7 @@ async def untag_describe(
 ) -> list[ChangeDisplayRow]:
     from app.services.finance.utils import normalize_payee
 
-    _txn, subject = await txn_subject(db, payload.transaction_id, owner_user_id)
+    _txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     before = await _tag_names(db, payload.transaction_id)
     # Same normalization the executor resolves the tag with.
     wanted = normalize_payee(payload.tag)

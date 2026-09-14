@@ -15,6 +15,10 @@ Forms:
 - ``("column", table, col)`` - column exists (ALTER TABLE migrations).
 - ``("foreign_key", table, col)`` - an FK constraint covers the column
   (FK-only migrations, e.g. payment_auth_link).
+- ``("check", table, name)`` - a named CHECK constraint exists with the
+  migration's text in it. For a migration that WIDENS a constraint and
+  adds no object: there is no new table or column to point at, and the
+  constraint is the only thing whose shape proves the migration ran.
 """
 
 SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
@@ -29,6 +33,15 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "auth_tokens": ("table", "refresh_token"),
     "blog": ("table", "blog_post"),
     "documents": ("table", "document"),
+    # Widens ck_document_kind; adds no table or column.
+    "document_schedule": ("check", "document", "ck_document_kind", "schedule"),
+    "payoff_terms": (
+        "column",
+        "finance.finance_liability_detail",
+        "prepayment_penalty",
+    ),
+    "run_detail": ("column", "finance.finance_import_batch", "detail"),
+    "arrival": ("column", "finance.finance_holding", "import_batch_id"),
     # insight_source, not project: the project table only exists in the
     # per-user shape, insight_source in both.
     "insights": ("table", "insight_source"),

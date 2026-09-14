@@ -1,0 +1,38 @@
+{# Dialog body: what an account holds, typed rather than synced.
+
+   One box for one position or twenty, because that is how positions
+   arrive - read off a statement or a brokerage screen in a block. A form
+   with ticker/quantity/price fields would be right for one row and
+   hostile for twelve, and twelve is the normal case.
+
+   Only manual accounts get here (see ``account_actions``): a connected
+   account's holdings are rewritten by the next sync. #}
+{% from "components/macros/form.html" import field, textarea, date_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{% call dialog_title("Positions") %}
+<p class="text-xs text-aegis-muted mb-4">One per line: ticker, shares, and the unit price. Dollar signs and commas are fine. Repeating a ticker on the same date replaces that position rather than adding a second one.</p>
+{% endcall %}
+{{ error_banner(errors) }}
+<form {{ hx_dialog_post('/accounts/' ~ account.id ~ '/positions') }} class="space-y-4">
+  {% call field("As of") %}{{ date_input("as_of_date", as_of_date) }}{% endcall %}
+  {% call field("Positions") %}
+  {{ textarea("positions", positions, rows=8, placeholder="VOO 14.2 512.30
+SCHD 60 28.11
+QQQM 3.4 214.90") }}
+  {% endcall %}
+  {{ primary_button("Save positions", type="submit") }}
+</form>
+{% if holdings %}
+{# What is already there, so a correction is typed against something
+   rather than from memory. #}
+<h3 class="mt-6 mb-2 text-sm font-semibold text-aegis-text">Held now</h3>
+<dl class="border-t border-aegis-border/60">
+  {% for holding in holdings %}
+  <div class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
+    <dt class="text-aegis-text min-w-0 truncate">{{ holding.ticker }}<span class="text-aegis-muted"> · {{ holding.quantity }}</span></dt>
+    <dd class="tabular-nums shrink-0 text-aegis-muted">{{ holding.value|money }}</dd>
+  </div>
+  {% endfor %}
+</dl>
+{% endif %}

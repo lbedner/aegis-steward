@@ -32,6 +32,7 @@ from app.services.finance.adapters.providers.connections.common import (
     _utcnow,
     get_connection,
     list_plaid_connections,
+    mark_healthy,
 )
 from app.services.finance.adapters.providers.plaid import PlaidClient, PlaidError
 from app.services.finance.constants import Provider
@@ -797,9 +798,7 @@ async def sync_plaid_connection(
             )
 
     connection.sync_cursor = cursor
-    connection.status = "healthy"
-    connection.needs_user_action = False
-    connection.last_successful_sync_at = _utcnow()
+    mark_healthy(connection)
     db.add(connection)
     await db.flush()
     return result

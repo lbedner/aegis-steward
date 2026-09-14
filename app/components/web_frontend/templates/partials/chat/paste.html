@@ -1,7 +1,7 @@
+{% from "components/macros/layout.html" import dialog_title %}
 {# Dialog body: a block of text the user pasted, read back from the
    store. Monospaced and scrolling, because what was pasted was a page -
    reflowing it as prose would change the thing the reader opened it to
    check. A fragment-only response (never a page), so no layout. #}
-<h2 class="text-lg font-semibold text-aegis-text">{{ paste.title }}</h2>
-<p class="text-aegis-muted micro-label mb-4">{{ "{:,}".format(paste.chars) }} characters · #{{ paste.id }}</p>
+{{ dialog_title(paste.title, facts="{:,}".format(paste.chars) ~ " characters · #" ~ paste.id) }}
 <pre class="max-h-[60vh] overflow-auto rounded-lg border border-aegis-border bg-aegis-bg p-3 text-xs font-mono whitespace-pre-wrap text-aegis-text">{{ text }}</pre>

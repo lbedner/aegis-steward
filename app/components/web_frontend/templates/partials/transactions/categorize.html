@@ -3,6 +3,7 @@
    one of many", so the three bulk edits read identically. #}
 {% from "components/macros/form.html" import picker, control %}
 {% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
 {% set hidden %}
 {% for id in transaction_ids %}<input type="hidden" name="transaction_ids" value="{{ id }}">{% endfor %}
 {% if show_account %}<input type="hidden" name="show_account" value="true">{% endif %}
@@ -15,8 +16,7 @@
          class="{{ control('input') }} w-full mt-1">
 </label>
 {% endset %}
-<h2 class="text-lg font-semibold text-aegis-text mb-1">Categorize {{ title }}</h2>
-<p class="text-xs text-aegis-muted mb-4">Every selected transaction is filed under the one you pick.</p>
+{{ dialog_title("Categorize " ~ title, "Every selected transaction is filed under the one you pick.") }}
 {{ error_banner(errors) }}
 {{ picker("category-picker", "/transactions/categorize", "category_id", categories,
           hint="Search categories", hidden=hidden, current=current) }}

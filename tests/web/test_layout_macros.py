@@ -87,6 +87,26 @@ class TestDialog:
         one(dialog, "#dialog-body")
         assert one(dialog, "button[aria-label='Close']") is not None
 
+    def test_the_body_scrolls_and_the_way_out_does_not(self) -> None:
+        """A dialog that scrolls as a whole takes its own close button
+        off the top of the screen. With a document open, the remaining
+        way out is Escape - which the embedded PDF viewer has already
+        swallowed - so the body scrolls and the chrome stays put.
+
+        ``flex`` must not be on the dialog element itself: an author
+        ``display: flex`` beats the UA sheet's rule hiding a dialog that
+        is not open, whatever the specificity says, and the dialog would
+        render on the page while closed.
+        """
+        html = render("{{ dialog() }}")
+        dialog = one(html, "dialog#dialog")
+        assert "flex" not in (dialog.get("class") or "").split()
+        assert "max-h-[90vh]" in (dialog.get("class") or "")
+        body = one(dialog, "#dialog-body")
+        assert "overflow-y-auto" in (body.get("class") or "")
+        chrome = one(dialog, "button[aria-label='Close']").getparent()
+        assert "shrink-0" in (chrome.get("class") or "")
+
     def test_mounted_once_by_the_app_shell(self) -> None:
         page = templates.env.from_string(
             '{% extends "layouts/app_shell.html" %}{% block app_content %}x{% endblock %}'

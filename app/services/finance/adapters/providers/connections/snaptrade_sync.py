@@ -29,6 +29,7 @@ from app.services.finance.adapters.providers.connections.common import (
     _recompute_net_worth,
     _to_cents,
     _utcnow,
+    finished,
     list_provider_connections,
 )
 from app.services.finance.adapters.providers.snaptrade import (
@@ -75,6 +76,25 @@ async def _snaptrade_user_secret(
     return None
 
 
+async def _drop_pending_connects(
+    db: AsyncSession, *, owner_user_id: int | None
+) -> None:
+    """Remove this owner's unfinished SnapTrade connects.
+
+    A pending row is one that never adopted an authorization
+    (``provider_item_id is None``). It holds nothing but an encrypted
+    user secret the next connect will mint again, so dropping it loses
+    nothing and stops the page filling with cards that can never resolve.
+    """
+    rows = await list_provider_connections(
+        db, provider=Provider.SNAPTRADE, owner_user_id=owner_user_id
+    )
+    for row in rows:
+        if row.provider_item_id is None and row.status == "loading":
+            await db.delete(row)
+    await db.flush()
+
+
 async def start_snaptrade_connect(
     db: AsyncSession,
     *,
@@ -95,6 +115,13 @@ async def start_snaptrade_connect(
         # Personal (PERS-) keys: the key IS the user. No registration, and
         # data calls are signed with an empty userId/userSecret pair.
         user_id, user_secret = "", ""
+        # Nothing is ever adopted into a personal key's pending row when
+        # every authorization is already known, so each attempt left a
+        # dead ``loading`` card on the Connections page. Reaping is safe
+        # HERE and only here: the row holds an empty user secret. On a
+        # commercial key that same row is the only place the registered
+        # secret lives until an authorization adopts it.
+        await _drop_pending_connects(db, owner_user_id=owner_user_id)
     else:
         user_id = _snaptrade_user_id(owner_user_id)
         stored = await _snaptrade_user_secret(db, owner_user_id=owner_user_id)
@@ -405,6 +432,7 @@ async def sync_snaptrade_connection(
     re-opens from there (minus a small overlap) and the activity-id dedup
     absorbs the overlap, mirroring the Plaid investments lane.
     """
+    _started = _utcnow()
     client = client or SnapTradeClient()
     service = FinanceService(db)
     result = SyncResult(connection_id=connection.id)
@@ -470,9 +498,7 @@ async def sync_snaptrade_connection(
 
     if pull_activities:
         connection.sync_cursor = today.isoformat()
-    connection.status = "healthy"
-    connection.needs_user_action = False
-    connection.last_successful_sync_at = _utcnow()
+    finished(db, connection, started=_started, result=result)
     db.add(connection)
     await db.flush()
     return result

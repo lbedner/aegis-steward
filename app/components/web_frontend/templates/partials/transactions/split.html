@@ -2,8 +2,9 @@
    remainder line is filled by the service. #}
 {% from "components/macros/form.html" import money_input, text_input, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner %}
-<h2 class="text-lg font-semibold text-aegis-text mb-1">Split "{{ txn.name }}"</h2>
-<p class="text-xs text-aegis-muted mb-4">{{ txn.amount|money(txn.currency) }} in total; anything left over becomes a remainder line.</p>
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title('Split "' ~ txn.name ~ '"',
+                (txn.amount|money(txn.currency)) ~ " in total; anything left over becomes a remainder line.") }}
 <form {{ hx_dialog_post('/transactions/' ~ (txn.id) ~ '/split') }} class="space-y-3">
   {{ error_banner(errors) }}
   {% for part in parts %}
