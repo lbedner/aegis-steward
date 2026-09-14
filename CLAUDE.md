@@ -96,5 +96,9 @@ execution history is recorded. See the `add-scheduled-job` skill.
 ## Skills
 
 Task procedures live in `.claude/skills/<name>/SKILL.md` and load on demand when
-the task matches. Reach for one when adding an API endpoint, a model, a job, or
-a CLI command, or when changing the stack.
+the task matches. Reach for one when adding a PAGE, an API endpoint, a model, a
+job, or a CLI command, or when changing the stack.
+
+`add-page` is the one to read before touching the htmx frontend: the six
+interaction patterns, the response contract, the render helper, the macro kit,
+and the two-render-path test.

@@ -155,8 +155,16 @@ class TestRegister:
         from app.components.web_frontend.filters import freshness
 
         today = date(2026, 9, 14)
-        assert freshness(date(2026, 9, 10), "sync", today)["tone"] == "warn"
+        # Thresholds are keyed on how often the thing is EXPECTED to
+        # change, not on how much we care. Yesterday and last week are
+        # both fine for something that syncs daily; a fortnight is not.
+        assert freshness(date(2026, 9, 13), "sync", today)["tone"] == "ok"
+        assert freshness(date(2026, 9, 7), "sync", today)["tone"] == "ok"
+        assert freshness(date(2026, 8, 31), "sync", today)["tone"] == "warn"
         assert freshness(date(2026, 6, 26), "holdings", today)["tone"] == "error"
+        # A house valued in June is a normal thing to be holding in
+        # September. A colour that cries stale at every ordinary age
+        # teaches the reader to ignore it.
         assert freshness(date(2026, 6, 26), "valuation", today)["tone"] == "ok"
         # Nothing at all is unknown, which is not the same as stale.
         assert freshness(None, "sync", today) == {"label": "never", "tone": "muted"}
@@ -189,12 +197,19 @@ class TestRegister:
             for face in ("", "/overview", "/documents")
         }
         said = {face: text(one(h, "[data-facts]")) for face, h in faces.items()}
-        # One sentence, the same on all three. The ledger's newest row is
-        # two days old, and "updated" for a card means when money last
-        # moved - not when the row was last touched, which a rename does.
-        assert set(said.values()) == {
-            "Liability · Manual · USD · updated 2 days ago"
-        }
+        # One sentence, the same on all three, and only what the badge
+        # above has not already said: the kind is up there, USD is the
+        # default, and "Manual" was our word for "not connected".
+        #
+        # "Updated" for a card means when money last moved - not when the
+        # row was last touched, which a rename would do.
+        # "Not connected", then how current it is with the dot LEADING
+        # its words and set apart from the identity - a middot followed
+        # by a dot is two dots in a row, and reads as a bullet that lost
+        # its text.
+        assert set(said.values()) == {"Not connected Updated 2 days ago"}
+        for face in faces.values():
+            one(face, "[data-updated] [data-dot]")
         assert all("document" not in words for words in said.values())
         assert {
             face: [b.get("hx-get") for b in select(h, "#manage-menu button")]
@@ -645,8 +660,8 @@ class TestTheCoverSheet:
     async def test_a_document_filed_against_the_account_is_listed(
         self, hx: TestClient, finance: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        from app.components.web_frontend.routes.finance.accounts import account_tag
         from app.services.documents.service import DocumentService
+        from app.services.finance.constants import account_tag
 
         account = await seed_account(
             finance, name="GreenSky", account_type="loan", classification="liability"
@@ -920,7 +935,7 @@ class TestTheValueLine:
         ]
 
     def test_the_line_reads_forwards(self) -> None:
-        from app.components.web_frontend.routes.finance.accounts import (
+        from app.components.web_frontend.routes.finance.valuations import (
             valuation_chart,
         )
 
@@ -945,7 +960,7 @@ class TestTheValueLine:
         every owner it ever had. The first of those was a stranger's
         purchase in 2007, and that is where a note-matching dot landed -
         labelled "Bought", on somebody else's sale."""
-        from app.components.web_frontend.routes.finance.accounts import (
+        from app.components.web_frontend.routes.finance.valuations import (
             valuation_chart,
         )
 
@@ -961,7 +976,7 @@ class TestTheValueLine:
         and the date was nine months out."""
         from datetime import date
 
-        from app.components.web_frontend.routes.finance.accounts import (
+        from app.components.web_frontend.routes.finance.valuations import (
             purchase_mark,
         )
 
@@ -975,7 +990,7 @@ class TestTheValueLine:
     def test_a_property_with_no_recorded_price_is_not_guessed_at(self) -> None:
         """A gifted or inherited property legitimately has no purchase
         price, and a dot on the wrong sale is worse than no dot."""
-        from app.components.web_frontend.routes.finance.accounts import (
+        from app.components.web_frontend.routes.finance.valuations import (
             valuation_chart,
         )
 
@@ -984,7 +999,7 @@ class TestTheValueLine:
     def test_one_point_is_not_a_line(self) -> None:
         from datetime import date
 
-        from app.components.web_frontend.routes.finance.accounts import (
+        from app.components.web_frontend.routes.finance.valuations import (
             valuation_chart,
         )
 

@@ -36,12 +36,12 @@ from app.components.web_frontend.rendering import (
     where_from,
     with_toast,
 )
-from app.components.web_frontend.routes.finance.accounts import (
-    VALUATION_COLUMNS,
-    valuation_row,
-)
 from app.components.web_frontend.routes.finance.transactions import (
     picker_options,
+)
+from app.components.web_frontend.routes.finance.valuations import (
+    VALUATION_COLUMNS,
+    valuation_row,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.properties import (

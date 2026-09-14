@@ -7,7 +7,7 @@ Money fields are integer minor units (cents); the frontend formats them.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -57,6 +57,11 @@ class HoldingResponse(BaseModel):
     market_value: int  # cents
     currency: str
     icon_b64: str | None = None  # set by the router; from_parts has no async access
+    # When this position arrived. ``as_of_date`` is the day it DESCRIBES
+    # - a June statement imported tonight is old to the ledger and new to
+    # the reader - so the two cannot be the same field.
+    import_batch_id: int | None = None
+    created_at: datetime | None = None
 
     @classmethod
     def from_parts(
@@ -79,6 +84,8 @@ class HoldingResponse(BaseModel):
             cost_basis=holding.cost_basis,
             market_value=market_value,
             currency=holding.currency,
+            import_batch_id=holding.import_batch_id,
+            created_at=holding.created_at,
         )
 
 
@@ -109,6 +116,9 @@ class TradeResponse(BaseModel):
     fees: int | None
     name: str | None = None
     currency: str
+    # When it arrived, which is not ``trade_date`` - the day it happened.
+    import_batch_id: int | None = None
+    created_at: datetime | None = None
 
     @classmethod
     def from_row(cls, trade: FinanceTrade) -> TradeResponse:
@@ -130,6 +140,8 @@ class TradeResponse(BaseModel):
             fees=trade.fees,
             name=trade.name,
             currency=trade.currency,
+            import_batch_id=trade.import_batch_id,
+            created_at=trade.created_at,
         )
 
 
