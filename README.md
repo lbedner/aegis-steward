@@ -35,8 +35,13 @@ This Aegis Stack project includes the following components:
 
 2. **Activate virtual environment:**
    ```bash
-   source .venv/bin/activate
+   source .venv/bin/activate        # Windows: .venv\Scripts\activate
    ```
+
+3. **No `make`?** Every `make <target>` in this README also runs as
+   `uv run poe <target>` — same tasks, no make needed, which is how
+   Windows gets through the rest of this page. `uv run poe -h` lists
+   them.
 
 3. **Set up environment:**
    ```bash
@@ -62,10 +67,9 @@ The application will be available at `http://127.0.0.1:8000`. If port 8000 is
 already taken, `make serve` picks the next free port and prints the URL it
 chose, so two stacks can run side by side without editing any config.
 
-No `make` on Windows? After installing the dev dependencies once
-(`uv sync --all-extras`), every command in this README also works as
-`uv run poe <target>` (for example `uv run poe serve`); run `uv run poe -h`
-for the full list.
+Every command in this README also works as `uv run poe <target>` (for
+example `uv run poe serve`), once the dev dependencies are installed
+(`uv sync --all-extras`); run `uv run poe -h` for the full list.
 
 ## Development
 
