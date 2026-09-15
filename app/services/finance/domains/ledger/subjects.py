@@ -1,12 +1,19 @@
-"""Whose money a row describes.
+"""The address book, on the ledger's side.
 
 A subject is a person, trust, or estate whose money this household
 tracks but does not own: a parent in care, a child's savings, an estate
 being settled. Rows without one are the household's own, which is why
 every existing ledger reads unchanged.
+
+The bridge in the other direction lives here too: the institution row
+for an organization the app already knows as a party. Both are the same
+rule - identity belongs to the address book, and the ledger's row
+carries only what a ledger cares about.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -147,4 +154,39 @@ async def subject_for_party(
         return found
     return await create_subject(
         db, name=name, party_id=party_id, owner_user_id=owner_user_id
+    )
+
+
+async def institution_for_party(
+    db: AsyncSession,
+    party_id: int,
+    *,
+    name: str,
+    website: str | None = None,
+    owner_user_id: int | None = None,
+) -> Any:
+    """The ledger's row for an organization in the address book.
+
+    Found by party rather than by name, the same call ``subject_for_party``
+    makes: one body, one identity, whichever door it was named through.
+    Naming the NYSLRS on an account otherwise types it a second time, and
+    the two drift - a website on one, a logo on the other, and nothing
+    saying they are the same body.
+    """
+    from app.services.finance.domains.ledger.accounts import get_or_create_institution
+    from app.services.finance.models import FinanceInstitution
+
+    found = (
+        await db.exec(
+            select(FinanceInstitution).where(FinanceInstitution.party_id == party_id)
+        )
+    ).first()
+    if found is not None:
+        return found
+    return await get_or_create_institution(
+        db,
+        name=name,
+        owner_user_id=owner_user_id,
+        party_id=party_id,
+        **({"url": website} if website else {}),
     )

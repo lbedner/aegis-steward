@@ -17,6 +17,23 @@ from tests.web.dom import none, one, select, text
 
 
 @pytest.fixture
+def organization(async_db_session: AsyncSession) -> object:
+    """An organization, written into the session the finance pages read
+    through - see ``person`` for why it is not made over HTTP."""
+
+    async def make(name: str, website: str = "") -> str:
+        party = await PartyService(async_db_session).create(
+            name=name,
+            kind="organization",
+            contact={"website": f"https://{website}"} if website else {},
+        )
+        await async_db_session.flush()
+        return str(party.id)
+
+    return make
+
+
+@pytest.fixture
 def person(async_db_session: AsyncSession) -> object:
     """A party, written into the session the pages read through.
 
@@ -189,3 +206,97 @@ class TestSomebodyElsesMoney:
 
         assert "Whose Our Checking Seven" not in text(one(theirs, "#portfolio"))
         assert "Whose Their Pension Seven" in text(one(theirs, "#portfolio"))
+
+
+class TestWhatAnAssetIsWorth:
+    def test_any_asset_can_say_what_it_is_worth(self, client: TestClient) -> None:
+        """The page draws a value history for any asset and only a
+        property was offered the door to record one - so a pension's
+        reserve, an annuity or a vehicle had a chart nothing could fill."""
+        client.post(
+            "/accounts/new",
+            data={
+                "name": "Worth Their Pension",
+                "account_type": "other_asset",
+                "opening_balance": "",
+            },
+        )
+        listing = client.get("/accounts").text
+        base = [
+            el.get("href")
+            for el in select(listing, "#portfolio a")
+            if "Worth Their Pension" in text(el)
+        ][0].removesuffix("/overview")
+
+        page = client.get(f"{base}/overview").text
+        offered = [el.get("hx-get") for el in select(page, "[role=menu] button")]
+
+        assert f"{base}/valuations" in offered
+        assert client.get(f"{base}/valuations").status_code == 200
+
+    def test_a_debt_is_not_asked_what_it_is_worth(self, client: TestClient) -> None:
+        """A debt records what is OWED; what it is worth is a question
+        for an asset."""
+        client.post(
+            "/accounts/new",
+            data={
+                "name": "Worth Their Card",
+                "account_type": "credit_card",
+                "opening_balance": "100.00",
+            },
+        )
+        listing = client.get("/accounts").text
+        base = [
+            el.get("href")
+            for el in select(listing, "#portfolio a")
+            if "Worth Their Card" in text(el)
+        ][0].removesuffix("/overview")
+
+        page = client.get(f"{base}/overview").text
+        offered = [el.get("hx-get") for el in select(page, "[role=menu] button")]
+
+        assert f"{base}/valuations" not in offered
+
+
+class TestHeldWith:
+    @pytest.mark.asyncio
+    async def test_an_organization_is_offered_rather_than_typed_again(
+        self, client: TestClient, organization: Any
+    ) -> None:
+        """A pension fund is already a party. Typing it here would make a
+        second row of one body, with a website on one and a logo on the
+        other."""
+        await organization("Held Pension Fund", "heldpension.example.com")
+        client.post(
+            "/accounts/new",
+            data={
+                "name": "Held Their Pension",
+                "account_type": "other_asset",
+                "opening_balance": "",
+            },
+        )
+        listing = client.get("/accounts").text
+        base = [
+            el.get("href")
+            for el in select(listing, "#portfolio a")
+            if "Held Their Pension" in text(el)
+        ][0].removesuffix("/overview")
+
+        chooser = client.get(f"{base}/institution").text
+        offered = {
+            el.get("value"): text(el)
+            for el in select(chooser, "button[name=institution_id]")
+        }
+        party_option = next(
+            value for value, label in offered.items() if label == "Held Pension Fund"
+        )
+        assert party_option.startswith("party:")
+
+        client.post(f"{base}/institution", data={"institution_id": party_option})
+
+        page = client.get(f"{base}/overview").text
+        held = one(page, "[data-held-with]")
+        assert text(held) == "Held Pension Fund"
+        # The party's website came with it: the ledger row is made from
+        # the address book rather than beside it.
+        assert held.get("href") == "https://heldpension.example.com"

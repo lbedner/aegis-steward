@@ -64,7 +64,7 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/routes/chat.py": 936,
     "components/frontend/dashboard/modals/finance_modal/transactions_panel/panel.py": 899,
     "components/frontend/dashboard/modals/finance_modal/uncategorized_panel.py": 850,
-    "components/web_frontend/routes/finance/account_manage.py": 839,
+    "components/web_frontend/routes/finance/account_manage.py": 721,
     "components/frontend/dashboard/modals/comms_modal.py": 832,
     "components/frontend/controls/form_fields.py": 810,
     "cli/load_test.py": 805,

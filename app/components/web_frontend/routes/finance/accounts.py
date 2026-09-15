@@ -241,6 +241,9 @@ async def _header_context(
         "selected_balance": balance(selected) if selected else None,
         "statement_line": statement_line(selected) if selected else None,
         "held_with": await held_with(service, selected, owner_user_id),
+        "whose_name": await subjects.whose_name(
+            service, selected.subject_id if selected else None
+        ),
         "actions": actions(selected) if selected else [],
         "updated": await _last_updated(service, selected),
     }

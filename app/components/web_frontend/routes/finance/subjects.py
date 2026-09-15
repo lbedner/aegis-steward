@@ -111,3 +111,19 @@ async def chips(service: FinanceService, current: str | None) -> dict[str, Any]:
         # Only under "ours": on their own page the whole list is theirs.
         "also_held": held if chosen == OURS else [],
     }
+
+
+async def whose_name(service: FinanceService, subject_id: int | None) -> str | None:
+    """Whose money this account holds, by name, or None for ours.
+
+    On the portfolio the chip says it; inside one account there is
+    nothing else on the page that does, and an account read as ours
+    when it is a parent's is the mistake this whole flag exists to
+    prevent.
+    """
+    if not subject_id:
+        return None
+    for subject in await service.list_subjects():
+        if subject.id == subject_id:
+            return subject.name
+    return None
