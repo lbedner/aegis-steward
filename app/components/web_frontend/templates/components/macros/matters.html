@@ -103,9 +103,13 @@
       {%- if fact.source_note %}{% set _ = meta.append(fact.source_note) %}{% endif -%}
       {{ meta|join(" · ") }}
     </p>
-    {% if fact.source_url %}
-    <a href="{{ fact.source_url }}" target="_blank" rel="noopener noreferrer"
-       class="mt-1 inline-block text-xs text-aegis-teal hover:underline transition-colors" data-site>The site</a>
+    {#- The place by name where there is one, because "the site" tells
+        a reader nothing they did not already suspect. -#}
+    {% if fact.source_site %}
+    <a href="{{ fact.source_site }}" target="_blank" rel="noopener noreferrer"
+       class="mt-1 inline-block text-xs text-aegis-teal hover:underline transition-colors" data-site>{{ fact.source_place or "The site" }}</a>
+    {% elif fact.source_place %}
+    <p class="mt-1 text-xs text-aegis-muted" data-place>{{ fact.source_place }}</p>
     {% endif %}
     {% if fact.document_id %}
     <button type="button" {{ hx_dialog(path ~ "/" ~ fact.matter_id ~ "/documents/" ~ fact.document_id) }}

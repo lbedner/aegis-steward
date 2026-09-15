@@ -584,3 +584,100 @@ def test_a_link_that_is_not_a_link_is_refused(client: TestClient) -> None:
 
     assert answer.status_code == 422
     assert "http or https" in answer.text
+
+
+class TestAPlace:
+    """A portal typed as free text is spelled three ways by the third
+    sign-in. As a row it is the organization the matter already names."""
+
+    def _org(self, client: TestClient, name: str, website: str) -> str:
+        client.post(
+            "/settings/people/new",
+            data={
+                "name": name,
+                "kind": "organization",
+                "sort_name": "",
+                "website": website,
+                "note": "",
+            },
+        )
+        people = client.get(f"/settings/people?q={name}").text
+        return str(
+            select(people, "#people tbody [data-open]")[-1]
+            .get("hx-get")
+            .rsplit("/", 1)[-1]
+        )
+
+    def test_a_fact_names_the_place_it_was_read_off(
+        self, client: TestClient
+    ) -> None:
+        page = _matter(client, "MA-PLACE-1")
+        place = self._org(client, "Place Pension Fund", "placepension.example.com")
+        _party(client, "Place Subject One", "person")
+        people = client.get("/settings/people?q=Place Subject One").text
+        subject = (
+            select(people, "#people tbody [data-open]")[-1]
+            .get("hx-get")
+            .rsplit("/", 1)[-1]
+        )
+
+        # The place is offered, not typed.
+        chooser = client.get(page + "/facts/new").text
+        offered = [
+            el.get("value")
+            for el in select(chooser, "select[name=source_party_id] option")
+        ]
+        assert place in offered
+
+        client.post(
+            page + "/facts/new",
+            data={
+                "subject_party_id": subject,
+                "attribute": "gross_income",
+                "label": "Place pension",
+                "amount": "50.00",
+                "period": "day",
+                "source_party_id": place,
+            },
+        )
+
+        site = one(client.get(page).text, "#matter-facts [data-site]")
+        assert text(site) == "Place Pension Fund"
+        # No page was named, so the place's own website is the way back.
+        assert site.get("href") == "https://placepension.example.com"
+
+    def test_a_sign_in_points_at_the_same_place(self, client: TestClient) -> None:
+        place = self._org(client, "Place Portal Co", "placeportal.example.com")
+        _party(client, "Place Subject Two", "person")
+        people = client.get("/settings/people?q=Place Subject Two").text
+        party_id = (
+            select(people, "#people tbody [data-open]")[-1]
+            .get("hx-get")
+            .rsplit("/", 1)[-1]
+        )
+
+        added = client.post(
+            f"/settings/people/{party_id}/signins/new",
+            data={"label": "Portal", "site_party_id": place, "username": "jb"},
+        )
+
+        row = one(added.text, "#sign-ins [data-signin]")
+        assert text(one(row, "[data-site]")) == "Place Portal Co"
+        assert one(row, "[data-site]").get("href") == "https://placeportal.example.com"
+
+    def test_a_website_that_is_not_a_link_is_refused(
+        self, client: TestClient
+    ) -> None:
+        answer = client.post(
+            "/settings/people/new",
+            data={
+                "name": "Bad Place Co",
+                "kind": "organization",
+                "sort_name": "",
+                "website": "javascript:alert(1)",
+                "note": "",
+            },
+        )
+
+        assert answer.status_code == 422
+        assert "http or https" in answer.text

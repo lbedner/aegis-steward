@@ -22,6 +22,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
+from app.services.matters.facts import place_book
 from app.services.matters.service import PartyService
 from app.services.matters.signins import SignInService, drawn
 
@@ -32,7 +33,10 @@ SIGN_IN = "/people/signins/{sign_in_id:int}"
 
 
 async def signins_for(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
-    return [drawn(one) for one in await SignInService(db).for_party(party_id)]
+    book = await place_book(db)
+    return [
+        drawn(one, book) for one in await SignInService(db).for_party(party_id)
+    ]
 
 
 async def _block(
@@ -44,12 +48,20 @@ async def _block(
     errors: list[str] | None = None,
     status_code: int = 200,
 ) -> Response:
+    book = await place_book(db)
     return dialog(
         request,
         "partials/settings/signins.html",
         status_code,
         party_id=party_id,
         signins=await signins_for(db, party_id),
+        # Somewhere with a website is somewhere you can be sent; the
+        # rest of the address book is not a place to log in to.
+        places=[
+            {"id": one, "name": place["name"]}
+            for one, place in book.items()
+            if place["website"]
+        ],
         revealed=revealed or {},
         form=form,
         errors=errors or [],
@@ -90,6 +102,7 @@ async def add_signin(
     request: Request,
     party_id: int,
     label: Annotated[str, Form()] = "",
+    site_party_id: Annotated[str, Form()] = "",
     url: Annotated[str, Form()] = "",
     username: Annotated[str, Form()] = "",
     secret: Annotated[str, Form()] = "",
@@ -103,6 +116,7 @@ async def add_signin(
             await SignInService(db).add(
                 party_id=party_id,
                 label=label,
+                site_party_id=int(site_party_id) if site_party_id else None,
                 url=url,
                 username=username,
                 secret=secret,
@@ -114,7 +128,13 @@ async def add_signin(
                 request,
                 db,
                 party_id,
-                form={"id": None, "label": label, "url": url, "username": username},
+                form={
+                    "id": None,
+                    "label": label,
+                    "site_party_id": site_party_id,
+                    "url": url,
+                    "username": username,
+                },
                 errors=[str(exc)],
                 status_code=422,
             )
@@ -127,6 +147,7 @@ async def save_signin(
     request: Request,
     sign_in_id: int,
     label: Annotated[str, Form()] = "",
+    site_party_id: Annotated[str, Form()] = "",
     url: Annotated[str, Form()] = "",
     username: Annotated[str, Form()] = "",
     secret: Annotated[str, Form()] = "",
@@ -146,7 +167,13 @@ async def save_signin(
         try:
             await service.change(
                 sign_in_id,
-                {"label": label, "url": url, "username": username, "note": note},
+                {
+                    "label": label,
+                    "site_party_id": site_party_id,
+                    "url": url,
+                    "username": username,
+                    "note": note,
+                },
                 secret=secret or None,
             )
         except ValueError as exc:

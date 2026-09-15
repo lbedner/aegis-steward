@@ -7,7 +7,7 @@
    was asked for, and the next swap takes it away again - a page that
    renders every password to draw a list has put them in a cache, a log
    and whatever screenshot gets taken of it. #}
-{% from "components/macros/form.html" import field, text_input, primary_button, action, control %}
+{% from "components/macros/form.html" import field, text_input, select, primary_button, action, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 <div id="sign-ins" class="border-t border-aegis-border/60 pt-4 space-y-3">
   <h3 class="text-sm font-semibold text-aegis-text">Sign-ins</h3>
@@ -20,8 +20,9 @@
         <p class="text-aegis-text" data-label>{{ signin.label }}</p>
         <p class="micro-label text-aegis-muted mt-0.5">
           {%- if signin.username %}<span data-username>{{ signin.username }}</span>{% endif -%}
-          {%- if signin.username and signin.url %} · {% endif -%}
-          {%- if signin.url %}<a href="{{ signin.url }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-site>the site</a>{% endif -%}
+          {%- if signin.username and (signin.url or signin.site) %} · {% endif -%}
+          {%- if signin.url %}<a href="{{ signin.url }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-site>{{ signin.site or "the site" }}</a>
+          {%- elif signin.site %}<span data-place>{{ signin.site }}</span>{% endif -%}
         </p>
         {% if revealed.get(signin.id) %}
         <p class="mt-1 px-2 py-1 rounded bg-aegis-bg border border-aegis-border font-mono text-xs text-aegis-text select-all" data-secret>{{ revealed[signin.id] }}</p>
@@ -48,7 +49,10 @@
   <div class="rounded-lg border border-aegis-border p-3 space-y-3" data-signin-form>
     {% set post = "/settings/people/signins/" ~ form.id if form.id else "/settings/people/" ~ party_id ~ "/signins/new" %}
     {% call field("What it gets you into") %}{{ text_input("label", form.label, placeholder="IBEW pension portal", required=True, autofocus=True) }}{% endcall %}
-    {% call field("The site") %}{{ text_input("url", form.url, placeholder="pensionportal.example.com") }}{% endcall %}
+    {#- Where it gets you in, picked from the address book: a portal
+        typed as free text is spelled three ways by the third sign-in. -#}
+    {% call field("Where") %}{{ select("site_party_id", places, form.site_party_id, blank="Somewhere else", block=True) }}{% endcall %}
+    {% call field("The page itself") %}{{ text_input("url", form.url, placeholder="pensionportal.example.com/login") }}{% endcall %}
     {% call field("Username") %}{{ text_input("username", form.username) }}{% endcall %}
     {% call field("Password") %}
     <input type="password" name="secret" autocomplete="new-password" placeholder="{{ "Leave blank to keep the one stored" if form.id else "" }}" class="{{ control("input") }} w-full">

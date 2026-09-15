@@ -20,7 +20,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done, where_from
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
-from app.services.matters.facts import FactService, drawn
+from app.services.matters.facts import FactService, drawn, place_book
 from app.services.matters.matters import MatterService
 from app.services.matters.models import (
     FACT_ATTRIBUTES,
@@ -66,10 +66,9 @@ async def _subjects(db: AsyncSession, matter_id: int) -> list[dict[str, Any]]:
 
 async def facts_for(db: AsyncSession, matter_id: int) -> list[dict[str, Any]]:
     """The facts gathered for this case, as the page draws them."""
-    names = {p.id: p.name for p in await PartyService(db).find()}
+    places = await place_book(db)
     return [
-        drawn(fact, names)
-        for fact in await FactService(db).find(matter_id=matter_id)
+        drawn(fact, places) for fact in await FactService(db).find(matter_id=matter_id)
     ]
 
 
@@ -85,6 +84,7 @@ async def _form(
     from app.services.matters.models import matter_tag
 
     filed, _ = await DocumentService(db).list_documents(tag=matter_tag(matter_id))
+    book = await place_book(db)
     return dialog(
         request,
         "partials/matters/fact.html",
@@ -96,6 +96,11 @@ async def _form(
         periods=FACT_PERIODS,
         provenances=FACT_PROVENANCE,
         documents=[{"id": d.id, "name": d.title} for d in filed],
+        places=[
+            {"id": party_id, "name": place["name"]}
+            for party_id, place in book.items()
+            if place["website"]
+        ],
         errors=errors or [],
         typed=typed,
     )
@@ -122,6 +127,7 @@ async def record_fact(
     as_of: Annotated[str, Form()] = "",
     provenance: Annotated[str, Form()] = "stated",
     document_id: Annotated[str, Form()] = "",
+    source_party_id: Annotated[str, Form()] = "",
     page: Annotated[str, Form()] = "",
     source_note: Annotated[str, Form()] = "",
     source_url: Annotated[str, Form()] = "",
@@ -139,6 +145,7 @@ async def record_fact(
         "as_of": as_of,
         "provenance": provenance,
         "document_id": document_id,
+        "source_party_id": source_party_id,
         "page": page,
         "source_note": source_note,
         "source_url": source_url,
@@ -160,6 +167,7 @@ async def record_fact(
                 as_of=date_type.fromisoformat(as_of) if as_of else None,
                 provenance=provenance,
                 document_id=int(document_id) if document_id else None,
+                source_party_id=int(source_party_id) if source_party_id else None,
                 page=int(page) if page else None,
                 source_note=source_note,
                 source_url=source_url,

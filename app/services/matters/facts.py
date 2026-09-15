@@ -62,6 +62,7 @@ class FactService:
         provenance: str = "stated",
         document_id: int | None = None,
         page: int | None = None,
+        source_party_id: int | None = None,
         source_note: str | None = None,
         source_url: str | None = None,
         verified: bool = False,
@@ -99,6 +100,7 @@ class FactService:
             provenance=provenance,
             document_id=document_id,
             page=page,
+            source_party_id=source_party_id,
             source_note=(source_note or "").strip() or None,
             source_url=web_address(source_url),
             verified=verified,
@@ -163,6 +165,7 @@ class FactService:
             "provenance": old.provenance,
             "document_id": old.document_id,
             "page": old.page,
+            "source_party_id": old.source_party_id,
             "source_note": old.source_note,
             "source_url": old.source_url,
             "verified": old.verified,
@@ -240,13 +243,33 @@ def monthly_cents(value_cents: int | None, period: str) -> int | None:
     )
 
 
-def drawn(fact: Fact, names: dict[int, str] | None = None) -> dict[str, Any]:
+async def place_book(db: AsyncSession) -> dict[int, dict[str, str]]:
+    """The address book as places: id -> name and website.
+
+    One lookup for every surface that draws a source or a sign-in, so
+    "the pension portal" is the same row and the same address wherever
+    it is named.
+    """
+    from app.services.matters.service import PartyService
+
+    return {
+        party.id: {
+            "name": party.name,
+            "website": str((party.contact or {}).get("website") or ""),
+        }
+        for party in await PartyService(db).find()
+        if party.id is not None
+    }
+
+
+def drawn(fact: Fact, places: dict[int, dict[str, str]] | None = None) -> dict[str, Any]:
     """One fact as a page or a tool says it."""
+    place = (places or {}).get(fact.source_party_id or -1, {})
     return {
         "id": fact.id,
         "subject_party_id": fact.subject_party_id,
         "matter_id": fact.matter_id,
-        "subject": (names or {}).get(fact.subject_party_id, ""),
+        "subject": (places or {}).get(fact.subject_party_id, {}).get("name", ""),
         "attribute": fact.attribute,
         "attribute_label": LABELS.get(fact.attribute, fact.attribute),
         "label": fact.label or "",
@@ -258,6 +281,11 @@ def drawn(fact: Fact, names: dict[int, str] | None = None) -> dict[str, Any]:
         "provenance": fact.provenance,
         "document_id": fact.document_id,
         "page": fact.page,
+        "source_party_id": fact.source_party_id,
+        # The name of the place, and the best address for it: the exact
+        # page if one was given, otherwise the place's own website.
+        "source_place": place.get("name", ""),
+        "source_site": fact.source_url or place.get("website", ""),
         "source_note": fact.source_note or "",
         "source_url": fact.source_url or "",
         "verified": fact.verified,

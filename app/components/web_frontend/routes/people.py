@@ -27,6 +27,7 @@ from app.components.web_frontend.rendering import (
 )
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
+from app.services.matters.facts import web_address
 from app.services.matters.models import PARTY_KINDS
 from app.services.matters.service import PartyService
 
@@ -48,6 +49,10 @@ CONTACT_FIELDS = (
     ("address", "Address"),
     ("phone", "Phone"),
     ("email", "Email"),
+    # The website is what makes an organization a PLACE: a pension fund
+    # is somewhere you log in, and a fact read off its portal wants to
+    # point at the org rather than repeat the address every time.
+    ("website", "Website"),
 )
 
 
@@ -153,6 +158,22 @@ async def save_party(
         for key, _label in CONTACT_FIELDS
         if str(form.get(key) or "").strip()
     }
+    if "website" in contact:
+        # Checked here, because it is rendered as a link: an href is a
+        # place the reader clicks, and one parser owns that decision.
+        try:
+            contact["website"] = web_address(contact["website"]) or ""
+        except ValueError as exc:
+            return _form(
+                request,
+                errors=[str(exc)],
+                status_code=422,
+                party=None,
+                name=name,
+                kind=kind,
+                sort_name=sort_name,
+                note=note,
+            )
     async with get_async_session() as db:
         parties = PartyService(db)
         try:

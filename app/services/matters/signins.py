@@ -47,6 +47,7 @@ class SignInService:
         *,
         party_id: int,
         label: str,
+        site_party_id: int | None = None,
         url: str | None = None,
         username: str | None = None,
         secret: str | None = None,
@@ -59,6 +60,7 @@ class SignInService:
         sign_in = SignIn(
             owner_user_id=owner_user_id,
             party_id=party_id,
+            site_party_id=site_party_id,
             label=named,
             url=web_address(url),
             username=(username or "").strip() or None,
@@ -109,6 +111,9 @@ class SignInService:
             if not named:
                 raise ValueError("Give the sign-in a name.")
             sign_in.label = named
+        if "site_party_id" in changes:
+            site = changes["site_party_id"]
+            sign_in.site_party_id = int(site) if site else None
         if "url" in changes:
             sign_in.url = web_address(str(changes["url"] or ""))
         if "username" in changes:
@@ -146,13 +151,20 @@ class SignInService:
         return True
 
 
-def drawn(sign_in: SignIn) -> dict[str, Any]:
+def drawn(
+    sign_in: SignIn, places: dict[int, dict[str, str]] | None = None
+) -> dict[str, Any]:
     """One sign-in as a page lists it - which is never the password."""
+    place = (places or {}).get(sign_in.site_party_id or -1, {})
     return {
         "id": sign_in.id,
         "party_id": sign_in.party_id,
+        "site_party_id": sign_in.site_party_id,
+        "site": place.get("name", ""),
+        # The exact page if one was given, otherwise where the place
+        # lives. One row, one way in.
+        "url": sign_in.url or place.get("website", ""),
         "label": sign_in.label,
-        "url": sign_in.url or "",
         "username": sign_in.username or "",
         "has_secret": bool(sign_in.secret_encrypted),
         "note": sign_in.note or "",

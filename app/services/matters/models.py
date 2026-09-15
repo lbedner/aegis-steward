@@ -364,6 +364,7 @@ class Fact(SQLModel, table=True):
         Index("ix_fact_matter", "matter_id"),
         Index("ix_fact_attribute", "attribute"),
         Index("ix_fact_document", "document_id"),
+        Index("ix_fact_source_party", "source_party_id"),
         Index("ix_fact_deleted", "deleted_at"),
     )
 
@@ -387,6 +388,10 @@ class Fact(SQLModel, table=True):
 
     provenance: str = Field(default="stated", max_length=16)
     document_id: int | None = Field(default=None)
+    # The place it was read off: an organization in the address book,
+    # so "the pension portal" is a row somebody can open rather than a
+    # phrase two facts spell differently.
+    source_party_id: int | None = Field(default=None)
     page: int | None = Field(default=None)
     # Where a stated figure came from: a portal, a phone call, a person.
     source_note: str | None = Field(default=None)
@@ -421,12 +426,16 @@ class SignIn(SQLModel, table=True):
     __tablename__ = "sign_in"
     __table_args__ = (
         Index("ix_sign_in_party", "party_id"),
+        Index("ix_sign_in_site", "site_party_id"),
         Index("ix_sign_in_deleted", "deleted_at"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
     owner_user_id: int | None = Field(default=None)
     party_id: int = Field()
+    # Whose account it is, and WHERE. Two different parties: James's
+    # login at the IBEW pension fund is one row naming both.
+    site_party_id: int | None = Field(default=None)
     label: str = Field(max_length=120)
     url: str | None = Field(default=None, max_length=500)
     username: str | None = Field(default=None, max_length=255)
