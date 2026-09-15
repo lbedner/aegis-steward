@@ -27,12 +27,21 @@ from app.services.finance.constants import (
 )
 
 
-def manage_menu_labels(account: dict[str, Any]) -> list[str]:
-    """The Manage menu's items for one account, in order (pure).
+def manage_menu_keys(account: dict[str, Any]) -> tuple[str, ...]:
+    """The Manage menu's actions for one account, in order (pure).
 
-    The rule lives with the finance service (``account_actions``) and is
-    shared with the web frontend; this maps its keys to Flet's labels.
+    The rule lives with the finance service (``account_actions``); this
+    is the account dict's way of asking it.
     """
+    return account_actions(
+        account_type=account.get("account_type") or "",
+        classification=account.get("classification") or "",
+        is_manual=bool(account.get("is_manual", False)),
+    )
+
+
+def manage_menu_labels(account: dict[str, Any]) -> list[str]:
+    """The same menu as words, for the tests that read wording."""
     return [
         ACCOUNT_ACTION_LABELS[key]
         for key in account_actions(
@@ -62,20 +71,24 @@ def _account_detail_header(
     source = "Manual" if is_manual else "Connected"
     meta = f"{classification}  ·  {source}  ·  {(account.get('currency') or 'usd').upper()}"
 
+    # Keyed by the ACTION, never the label: the wording belongs to
+    # ``ACCOUNT_ACTION_LABELS`` and changing it there once threw a
+    # KeyError here, where the label was doing duty as an identifier.
     handlers = {
-        "Rename": on_rename,
-        "Reconcile": on_reconcile,
-        "Property details": on_property,
-        "Valuation history": on_valuations,
-        "Secured by": on_secured,
-        "Remove": on_remove,
+        "rename": on_rename,
+        "reconcile": on_reconcile,
+        "property": on_property,
+        "valuations": on_valuations,
+        "secured_by": on_secured,
+        "remove": on_remove,
     }
     menu_items = [
         ft.PopupMenuItem(
-            text=label,
-            on_click=lambda _e, handler=handlers[label]: handler(account),
+            text=ACCOUNT_ACTION_LABELS[key],
+            on_click=lambda _e, handler=handlers[key]: handler(account),
         )
-        for label in manage_menu_labels(account)
+        for key in manage_menu_keys(account)
+        if key in handlers
     ]
     manage = ft.PopupMenuButton(
         icon=ft.Icons.MORE_VERT,

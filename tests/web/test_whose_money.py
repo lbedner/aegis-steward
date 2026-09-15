@@ -450,3 +450,27 @@ class TestTheirIncome:
         by_account = client.get(f"/projected?account_ids={theirs.id}").text
         assert "Projected Their Pension" in text(one(by_chip, "#app-content"))
         assert "Projected Their Pension" in text(one(by_account, "#app-content"))
+
+
+def test_the_menu_says_both_things_the_dialog_does(client: TestClient) -> None:
+    """"Rename" named one of the two things behind it, so the number the
+    institution prints was findable only by opening a menu item that did
+    not mention it."""
+    client.post(
+        "/accounts/new",
+        data={
+            "name": "Label Our Savings",
+            "account_type": "savings",
+            "opening_balance": "1.00",
+        },
+    )
+    listing = client.get("/accounts").text
+    base = [
+        el.get("href")
+        for el in select(listing, "#portfolio a")
+        if "Label Our Savings" in text(el)
+    ][0].removesuffix("/overview")
+
+    page = client.get(f"{base}/overview").text
+
+    assert "Name and number" in [text(li) for li in select(page, "#manage-menu li")]

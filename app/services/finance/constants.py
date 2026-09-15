@@ -296,7 +296,10 @@ class AccountThing(NamedTuple):
 # hunt for it to edit an APR; "Reconcile" is the right accounting word
 # and stays the DIALOG's title, where there is room to mean it.
 ACCOUNT_THINGS: dict[str, AccountThing] = {
-    "rename": AccountThing("Rename"),
+    # Not "Rename": the dialog behind it also holds the number the
+    # institution prints, and a menu that says one of the two things it
+    # does is a menu somebody closes before finding the other.
+    "rename": AccountThing("Name and number"),
     "institution": AccountThing("Set the bank", "Institution"),
     "reconcile": AccountThing("Correct the balance", "Balance"),
     "property": AccountThing("Edit property details", "Property details"),
