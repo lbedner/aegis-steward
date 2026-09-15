@@ -3,13 +3,14 @@
    The sentence is the county's, not ours - which is exactly why a
    mistyped one has to be fixable. Recording it wrong and answering the
    wrong question is worse than the typo. #}
-{% from "components/macros/form.html" import field, textarea, text_input, date_input, primary_button %}
+{% from "components/macros/form.html" import field, textarea, text_input, select, date_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {{ dialog_title("What they asked for", "As the letter words it. If the letter is right and the ask is not yours to answer, mark the item not applicable instead of rewriting it.") }}
 {{ error_banner(errors) }}
 <form {{ hx_dialog_post(post) }} class="space-y-4">
   {% call field("The sentence") %}{{ textarea("asked", item.asked, rows=3) }}{% endcall %}
+  {% call field("What kind of work") %}{{ select("kind", kinds|as_options, item.kind, blank=None, block=True) }}{% endcall %}
   {% call field("What would satisfy it") %}{{ text_input("ask", item.ask, placeholder="document:poa, fact:gross_income") }}{% endcall %}
   {% call field("As of") %}{{ date_input("as_of", item.as_of, block=True) }}{% endcall %}
   {{ primary_button("Save", type="submit") }}

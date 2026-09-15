@@ -43,34 +43,84 @@
       {{ badge(asked.status, asked.tone) }}
     </p>
   </header>
-  <ol class="border-t border-aegis-border/60">
-    {% for item in asked.asks %}
-    <li data-item="{{ item.id }}" class="flex items-start justify-between gap-3 py-2 border-b border-aegis-border/60 text-sm">
-      <div class="min-w-0">
-        <p data-asked class="{{ "text-aegis-muted line-through" if item.settled else "text-aegis-text" }}">{{ item.asked }}</p>
-        <p class="micro-label text-aegis-muted mt-0.5">
-          {%- set meta = [] -%}
-          {%- if item.status != "needed" %}{% set _ = meta.append(item.status|replace("_", " ")|title) %}{% endif -%}
-          {%- if item.as_of %}{% set _ = meta.append("as of " ~ item.as_of|short_date) %}{% endif -%}
-          {%- if item.resolution and not item.document %}{% set _ = meta.append(item.resolution) %}{% endif -%}
-          {{ meta|join(" · ") }}
-        </p>
-        {#- The paper itself, one click from the line that asked for it.
-            A title that cannot be opened is a claim; this is the
-            document. -#}
-        {% if item.document %}
-        <button type="button" {{ hx_dialog(path ~ "/" ~ asked.matter_id ~ "/documents/" ~ item.document.id) }}
-                class="mt-1 inline-flex items-center gap-1.5 text-xs text-aegis-teal hover:underline transition-colors" data-document="{{ item.document.id }}">
-          {{ file_mark(file_badge(item.document.media_type, item.document.title)) }}<span class="truncate">{{ item.document.title }}</span>
-        </button>
-        {% endif %}
-      </div>
-      <div class="shrink-0">{{ _mark(item, path ~ "/requests/items/" ~ item.id) }}</div>
-    </li>
-    {% endfor %}
-  </ol>
+
+  {#- The letter on the left and the asks on the right: the page you are
+      reading against, beside the steps it produced. One column until
+      there is a letter to put in the other. -#}
+  <div class="grid gap-4 {{ "lg:grid-cols-5" if asked.document_id else "" }}">
+    {% if asked.document_id %}
+    <div class="lg:col-span-2 min-w-0">
+      <object data="/api/v1/documents/{{ asked.document_id }}/content" type="application/pdf"
+              class="w-full aspect-[17/22] rounded border border-aegis-border" data-letter>
+        <p class="p-3 text-xs text-aegis-muted">This browser will not display the letter.
+          <a href="/api/v1/documents/{{ asked.document_id }}/content" class="text-aegis-teal hover:underline">Open it</a>.</p>
+      </object>
+      <p class="mt-1 micro-label text-aegis-muted truncate">{{ asked.letter }}</p>
+    </div>
+    {% endif %}
+
+    <ol class="{{ "lg:col-span-3" if asked.document_id else "" }} border-t border-aegis-border/60 min-w-0">
+      {% for step in asked.steps %}
+      {{ _step(step, path, asked.matter_id) }}
+      {% endfor %}
+    </ol>
+  </div>
+
   {% if asked.note %}<p class="text-xs text-aegis-muted">{{ asked.note }}</p>{% endif %}
+  <div class="flex items-center gap-3">
+    {{ action("Add an ask", hx_dialog(path ~ "/requests/" ~ asked.id ~ "/items/new")) }}
+    {{ action("The letter" if not asked.document_id else "Change the letter", hx_dialog(path ~ "/requests/" ~ asked.id ~ "/letter")) }}
+  </div>
 </article>
+{% endmacro %}
+
+
+{# One step: what kind of work it is, what would close it, and - open -
+   what is attached and what can be done about it. Alternatives arrive
+   as ONE step carrying its options, because the county wants any one of
+   them and three mandatory-looking rows describe a harder afternoon
+   than the one you have. #}
+{% macro _step(step, path, matter_id) %}
+<li data-step="{{ step.id }}" class="border-b border-aegis-border/60 text-sm">
+  <details class="group/step">
+    <summary class="list-none cursor-pointer flex items-start justify-between gap-3 py-2">
+      <span class="min-w-0">
+        <span class="micro-label text-aegis-muted">{{ step.kind_label }}{% if step.options|length > 1 %} · any one of {{ step.options|length }}{% endif %}</span>
+        <span class="block {{ "text-aegis-muted line-through" if step.settled else "text-aegis-text" }}" data-asked>{{ step.asked }}</span>
+      </span>
+      <span class="shrink-0 flex items-center gap-2">
+        {% if step.as_of %}<span class="micro-label text-aegis-muted">as of {{ step.as_of|short_date }}</span>{% endif %}
+        {{ dot("ok" if step.settled else "muted", "Settled" if step.settled else "Still needed") }}
+      </span>
+    </summary>
+
+    <div class="pb-3 pl-1 space-y-2">
+      {% for option in step.options %}
+      <div data-item="{{ option.id }}" class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          {% if step.options|length > 1 %}
+          <p class="{{ "text-aegis-muted line-through" if option.settled else "text-aegis-text" }}" data-asked>{{ option.asked }}</p>
+          {% endif %}
+          <p class="micro-label text-aegis-muted">
+            {%- set meta = [] -%}
+            {%- if option.status != "needed" %}{% set _ = meta.append(option.status|replace("_", " ")|title) %}{% endif -%}
+            {%- if option.ask %}{% set _ = meta.append(option.ask) %}{% endif -%}
+            {%- if option.resolution and not option.document %}{% set _ = meta.append(option.resolution) %}{% endif -%}
+            {{ meta|join(" · ") }}
+          </p>
+          {% if option.document %}
+          <button type="button" {{ hx_dialog(path ~ "/" ~ matter_id ~ "/documents/" ~ option.document.id) }}
+                  class="mt-1 inline-flex items-center gap-1.5 text-xs text-aegis-teal hover:underline transition-colors" data-document="{{ option.document.id }}">
+            {{ file_mark(file_badge(option.document.media_type, option.document.title)) }}<span class="truncate">{{ option.document.title }}</span>
+          </button>
+          {% endif %}
+        </div>
+        <div class="shrink-0">{{ _mark(option, path ~ "/requests/items/" ~ option.id) }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+</li>
 {% endmacro %}
 
 

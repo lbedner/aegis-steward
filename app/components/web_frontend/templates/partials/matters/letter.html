@@ -1,0 +1,15 @@
+{# Dialog body: the letter a request came from.
+
+   It should have been the first thing filed and usually is not -
+   somebody types the asks while reading the page and the scan lands
+   afterwards. Setting it later is the normal case. #}
+{% from "components/macros/form.html" import field, file_input, picker, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("The letter this came from", "Read beside the asks it produced. Pick one already on the case, or add it now.") }}
+{{ error_banner(errors) }}
+{{ picker("letter-picker", post, "document_id", documents, hint="Search the case's paper", current=current) }}
+<form {{ hx_dialog_post(post) }} hx-encoding="multipart/form-data" class="mt-4 pt-4 border-t border-aegis-border/60 space-y-3">
+  {% call field("Or add it") %}{{ file_input("file", accept=accepts, required=True) }}{% endcall %}
+  {{ primary_button("Add and cite", type="submit") }}
+</form>

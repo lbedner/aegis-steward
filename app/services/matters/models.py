@@ -229,6 +229,17 @@ class DocumentParty(SQLModel, table=True):
 # reading of the due date and the clock, and a stored flag is wrong from
 # the first midnight after somebody writes it.
 REQUEST_STATUSES = ("open", "satisfied", "waived")
+
+# What KIND of work an ask is. A letter asking for a power of attorney,
+# for a form to be filled in, and for a figure as of a date is asking
+# for three different afternoons, and a list that draws them the same
+# way makes the reader work out which is which every time.
+ITEM_KINDS = (
+    ("document", "Find a document"),
+    ("form", "Fill in a form"),
+    ("figure", "Record a figure"),
+    ("action", "Do something"),
+)
 ITEM_STATUSES = ("needed", "satisfied", "not_applicable", "waived")
 
 
@@ -299,6 +310,12 @@ class RequestItem(SQLModel, table=True):
     # date it was asked about.
     as_of: date | None = Field(default=None)
 
+    kind: str = Field(default="document", max_length=16)
+    # Items sharing a group are ALTERNATIVES: the county will take any
+    # one of the POA, the designation form or the attestation, and three
+    # rows that each read as mandatory describe a harder afternoon than
+    # the one you actually have.
+    option_group: str | None = Field(default=None, max_length=40)
     status: str = Field(default="needed", max_length=20)
     resolution: str | None = Field(default=None)
     # The paper that answers this item. A plain column, never an FK:

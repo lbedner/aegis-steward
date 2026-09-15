@@ -21,7 +21,7 @@ from app.components.web_frontend.rendering import dialog, dialog_done, where_fro
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.matters import MatterService
-from app.services.matters.models import matter_tag
+from app.services.matters.models import ITEM_KINDS, matter_tag
 from app.services.matters.requests import RequestService, asked_lines
 from app.services.matters.requests import drawn as drawn_request
 from app.services.matters.service import PartyService
@@ -144,6 +144,139 @@ async def record_request(
     return dialog_done(f"{SECTION.path}/{matter_id}", "Recorded")
 
 
+REQUEST = "/requests/{request_id:int}"
+
+
+@router.get(REQUEST + "/items/new", include_in_schema=False)
+async def new_item(request: Request, request_id: int) -> Response:
+    """One more ask, on a request that already exists."""
+    async with get_async_session() as db:
+        service = RequestService(db)
+        found = await service.get(request_id)
+        if found is None:
+            raise HTTPException(status_code=404)
+        return dialog(
+            request,
+            "partials/matters/item_new.html",
+            request_id=request_id,
+            post=f"{SECTION.path}/requests/{request_id}/items/new",
+            kinds=ITEM_KINDS,
+            siblings=[
+                {"id": one.id, "name": one.asked}
+                for one in await service.items(request_id)
+            ],
+            errors=[],
+            typed={},
+        )
+
+
+@router.post(REQUEST + "/items/new", include_in_schema=False)
+async def add_item(
+    request: Request,
+    request_id: int,
+    asked: Annotated[str, Form()] = "",
+    kind: Annotated[str, Form()] = "document",
+    ask: Annotated[str, Form()] = "",
+    as_of: Annotated[str, Form()] = "",
+    alternative_to: Annotated[str, Form()] = "",
+) -> Response:
+    async with get_async_session() as db:
+        service = RequestService(db)
+        found = await service.get(request_id)
+        if found is None:
+            raise HTTPException(status_code=404)
+        try:
+            await service.add_item(
+                request_id,
+                asked=asked,
+                kind=kind,
+                ask=ask,
+                as_of=date_type.fromisoformat(as_of) if as_of else None,
+                alternative_to=int(alternative_to) if alternative_to else None,
+            )
+        except ValueError as exc:
+            return dialog(
+                request,
+                "partials/matters/item_new.html",
+                422,
+                request_id=request_id,
+                post=f"{SECTION.path}/requests/{request_id}/items/new",
+                kinds=ITEM_KINDS,
+                siblings=[
+                    {"id": one.id, "name": one.asked}
+                    for one in await service.items(request_id)
+                ],
+                errors=[str(exc)],
+                typed={"asked": asked, "kind": kind, "ask": ask, "as_of": as_of},
+            )
+        await db.commit()
+    return dialog_done(
+        where_from(request, f"{SECTION.path}/{found.matter_id}"), "Added"
+    )
+
+
+@router.get(REQUEST + "/letter", include_in_schema=False)
+async def letter_form(request: Request, request_id: int) -> Response:
+    """Which piece of paper this request came from."""
+    from app.services.documents.service import DocumentService
+
+    async with get_async_session() as db:
+        found = await RequestService(db).get(request_id)
+        if found is None:
+            raise HTTPException(status_code=404)
+        filed, _ = await DocumentService(db).list_documents(
+            tag=matter_tag(found.matter_id)
+        )
+    return dialog(
+        request,
+        "partials/matters/letter.html",
+        post=f"{SECTION.path}/requests/{request_id}/letter",
+        accepts=ACCEPTS,
+        documents=[{"id": d.id, "name": d.title} for d in filed],
+        current=[found.document_id] if found.document_id else [],
+        errors=[],
+    )
+
+
+@router.post(REQUEST + "/letter", include_in_schema=False)
+async def set_letter(
+    request: Request,
+    request_id: int,
+    document_id: Annotated[str, Form()] = "",
+    file: Annotated[UploadFile | None, File()] = None,
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Cite the letter: pick one already filed, or add it now."""
+    from app.services.documents.service import DocumentService
+
+    async with get_async_session() as db:
+        service = RequestService(db)
+        found = await service.get(request_id)
+        if found is None:
+            raise HTTPException(status_code=404)
+        documents = DocumentService(db)
+        if file is not None and file.filename:
+            document = await documents.ingest(
+                await file.read(),
+                title=file.filename,
+                kind="letter",
+                media_type=file.content_type,
+                owner_user_id=owner_user_id,
+                source="upload",
+            )
+            await documents.tag(document.id, matter_tag(found.matter_id))
+            chosen = document.id
+        elif document_id:
+            chosen = int(document_id)
+        else:
+            raise HTTPException(status_code=400, detail="Pick a document or add one.")
+        await service.cite(request_id, chosen)
+        await db.commit()
+    return dialog_done(
+        where_from(request, f"{SECTION.path}/{found.matter_id}"), "Filed"
+    )
+
+
 @router.post(ITEM + "/mark/{status}", include_in_schema=False)
 async def mark_item(request: Request, item_id: int, status: str) -> Response:
     """Settle one item, and answer with the whole request."""
@@ -168,6 +301,7 @@ async def edit_item(request: Request, item_id: int) -> Response:
             request,
             "partials/matters/item.html",
             item=item,
+            kinds=ITEM_KINDS,
             post=f"{SECTION.path}{ITEM.replace('{item_id:int}', str(item_id))}/edit",
             errors=[],
         )
@@ -178,10 +312,11 @@ async def save_item(
     request: Request,
     item_id: int,
     asked: Annotated[str, Form()] = "",
+    kind: Annotated[str, Form()] = "",
     ask: Annotated[str, Form()] = "",
     as_of: Annotated[str, Form()] = "",
 ) -> Response:
-    """Correct the sentence, or what would satisfy it."""
+    """Correct the sentence, the kind of work, or what would satisfy it."""
     async with get_async_session() as db:
         requests = RequestService(db)
         item = await requests.item(item_id)
@@ -191,6 +326,7 @@ async def save_item(
             await requests.amend(
                 item_id,
                 asked=asked,
+                kind=kind,
                 ask=ask,
                 as_of=date_type.fromisoformat(as_of) if as_of else None,
             )
@@ -200,6 +336,7 @@ async def save_item(
                 "partials/matters/item.html",
                 422,
                 item=item,
+                kinds=ITEM_KINDS,
                 post=(
                     f"{SECTION.path}"
                     f"{ITEM.replace('{item_id:int}', str(item_id))}/edit"
@@ -358,89 +495,3 @@ async def document_save(
     return dialog_done(
         where_from(request, f"{SECTION.path}/{matter_id}"), f"Saved {title.strip()}"
     )
-
-
-# The shelf: every document filed against the case, answering an item or
-# not. A letter's enclosures, the benefit statement somebody dug out of a
-# drawer, the award letter from three years ago - paper arrives before
-# anybody knows which ask it answers, and a shelf you cannot put a
-# document on is a shelf nobody uses.
-PAPER_COLUMNS = (
-    {"key": "title", "label": "Document", "kind": "open"},
-    {"key": "kind", "label": "Kind"},
-    {"key": "at", "label": "Dated"},
-    {"key": "pages", "label": "Pages"},
-)
-
-
-async def matter_papers(db: AsyncSession, matter_id: int) -> list[dict[str, Any]]:
-    """The paper on this matter, shaped for the table."""
-    from app.components.web_frontend.filters import short_date
-    from app.components.web_frontend.glyphs import file_badge
-    from app.services.documents.service import DocumentService
-
-    documents, _ = await DocumentService(db).list_documents(tag=matter_tag(matter_id))
-    return [
-        {
-            "title": {
-                "label": d.title,
-                "url": f"{SECTION.path}/{matter_id}/documents/{d.id}",
-                "badge": file_badge(d.media_type, d.title),
-            },
-            "kind": d.kind,
-            "at": short_date(d.document_date or d.received_at),
-            "pages": d.page_count or "",
-            "import_batch_id": d.import_batch_id,
-            "created_at": d.created_at,
-        }
-        for d in documents
-    ]
-
-
-@router.get("/{matter_id:int}/documents/new", include_in_schema=False)
-async def new_paper(request: Request, matter_id: int) -> Response:
-    async with get_async_session() as db:
-        if await MatterService(db).get(matter_id) is None:
-            raise HTTPException(status_code=404)
-    return dialog(
-        request,
-        "partials/matters/paper.html",
-        post=f"{SECTION.path}/{matter_id}/documents/new",
-        accepts=ACCEPTS,
-        errors=[],
-    )
-
-
-@router.post("/{matter_id:int}/documents/new", include_in_schema=False)
-async def add_paper(
-    request: Request,
-    matter_id: int,
-    file: Annotated[UploadFile | None, File()] = None,
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    """Put a document on the case without saying yet what it answers.
-
-    Which ask it satisfies is a separate act, made from the item - and
-    often not known at the moment somebody finds the paper.
-    """
-    from app.services.documents.service import DocumentService
-
-    async with get_async_session() as db:
-        if await MatterService(db).get(matter_id) is None:
-            raise HTTPException(status_code=404)
-        if file is None or not file.filename:
-            raise HTTPException(status_code=400, detail="Pick a file.")
-        documents = DocumentService(db)
-        try:
-            document = await documents.ingest(
-                await file.read(),
-                title=file.filename,
-                media_type=file.content_type,
-                owner_user_id=owner_user_id,
-                source="upload",
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        await documents.tag(document.id, matter_tag(matter_id))
-        await db.commit()
-    return dialog_done(f"{SECTION.path}/{matter_id}", f"Filed {document.title}")

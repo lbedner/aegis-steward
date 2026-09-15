@@ -17,6 +17,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.matters.models import (
+    ITEM_KINDS,
     ITEM_STATUSES,
     REQUEST_STATUSES,
     Request,
@@ -81,6 +82,55 @@ class RequestService:
         await self.db.flush()
         return request
 
+    async def add_item(
+        self,
+        request_id: int,
+        *,
+        asked: str,
+        kind: str = "document",
+        ask: str | None = None,
+        as_of: date | None = None,
+        alternative_to: int | None = None,
+    ) -> RequestItem:
+        """One more ask on a request that already exists.
+
+        Letters are read twice. The second reading splits an item in two
+        ("proof of income" was two pensions) or finds the sentence that
+        was skipped, and a request that can only be written at intake is
+        one people keep a paper list beside.
+
+        ``alternative_to`` puts this ask in the same group as another:
+        the county will take any ONE of them.
+        """
+        written = " ".join((asked or "").split())
+        if not written:
+            raise ValueError("An item needs the sentence that was asked.")
+        if kind not in dict(ITEM_KINDS):
+            raise ValueError(f"One of: {', '.join(k for k, _ in ITEM_KINDS)}.")
+        group: str | None = None
+        if alternative_to:
+            sibling = await self.db.get(RequestItem, alternative_to)
+            if sibling is not None:
+                group = sibling.option_group or f"g{sibling.id}"
+                if sibling.option_group != group:
+                    sibling.option_group = group
+                    self.db.add(sibling)
+        existing = await self.items(request_id)
+        item = RequestItem(
+            request_id=request_id,
+            ordinal=max((one.ordinal for one in existing), default=0) + 1,
+            asked=written,
+            kind=kind,
+            ask=(ask or "").strip() or None,
+            as_of=as_of,
+            option_group=group,
+            status="needed",
+        )
+        self.db.add(item)
+        await self.db.flush()
+        await self._settle(request_id)
+        return item
+
     async def get(self, request_id: int) -> Request | None:
         request = await self.db.get(Request, request_id)
         return request if request and request.deleted_at is None else None
@@ -116,6 +166,7 @@ class RequestService:
         item_id: int,
         *,
         asked: str | None = None,
+        kind: str | None = None,
         ask: str | None = None,
         as_of: date | None = None,
     ) -> RequestItem | None:
@@ -134,6 +185,10 @@ class RequestService:
             if not written:
                 raise ValueError("An item needs the sentence that was asked.")
             item.asked = written
+        if kind:
+            if kind not in dict(ITEM_KINDS):
+                raise ValueError(f"One of: {', '.join(k for k, _ in ITEM_KINDS)}.")
+            item.kind = kind
         if ask is not None:
             item.ask = ask.strip() or None
         if as_of is not None:
@@ -194,6 +249,23 @@ class RequestService:
         await self.db.flush()
         return await self.mark(item_id, "needed")
 
+    async def cite(self, request_id: int, document_id: int | None) -> Request | None:
+        """The letter this request came from.
+
+        It should have been the first thing filed and usually is not:
+        somebody types the asks while reading the page, and the scan
+        lands afterwards. Setting it later is the normal case, not the
+        exception.
+        """
+        request = await self.get(request_id)
+        if request is None:
+            return None
+        request.document_id = document_id
+        request.updated_at = _utcnow()
+        self.db.add(request)
+        await self.db.flush()
+        return request
+
     async def waive(self, request_id: int) -> Request | None:
         """The agency stopped asking. Whole-request only: an item nobody
         has answered is not the same as one nobody needs any more."""
@@ -211,7 +283,8 @@ class RequestService:
         if request is None or request.status == "waived":
             return
         items = await self.items(request_id)
-        done = bool(items) and all(item.status in SETTLED for item in items)
+        settled, total = standing(items)
+        done = bool(items) and settled == total
         request.status = "satisfied" if done else "open"
         request.updated_at = _utcnow()
         self.db.add(request)
@@ -230,8 +303,18 @@ def overdue(request: Request, today: date | None = None) -> bool:
 
 
 def standing(items: list[RequestItem]) -> tuple[int, int]:
-    """(settled, total) - what a page says without counting twice."""
-    return sum(1 for item in items if item.status in SETTLED), len(items)
+    """(settled, total) - what a page says without counting twice.
+
+    A group of alternatives counts ONCE and is settled by any member:
+    the POA, the designation and the attestation are three ways to
+    answer one demand, and "1 of 5" on a letter that asked for three
+    things is a page arguing with the letter.
+    """
+    units: dict[str, bool] = {}
+    for item in items:
+        key = item.option_group or f"item:{item.id}"
+        units[key] = units.get(key, False) or item.status in SETTLED
+    return sum(1 for done in units.values() if done), len(units)
 
 
 assert set(SETTLED) <= set(ITEM_STATUSES)
@@ -249,9 +332,13 @@ async def drawn(db: AsyncSession, request: Request, today: date | None = None) -
     settled, total = standing(items)
     papers = await titles(db, [item.document_id for item in items])
     late = overdue(request, today)
+    letter = (await titles(db, [request.document_id])).get(request.document_id or 0)
     return {
         "id": request.id,
         "matter_id": request.matter_id,
+        # The page it all came from, read beside the asks it produced.
+        "document_id": request.document_id,
+        "letter": letter,
         "received_on": request.received_on,
         "due_on": request.due_on,
         "status": request.status,
@@ -260,22 +347,12 @@ async def drawn(db: AsyncSession, request: Request, today: date | None = None) -
         "settled": settled,
         "total": total,
         "note": request.note,
-        # Not "items": Jinja resolves ``thing.items`` to the dict method
-        # before the key, and the loop walks a builtin instead.
-        "asks": [
-            {
-                "id": item.id,
-                "ordinal": item.ordinal,
-                "asked": item.asked,
-                "ask": item.ask,
-                "as_of": item.as_of,
-                "status": item.status,
-                "settled": item.status in SETTLED,
-                "resolution": item.resolution,
-                "document": papers.get(item.document_id or 0),
-            }
-            for item in items
-        ],
+        # Grouped for the page: alternatives are ONE step carrying its
+        # options, because the county will take any one of them. Not
+        # "items" as a key either way - Jinja resolves ``thing.items``
+        # to the dict method before the key, and the loop walks a
+        # builtin instead.
+        "steps": steps(items, papers),
     }
 
 
@@ -302,6 +379,57 @@ async def titles(
         row.id: {"id": row.id, "title": row.title, "media_type": row.media_type}
         for row in rows
         if row.id is not None
+    }
+
+
+def steps(
+    items: list[RequestItem], papers: dict[int, dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """The asks as work: one step per demand, alternatives inside it.
+
+    The step takes its wording from the first option and its state from
+    the group - settled when ANY option is, because that is what "we
+    will take any one of these" means.
+    """
+    order: list[str] = []
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        key = item.option_group or f"item:{item.id}"
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(_option(item, papers or {}))
+    out = []
+    for key in order:
+        options = grouped[key]
+        lead = options[0]
+        out.append(
+            {
+                "id": key,
+                "asked": lead["asked"],
+                "kind": lead["kind"],
+                "kind_label": lead["kind_label"],
+                "as_of": lead["as_of"],
+                "settled": any(option["settled"] for option in options),
+                "options": options,
+            }
+        )
+    return out
+
+
+def _option(item: RequestItem, papers: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "ordinal": item.ordinal,
+        "asked": item.asked,
+        "kind": item.kind,
+        "kind_label": dict(ITEM_KINDS).get(item.kind, item.kind),
+        "ask": item.ask,
+        "as_of": item.as_of,
+        "status": item.status,
+        "settled": item.status in SETTLED,
+        "resolution": item.resolution,
+        "document": papers.get(item.document_id or 0),
     }
 
 

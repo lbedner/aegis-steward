@@ -763,3 +763,97 @@ def test_an_item_cannot_be_emptied(client: TestClient) -> None:
 
     assert answer.status_code == 422
     assert "sentence that was asked" in answer.text
+
+
+class TestTheStepsOfARequest:
+    """A letter asks for four things and will take any one of three for
+    the first. A list that draws them identically hides both facts."""
+
+    def _request(self, client: TestClient, reference: str) -> tuple[str, str]:
+        page = _matter(client, reference)
+        client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
+        card = one(client.get(page).text, "#matter-requests [data-request]")
+        return page, str(card.get("data-request"))
+
+    def test_an_ask_can_be_added_after_the_letter_was_recorded(
+        self, client: TestClient
+    ) -> None:
+        """Letters are read twice - and a request that can only be
+        written at intake is one people keep a paper list beside."""
+        page, request_id = self._request(client, "MA-STEP-1")
+
+        client.post(
+            f"/matters/requests/{request_id}/items/new",
+            data={
+                "asked": "Proof of gross income as of 1 July 2026",
+                "kind": "figure",
+                "ask": "fact:gross_income",
+                "as_of": "2026-07-01",
+            },
+        )
+
+        steps = select(client.get(page).text, "#matter-requests [data-step]")
+        assert len(steps) == 2
+        assert "Record a figure" in text(steps[1])
+        assert text(one(client.get(page).text, "[data-standing]")) == "0 of 2"
+
+    def test_alternatives_are_one_step_that_any_of_them_closes(
+        self, client: TestClient
+    ) -> None:
+        """The county takes the POA, the designation OR the attestation.
+        Three mandatory-looking rows describe a harder afternoon than
+        the one you have."""
+        page, request_id = self._request(client, "MA-STEP-2")
+        first = one(client.get(page).text, "#matter-requests [data-item]")
+
+        client.post(
+            f"/matters/requests/{request_id}/items/new",
+            data={
+                "asked": "A signed DOH-5247 designation",
+                "kind": "form",
+                "alternative_to": first.get("data-item"),
+            },
+        )
+
+        drawn = client.get(page).text
+        assert len(select(drawn, "#matter-requests [data-step]")) == 1
+        assert "any one of 2" in text(one(drawn, "#matter-requests [data-step]"))
+        assert text(one(drawn, "[data-standing]")) == "0 of 1"
+
+        # Either one closes it.
+        client.post(
+            f"/matters/requests/items/{first.get('data-item')}/mark/satisfied"
+        )
+        assert text(one(client.get(page).text, "[data-standing]")) == "1 of 1"
+
+    def test_the_letter_sits_beside_the_asks_it_produced(
+        self, client: TestClient
+    ) -> None:
+        from tests._pdf import pdf_bytes
+
+        page, request_id = self._request(client, "MA-STEP-3")
+
+        client.post(
+            f"/matters/requests/{request_id}/letter",
+            files={
+                "file": (
+                    "request.pdf",
+                    pdf_bytes(["Request for information"]),
+                    "application/pdf",
+                )
+            },
+        )
+
+        drawn = client.get(page).text
+        assert one(drawn, "#matter-requests [data-letter]") is not None
+        assert "request.pdf" in text(one(drawn, "#matter-requests [data-request]"))
+
+    def test_an_ask_needs_a_sentence(self, client: TestClient) -> None:
+        _page, request_id = self._request(client, "MA-STEP-4")
+
+        answer = client.post(
+            f"/matters/requests/{request_id}/items/new", data={"asked": "  "}
+        )
+
+        assert answer.status_code == 422
+        assert "sentence that was asked" in answer.text
