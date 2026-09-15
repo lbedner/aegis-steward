@@ -132,7 +132,7 @@ async def edit_party(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         party = await PartyService(db).get(party_id)
     if party is None:
-        return _form(request, errors=["That party is gone."], status_code=404)
+        return _form(request, errors=["They are gone."], status_code=404)
     return _form(request, errors=[], party=party)
 
 
@@ -197,7 +197,7 @@ async def save_party(
                     },
                 )
                 if party is None:
-                    return _form(request, errors=["That party is gone."], status_code=404)
+                    return _form(request, errors=["They are gone."], status_code=404)
         except ValueError as exc:
             return _form(
                 request,

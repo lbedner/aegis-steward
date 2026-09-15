@@ -23,11 +23,11 @@
   {{ action("Attach a document", hx_dialog(base ~ "/attach")) }}
   {% endif %}
   {% if option.settled %}
-  {{ action("Still needed", 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
+  {{ action("needed"|item_status, 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
   {% else %}
-  {{ action("Satisfied", 'hx-post="' ~ base ~ '/mark/satisfied" ' ~ swap) }}
-  {{ action("Not applicable", 'hx-post="' ~ base ~ '/mark/not_applicable" ' ~ swap) }}
-  {{ action("Waived", 'hx-post="' ~ base ~ '/mark/waived" ' ~ swap) }}
+  {{ action("satisfied"|item_status, 'hx-post="' ~ base ~ '/mark/satisfied" ' ~ swap) }}
+  {{ action("not_applicable"|item_status, 'hx-post="' ~ base ~ '/mark/not_applicable" ' ~ swap) }}
+  {{ action("waived"|item_status, 'hx-post="' ~ base ~ '/mark/waived" ' ~ swap) }}
   {% endif %}
   {{ action("Correct the wording", hx_dialog(base ~ "/edit")) }}
 </div>
@@ -70,8 +70,8 @@
 
   {% if asked.note %}<p class="text-xs text-aegis-muted">{{ asked.note }}</p>{% endif %}
   <div class="flex items-center gap-3">
-    {{ action("Add an ask", hx_dialog(path ~ "/requests/" ~ asked.id ~ "/items/new")) }}
-    {{ action("The letter" if not asked.document_id else "Change the letter", hx_dialog(path ~ "/requests/" ~ asked.id ~ "/letter")) }}
+    {{ action(word("add_ask"), hx_dialog(path ~ "/requests/" ~ asked.id ~ "/items/new")) }}
+    {{ action(word("letter") if not asked.document_id else "Change " ~ word("letter")|lower, hx_dialog(path ~ "/requests/" ~ asked.id ~ "/letter")) }}
   </div>
 </article>
 {% endmacro %}
@@ -124,7 +124,7 @@
         {% endif %}
         <p class="micro-label text-aegis-muted">
           {%- set meta = [] -%}
-          {%- if option.status != "needed" %}{% set _ = meta.append(option.status|replace("_", " ")|title) %}{% endif -%}
+          {%- if option.status != "needed" %}{% set _ = meta.append(option.status|item_status) %}{% endif -%}
           {%- if option.ask %}{% set _ = meta.append(option.ask) %}{% endif -%}
           {%- if option.resolution and not option.document %}{% set _ = meta.append(option.resolution) %}{% endif -%}
           {#- Said plainly rather than left blank: an empty panel reads
@@ -152,7 +152,7 @@
 <div id="matter-requests" class="flex flex-col gap-3">
   {% for asked in requests %}{{ request_card(asked, path) }}{% endfor %}
   {% if not requests %}<p class="text-sm text-aegis-muted" data-empty>Nothing asked for yet.</p>{% endif %}
-  {{ action("Record a request", hx_dialog(path ~ "/" ~ matter_id ~ "/requests/new")) }}
+  {{ action(word("add_request"), hx_dialog(path ~ "/" ~ matter_id ~ "/requests/new")) }}
 </div>
 {% endmacro %}
 
@@ -218,6 +218,6 @@
   {% else %}
   <p class="text-sm text-aegis-muted" data-empty>Nothing recorded yet.</p>
   {% endif %}
-  {{ action("Record a fact", hx_dialog(path ~ "/" ~ matter_id ~ "/facts/new")) }}
+  {{ action(word("add_fact"), hx_dialog(path ~ "/" ~ matter_id ~ "/facts/new")) }}
 </div>
 {% endmacro %}

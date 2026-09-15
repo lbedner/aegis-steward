@@ -857,3 +857,96 @@ class TestTheStepsOfARequest:
 
         assert answer.status_code == 422
         assert "sentence that was asked" in answer.text
+
+
+def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
+    """The whole manual path in one pass, in the order a person walks it:
+    the letter arrives, its asks are typed, one of them turns out to have
+    an alternative, paper answers it, and a figure is recorded with the
+    page it came from.
+
+    Written because every piece of this was tested alone and the joins
+    between them - does attaching close the STEP, does a fact recorded
+    from the matter land on the matter - were not.
+    """
+    from tests._pdf import pdf_bytes
+
+    page = _matter(client, "MA-WALK-1")
+
+    # 1. What the letter demanded, as it worded it.
+    client.post(
+        page + "/requests/new",
+        data={
+            "asked": "A copy of the power of attorney",
+            "due_on": "2026-09-08",
+            "received_on": "2026-08-27",
+        },
+    )
+    request_id = one(client.get(page).text, "[data-request]").get("data-request")
+
+    # 2. The letter itself, cited: the page everything else is read against.
+    client.post(
+        f"/matters/requests/{request_id}/letter",
+        files={"file": ("request.pdf", pdf_bytes(["Request"]), "application/pdf")},
+    )
+
+    # 3. A second ask, read off the same letter, needing a figure.
+    client.post(
+        f"/matters/requests/{request_id}/items/new",
+        data={
+            "asked": "Proof of gross income as of 1 July 2026",
+            "kind": "figure",
+            "as_of": "2026-07-01",
+        },
+    )
+
+    # 4. The county will take a designation form INSTEAD of the POA.
+    poa = select(client.get(page).text, "[data-step] [data-item]")[0].get("data-item")
+    client.post(
+        f"/matters/requests/{request_id}/items/new",
+        data={
+            "asked": "A signed DOH-5247 designation",
+            "kind": "form",
+            "alternative_to": poa,
+        },
+    )
+
+    steps = select(client.get(page).text, "[data-step]")
+    assert len(steps) == 2
+    alternative = select(steps[0], "[data-item]")[1].get("data-item")
+
+    # 5. Paper answers the alternative, which closes the whole step.
+    client.post(
+        f"/matters/requests/items/{alternative}/attach",
+        files={"file": ("doh5247.pdf", pdf_bytes(["Designation"]), "application/pdf")},
+    )
+
+    drawn = client.get(page).text
+    assert text(one(drawn, "[data-standing]")) == "1 of 2"
+    assert one(drawn, '[data-step] [data-node="done"]') is not None
+    assert one(drawn, "[data-letter]") is not None
+    assert "doh5247.pdf" in text(select(drawn, "[data-step]")[0])
+
+    # 6. And the figure the other step wants, with where it came from.
+    _party(client, "Walk Subject", "person")
+    subject = select(
+        client.get("/settings/people?q=Walk Subject").text, "#people tbody [data-open]"
+    )
+    client.post(
+        page + "/facts/new",
+        data={
+            "subject_party_id": subject[-1].get("hx-get").rsplit("/", 1)[-1],
+            "attribute": "gross_income",
+            "label": "Walk pension",
+            "amount": "1200.00",
+            "period": "month",
+            "as_of": "2026-07-01",
+            "provenance": "stated",
+            "source_note": "Read off the portal",
+        },
+    )
+
+    said = one(client.get(page).text, "#matter-facts [data-fact]")
+    assert "Walk pension" in text(said)
+    assert "$1,200.00" in text(said)
+    assert "Read off the portal" in text(said)

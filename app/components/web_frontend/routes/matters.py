@@ -193,19 +193,44 @@ async def matter(request: Request, matter_id: int) -> Response:
     )
 
 
+@router.get("/{matter_id:int}/participants/new", include_in_schema=False)
+async def new_participant(request: Request, matter_id: int) -> Response:
+    """Who else is in this case.
+
+    The button for this shipped with ST-03 and the route did not: it
+    404'd from the day the page existed, which is what a control nobody
+    clicked in a test looks like.
+    """
+    async with get_async_session() as db:
+        if await MatterService(db).get(matter_id) is None:
+            raise HTTPException(status_code=404)
+        parties = await PartyService(db).find()
+    return dialog(
+        request,
+        "partials/matters/participant.html",
+        post=f"{SECTION.path}/{matter_id}/participants",
+        parties=[{"id": p.id, "name": p.name} for p in parties],
+        roles=PARTICIPANT_ROLES,
+        errors=[],
+    )
+
+
 @router.post("/{matter_id:int}/participants", include_in_schema=False)
 async def add_participant(
     request: Request,
     matter_id: int,
     party_id: Annotated[str, Form()] = "",
     role: Annotated[str, Form()] = "other",
+    note: Annotated[str, Form()] = "",
 ) -> Response:
     async with get_async_session() as db:
         matters = MatterService(db)
         if await matters.get(matter_id) is None:
             raise HTTPException(status_code=404)
         if party_id:
-            await matters.add_participant(matter_id, int(party_id), role)
+            await matters.add_participant(
+                matter_id, int(party_id), role, note=note.strip() or None
+            )
             await db.commit()
     return dialog_done(
         where_from(request, f"{SECTION.path}/{matter_id}"), "Added"

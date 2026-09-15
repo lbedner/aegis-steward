@@ -61,7 +61,7 @@
       somebody has to put on a form. The same row the matter draws, from
       the same macro. -#}
   {% if about or matters or fact_party_id %}
-  {% call card("What we can say") %}
+  {% call card(word("can_say")) %}
   {% if about %}
   <ul class="border-t border-aegis-border/60">
     {% for fact in about %}{{ fact_row(fact, "/matters") }}{% endfor %}
@@ -73,7 +73,7 @@
   </p>
   {% endfor %}
   {% if fact_party_id %}
-  {{ action("Record a fact", hx_dialog(section.path ~ "/" ~ selected.id ~ "/facts/new")) }}
+  {{ action(word("add_fact"), hx_dialog(section.path ~ "/" ~ selected.id ~ "/facts/new")) }}
   {% endif %}
   {% endcall %}
   {% endif %}

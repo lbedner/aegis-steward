@@ -26,38 +26,38 @@
     {{ badge(matter.status, "ok" if matter.status == "open" else "muted") }}
   </header>
 
-  {% call card("Who is in it") %}
+  {% call card(word("who")) %}
   {% if matter.participants %}
   <dl class="border-t border-aegis-border/60">
     {% for person in matter.participants %}
     <div class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
       <dt class="text-aegis-text min-w-0 truncate" data-party>{{ person.party }}</dt>
-      <dd class="text-aegis-muted shrink-0" data-role>{{ person.role|title }}</dd>
+      <dd class="text-aegis-muted shrink-0" data-role>{{ person.role|role_label }}</dd>
     </div>
     {% endfor %}
   </dl>
   {% else %}
   <p class="text-sm text-aegis-muted" data-empty>Nobody named yet.</p>
   {% endif %}
-  {{ action("Add someone", hx_dialog(path ~ "/" ~ matter.id ~ "/participants/new")) }}
+  {{ action(word("add_someone"), hx_dialog(path ~ "/" ~ matter.id ~ "/participants/new")) }}
   {% endcall %}
 
-  {% call card("What they asked for") %}
+  {% call card(word("asked_for")) %}
   {{ requests_block(requests, path, matter.id) }}
   {% endcall %}
 
   {# What we can say, and how we know. Separate from the asks because a
      fact outlives the case that gathered it: what the pension paid in
      August is true whether or not this renewal is still open. #}
-  {% call card("What we can say") %}
+  {% call card(word("can_say")) %}
   {{ facts_block(facts, path, matter.id) }}
   {% endcall %}
 
   {# The shelf. Paper arrives before anybody knows which ask it answers,
      and a shelf you cannot put a document on is a shelf nobody uses. #}
-  {% call card("Paper on this matter") %}
+  {% call card(word("paper")) %}
   {{ data_table(paper_columns, papers, empty="Nothing filed yet", path=path) }}
-  {{ action("Add a document", hx_dialog(path ~ "/" ~ matter.id ~ "/documents/new")) }}
+  {{ action(word("add_paper"), hx_dialog(path ~ "/" ~ matter.id ~ "/documents/new")) }}
   {% endcall %}
 </section>
 {% endblock %}

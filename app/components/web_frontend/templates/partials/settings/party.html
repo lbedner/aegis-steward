@@ -7,7 +7,7 @@
 {% from "components/macros/form.html" import field, text_input, select, textarea, primary_button, action, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
-{% call dialog_title(party.name if party else "Add a party") %}
+{% call dialog_title(party.name if party else "Add someone") %}
 <p class="text-xs text-aegis-muted mb-4">A person or an organization. What they ARE to a case - the subject, the agency, the facility - belongs to the case, not here.</p>
 {% endcall %}
 {{ error_banner(errors) }}

@@ -20,7 +20,7 @@
                   attrs='hx-get="' ~ path ~ '/people" hx-target="#app-content"'
                         ' hx-select="#app-content" hx-swap="innerHTML"'
                         ' hx-trigger="keyup changed delay:150ms, search"') }}
-  {{ action("Add a party", hx_dialog(path ~ "/people/new")) }}
+  {{ action("Add someone", hx_dialog(path ~ "/people/new")) }}
 </div>
 {{ data_table(columns, rows, empty="Nobody yet", row_id="party") }}
 {% endcall %}
