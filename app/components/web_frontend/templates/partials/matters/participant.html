@@ -4,7 +4,7 @@
    and a payee in the ledger, and neither fact belongs to the other. The
    same party can be in twice under two roles - a representative who is
    also the subject's son - so nothing here dedupes on the name. #}
-{% from "components/macros/form.html" import field, pick_or_add, text_input, primary_button %}
+{% from "components/macros/form.html" import field, pick_or_add, select, text_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {{ dialog_title("Who else is in it", "Whoever the letter names: the caseworker who signed it, the attorney copied on it, the facility it went to.") }}

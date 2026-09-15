@@ -1031,3 +1031,33 @@ class TestNamingSomebodyWhereYouNeedThem:
         named = {text(el) for el in select(client.get(page).text, "#matter [data-party]")}
         assert "Inline Typed" in named
         assert "Inline Picked" not in named
+
+
+def test_every_dialog_on_a_matter_renders(client: TestClient) -> None:
+    """A template that imports one macro and still calls another breaks
+    only when somebody opens it - which a test of the POST never does.
+    "Add someone" shipped that way twice in one day: first with no route
+    at all, then with a 500 behind the route.
+    """
+    page = _matter(client, "MA-DIALOGS-1")
+    matter_id = page.rsplit("/", 1)[-1]
+    client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
+    drawn = client.get(page).text
+    request_id = one(drawn, "[data-request]").get("data-request")
+    item_id = select(drawn, "[data-item]")[0].get("data-item")
+
+    for url in (
+        f"/matters/{matter_id}/participants/new",
+        f"/matters/{matter_id}/requests/new",
+        f"/matters/{matter_id}/facts/new",
+        f"/matters/{matter_id}/documents/new",
+        f"/matters/requests/{request_id}/items/new",
+        f"/matters/requests/{request_id}/letter",
+        f"/matters/requests/items/{item_id}/edit",
+        f"/matters/requests/items/{item_id}/attach",
+        "/matters/new",
+    ):
+        answer = client.get(url)
+        assert answer.status_code == 200, f"{url} -> {answer.status_code}"
+        # A dialog body, never a whole page swapped into the modal.
+        none(answer.text, "html")
