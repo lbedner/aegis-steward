@@ -43,6 +43,20 @@ from app.services.finance.utils import current_date
 _UPCOMING_WINDOW_DAYS = 35
 
 
+async def _named(session: Any, rows: list[Any]) -> tuple[dict[int, str], dict[int, str]]:
+    """Subject and institution names for a page of accounts, in two
+    queries rather than two per row."""
+    from app.services.finance.domains.ledger.institutions import list_institutions
+    from app.services.finance.domains.ledger.subjects import list_subjects
+
+    wanted = {row.subject_id for row in rows if row.subject_id}
+    banks = {row.institution_id for row in rows if row.institution_id}
+    return (
+        {s.id: s.name for s in await list_subjects(session) if s.id in wanted},
+        {i.id: i.name for i in await list_institutions(session) if i.id in banks},
+    )
+
+
 async def accounts(whose: str = "ours") -> dict[str, Any]:
     """The full balance sheet: every account with its balance and role.
 
@@ -54,7 +68,12 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
 
     Returns a dict with key 'accounts': a list where every entry
     carries 'id', 'name', 'account_type', 'classification',
-    'balance_cents' (liabilities are negative = owed) and 'hidden'.
+    'balance_cents' (liabilities are negative = owed), 'hidden',
+    'whose' (null = ours, else whose money it is), 'subject_id',
+    'held_with' (the institution) and 'reference' (the number that
+    institution prints - a member id, a policy number). A balance of 0
+    on an account with a 'whose' usually means no figure has been
+    recorded, not that it is worth nothing.
     Investment accounts add 'holdings', a list of entries with 'ticker',
     'name', 'quantity' and 'market_value_cents'. Envelope accounts add
     'envelope' with 'credit_cents', 'cadence' and 'auto_credit'. Goal
@@ -157,6 +176,12 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             }
         )
 
+    # What the page says beside the balance: whose money it is, who it
+    # is held with, and the number the institution prints. Asked what it
+    # knows about a pension, the honest answer was "nothing linked" while
+    # the account itself named a subject, an institution and a member id.
+    whose, held_with = await _named(session, account_rows)
+
     out: list[dict[str, Any]] = []
     for account in account_rows:
         entry: dict[str, Any] = {
@@ -168,6 +193,12 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             # writes win; a never-written 0 falls back to the register sum.
             "balance_cents": balances[account.id],
             "hidden": account.is_hidden,
+            # Null is ours, and a balance of 0 with a subject means "no
+            # figure recorded yet", never "worth nothing".
+            "whose": whose.get(account.subject_id or 0),
+            "subject_id": account.subject_id,
+            "held_with": held_with.get(account.institution_id or 0),
+            "reference": account.reference,
         }
         envelope_meta = envelope_metadata(account.metadata_)
         if envelope_meta is not None:

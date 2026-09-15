@@ -211,3 +211,55 @@ class TestWhoseMoneyThroughIlliana:
         assert result["whose"] == "Tool Whose Two"
         ours, _ = await FinanceService(async_db_session).list_accounts()
         assert "Tool NYSLRS Pension" not in [a.name for a in ours]
+
+    @pytest.mark.asyncio
+    async def test_the_account_reports_its_links(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Asked what it knew about a pension, she answered "nothing
+        linked" while the account itself named a subject, an institution
+        and a member id - none of which the tool reported."""
+        from contextlib import asynccontextmanager
+
+        import app.services.finance.ai_account_tools as account_tools
+        from app.services.finance.domains.ledger.accounts import create_manual_account
+        from app.services.finance.domains.ledger.subjects import (
+            assign_subject,
+            institution_for_party,
+            subject_for_party,
+        )
+
+        @asynccontextmanager
+        async def test_session():
+            yield async_db_session
+
+        monkeypatch.setattr(account_tools, "get_async_session", test_session)
+        parties = PartyService(async_db_session)
+        person = await parties.create(name="Linked Subject", kind="person")
+        fund = await parties.create(name="Linked Pension Fund", kind="organization")
+        subject = await subject_for_party(
+            async_db_session, person.id, name=person.name
+        )
+        bank = await institution_for_party(
+            async_db_session, fund.id, name=fund.name
+        )
+        account = await create_manual_account(
+            async_db_session,
+            name="Linked Pension",
+            account_type="other_asset",
+            classification="asset",
+            institution_id=bank.id,
+        )
+        account.reference = "R10932601"
+        await assign_subject(async_db_session, account.id, subject.id)
+        await async_db_session.commit()
+
+        [row] = [
+            a
+            for a in (await account_tools.accounts(whose=str(subject.id)))["accounts"]
+            if a["name"] == "Linked Pension"
+        ]
+
+        assert row["whose"] == "Linked Subject"
+        assert row["held_with"] == "Linked Pension Fund"
+        assert row["reference"] == "R10932601"
