@@ -17,7 +17,7 @@
   </div>
 {% endcall %}
 
-{{ whose_bar(whose_options, whose, section.path) }}
+{{ whose_bar(whose_options, whose, section.path, also_held) }}
 
 <div class="flex items-baseline justify-between gap-4 mb-6">
   <a href="{{ account_url(section.path) }}" {{ hx_page(account_url(section.path)) }}

@@ -74,6 +74,35 @@ class TestSomebodyElsesMoney:
         assert text(one(page, "[data-net-worth]")) != before
 
     @pytest.mark.asyncio
+    async def test_the_page_says_what_it_is_holding_and_not_counting(
+        self, client: TestClient, person: Any
+    ) -> None:
+        """Money held and not counted is invisible by construction.
+        Approving an account for a parent and finding the portfolio
+        unchanged reads as nothing having happened."""
+        subject = await person("Whose Subject Four")
+        _account(client, "Whose Their Pension Four", "1200.00", whose=subject)
+
+        page = client.get("/accounts").text
+        line = one(page, "[data-also-held]")
+
+        assert "Whose Subject Four" in text(line)
+        assert "Whose Their Pension Four" in text(line)
+        assert "not counted here" in text(line)
+        assert one(line, "a").get("href").endswith(f"?whose={subject}")
+
+    @pytest.mark.asyncio
+    async def test_their_own_page_does_not_repeat_the_line(
+        self, client: TestClient, person: Any
+    ) -> None:
+        """On their page the whole list is theirs; saying it again is
+        the app talking to itself."""
+        subject = await person("Whose Subject Five")
+        _account(client, "Whose Their Pension Five", "1200.00", whose=subject)
+
+        none(client.get(f"/accounts?whose={subject}").text, "[data-also-held]")
+
+    @pytest.mark.asyncio
     async def test_their_money_is_a_click_away_never_a_default(
         self, client: TestClient, person: Any
     ) -> None:

@@ -150,7 +150,7 @@
    somebody else's - a control with one option is noise - and "Ours" is
    where every page starts, so a total is a statement about our money
    until somebody deliberately widens it. #}
-{% macro whose_bar(options, current, path) %}
+{% macro whose_bar(options, current, path, also_held=()) %}
 {% if options %}
 <nav data-whose class="flex items-center gap-2 mb-4" aria-label="Whose money">
   {% for option in options %}
@@ -159,4 +159,16 @@
   {% endfor %}
 </nav>
 {% endif %}
+{#- What is being held out of the total, said out loud. Money held and
+    not counted is invisible by construction: approving an account for a
+    parent and finding the portfolio unchanged reads as nothing having
+    happened. -#}
+{% for held in also_held %}
+<p data-also-held class="text-xs text-aegis-muted mb-4">
+  Also holding
+  <a href="{{ path }}?whose={{ held.key }}" {{ hx_page(path ~ "?whose=" ~ held.key) }}
+     class="text-aegis-teal hover:underline">{{ held.name }}'s {{ held.one or (held.count ~ " account" ~ ("" if held.count == 1 else "s")) }}</a>,
+  not counted here.
+</p>
+{% endfor %}
 {% endmacro %}

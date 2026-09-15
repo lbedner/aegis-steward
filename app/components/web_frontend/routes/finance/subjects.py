@@ -68,16 +68,36 @@ def whose(value: str | None) -> int | None:
 
 
 async def chips(service: FinanceService, current: str | None) -> dict[str, Any]:
-    """The filter, drawn only when there is something to filter.
+    """The filter, drawn only when there is something to filter, plus
+    the line that says what is being held out of the total.
 
-    A household with nobody else's money in it never sees this: a
+    A household with nobody else's money in it never sees any of this: a
     control whose only option is the one you are already looking at is
     noise on every page it appears on.
+
+    The line exists because "held but not counted" is invisible by
+    construction. Approving an account for a parent and then finding the
+    portfolio unchanged reads as nothing having happened - which is
+    exactly what it looked like the first time this shipped.
     """
     subjects = await service.list_subjects()
     if not subjects:
-        return {"whose_options": [], "whose": OURS}
+        return {"whose_options": [], "whose": OURS, "also_held": []}
     chosen = current if current in (OURS, ALL) else (current or OURS)
+    held = []
+    for subject in subjects:
+        rows, total = await service.list_accounts(
+            page_size=1, subject_id=subject.id
+        )
+        if total:
+            held.append(
+                {
+                    "key": str(subject.id),
+                    "name": subject.name,
+                    "count": total,
+                    "one": rows[0].name if total == 1 else "",
+                }
+            )
     return {
         "whose_options": [
             {"key": OURS, "label": "Ours"},
@@ -88,4 +108,6 @@ async def chips(service: FinanceService, current: str | None) -> dict[str, Any]:
             {"key": ALL, "label": "Everyone"},
         ],
         "whose": chosen,
+        # Only under "ours": on their own page the whole list is theirs.
+        "also_held": held if chosen == OURS else [],
     }
