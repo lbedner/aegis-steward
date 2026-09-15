@@ -341,3 +341,246 @@ class TestThePaperThatAnswers:
         _page, item_id = self._item(client, "MA-DOC-8")
         answer = client.post(f"/matters/requests/items/{item_id}/attach", data={})
         assert answer.status_code == 400
+
+
+class TestWhatWeCanSay:
+    """A figure is not an answer until it says where it came from."""
+
+    def _party(self, client: TestClient, name: str) -> str:
+        _party(client, name, "person")
+        people = client.get(f"/settings/people?q={name}").text
+        return str(
+            select(people, "#people tbody [data-open]")[-1]
+            .get("hx-get")
+            .rsplit("/", 1)[-1]
+        )
+
+    def test_a_daily_rate_is_kept_as_quoted_and_read_as_a_month(
+        self, client: TestClient
+    ) -> None:
+        """The portal quotes a day and the county asks for a month.
+        Multiplying on the way in would file our arithmetic as their
+        quotation."""
+        page = _matter(client, "MA-FACT-1")
+        subject = self._party(client, "Fact Subject One")
+
+        client.post(
+            page + "/facts/new",
+            data={
+                "subject_party_id": subject,
+                "attribute": "gross_income",
+                "label": "IBEW pension",
+                "amount": "$50.00",
+                "period": "day",
+                "as_of": "2026-08-01",
+                "provenance": "stated",
+                "source_note": "Read off the pension portal",
+            },
+        )
+
+        drawn = client.get(page).text
+        row = one(drawn, "#matter-facts [data-fact]")
+        assert text(one(row, "[data-what]")) == "IBEW pension"
+        assert "$50.00" in text(one(row, "[data-value]"))
+        assert "$1,521.88" in text(one(row, "[data-monthly]"))
+        assert "Read off the pension portal" in text(row)
+
+    def test_two_sources_can_disagree_and_both_stand(
+        self, client: TestClient
+    ) -> None:
+        page = _matter(client, "MA-FACT-2")
+        subject = self._party(client, "Fact Subject Two")
+        for amount, provenance in (("2075.00", "ledger"), ("2180.40", "stated")):
+            client.post(
+                page + "/facts/new",
+                data={
+                    "subject_party_id": subject,
+                    "attribute": "gross_income",
+                    "label": "Social security",
+                    "amount": amount,
+                    "period": "month",
+                    "as_of": "2026-08-01",
+                    "provenance": provenance,
+                },
+            )
+
+        rows = select(client.get(page).text, "#matter-facts [data-fact]")
+        assert len(rows) == 2
+        assert {text(one(row, "[data-value]")).strip().split()[0] for row in rows} == {
+            "$2,075.00",
+            "$2,180.40",
+        }
+
+    def test_a_fact_with_nothing_in_it_is_refused(self, client: TestClient) -> None:
+        page = _matter(client, "MA-FACT-3")
+        subject = self._party(client, "Fact Subject Three")
+
+        answer = client.post(
+            page + "/facts/new",
+            data={"subject_party_id": subject, "attribute": "gross_income"},
+        )
+
+        assert answer.status_code == 422
+        assert "figure" in answer.text
+        assert select(client.get(page).text, "#matter-facts [data-fact]") == []
+
+
+class TestTheShelf:
+    def test_paper_lands_on_the_case_without_answering_anything(
+        self, client: TestClient
+    ) -> None:
+        """Paper arrives before anybody knows which ask it answers, and a
+        shelf you cannot put a document on is a shelf nobody uses."""
+        from tests._pdf import pdf_bytes
+
+        page = _matter(client, "MA-SHELF-1")
+
+        client.post(
+            page + "/documents/new",
+            files={
+                "file": (
+                    "award-letter.pdf",
+                    pdf_bytes(["Award letter"]),
+                    "application/pdf",
+                )
+            },
+        )
+
+        drawn = client.get(page).text
+        shelf = one(drawn, "#card-paper-on-this-matter")
+        assert "award-letter.pdf" in text(shelf)
+        # Filed, but answering nothing yet.
+        assert select(drawn, "#matter-requests [data-document]") == []
+
+
+class TestSignIns:
+    """Managing somebody's affairs means logging in as them. What this
+    replaces is the sticky note beside the laptop."""
+
+    def _party(self, client: TestClient, name: str) -> str:
+        _party(client, name, "person")
+        people = client.get(f"/settings/people?q={name}").text
+        return str(
+            select(people, "#people tbody [data-open]")[-1]
+            .get("hx-get")
+            .rsplit("/", 1)[-1]
+        )
+
+    def test_a_password_is_stored_shown_only_when_asked_for(
+        self, client: TestClient
+    ) -> None:
+        party_id = self._party(client, "Signin Subject One")
+
+        added = client.post(
+            f"/settings/people/{party_id}/signins/new",
+            data={
+                "label": "IBEW pension portal",
+                "url": "pensionportal.example.com",
+                "username": "jbedner",
+                "secret": "correct-horse",
+                "note": "",
+            },
+        )
+
+        # The listing knows there is one and does not say what it is.
+        assert "correct-horse" not in added.text
+        row = one(added.text, "#sign-ins [data-signin]")
+        assert text(one(row, "[data-label]")) == "IBEW pension portal"
+        assert one(row, "[data-site]").get("href") == (
+            "https://pensionportal.example.com"
+        )
+
+        shown = client.post(
+            f"/settings/people/signins/{row.get('data-signin')}/reveal"
+        )
+        assert text(one(shown.text, "[data-secret]")) == "correct-horse"
+
+        # And it is gone again on the next draw.
+        again = client.get(f"/settings/people/{party_id}/signins")
+        assert select(again.text, "[data-secret]") == []
+
+    def test_editing_the_username_keeps_the_password(
+        self, client: TestClient
+    ) -> None:
+        party_id = self._party(client, "Signin Subject Two")
+        added = client.post(
+            f"/settings/people/{party_id}/signins/new",
+            data={"label": "Portal", "username": "old", "secret": "keep-me"},
+        )
+        sign_in_id = one(added.text, "#sign-ins [data-signin]").get("data-signin")
+
+        client.post(
+            f"/settings/people/signins/{sign_in_id}",
+            data={"label": "Portal", "username": "new", "secret": ""},
+        )
+        shown = client.post(f"/settings/people/signins/{sign_in_id}/reveal")
+
+        assert text(one(shown.text, "[data-username]")) == "new"
+        assert text(one(shown.text, "[data-secret]")) == "keep-me"
+
+    def test_a_sign_in_needs_a_name(self, client: TestClient) -> None:
+        party_id = self._party(client, "Signin Subject Three")
+
+        answer = client.post(
+            f"/settings/people/{party_id}/signins/new",
+            data={"label": " ", "secret": "x"},
+        )
+
+        assert answer.status_code == 422
+        assert "name" in answer.text
+        assert select(answer.text, "#sign-ins [data-signin]") == []
+
+
+def test_a_fact_links_the_site_it_was_read_off(client: TestClient) -> None:
+    """"Read off the pension portal" is a note, not a way back."""
+    page = _matter(client, "MA-URL-1")
+    _party(client, "Url Subject", "person")
+    people = client.get("/settings/people?q=Url Subject").text
+    subject = (
+        select(people, "#people tbody [data-open]")[-1]
+        .get("hx-get")
+        .rsplit("/", 1)[-1]
+    )
+
+    client.post(
+        page + "/facts/new",
+        data={
+            "subject_party_id": subject,
+            "attribute": "gross_income",
+            "label": "IBEW pension",
+            "amount": "50.00",
+            "period": "day",
+            "provenance": "stated",
+            "source_url": "pensionportal.example.com/benefits",
+        },
+    )
+
+    site = one(client.get(page).text, "#matter-facts [data-site]")
+    assert site.get("href") == "https://pensionportal.example.com/benefits"
+    assert site.get("rel") == "noopener noreferrer"
+
+
+def test_a_link_that_is_not_a_link_is_refused(client: TestClient) -> None:
+    """A stored address is rendered into an href, and a javascript:
+    href is a script the page runs."""
+    page = _matter(client, "MA-URL-2")
+    _party(client, "Url Subject Two", "person")
+    people = client.get("/settings/people?q=Url Subject Two").text
+    subject = (
+        select(people, "#people tbody [data-open]")[-1]
+        .get("hx-get")
+        .rsplit("/", 1)[-1]
+    )
+
+    answer = client.post(
+        page + "/facts/new",
+        data={
+            "subject_party_id": subject,
+            "attribute": "gross_income",
+            "amount": "10.00",
+            "source_url": "javascript:alert(1)",
+        },
+    )
+
+    assert answer.status_code == 422
+    assert "http or https" in answer.text

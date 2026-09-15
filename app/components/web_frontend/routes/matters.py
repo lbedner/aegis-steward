@@ -21,6 +21,8 @@ from app.components.web_frontend.rendering import (
     render,
     where_from,
 )
+from app.components.web_frontend.routes.facts import facts_for
+from app.components.web_frontend.routes.requests import PAPER_COLUMNS, matter_papers
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.matters import MatterService, summarised
@@ -169,6 +171,8 @@ async def matter(request: Request, matter_id: int) -> Response:
             await drawn_request(db, one)
             for one in await RequestService(db).for_matter(matter_id)
         ]
+        known = await facts_for(db, matter_id)
+        papers = await matter_papers(db, matter_id)
     return render(
         request,
         "pages/matter.html",
@@ -176,6 +180,9 @@ async def matter(request: Request, matter_id: int) -> Response:
             "section": SECTION,
             "matter": drawn,
             "requests": asked,
+            "facts": known,
+            "papers": papers,
+            "paper_columns": list(PAPER_COLUMNS),
             "path": SECTION.path,
         },
     )

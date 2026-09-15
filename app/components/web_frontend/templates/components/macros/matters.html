@@ -48,11 +48,11 @@
       <div class="min-w-0">
         <p data-asked class="{{ "text-aegis-muted line-through" if item.settled else "text-aegis-text" }}">{{ item.asked }}</p>
         <p class="micro-label text-aegis-muted mt-0.5">
-          {%- set facts = [] -%}
-          {%- if item.status != "needed" %}{% set _ = facts.append(item.status|replace("_", " ")|title) %}{% endif -%}
-          {%- if item.as_of %}{% set _ = facts.append("as of " ~ item.as_of|short_date) %}{% endif -%}
-          {%- if item.resolution and not item.document %}{% set _ = facts.append(item.resolution) %}{% endif -%}
-          {{ facts|join(" · ") }}
+          {%- set meta = [] -%}
+          {%- if item.status != "needed" %}{% set _ = meta.append(item.status|replace("_", " ")|title) %}{% endif -%}
+          {%- if item.as_of %}{% set _ = meta.append("as of " ~ item.as_of|short_date) %}{% endif -%}
+          {%- if item.resolution and not item.document %}{% set _ = meta.append(item.resolution) %}{% endif -%}
+          {{ meta|join(" · ") }}
         </p>
         {#- The paper itself, one click from the line that asked for it.
             A title that cannot be opened is a claim; this is the
@@ -80,5 +80,67 @@
   {% for asked in requests %}{{ request_card(asked, path) }}{% endfor %}
   {% if not requests %}<p class="text-sm text-aegis-muted" data-empty>Nothing asked for yet.</p>{% endif %}
   {{ action("Record a request", hx_dialog(path ~ "/" ~ matter_id ~ "/requests/new")) }}
+</div>
+{% endmacro %}
+
+{# What we can say about the subject, and how we know.
+
+   The provenance is not a footnote: the same figure means different
+   things depending on whether it came from a deposit, a statement or a
+   benefit letter, and only one of those is fit to put on a form. So the
+   source sits on the line with the number, not behind a hover. #}
+{% macro fact_row(fact, path) %}
+<li data-fact="{{ fact.id }}" class="flex items-start justify-between gap-3 py-2 border-b border-aegis-border/60 text-sm">
+  <div class="min-w-0">
+    <p class="text-aegis-text">
+      <span data-what>{{ fact.label or fact.attribute_label }}</span>
+      {%- if fact.verified %} {{ dot("ok", "Checked against the source") }}{% endif %}
+    </p>
+    <p class="micro-label text-aegis-muted mt-0.5">
+      {%- set meta = [fact.attribute_label] -%}
+      {%- if fact.as_of %}{% set _ = meta.append("as of " ~ fact.as_of|short_date) %}{% endif -%}
+      {%- set _ = meta.append(fact.provenance) -%}
+      {%- if fact.source_note %}{% set _ = meta.append(fact.source_note) %}{% endif -%}
+      {{ meta|join(" · ") }}
+    </p>
+    {% if fact.source_url %}
+    <a href="{{ fact.source_url }}" target="_blank" rel="noopener noreferrer"
+       class="mt-1 inline-block text-xs text-aegis-teal hover:underline transition-colors" data-site>The site</a>
+    {% endif %}
+    {% if fact.document_id %}
+    <button type="button" {{ hx_dialog(path ~ "/" ~ fact.matter_id ~ "/documents/" ~ fact.document_id) }}
+            class="mt-1 text-xs text-aegis-teal hover:underline transition-colors" data-source>
+      The document{% if fact.page %}, page {{ fact.page }}{% endif %}
+    </button>
+    {% endif %}
+  </div>
+  <div class="shrink-0 text-right">
+    {% if fact.value_cents is not none %}
+    <p class="text-sm text-aegis-text tabular-nums" data-value>
+      {{ fact.value_cents|money }}{% if fact.period != "once" %} <span class="text-aegis-muted">a {{ fact.period }}</span>{% endif %}
+    </p>
+    {#- A rate read as a month, because the county asks for a month and
+        the portal quotes a day. Said as arithmetic, never as a
+        quotation. -#}
+    {% if fact.period not in ("once", "month") and fact.monthly_cents is not none %}
+    <p class="micro-label text-aegis-muted" data-monthly title="{{ fact.value_cents|money }} a {{ fact.period }}, over an average month">about {{ fact.monthly_cents|money }} a month</p>
+    {% endif %}
+    {% else %}
+    <p class="text-sm text-aegis-text" data-value>{{ fact.text_value }}</p>
+    {% endif %}
+  </div>
+</li>
+{% endmacro %}
+
+{% macro facts_block(facts, path, matter_id) %}
+<div id="matter-facts" class="flex flex-col gap-3">
+  {% if facts %}
+  <ul class="border-t border-aegis-border/60">
+    {% for fact in facts %}{{ fact_row(fact, path) }}{% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>Nothing recorded yet.</p>
+  {% endif %}
+  {{ action("Record a fact", hx_dialog(path ~ "/" ~ matter_id ~ "/facts/new")) }}
 </div>
 {% endmacro %}

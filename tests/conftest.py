@@ -98,11 +98,13 @@ from app.services.finance.models import (  # noqa: F401
 # Import matter models to register them with SQLModel metadata
 from app.services.matters.models import (  # noqa: F401
     DocumentParty,
+    Fact,
     Matter,
     MatterParticipant,
     Party,
     Request,
     RequestItem,
+    SignIn,
 )
 
 # Import scheduler models to register them with SQLModel metadata

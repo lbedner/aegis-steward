@@ -1,7 +1,8 @@
 {% extends layout %}
 {% from "components/macros/layout.html" import page_header, card, badge %}
 {% from "components/macros/form.html" import action %}
-{% from "components/macros/matters.html" import requests_block %}
+{% from "components/macros/matters.html" import facts_block, requests_block %}
+{% from "components/macros/table.html" import data_table %}
 
 {% block title %}{{ matter.title }} - {{ project_name }}{% endblock %}
 
@@ -15,11 +16,11 @@
     <div class="min-w-0">
       <h1 class="text-lg font-semibold text-aegis-text">{{ matter.title }}</h1>
       <p data-facts class="text-xs text-aegis-muted mt-1">
-        {%- set facts = [] -%}
-        {%- if matter.kind %}{% set _ = facts.append(matter.kind|title) %}{% endif -%}
-        {%- if matter.reference %}{% set _ = facts.append("Their ref " ~ matter.reference) %}{% endif -%}
-        {%- if matter.opened_on %}{% set _ = facts.append("opened " ~ matter.opened_on|short_date) %}{% endif -%}
-        {{ facts|join(" · ") }}
+        {%- set meta = [] -%}
+        {%- if matter.kind %}{% set _ = meta.append(matter.kind|title) %}{% endif -%}
+        {%- if matter.reference %}{% set _ = meta.append("Their ref " ~ matter.reference) %}{% endif -%}
+        {%- if matter.opened_on %}{% set _ = meta.append("opened " ~ matter.opened_on|short_date) %}{% endif -%}
+        {{ meta|join(" · ") }}
       </p>
     </div>
     {{ badge(matter.status, "ok" if matter.status == "open" else "muted") }}
@@ -43,6 +44,20 @@
 
   {% call card("What they asked for") %}
   {{ requests_block(requests, path, matter.id) }}
+  {% endcall %}
+
+  {# What we can say, and how we know. Separate from the asks because a
+     fact outlives the case that gathered it: what the pension paid in
+     August is true whether or not this renewal is still open. #}
+  {% call card("What we can say") %}
+  {{ facts_block(facts, path, matter.id) }}
+  {% endcall %}
+
+  {# The shelf. Paper arrives before anybody knows which ask it answers,
+     and a shelf you cannot put a document on is a shelf nobody uses. #}
+  {% call card("Paper on this matter") %}
+  {{ data_table(paper_columns, papers, empty="Nothing filed yet", path=path) }}
+  {{ action("Add a document", hx_dialog(path ~ "/" ~ matter.id ~ "/documents/new")) }}
   {% endcall %}
 </section>
 {% endblock %}

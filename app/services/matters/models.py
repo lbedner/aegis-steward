@@ -318,3 +318,122 @@ def matter_tag(matter_id: int) -> str:
     caller reads it from here.
     """
     return f"matter:{matter_id}"
+
+
+# What a fact is a claim ABOUT. A slug, because the letter's own wording
+# is a label and two letters word the same question differently - the
+# slug is what a form field or a tool can be asked for by name.
+FACT_ATTRIBUTES = (
+    ("gross_income", "Gross income"),
+    ("net_income", "Net income"),
+    ("account_balance", "Account balance"),
+    ("resource_value", "Resource value"),
+    ("premium", "Premium withheld"),
+    ("other", "Something else"),
+)
+
+# How often the money arrives. A pension portal quotes a DAILY rate and
+# the county asks for a monthly figure; storing the rate as quoted and
+# saying over what period keeps the app from filing arithmetic as a
+# quotation.
+FACT_PERIODS = ("once", "day", "week", "month", "year")
+
+# Where the number came from, which is the whole point of the row. The
+# same figure means different things depending on whether it came from a
+# deposit, a statement or a benefit letter, and only one of those is fit
+# to put on a government form.
+FACT_PROVENANCE = ("stated", "document", "ledger")
+
+
+class Fact(SQLModel, table=True):
+    """A claim about someone's money at a moment, with its source.
+
+    Append-only in spirit: a corrected figure SUPERSEDES rather than
+    replaces, so the number that was filed last year is still
+    recoverable when somebody asks what you told them.
+
+    Two facts for the same subject, attribute and date are normal and
+    deliberate - a deposit says one thing and a benefit letter another,
+    and recording that they disagree is the feature. Deciding which is
+    right is the reader's.
+    """
+
+    __tablename__ = "fact"
+    __table_args__ = (
+        Index("ix_fact_subject", "subject_party_id"),
+        Index("ix_fact_matter", "matter_id"),
+        Index("ix_fact_attribute", "attribute"),
+        Index("ix_fact_document", "document_id"),
+        Index("ix_fact_deleted", "deleted_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None)
+    subject_party_id: int = Field()
+    # The case it was gathered for, if any. A fact outlives the matter:
+    # what James's pension paid in August is true whether or not the
+    # renewal that asked is still open.
+    matter_id: int | None = Field(default=None)
+
+    attribute: str = Field(max_length=40)
+    # What the source calls it - "IBEW pension", "Eleanor incidental".
+    # The slug says what KIND of claim it is; this says which one.
+    label: str | None = Field(default=None, max_length=120)
+    value_cents: int | None = Field(default=None)
+    period: str = Field(default="once", max_length=10)
+    # For an answer that is not money: a policy number, a vehicle, a yes.
+    text_value: str | None = Field(default=None)
+    as_of: date | None = Field(default=None)
+
+    provenance: str = Field(default="stated", max_length=16)
+    document_id: int | None = Field(default=None)
+    page: int | None = Field(default=None)
+    # Where a stated figure came from: a portal, a phone call, a person.
+    source_note: str | None = Field(default=None)
+    # The page it was read off. A pension portal is where the number
+    # lives and the only way back to it is the address - "the pension
+    # site" is not a way back to anything a year later.
+    source_url: str | None = Field(default=None, max_length=500)
+    # Checked against the source by a human. Never set by extraction.
+    verified: bool = Field(default=False)
+    superseded_by_id: int | None = Field(default=None)
+
+    note: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    deleted_at: datetime | None = Field(default=None)
+
+
+class SignIn(SQLModel, table=True):
+    """How you get into a party's account somewhere.
+
+    Managing somebody's affairs means logging in as them - the pension
+    portal, the facility's billing page, the county's upload site - and
+    a password that lives on a sticky note beside the laptop is the
+    thing this replaces, not improves on.
+
+    The secret is AES-256-GCM at rest, bound to the row, so a copy of
+    the database is not a copy of the logins. The app server holds the
+    key: this protects a stolen dump, not a stolen machine, and says so
+    rather than implying more.
+    """
+
+    __tablename__ = "sign_in"
+    __table_args__ = (
+        Index("ix_sign_in_party", "party_id"),
+        Index("ix_sign_in_deleted", "deleted_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None)
+    party_id: int = Field()
+    label: str = Field(max_length=120)
+    url: str | None = Field(default=None, max_length=500)
+    username: str | None = Field(default=None, max_length=255)
+    # Never the password itself. The column name says what is in it so
+    # nobody writes plaintext here by accident.
+    secret_encrypted: str | None = Field(default=None)
+    note: str | None = Field(default=None)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    deleted_at: datetime | None = Field(default=None)

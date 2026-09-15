@@ -46,6 +46,10 @@ from app.services.ai.service.prompt import PromptMixin, history_char_budget
 # API, the CLI, and code-mode agents alike.
 import app.services.finance.ai_tools  # noqa: F401
 
+# And the matter tools (parties, matters, requests, facts): the case
+# surface is read the same way, by name, in every process that chats.
+import app.services.matters.ai_tools  # noqa: F401
+
 
 class ChatMixin(PromptMixin):
     """Non-streaming chat turn plus conversation setup/teardown."""
