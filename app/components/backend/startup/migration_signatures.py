@@ -56,6 +56,7 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
         "finance.finance_institution",
         "party_id",
     ),
+    "fact_account": ("column", "fact", "account_id"),
     # insight_source, not project: the project table only exists in the
     # per-user shape, insight_source in both.
     "insights": ("table", "insight_source"),

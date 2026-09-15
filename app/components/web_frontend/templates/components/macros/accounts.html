@@ -118,6 +118,7 @@
           on the page MEANS - a balance that is not ours is not part of
           any total the reader has in their head. -#}
       {%- if whose_name %}{% set _ = facts.append(whose_name ~ "'s") %}{% endif -%}
+      {%- if selected.reference %}{% set _ = facts.append(selected.reference) %}{% endif -%}
       {%- if not selected.connection_id %}{% set _ = facts.append("Not connected") %}{% endif -%}
       {%- if selected.currency and selected.currency|upper != "USD" %}{% set _ = facts.append(selected.currency|upper) %}{% endif -%}
       {{ facts|join(" · ") }}{% if facts and (held_with or statement_line) %} · {% endif %}

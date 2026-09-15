@@ -10,7 +10,9 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Any
 
+from app.services.finance.domains.ledger.queries.accounts import HOUSEHOLD
 from app.services.finance.domains.planning import recurring
+from app.services.finance.domains.planning.recurring import queries as stream_queries
 from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
@@ -23,9 +25,14 @@ class RecurringMixin(FinanceServiceBase):
     """Recurring streams: bills, income, matching and the forecast."""
 
     async def list_recurring(
-        self, *, owner_user_id: int | None = None
+        self,
+        *,
+        owner_user_id: int | None = None,
+        subject_id: int | None = HOUSEHOLD,
     ) -> list[FinanceRecurringStream]:
-        return await recurring.list_recurring(self.db, owner_user_id=owner_user_id)
+        return await stream_queries.active_streams(
+            self.db, owner_user_id=owner_user_id, subject_id=subject_id
+        )
 
     async def create_recurring_stream(
         self,
@@ -187,12 +194,14 @@ class RecurringMixin(FinanceServiceBase):
         days: int = 180,
         today: date | None = None,
         account_ids: list[int] | None = None,
+        subject_id: int | None = HOUSEHOLD,
     ) -> ProjectionResponse:
         return await recurring.project_balances(
             self.db,
             owner_user_id=owner_user_id,
             days=days,
             today=today,
+            subject_id=subject_id,
             account_ids=account_ids,
         )
 

@@ -53,12 +53,16 @@ def _cents(amount: str) -> int | None:
     return cents
 
 
-async def _subjects(db: AsyncSession, matter_id: int) -> list[dict[str, Any]]:
+async def _subjects(db: AsyncSession, matter_id: int | None) -> list[dict[str, Any]]:
     """Who a fact on this matter can be about: everyone in the case,
     then everybody else. A fact is about a PERSON - it is their money -
     so the case's own people lead."""
     matters = MatterService(db)
-    inside = [party.id for _, party in await matters.participants(matter_id)]
+    inside = (
+        [party.id for _, party in await matters.participants(matter_id)]
+        if matter_id
+        else []
+    )
     parties = await PartyService(db).find()
     ranked = sorted(parties, key=lambda p: (p.id not in inside, p.sort_name or p.name))
     return [{"id": p.id, "name": p.name} for p in ranked]
@@ -75,21 +79,32 @@ async def facts_for(db: AsyncSession, matter_id: int) -> list[dict[str, Any]]:
 async def _form(
     request: Request,
     db: AsyncSession,
-    matter_id: int,
+    matter_id: int | None,
     status_code: int = 200,
     errors: list[str] | None = None,
+    account_id: int | None = None,
     **typed: Any,
 ) -> Response:
     from app.services.documents.service import DocumentService
     from app.services.matters.models import matter_tag
 
-    filed, _ = await DocumentService(db).list_documents(tag=matter_tag(matter_id))
+    filed, _ = (
+        await DocumentService(db).list_documents(tag=matter_tag(matter_id))
+        if matter_id
+        else ([], 0)
+    )
     book = await place_book(db)
     return dialog(
         request,
         "partials/matters/fact.html",
         status_code,
         matter_id=matter_id,
+        account_id=account_id,
+        post=(
+            f"{SECTION.path}/{matter_id}/facts/new"
+            if matter_id
+            else f"/accounts/{account_id}/facts/new"
+        ),
         path=SECTION.path,
         subjects=await _subjects(db, matter_id),
         attributes=FACT_ATTRIBUTES,
@@ -213,3 +228,116 @@ async def forget(request: Request, fact_id: int) -> Response:
     return dialog_done(
         where_from(request, f"{SECTION.path}/{matter_id or ''}"), "Forgotten"
     )
+
+
+# The same dialog, opened from an account. A figure read off a pension
+# portal is a fact about that account, and walking to the matter to
+# record it is how it does not get recorded.
+accounts = APIRouter(prefix="/accounts")
+
+
+async def _account_subject(db: AsyncSession, account_id: int) -> tuple[int, int | None]:
+    """The party whose account this is, and the open case they are the
+    subject of - so a figure recorded here lands where it is asked for."""
+    from app.services.finance.models import FinanceAccount, FinanceSubject
+    from app.services.matters.matters import MatterService
+
+    account = await db.get(FinanceAccount, account_id)
+    if account is None or not account.subject_id:
+        raise HTTPException(status_code=404)
+    subject = await db.get(FinanceSubject, account.subject_id)
+    if subject is None or not subject.party_id:
+        raise HTTPException(status_code=404)
+    matters = MatterService(db)
+    for matter in await matters.find(status="open"):
+        for link, party in await matters.participants(matter.id):
+            if party.id == subject.party_id and link.role == "subject":
+                return subject.party_id, matter.id
+    return subject.party_id, None
+
+
+@accounts.get("/{account_id:int}/facts/new", include_in_schema=False)
+async def new_account_fact(request: Request, account_id: int) -> Response:
+    async with get_async_session() as db:
+        party_id, matter_id = await _account_subject(db, account_id)
+        return await _form(
+            request,
+            db,
+            matter_id,
+            account_id=account_id,
+            subject_party_id=str(party_id),
+        )
+
+
+@accounts.post("/{account_id:int}/facts/new", include_in_schema=False)
+async def record_account_fact(
+    request: Request,
+    account_id: int,
+    subject_party_id: Annotated[str, Form()] = "",
+    attribute: Annotated[str, Form()] = "gross_income",
+    label: Annotated[str, Form()] = "",
+    amount: Annotated[str, Form()] = "",
+    period: Annotated[str, Form()] = "month",
+    text_value: Annotated[str, Form()] = "",
+    as_of: Annotated[str, Form()] = "",
+    provenance: Annotated[str, Form()] = "stated",
+    document_id: Annotated[str, Form()] = "",
+    source_party_id: Annotated[str, Form()] = "",
+    page: Annotated[str, Form()] = "",
+    source_note: Annotated[str, Form()] = "",
+    source_url: Annotated[str, Form()] = "",
+    verified: Annotated[str, Form()] = "",
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """A fact recorded from the account it is about."""
+    typed = {
+        "subject_party_id": subject_party_id,
+        "attribute": attribute,
+        "label": label,
+        "amount": amount,
+        "period": period,
+        "text_value": text_value,
+        "as_of": as_of,
+        "provenance": provenance,
+        "document_id": document_id,
+        "source_party_id": source_party_id,
+        "page": page,
+        "source_note": source_note,
+        "source_url": source_url,
+    }
+    async with get_async_session() as db:
+        _party_id, matter_id = await _account_subject(db, account_id)
+        try:
+            if not subject_party_id:
+                raise ValueError("Say who the fact is about.")
+            await FactService(db).record(
+                subject_party_id=int(subject_party_id),
+                matter_id=matter_id,
+                account_id=account_id,
+                attribute=attribute,
+                label=label,
+                value_cents=_cents(amount),
+                period=period,
+                text_value=text_value,
+                as_of=date_type.fromisoformat(as_of) if as_of else None,
+                provenance=provenance,
+                document_id=int(document_id) if document_id else None,
+                page=int(page) if page else None,
+                source_party_id=int(source_party_id) if source_party_id else None,
+                source_url=source_url,
+                source_note=source_note,
+                verified=bool(verified),
+                owner_user_id=owner_user_id,
+            )
+        except ValueError as exc:
+            return await _form(
+                request,
+                db,
+                matter_id,
+                422,
+                [str(exc)],
+                account_id=account_id,
+                **typed,
+            )
+        await db.commit()
+    return dialog_done(f"/accounts/{account_id}/overview", "Recorded")

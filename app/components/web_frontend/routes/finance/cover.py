@@ -368,7 +368,10 @@ async def about_the_subject(service: FinanceService, account: Any) -> dict[str, 
     if party_id is None:
         return {"about": [], "matters": []}
     places = await place_book(service.db)
-    facts = await FactService(service.db).find(subject_party_id=party_id)
+    # About THIS account, not everything known about its owner: his
+    # incidental balance at a nursing home is not a fact about his
+    # pension, and a page that lists both is a page you stop reading.
+    facts = await FactService(service.db).find(account_id=account.id)
     matters = MatterService(service.db)
     cases = [
         {"id": matter.id, "title": matter.title, "status": matter.status}
@@ -376,4 +379,11 @@ async def about_the_subject(service: FinanceService, account: Any) -> dict[str, 
         for link, party in await matters.participants(matter.id)
         if party.id == party_id and link.role == "subject"
     ]
-    return {"about": [drawn(fact, places) for fact in facts], "matters": cases}
+    return {
+        "about": [drawn(fact, places) for fact in facts],
+        "matters": cases,
+        # Where a new one goes: the case if there is one, so a figure
+        # recorded here lands where the county is asking for it.
+        "fact_matter_id": cases[0]["id"] if cases else None,
+        "fact_party_id": party_id,
+    }

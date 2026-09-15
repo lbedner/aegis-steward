@@ -30,7 +30,7 @@ from app.services.finance.domains.ledger.properties import (
     property_metadata,
     secured_position,
 )
-from app.services.finance.domains.ledger.queries.accounts import accounts_page
+from app.services.finance.domains.ledger.queries.accounts import EVERYONE, accounts_page
 from app.services.finance.domains.ledger.subjects import subject_filter
 from app.services.finance.domains.ledger.valuations import preferred_valuation_row
 from app.services.finance.domains.planning.envelopes import envelope_metadata
@@ -97,7 +97,9 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             for account in account_rows
             if account.account_type == PROPERTY_ACCOUNT_TYPE
         }
-        streams = await recurring_queries.active_streams(session)
+        streams = await recurring_queries.active_streams(
+            session, subject_id=EVERYONE
+        )
 
     today = current_date()
     horizon = today + timedelta(days=_UPCOMING_WINDOW_DAYS)

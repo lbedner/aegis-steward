@@ -15,6 +15,9 @@ def create_web_frontend_app() -> APIRouter:
     router = APIRouter()
 
     from app.components.web_frontend.routes.chat import router as chat_router
+    from app.components.web_frontend.routes.facts import (
+        accounts as account_facts_router,
+    )
     from app.components.web_frontend.routes.facts import router as facts_router
     from app.components.web_frontend.routes.finance import router as finance_router
     from app.components.web_frontend.routes.icons import router as icons_router
@@ -31,6 +34,7 @@ def create_web_frontend_app() -> APIRouter:
     router.include_router(matters_router)
     router.include_router(requests_router)
     router.include_router(facts_router)
+    router.include_router(account_facts_router)
     router.include_router(signins_router)
     router.include_router(people_router)
     router.include_router(icons_router)

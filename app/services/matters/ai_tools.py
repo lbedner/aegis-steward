@@ -176,6 +176,7 @@ async def requests(matter_id: int | None = None, outstanding: bool = True) -> di
 async def facts(
     subject_party_id: int | None = None,
     matter_id: int | None = None,
+    account_id: int | None = None,
     attribute: str | None = None,
 ) -> dict[str, Any]:
     """What can be said about someone's money, and how it is known.
@@ -183,6 +184,8 @@ async def facts(
     Args:
         subject_party_id: Whose money.
         matter_id: The case the facts were gathered for.
+        account_id: The account they are about - a pension's monthly
+            figure, its plan, the number it is known by.
         attribute: One of gross_income, net_income, account_balance,
             resource_value, premium, other.
 
@@ -203,6 +206,7 @@ async def facts(
         found = await FactService(db).find(
             subject_party_id=subject_party_id,
             matter_id=matter_id,
+            account_id=account_id,
             attribute=attribute,
         )
         names = {party.id: party.name for party in await PartyService(db).find()}
@@ -213,6 +217,7 @@ async def facts(
                 "subject_party_id": fact.subject_party_id,
                 "subject": names.get(fact.subject_party_id),
                 "matter_id": fact.matter_id,
+                "account_id": fact.account_id,
                 "attribute": fact.attribute,
                 "attribute_label": ATTRIBUTE_LABELS.get(fact.attribute),
                 "label": fact.label,

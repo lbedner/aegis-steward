@@ -9,7 +9,7 @@
 {% from "components/macros/layout.html" import dialog_title %}
 {{ dialog_title("Record a fact", "What you can say, and how you know. A correction later supersedes this rather than replacing it.") }}
 {{ error_banner(errors) }}
-<form {{ hx_dialog_post(path ~ "/" ~ matter_id ~ "/facts/new") }} class="space-y-4">
+<form {{ hx_dialog_post(post) }} class="space-y-4">
   {% call field("About") %}{{ select("subject_party_id", subjects, typed.subject_party_id, blank=None, block=True) }}{% endcall %}
   {% call field("What kind of claim") %}{{ select("attribute", attributes|as_options, typed.attribute or "gross_income", blank=None, block=True) }}{% endcall %}
   {% call field("What the source calls it") %}{{ text_input("label", typed.label, placeholder="IBEW pension, Eleanor incidental") }}{% endcall %}

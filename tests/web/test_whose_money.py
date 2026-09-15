@@ -361,3 +361,92 @@ class TestTheAccountFrontPage:
         ][0].removesuffix("/overview")
 
         none(client.get(f"{base}/overview").text, "[data-who]")
+
+
+class TestTheirIncome:
+    @pytest.mark.asyncio
+    async def test_their_pension_stream_stays_out_of_our_forecast(
+        self, async_db_session: AsyncSession, person: Any
+    ) -> None:
+        """The column has been there since subjects shipped; the filter
+        had not - so a parent's pension would have walked straight into
+        the balance line the day somebody recorded it."""
+        from datetime import date
+
+        from app.services.finance.domains.ledger.queries.accounts import EVERYONE
+        from app.services.finance.domains.ledger.subjects import subject_for_party
+        from app.services.finance.domains.planning.recurring import queries
+        from app.services.finance.service import FinanceService
+        from tests.services._finance_factories import seed_stream
+
+        party_id = await person("Stream Subject One")
+        subject = await subject_for_party(
+            async_db_session, int(party_id), name="Stream Subject One"
+        )
+        svc = FinanceService(async_db_session)
+        await seed_stream(
+            svc,
+            name="Stream Their Pension",
+            expected_amount=100_493,
+            next_expected_date=date(2026, 9, 30),
+            direction="inflow",
+            subject_id=subject.id,
+        )
+        await seed_stream(
+            svc,
+            name="Stream Our Rent",
+            expected_amount=200_000,
+            next_expected_date=date(2026, 9, 30),
+        )
+        await async_db_session.commit()
+
+        ours = await queries.active_streams(async_db_session)
+        everybody = await queries.active_streams(
+            async_db_session, subject_id=EVERYONE
+        )
+
+        assert "Stream Their Pension" not in [s.name for s in ours]
+        assert "Stream Our Rent" in [s.name for s in ours]
+        assert "Stream Their Pension" in [s.name for s in everybody]
+
+    @pytest.mark.asyncio
+    async def test_picking_their_account_shows_their_money(
+        self, client: TestClient, person: Any, async_db_session: AsyncSession
+    ) -> None:
+        """Naming accounts is the narrower statement and wins. Asked for
+        a parent's account, the answer is their money - not an empty
+        chart explaining that it was never ours."""
+        from datetime import timedelta
+
+        from app.services.finance.domains.ledger.subjects import subject_for_party
+        from app.services.finance.service import FinanceService
+        from app.services.finance.utils import current_date
+        from tests.services._finance_factories import seed_account, seed_stream
+
+        party_id = await person("Projected Subject One")
+        subject = await subject_for_party(
+            async_db_session, int(party_id), name="Projected Subject One"
+        )
+        svc = FinanceService(async_db_session)
+        theirs = await seed_account(svc, name="Projected Their Checking")
+        theirs.subject_id = subject.id
+        async_db_session.add(theirs)
+        await seed_stream(
+            svc,
+            name="Projected Their Pension",
+            expected_amount=100_493,
+            next_expected_date=current_date() + timedelta(days=7),
+            direction="inflow",
+            subject_id=subject.id,
+            account_id=theirs.id,
+        )
+        await async_db_session.commit()
+
+        ours = client.get("/projected").text
+        assert "Projected Their Pension" not in text(one(ours, "#app-content"))
+
+        # Their chip, and their account by name: both reach it.
+        by_chip = client.get(f"/projected?whose={subject.id}").text
+        by_account = client.get(f"/projected?account_ids={theirs.id}").text
+        assert "Projected Their Pension" in text(one(by_chip, "#app-content"))
+        assert "Projected Their Pension" in text(one(by_account, "#app-content"))

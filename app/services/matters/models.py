@@ -362,6 +362,7 @@ class Fact(SQLModel, table=True):
     __table_args__ = (
         Index("ix_fact_subject", "subject_party_id"),
         Index("ix_fact_matter", "matter_id"),
+        Index("ix_fact_account", "account_id"),
         Index("ix_fact_attribute", "attribute"),
         Index("ix_fact_document", "document_id"),
         Index("ix_fact_source_party", "source_party_id"),
@@ -376,6 +377,10 @@ class Fact(SQLModel, table=True):
     # renewal that asked is still open.
     matter_id: int | None = Field(default=None)
 
+    # The account this is about, where it is about one: "$1,004.93 a
+    # month" belongs on the pension that pays it, not only on the man it
+    # pays. A plain column, like every other reference here.
+    account_id: int | None = Field(default=None)
     attribute: str = Field(max_length=40)
     # What the source calls it - "IBEW pension", "Eleanor incidental".
     # The slug says what KIND of claim it is; this says which one.

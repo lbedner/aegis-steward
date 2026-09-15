@@ -2,7 +2,7 @@
 {% from "components/macros/layout.html" import card, chart_panel, stats_strip %}
 {% from "components/macros/accounts.html" import account_header %}
 {% from "components/macros/table.html" import data_table %}
-{% from "components/macros/form.html" import range_chips %}
+{% from "components/macros/form.html" import action, range_chips %}
 {% from "components/macros/matters.html" import fact_row %}
 
 {% block title %}{{ selected.name }} - {{ project_name }}{% endblock %}
@@ -60,7 +60,7 @@
       in a bank account somewhere else - so what it is FOR is the figure
       somebody has to put on a form. The same row the matter draws, from
       the same macro. -#}
-  {% if about or matters %}
+  {% if about or matters or fact_party_id %}
   {% call card("What we can say") %}
   {% if about %}
   <ul class="border-t border-aegis-border/60">
@@ -72,6 +72,9 @@
     In <a href="/matters/{{ matter.id }}" {{ hx_page("/matters/" ~ matter.id) }} class="text-aegis-teal hover:underline">{{ matter.title }}</a>, still {{ matter.status }}.
   </p>
   {% endfor %}
+  {% if fact_party_id %}
+  {{ action("Record a fact", hx_dialog(section.path ~ "/" ~ selected.id ~ "/facts/new")) }}
+  {% endif %}
   {% endcall %}
   {% endif %}
 

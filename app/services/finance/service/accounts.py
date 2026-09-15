@@ -256,6 +256,7 @@ class AccountsMixin(FinanceServiceBase):
         *,
         owner_user_id: int | None = None,
         name: str | None = None,
+        reference: str | None = None,
         is_hidden: bool | None = None,
         is_closed: bool | None = None,
     ) -> FinanceAccount | None:
@@ -264,6 +265,7 @@ class AccountsMixin(FinanceServiceBase):
             account_id,
             owner_user_id=owner_user_id,
             name=name,
+            reference=reference,
             is_hidden=is_hidden,
             is_closed=is_closed,
         )

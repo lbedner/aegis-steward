@@ -114,6 +114,7 @@ async def update_account(
         account_id,
         owner_user_id=owner_user_id,
         name=body.name,
+        reference=body.reference,
         is_hidden=body.is_hidden,
         is_closed=body.is_closed,
     )

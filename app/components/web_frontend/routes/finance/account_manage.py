@@ -87,6 +87,7 @@ async def rename_form(
         "partials/accounts/rename.html",
         account=account,
         name=account.name,
+        reference=account.reference or "",
         errors=[],
     )
 
@@ -96,6 +97,7 @@ async def rename(
     request: Request,
     account_id: int,
     name: Annotated[str, Form()] = "",
+    reference: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
@@ -108,11 +110,12 @@ async def rename(
             422,
             account=account,
             name=name,
+            reference=reference,
             errors=["Give the account a name."],
         )
     await update_account(
         account_id,
-        AccountUpdate(name=label),
+        AccountUpdate(name=label, reference=reference.strip()),
         service=service,
         owner_user_id=owner_user_id,
     )

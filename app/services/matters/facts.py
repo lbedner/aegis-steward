@@ -54,6 +54,7 @@ class FactService:
         *,
         subject_party_id: int,
         attribute: str,
+        account_id: int | None = None,
         value_cents: int | None = None,
         period: str = "once",
         text_value: str | None = None,
@@ -91,6 +92,7 @@ class FactService:
             owner_user_id=owner_user_id,
             subject_party_id=subject_party_id,
             matter_id=matter_id,
+            account_id=account_id,
             attribute=attribute,
             label=(label or "").strip() or None,
             value_cents=value_cents,
@@ -119,6 +121,7 @@ class FactService:
         *,
         subject_party_id: int | None = None,
         matter_id: int | None = None,
+        account_id: int | None = None,
         attribute: str | None = None,
         standing: bool = True,
     ) -> list[Fact]:
@@ -134,6 +137,8 @@ class FactService:
             query = query.where(Fact.subject_party_id == subject_party_id)
         if matter_id is not None:
             query = query.where(Fact.matter_id == matter_id)
+        if account_id is not None:
+            query = query.where(Fact.account_id == account_id)
         if attribute:
             query = query.where(Fact.attribute == attribute)
         if standing:
@@ -156,6 +161,7 @@ class FactService:
         carried: dict[str, Any] = {
             "subject_party_id": old.subject_party_id,
             "matter_id": old.matter_id,
+            "account_id": old.account_id,
             "attribute": old.attribute,
             "label": old.label,
             "value_cents": old.value_cents,
@@ -269,6 +275,7 @@ def drawn(fact: Fact, places: dict[int, dict[str, str]] | None = None) -> dict[s
         "id": fact.id,
         "subject_party_id": fact.subject_party_id,
         "matter_id": fact.matter_id,
+        "account_id": fact.account_id,
         "subject": (places or {}).get(fact.subject_party_id, {}).get("name", ""),
         "attribute": fact.attribute,
         "attribute_label": LABELS.get(fact.attribute, fact.attribute),

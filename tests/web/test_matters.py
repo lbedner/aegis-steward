@@ -81,20 +81,27 @@ class TestTheMattersPage:
         assert len(rows) == 1
 
     def test_a_matter_needs_a_title(self, client: TestClient) -> None:
+        before = len(select(client.get("/matters").text, "#matters tbody tr"))
+
         answer = client.post(
             "/matters/new",
             data={
                 "title": "  ",
                 "kind": "",
-                "reference": "",
+                "reference": "MA-NO-TITLE",
                 "subject_party_id": "",
                 "counterpart_party_id": "",
                 "opened_on": "",
             },
         )
+
         assert answer.status_code == 422
         assert "needs a title" in answer.text
-        assert "No matters yet" in client.get("/matters").text
+        # Counted, not "the page is empty": tests share a database, and
+        # a neighbour's matter is not this one's failure.
+        listing = client.get("/matters").text
+        assert len(select(listing, "#matters tbody tr")) == before
+        assert "MA-NO-TITLE" not in listing
 
 
 def _matter(client: TestClient, reference: str) -> str:

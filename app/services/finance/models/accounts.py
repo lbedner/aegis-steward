@@ -97,6 +97,11 @@ class FinanceAccount(SQLModel, table=True):
     persistent_account_id: str | None = Field(default=None, index=True)
     name: str = Field(max_length=255)
     official_name: str | None = Field(default=None, max_length=255)
+    # The number the institution knows it by - a NYSLRS ID, a policy
+    # number, a member number. Their reference, the same call a matter
+    # makes: it is what a statement prints and what somebody searches
+    # for. ``mask`` is four digits of a card and answers nothing else.
+    reference: str | None = Field(default=None, max_length=64)
     mask: str | None = Field(default=None, max_length=8)
     type: str | None = Field(default=None)
     subtype: str | None = Field(default=None)

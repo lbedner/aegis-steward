@@ -44,6 +44,7 @@ class RecordFactPayload(BaseModel):
     text_value: str | None = None
     as_of: date | None = None
     matter_id: int | None = None
+    account_id: int | None = None
     document_id: int | None = None
     page: int | None = None
     source_party_id: int | None = None
@@ -84,6 +85,7 @@ async def record_fact_execute(
     fact = await FactService(db).record(
         subject_party_id=payload.subject_party_id,
         matter_id=payload.matter_id,
+        account_id=payload.account_id,
         attribute=payload.attribute,
         label=payload.label,
         value_cents=payload.value_cents,

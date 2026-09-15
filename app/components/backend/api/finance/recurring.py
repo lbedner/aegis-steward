@@ -41,6 +41,7 @@ from app.services.finance.schemas import (
     TransactionResponse,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.service.accounts import HOUSEHOLD
 from app.services.finance.utils import current_date
 
 router = APIRouter()
@@ -50,7 +51,9 @@ router = APIRouter()
 
 
 async def visible_streams(
-    service: FinanceService, owner_user_id: int | None
+    service: FinanceService,
+    owner_user_id: int | None,
+    subject_id: int | None = HOUSEHOLD,
 ) -> tuple[list[FinanceRecurringStream], set[int]]:
     """Streams worth listing, plus which of them are card/loan payments.
 
@@ -61,7 +64,9 @@ async def visible_streams(
     confirmable here or it can never reach the cash forecast) but out of
     the rollup, because the card's swipes already counted.
     """
-    streams = await service.list_recurring(owner_user_id=owner_user_id)
+    streams = await service.list_recurring(
+        owner_user_id=owner_user_id, subject_id=subject_id
+    )
     transfer_ids = await service.transfer_stream_ids([s.id for s in streams])
     payment_ids = await service.payment_stream_ids(list(transfer_ids))
     streams = [s for s in streams if s.id not in transfer_ids or s.id in payment_ids]
@@ -130,12 +135,13 @@ async def hydrate_streams(
 
 @router.get("/recurring", response_model=RecurringListResponse)
 async def list_recurring(
+    subject_id: int | None = HOUSEHOLD,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> RecurringListResponse:
     """Detected recurring streams, soonest-due first, plus the monthly-cost
     rollup (monthly-equivalent of all recurring outflows)."""
-    streams, payment_ids = await visible_streams(service, owner_user_id)
+    streams, payment_ids = await visible_streams(service, owner_user_id, subject_id)
     # The rollup counts COMMITMENTS only (declared, confirmed, subscription,
     # or fixed-amount at a bill cadence). Summing every detected merchant
     # rhythm reads hundreds of shopping habits as "recurring bills" and

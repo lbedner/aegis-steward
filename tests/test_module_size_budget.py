@@ -64,11 +64,11 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/routes/chat.py": 936,
     "components/frontend/dashboard/modals/finance_modal/transactions_panel/panel.py": 899,
     "components/frontend/dashboard/modals/finance_modal/uncategorized_panel.py": 850,
-    "components/web_frontend/routes/finance/account_manage.py": 721,
+    "components/web_frontend/routes/finance/account_manage.py": 724,
     "components/frontend/dashboard/modals/comms_modal.py": 832,
     "components/frontend/controls/form_fields.py": 810,
     "cli/load_test.py": 805,
-    "components/web_frontend/routes/finance/bills.py": 786,
+    "components/web_frontend/routes/finance/bills.py": 634,
     "components/web_frontend/routes/finance/transactions.py": 781,
     "components/frontend/dashboard/modals/llm_catalog_tab.py": 776,
     "services/ai/domains/llm/etl/llm_sync_service.py": 737,
@@ -104,7 +104,6 @@ BUDGET: dict[str, int] = {
     "components/frontend/dashboard/modals/finance_modal/budget_panel/panel.py": 534,
     "services/finance/domains/ledger/networth.py": 531,
     "components/frontend/dashboard/modals/ai_analytics_tab.py": 530,
-    "services/finance/domains/ledger/accounts.py": 521,
     # The change-type vocabulary the agent is taught lives in here and
     # grows by a line or two with every new type. Re-recorded when
     # account.create learned whose money an account holds; the file is

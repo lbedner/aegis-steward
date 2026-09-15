@@ -112,6 +112,7 @@ class AccountResponse(BaseModel):
     is_manual: bool
     institution_id: int | None = None
     connection_id: int | None = None
+    reference: str | None = None
     # Whose money this is, when it is not the household's own. Null is
     # ours, so every ledger that predates subjects reads unchanged.
     subject_id: int | None = None
@@ -140,6 +141,7 @@ class AccountResponse(BaseModel):
             is_manual=row.is_manual,
             institution_id=row.institution_id,
             connection_id=row.connection_id,
+            reference=row.reference,
             subject_id=row.subject_id,
             liability=(
                 LiabilitySummary.from_row(liability) if liability is not None else None
@@ -307,6 +309,9 @@ class AccountUpdate(BaseModel):
     """Partial update — only provided fields change."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    # The number the institution prints. Empty clears it, which is why
+    # it is a string and not left out: "" is an answer here.
+    reference: str | None = Field(default=None, max_length=64)
     is_hidden: bool | None = None
     is_closed: bool | None = None
 
