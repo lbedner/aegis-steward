@@ -42,13 +42,13 @@ def job_session(
     async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The import job opens its own session; point it at the test's."""
-    from app.components.backend.api.finance import imports as api_imports
+    from app.services.finance.domains import imports_job
 
     @asynccontextmanager
     async def _session():  # noqa: ANN202
         yield async_db_session
 
-    monkeypatch.setattr(api_imports, "_job_session", _session)
+    monkeypatch.setattr(imports_job, "get_async_session", _session)
 
 
 class TestDialog:
@@ -338,3 +338,75 @@ class TestJobFrames:
         assert "Importing x..." in text(one(html, "p"))
         frame = sse_frame("status", html)
         assert frame.startswith("event: status\ndata: ") and frame.endswith("\n\n")
+
+
+class TestWhereTheImportRuns:
+    """A run inside the web process dies with a reload. The worker lane
+    is the default now; this one stays as the fallback for a stack
+    without a worker, and the caller cannot tell which it got."""
+
+    @pytest.mark.asyncio
+    async def test_it_goes_to_the_worker_with_the_key_not_the_bytes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.finance.domains import imports_job
+
+        sent: dict[str, object] = {}
+
+        async def _enqueue(job_id, storage_key, file_name, account_id, owner):
+            sent.update(
+                job_id=job_id,
+                storage_key=storage_key,
+                file_name=file_name,
+                account_id=account_id,
+            )
+
+        class _Store:
+            async def create(self, *a, **k) -> None: ...
+            async def fail(self, *a, **k) -> None: ...
+            async def aclose(self) -> None: ...
+
+        monkeypatch.setattr(imports_job, "_enqueue", _enqueue)
+        monkeypatch.setattr(
+            imports_job, "RedisJobStore", None, raising=False
+        )
+        monkeypatch.setattr(
+            "app.services.system.job_store.RedisJobStore.from_url",
+            lambda url: _Store(),
+        )
+
+        job_id = await imports_job.start_import(
+            "store/abc123", file_name="ledger.csv", account_id=7, owner_user_id=None
+        )
+
+        assert sent["job_id"] == job_id
+        # The file travels through storage; the queue carries its key.
+        assert sent["storage_key"] == "store/abc123"
+        assert sent["file_name"] == "ledger.csv"
+        assert sent["account_id"] == 7
+
+    @pytest.mark.asyncio
+    async def test_no_worker_still_imports_here(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stack without a worker is not a stack that cannot import."""
+        from app.services.finance.domains import imports_job
+
+        async def _no_worker(*a, **k):
+            raise RuntimeError("no redis here")
+
+        started: dict[str, object] = {}
+
+        def _in_process(storage_key, **kwargs):
+            started.update(storage_key=storage_key, **kwargs)
+            return "local-job"
+
+        monkeypatch.setattr(imports_job, "_hand_to_worker", _no_worker)
+        monkeypatch.setattr(imports_job, "start_import_in_process", _in_process)
+
+        job_id = await imports_job.start_import(
+            "store/abc123", file_name="ledger.csv", account_id=None, owner_user_id=None
+        )
+
+        assert job_id == "local-job"
+        assert started["storage_key"] == "store/abc123"

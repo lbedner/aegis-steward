@@ -700,13 +700,13 @@ async def test_background_import_runs_as_a_job(
     """``background=true``: 202 + job id, terminal event carries the counts."""
     from contextlib import asynccontextmanager
 
-    from app.components.backend.api.finance import imports as finance_imports_module
+    from app.services.finance.domains import imports_job
 
     @asynccontextmanager
     async def _session():
         yield async_db_session
 
-    monkeypatch.setattr(finance_imports_module, "_job_session", _session)
+    monkeypatch.setattr(imports_job, "get_async_session", _session)
 
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
@@ -740,13 +740,13 @@ async def test_background_import_failure_lands_in_the_job_error(
     reaches the subscriber instead of dying in a log."""
     from contextlib import asynccontextmanager
 
-    from app.components.backend.api.finance import imports as finance_imports_module
+    from app.services.finance.domains import imports_job
 
     @asynccontextmanager
     async def _session():
         yield async_db_session
 
-    monkeypatch.setattr(finance_imports_module, "_job_session", _session)
+    monkeypatch.setattr(imports_job, "get_async_session", _session)
 
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
     response = authenticated_client.post(
@@ -781,13 +781,13 @@ async def test_job_events_stream_ends_with_the_terminal_snapshot(
     from contextlib import asynccontextmanager
     import json as jsonlib
 
-    from app.components.backend.api.finance import imports as finance_imports_module
+    from app.services.finance.domains import imports_job
 
     @asynccontextmanager
     async def _session():
         yield async_db_session
 
-    monkeypatch.setattr(finance_imports_module, "_job_session", _session)
+    monkeypatch.setattr(imports_job, "get_async_session", _session)
 
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
