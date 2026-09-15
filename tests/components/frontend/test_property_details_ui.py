@@ -1,6 +1,7 @@
 """The property-details surface: which accounts offer it, and what it sends."""
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -198,3 +199,41 @@ class TestSecuredByPayload:
             "secured_by_account_id": None,
             "lien_position": None,
         }
+
+
+class TestTheMenuAndItsHandlers:
+    """The dashboard keyed its handlers by the menu's LABEL, so renaming
+    one on the shared map raised KeyError on every account here and the
+    header stopped rendering at all. The keys are the identifiers."""
+
+    def test_every_action_the_dashboard_offers_has_a_handler(self) -> None:
+        from app.components.frontend.dashboard.modals.finance_modal.account_header import (  # noqa: E501
+            manage_menu_keys,
+        )
+
+        # What the dashboard implements. The rest are web-only dialogs -
+        # named here so adding one is a decision, not a silent omission.
+        handled = {"rename", "reconcile", "property", "valuations", "secured_by", "remove"}
+        web_only = {"institution", "positions", "terms"}
+
+        for account in (
+            {"account_type": "checking", "classification": "asset", "is_manual": True},
+            {"account_type": "property", "classification": "asset", "is_manual": True},
+            {"account_type": "loan", "classification": "liability", "is_manual": True},
+            {"account_type": "brokerage", "classification": "asset", "is_manual": True},
+        ):
+            for key in manage_menu_keys(account):
+                assert key in handled | web_only, key
+
+    def test_the_wording_lives_in_one_place(self) -> None:
+        """Labels are copy, and copy changes. Nothing may depend on it
+        being any particular string."""
+        from app.components.frontend.dashboard.modals.finance_modal import (
+            account_header,
+        )
+
+        source = Path(account_header.__file__).read_text()
+        handlers = source.split("handlers = {", 1)[1].split("}", 1)[0]
+
+        for label in LABELS.values():
+            assert f'"{label}"' not in handlers, label
