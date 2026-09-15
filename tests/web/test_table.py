@@ -172,6 +172,25 @@ class TestWhatArrivedSinceYouLooked:
         client.get(f"/accounts/{ledger.checking}")
         assert "seen_register" in client.cookies
 
+    def test_every_ledger_is_marked_the_same_way(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Five ledgers, one mark. Each surface keeps its own watermark,
+        so reading the register does not mark a document you have never
+        opened as seen.
+
+        Holdings and Activity share the register's, deliberately: they
+        are two tables on one tab, seen in the same glance, and a second
+        cookie would mark one of them unread while the reader was
+        looking straight at it.
+        """
+        client.get(f"/accounts/{ledger.checking}")
+        client.get(f"/accounts/{ledger.card}/overview")
+        client.get(f"/accounts/{ledger.card}/documents")
+        assert {"seen_register", "seen_valuations", "seen_documents"} <= set(
+            client.cookies
+        )
+
     def test_refreshing_does_not_clear_the_marks(self) -> None:
         """Seeing a list is not reading it. A highlight that vanishes on a
         refresh is one you cannot come back to, so the watermark advances

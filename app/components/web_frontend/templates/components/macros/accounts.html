@@ -6,7 +6,7 @@
    shape (routes/finance/accounts.grouped), so a change to how an
    account is grouped, totalled or linked lands in both at once.
 #}
-{% from "components/macros/layout.html" import dropdown, menu_item, avatar, badge, TONE_TEXT %}
+{% from "components/macros/layout.html" import dropdown, menu_item, avatar, badge, dot, TONE_TEXT %}
 
 {# Where an account opens. One answer, so a door added later opens the
    same way.
@@ -108,7 +108,24 @@
     </div>
     <p data-facts class="text-xs text-aegis-muted mt-1">
       {% if selected %}
-      {{ selected.classification|capitalize }} · {{ "Manual" if not selected.connection_id else "Connected" }} · {{ selected.currency|upper }}{% if held_with %} · {% if held_with.url %}<a href="{{ held_with.url }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-held-with>{{ held_with.name }}</a>{% else %}<span data-held-with>{{ held_with.name }}</span>{% endif %}{% endif %}{% if statement_line %} · {{ statement_line }}{% endif %}{% if updated and updated.label %} · <span data-updated>updated {{ badge(updated.label, updated.tone) }}</span>{% endif %}
+      {#- Only what the badge above has not already said. The kind is up
+          there (a PROPERTY is an asset; a CREDIT CARD is a liability), so
+          repeating the classification here was one fact twice. The
+          currency is noise until something is not in it, and "Manual" is
+          our word for a thing the reader knows as "not connected". -#}
+      {%- set facts = [] -%}
+      {%- if not selected.connection_id %}{% set _ = facts.append("Not connected") %}{% endif -%}
+      {%- if selected.currency and selected.currency|upper != "USD" %}{% set _ = facts.append(selected.currency|upper) %}{% endif -%}
+      {{ facts|join(" · ") }}{% if facts and (held_with or statement_line) %} · {% endif %}
+      {%- if held_with %}{% if held_with.url %}<a href="{{ held_with.url }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-held-with>{{ held_with.name }}</a>{% else %}<span data-held-with>{{ held_with.name }}</span>{% endif %}{% if statement_line %} · {% endif %}{% endif -%}
+      {%- if statement_line %}{{ statement_line }}{% endif -%}
+      {#- How current the account is: the dot LEADS and the words follow,
+          set apart from the identity rather than joined to it with a
+          middot. A separator followed by a dot is two dots in a row, and
+          reads as a bullet that lost its text. -#}
+      {%- if updated and updated.label %}
+      <span data-updated class="inline-flex items-center gap-1.5 ml-3">{{ dot(updated.tone) }}Updated {{ updated.label }}</span>
+      {%- endif -%}
       {% else %}
       <a href="{{ section.path }}" {{ hx_page(section.path) }} class="hover:text-aegis-text transition-colors">{{ groups|length }} group{{ "s" if groups|length != 1 }} · back to accounts</a>
       {% endif %}

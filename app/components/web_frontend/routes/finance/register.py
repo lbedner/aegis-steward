@@ -274,9 +274,13 @@ async def register_context(
         )
         # The trade schema names no ticker; the account's positions know it.
         tickers = {h.security_id: h.ticker for h in holdings.items}
+        # One watermark for the page, not one per table: Holdings and
+        # Activity are two tables on the Register tab, seen in the same
+        # glance, and a second cookie would mark one of them as unread
+        # while the reader was looking straight at it.
         return {
             "kind": "investment",
-            "holdings": [
+            "holdings": await mark_new(service.db, [
                 {
                     "ticker": h.ticker,
                     "name": h.name,
@@ -285,20 +289,24 @@ async def register_context(
                     if h.price is None
                     else round(h.price * 100 / 10**h.price_scale),
                     "value": h.market_value,
+                    "import_batch_id": h.import_batch_id,
+                    "created_at": h.created_at,
                 }
                 for h in holdings.items
-            ],
+            ], seen),
             "portfolio_value": holdings.portfolio_value,
-            "trades": [
+            "trades": await mark_new(service.db, [
                 {
                     "date": t.trade_date,
                     "type": t.type.replace("_", " ").title(),
                     "ticker": tickers.get(t.security_id) or t.name,
                     "quantity": None if t.quantity is None else f"{t.quantity:g}",
                     "amount": t.amount,
+                    "import_batch_id": t.import_batch_id,
+                    "created_at": t.created_at,
                 }
                 for t in trades.items
-            ],
+            ], seen),
             "holding_columns": HOLDING_COLUMNS,
             "trade_columns": TRADE_COLUMNS,
         }

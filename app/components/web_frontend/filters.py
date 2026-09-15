@@ -121,16 +121,7 @@ def cents_to_input(cents: int | None) -> str:
     return "" if cents is None else f"{cents / 100:,.2f}"
 
 
-# How old a figure is allowed to get before it is worth saying so, by
-# what KIND of thing it is. A brokerage that syncs daily is stale in a
-# week; a house's valuation is not stale at three months, and colouring
-# it amber would teach the reader to ignore the colour.
-STALE_AFTER: dict[str, tuple[int, int]] = {
-    "sync": (2, 7),
-    "holdings": (7, 30),
-    "valuation": (120, 400),
-    "default": (7, 30),
-}
+
 
 
 def arrived(row: Any, batches: Mapping[int, datetime] | None = None) -> Any:
@@ -191,6 +182,31 @@ async def mark_new(
             when = when.replace(tzinfo=UTC)
         row["is_new"] = bool(when and when > since)
     return rows
+
+
+# How old a figure may get before it is worth saying so, keyed on how
+# often the thing is EXPECTED to change. Not on how much we care: a
+# threshold set by taste drifts every time somebody's taste does.
+#
+#   amber - older than one cycle. Something may have been missed.
+#   red   - older than several. Something is wrong, or nobody is looking.
+#
+# Anything fed by a daily sync or a nightly import shares one answer.
+# Three names for the same two numbers is three places to edit when the
+# answer changes, and two of them will be missed.
+DAILY = (7, 30)
+# A house is valued when somebody asks, which is a few times a year.
+# Amber at four months and red past a year, because a valuation from
+# June is a normal thing to be holding in September - and a colour that
+# cries stale at every ordinary age teaches the reader to ignore it.
+QUARTERLY = (120, 400)
+
+STALE_AFTER: dict[str, tuple[int, int]] = {
+    "sync": DAILY,
+    "holdings": DAILY,
+    "valuation": QUARTERLY,
+    "default": DAILY,
+}
 
 
 def freshness(

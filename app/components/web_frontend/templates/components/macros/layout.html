@@ -309,7 +309,27 @@
    cell and chip, so tests find them by role. #}
 {% macro badge(label, tone=None) %}
 <span data-tone="{{ tone or '' }}" class="inline-flex items-center gap-1.5 whitespace-nowrap {{ TONE_TEXT.get(tone, 'text-aegis-text') }}">
-  {% if tone %}<span class="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true"></span>{% endif %}{{ label }}
+  {% if tone %}{{ dot(tone) }}{% endif %}{{ label }}
+</span>
+{% endmacro %}
+
+
+{# A state with no room for its words: the dot alone, and the words on
+   hover. For a fact worth a glance and not a sentence - how current a
+   figure is, beside the figure - where spelling it out would make the
+   line longer than the thing it describes.
+
+   The title is not decoration. A colour alone is unreadable to anyone
+   who cannot see it and unexplainable to anyone who can, so the words
+   ride along for the pointer AND for a screen reader. #}
+{% macro dot(tone, title=None) %}
+{#- ``data-dot``, never ``data-tone``: a badge carries the tone and this
+    sits inside one, so sharing the marker would make every badge two
+    things to anything selecting on it. -#}
+<span data-dot="{{ tone or '' }}" {% if title %}title="{{ title }}" {% endif %}
+      class="inline-flex items-center {{ TONE_TEXT.get(tone, 'text-aegis-muted') }}">
+  <span class="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true"></span>
+  {%- if title %}<span class="sr-only">{{ title }}</span>{% endif -%}
 </span>
 {% endmacro %}
 
