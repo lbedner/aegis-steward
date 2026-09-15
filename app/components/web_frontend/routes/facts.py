@@ -27,7 +27,7 @@ from app.services.matters.models import (
     FACT_PERIODS,
     FACT_PROVENANCE,
 )
-from app.services.matters.service import PartyService
+from app.services.matters.service import PartyService, party_or_new
 
 SECTION = section("matters")
 router = APIRouter(prefix=SECTION.path)
@@ -134,6 +134,7 @@ async def record_fact(
     request: Request,
     matter_id: int,
     subject_party_id: Annotated[str, Form()] = "",
+    new_subject: Annotated[str, Form()] = "",
     attribute: Annotated[str, Form()] = "gross_income",
     label: Annotated[str, Form()] = "",
     amount: Annotated[str, Form()] = "",
@@ -143,6 +144,7 @@ async def record_fact(
     provenance: Annotated[str, Form()] = "stated",
     document_id: Annotated[str, Form()] = "",
     source_party_id: Annotated[str, Form()] = "",
+    new_place: Annotated[str, Form()] = "",
     page: Annotated[str, Form()] = "",
     source_note: Annotated[str, Form()] = "",
     source_url: Annotated[str, Form()] = "",
@@ -169,10 +171,13 @@ async def record_fact(
         if await MatterService(db).get(matter_id) is None:
             raise HTTPException(status_code=404)
         try:
-            if not subject_party_id:
+            whose = await party_or_new(
+                db, subject_party_id, new_subject, owner_user_id=owner_user_id
+            )
+            if not whose:
                 raise ValueError("Say who the fact is about.")
             await FactService(db).record(
-                subject_party_id=int(subject_party_id),
+                subject_party_id=whose,
                 matter_id=matter_id,
                 attribute=attribute,
                 label=label,
@@ -182,7 +187,13 @@ async def record_fact(
                 as_of=date_type.fromisoformat(as_of) if as_of else None,
                 provenance=provenance,
                 document_id=int(document_id) if document_id else None,
-                source_party_id=int(source_party_id) if source_party_id else None,
+                source_party_id=await party_or_new(
+                    db,
+                    source_party_id,
+                    new_place,
+                    kind="organization",
+                    owner_user_id=owner_user_id,
+                ),
                 page=int(page) if page else None,
                 source_note=source_note,
                 source_url=source_url,
@@ -274,6 +285,7 @@ async def record_account_fact(
     request: Request,
     account_id: int,
     subject_party_id: Annotated[str, Form()] = "",
+    new_subject: Annotated[str, Form()] = "",
     attribute: Annotated[str, Form()] = "gross_income",
     label: Annotated[str, Form()] = "",
     amount: Annotated[str, Form()] = "",
@@ -283,6 +295,7 @@ async def record_account_fact(
     provenance: Annotated[str, Form()] = "stated",
     document_id: Annotated[str, Form()] = "",
     source_party_id: Annotated[str, Form()] = "",
+    new_place: Annotated[str, Form()] = "",
     page: Annotated[str, Form()] = "",
     source_note: Annotated[str, Form()] = "",
     source_url: Annotated[str, Form()] = "",
@@ -308,10 +321,13 @@ async def record_account_fact(
     async with get_async_session() as db:
         _party_id, matter_id = await _account_subject(db, account_id)
         try:
-            if not subject_party_id:
+            whose = await party_or_new(
+                db, subject_party_id, new_subject, owner_user_id=owner_user_id
+            )
+            if not whose:
                 raise ValueError("Say who the fact is about.")
             await FactService(db).record(
-                subject_party_id=int(subject_party_id),
+                subject_party_id=whose,
                 matter_id=matter_id,
                 account_id=account_id,
                 attribute=attribute,
@@ -323,7 +339,13 @@ async def record_account_fact(
                 provenance=provenance,
                 document_id=int(document_id) if document_id else None,
                 page=int(page) if page else None,
-                source_party_id=int(source_party_id) if source_party_id else None,
+                source_party_id=await party_or_new(
+                    db,
+                    source_party_id,
+                    new_place,
+                    kind="organization",
+                    owner_user_id=owner_user_id,
+                ),
                 source_url=source_url,
                 source_note=source_note,
                 verified=bool(verified),

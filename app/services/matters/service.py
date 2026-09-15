@@ -120,3 +120,32 @@ class PartyService:
         self.db.add(party)
         await self.db.flush()
         return True
+
+
+async def party_or_new(
+    db: AsyncSession,
+    party_id: str | int | None,
+    name: str | None = None,
+    *,
+    kind: str = "person",
+    owner_user_id: int | None = None,
+) -> int | None:
+    """The party chosen, or the one just named - made on the way through.
+
+    Every form that points at somebody uses this. A picker that can only
+    offer rows somebody already created sends the reader to another page
+    mid-sentence, and they come back having lost the four fields they
+    had typed. Naming a new one is part of the sentence, not an errand.
+
+    The typed name wins when both arrive: somebody who types a name
+    after picking from the list has changed their mind about the list.
+    """
+    typed = " ".join((name or "").split())
+    if typed:
+        party = await PartyService(db).create(
+            name=typed, kind=kind, owner_user_id=owner_user_id
+        )
+        return party.id
+    if party_id:
+        return int(party_id)
+    return None

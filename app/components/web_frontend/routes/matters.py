@@ -32,7 +32,7 @@ from app.services.matters.matters import MatterService, summarised
 from app.services.matters.models import PARTICIPANT_ROLES
 from app.services.matters.requests import RequestService
 from app.services.matters.requests import drawn as drawn_request
-from app.services.matters.service import PartyService
+from app.services.matters.service import PartyService, party_or_new
 
 SECTION = section("matters")
 router = APIRouter(prefix=SECTION.path)
@@ -106,7 +106,9 @@ async def create_matter(
     kind: Annotated[str, Form()] = "",
     reference: Annotated[str, Form()] = "",
     subject_party_id: Annotated[str, Form()] = "",
+    new_subject: Annotated[str, Form()] = "",
     counterpart_party_id: Annotated[str, Form()] = "",
+    new_counterpart: Annotated[str, Form()] = "",
     opened_on: Annotated[str, Form()] = "",
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
@@ -129,9 +131,15 @@ async def create_matter(
                 title=title,
                 kind=kind,
                 reference=reference,
-                subject_party_id=int(subject_party_id) if subject_party_id else None,
-                counterpart_party_id=(
-                    int(counterpart_party_id) if counterpart_party_id else None
+                subject_party_id=await party_or_new(
+                    db, subject_party_id, new_subject, owner_user_id=owner_user_id
+                ),
+                counterpart_party_id=await party_or_new(
+                    db,
+                    counterpart_party_id,
+                    new_counterpart,
+                    kind="organization",
+                    owner_user_id=owner_user_id,
                 ),
                 owner_user_id=owner_user_id,
                 opened_on=date_type.fromisoformat(opened_on) if opened_on else None,
@@ -220,16 +228,31 @@ async def add_participant(
     request: Request,
     matter_id: int,
     party_id: Annotated[str, Form()] = "",
+    new_name: Annotated[str, Form()] = "",
     role: Annotated[str, Form()] = "other",
     note: Annotated[str, Form()] = "",
+    owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     async with get_async_session() as db:
         matters = MatterService(db)
         if await matters.get(matter_id) is None:
             raise HTTPException(status_code=404)
-        if party_id:
+        # Named here rather than in Settings: an agency turns up in a
+        # letter, and sending somebody to another page mid-sentence
+        # loses the four fields they had already typed.
+        whom = await party_or_new(
+            db,
+            party_id,
+            new_name,
+            # An organization, because the ones a letter adds are: the
+            # county office, the facility, the firm copied on it. A
+            # person added this way is renamed in People, not misfiled.
+            kind="organization" if new_name.strip() else "person",
+            owner_user_id=owner_user_id,
+        )
+        if whom:
             await matters.add_participant(
-                matter_id, int(party_id), role, note=note.strip() or None
+                matter_id, whom, role, note=note.strip() or None
             )
             await db.commit()
     return dialog_done(

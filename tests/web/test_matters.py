@@ -961,3 +961,73 @@ def test_a_matter_page_has_the_way_back(client: TestClient) -> None:
 
     assert back.get("href") == "/matters"
     assert text(back) == "Matters"
+
+
+class TestNamingSomebodyWhereYouNeedThem:
+    """A picker that only offers rows somebody already made sends the
+    reader to another page mid-sentence, and they come back having lost
+    the four fields they had typed."""
+
+    def test_a_participant_can_be_named_on_the_matter(
+        self, client: TestClient
+    ) -> None:
+        page = _matter(client, "MA-INLINE-1")
+
+        client.post(
+            page + "/participants",
+            data={"party_id": "", "new_name": "Inline Law PC", "role": "counsel"},
+        )
+
+        roles = {
+            text(el): text(el.getparent().find_class("text-aegis-muted")[0])
+            for el in select(client.get(page).text, "#matter [data-party]")
+        }
+        assert "Inline Law PC" in roles
+
+    def test_a_fact_can_name_whose_money_it_is(self, client: TestClient) -> None:
+        page = _matter(client, "MA-INLINE-2")
+
+        client.post(
+            page + "/facts/new",
+            data={
+                "subject_party_id": "",
+                "new_subject": "Inline Subject",
+                "attribute": "gross_income",
+                "amount": "10.00",
+                "period": "month",
+                "provenance": "stated",
+            },
+        )
+
+        said = one(client.get(page).text, "#matter-facts [data-fact]")
+        assert "$10.00" in text(said)
+        # And the person exists afterwards, in the one address book.
+        people = client.get("/settings/people?q=Inline Subject").text
+        assert "Inline Subject" in text(one(people, "#people"))
+
+    def test_the_typed_name_wins_over_the_list(self, client: TestClient) -> None:
+        """Somebody who types a name after picking from the list has
+        changed their mind about the list."""
+        page = _matter(client, "MA-INLINE-3")
+        _party(client, "Inline Picked", "person")
+        picked = (
+            select(
+                client.get("/settings/people?q=Inline Picked").text,
+                "#people tbody [data-open]",
+            )[-1]
+            .get("hx-get")
+            .rsplit("/", 1)[-1]
+        )
+
+        client.post(
+            page + "/participants",
+            data={
+                "party_id": picked,
+                "new_name": "Inline Typed",
+                "role": "other",
+            },
+        )
+
+        named = {text(el) for el in select(client.get(page).text, "#matter [data-party]")}
+        assert "Inline Typed" in named
+        assert "Inline Picked" not in named

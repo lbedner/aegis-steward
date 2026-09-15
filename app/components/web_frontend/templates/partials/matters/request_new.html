@@ -4,7 +4,7 @@
    makes them and typing them into separate fields is how half of them
    never get typed. The sentence is stored AS WRITTEN - a paraphrase
    loses the only wording you are held to. #}
-{% from "components/macros/form.html" import field, date_input, select, textarea, primary_button %}
+{% from "components/macros/form.html" import field, date_input, pick_or_add, textarea, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {{ dialog_title("Record a request", "What they asked for, and by when. One ask per line; each is marked off on its own.") }}
@@ -15,6 +15,6 @@ Proof of GROSS monthly income for each pension
 Resource values as of 1 August") }}{% endcall %}
   {% call field("Due") %}{{ date_input("due_on", due_on, block=True) }}{% endcall %}
   {% call field("Received") %}{{ date_input("received_on", received_on, block=True) }}{% endcall %}
-  {% call field("From") %}{{ select("requester_party_id", parties, blank="Nobody named", block=True) }}{% endcall %}
+  {% call field("From") %}{{ pick_or_add("requester_party_id", parties, blank="Nobody named", new_field="new_requester", hint="or name who sent it") }}{% endcall %}
   {{ primary_button("Record", type="submit") }}
 </form>

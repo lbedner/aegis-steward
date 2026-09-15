@@ -7,7 +7,7 @@
    was asked for, and the next swap takes it away again - a page that
    renders every password to draw a list has put them in a cache, a log
    and whatever screenshot gets taken of it. #}
-{% from "components/macros/form.html" import field, text_input, select, primary_button, action, control %}
+{% from "components/macros/form.html" import field, text_input, pick_or_add, primary_button, action, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 <div id="sign-ins" class="border-t border-aegis-border/60 pt-4 space-y-3">
   <h3 class="text-sm font-semibold text-aegis-text">Sign-ins</h3>
@@ -68,7 +68,7 @@
     {% call field("What it gets you into") %}{{ text_input("label", form.label, placeholder="IBEW pension portal", required=True, autofocus=True) }}{% endcall %}
     {#- Where it gets you in, picked from the address book: a portal
         typed as free text is spelled three ways by the third sign-in. -#}
-    {% call field("Where") %}{{ select("site_party_id", places, form.site_party_id, blank="Somewhere else", block=True) }}{% endcall %}
+    {% call field("Where") %}{{ pick_or_add("site_party_id", places, form.site_party_id, blank="Somewhere else", new_field="new_site", hint="or name the organization whose site it is") }}{% endcall %}
     {% call field("The page itself") %}{{ text_input("url", form.url, placeholder="pensionportal.example.com/login") }}{% endcall %}
     {% call field("Username") %}{{ text_input("username", form.username) }}{% endcall %}
     {% call field("Password") %}

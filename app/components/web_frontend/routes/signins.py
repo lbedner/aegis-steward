@@ -23,7 +23,7 @@ from app.components.web_frontend.rendering import dialog
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import place_book
-from app.services.matters.service import PartyService
+from app.services.matters.service import PartyService, party_or_new
 from app.services.matters.signins import SignInService, drawn
 
 SECTION = section("settings")
@@ -117,6 +117,7 @@ async def add_signin(
     party_id: int,
     label: Annotated[str, Form()] = "",
     site_party_id: Annotated[str, Form()] = "",
+    new_site: Annotated[str, Form()] = "",
     url: Annotated[str, Form()] = "",
     username: Annotated[str, Form()] = "",
     secret: Annotated[str, Form()] = "",
@@ -130,7 +131,13 @@ async def add_signin(
             await SignInService(db).add(
                 party_id=party_id,
                 label=label,
-                site_party_id=int(site_party_id) if site_party_id else None,
+                site_party_id=await party_or_new(
+                    db,
+                    site_party_id,
+                    new_site,
+                    kind="organization",
+                    owner_user_id=owner_user_id,
+                ),
                 url=url,
                 username=username,
                 secret=secret,
@@ -162,6 +169,7 @@ async def save_signin(
     sign_in_id: int,
     label: Annotated[str, Form()] = "",
     site_party_id: Annotated[str, Form()] = "",
+    new_site: Annotated[str, Form()] = "",
     url: Annotated[str, Form()] = "",
     username: Annotated[str, Form()] = "",
     secret: Annotated[str, Form()] = "",
@@ -183,7 +191,9 @@ async def save_signin(
                 sign_in_id,
                 {
                     "label": label,
-                    "site_party_id": site_party_id,
+                    "site_party_id": await party_or_new(
+                        db, site_party_id, new_site, kind="organization"
+                    ),
                     "url": url,
                     "username": username,
                     "note": note,

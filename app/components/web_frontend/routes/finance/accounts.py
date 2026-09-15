@@ -418,6 +418,7 @@ async def new_form(
         account_type="checking",
         opening_balance="",
         whose="",
+        new_whose="",
     )
 
 
@@ -428,6 +429,7 @@ async def create(
     account_type: Annotated[str, Form()] = "checking",
     opening_balance: Annotated[str, Form()] = "",
     whose: Annotated[str, Form()] = "",
+    new_whose: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
@@ -452,6 +454,7 @@ async def create(
             account_type=account_type,
             opening_balance=opening_balance,
             whose=whose,
+            new_whose=new_whose,
         )
     assert cents is not None
     classification = account_classification(account_type)
@@ -468,9 +471,17 @@ async def create(
     # Whose money, said once at creation. The subject row is made here
     # rather than maintained by hand: a person becomes a subject the
     # moment an account is put in their name.
-    if whose:
+    # Named here rather than in Settings: whose money it is arrives
+    # with the account, and a picker that only offers rows somebody
+    # already made sends the reader away mid-form.
+    from app.services.matters.service import party_or_new
+
+    belongs_to = await party_or_new(
+        service.db, whose, new_whose, owner_user_id=owner_user_id
+    )
+    if belongs_to:
         await subjects.in_someone_elses_name(
-            service, account.id, int(whose), owner_user_id
+            service, account.id, belongs_to, owner_user_id
         )
     if balance:
         await service.update_account_balance(
