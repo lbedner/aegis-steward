@@ -17,13 +17,12 @@ from starlette.responses import Response
 
 from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import mark_new, money
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import account_tabs, section
 from app.components.web_frontend.rendering import dialog, hx_dialog, render
 from app.components.web_frontend.routes.finance.accounts import (
     _filed_count,
     _header_context,
     _one_account,
-    account_tabs,
     balance,
 )
 from app.components.web_frontend.routes.finance.valuations import (

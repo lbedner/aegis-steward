@@ -15,7 +15,7 @@ from starlette.responses import Response
 
 from app.components.web_frontend.documents import document_dialog, save_document
 from app.components.web_frontend.filters import mark_new
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import account_tabs, section
 from app.components.web_frontend.rendering import (
     dialog_done,
     render,
@@ -24,7 +24,6 @@ from app.components.web_frontend.rendering import (
 from app.components.web_frontend.routes.finance.accounts import (
     _header_context,
     _one_account,
-    account_tabs,
 )
 from app.components.web_frontend.seen import remember, watermark
 from app.services.finance.constants import account_tag

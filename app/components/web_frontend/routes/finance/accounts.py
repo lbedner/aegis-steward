@@ -16,7 +16,7 @@ from starlette.responses import Response
 
 from app.components.backend.api.finance.accounts import list_accounts
 from app.components.web_frontend.filters import money, money_to_cents
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import account_tabs, section
 from app.components.web_frontend.rendering import (
     close_dialog,
     navigate,
@@ -167,11 +167,14 @@ async def _one_account(
 ) -> tuple[list[AccountResponse], AccountResponse, dict[str, Any]]:
     """One account and the portfolio it sits in, or a 404.
 
-    Every face of an account needs the whole list anyway - the switcher
-    in its header names all of them - so the account is picked out of
-    that list rather than fetched again.
+    Whose money it is decides which portfolio that IS: a parent's
+    pension sits among their accounts, ours among ours. The listing
+    defaults to the household, right for a total and wrong for a door -
+    so the account says whose it is and is drawn in that world.
     """
-    accounts, context = await _accounts(service, owner_user_id)
+    found = await service.get_account(account_id, owner_user_id=owner_user_id)
+    whose = str(found.subject_id) if found and found.subject_id else None
+    accounts, context = await _accounts(service, owner_user_id, whose)
     selected = next((a for a in accounts if a.id == account_id), None)
     if selected is None:
         raise HTTPException(status_code=404)
@@ -358,38 +361,6 @@ async def all_accounts(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     return await _register_page(request, service, owner_user_id, None, filters)
-
-
-def account_tabs(
-    account_id: int, current: str, filed: int = 0
-) -> dict[str, Any]:
-    """An account's two faces, as the sub-nav every section uses.
-
-    The register answers "what happened here", the cover sheet answers
-    "what IS this", and Documents is the paper both of them are read
-    against. One page could not do all three without the facts
-    scrolling away above a thousand rows.
-
-    ``filed`` puts the count on the tab, because the useful thing to
-    know about an account's paper before you click is whether there is
-    any.
-    """
-    base = f"{SECTION.path}/{account_id}"
-    return {
-        "nav_label": "Account",
-        "nav_id": "account-tabs",
-        "current_tab": current,
-        "sub_nav": [
-            {"key": "cover", "label": "Overview", "href": f"{base}/overview"},
-            {
-                "key": "documents",
-                "label": "Documents",
-                "href": f"{base}/documents",
-                "count": filed,
-            },
-            {"key": "register", "label": "Register", "href": base},
-        ],
-    }
 
 
 @router.get(SECTION.path + "/{account_id:int}", include_in_schema=False)

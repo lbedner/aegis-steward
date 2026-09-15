@@ -135,3 +135,38 @@ class TestSomebodyElsesMoney:
         """A household tracking nobody else's money never sees a control
         whose only option is where it already is."""
         none(client.get("/accounts").text, "[data-whose]")
+
+    @pytest.mark.asyncio
+    async def test_their_account_opens_instead_of_404ing(
+        self, client: TestClient, person: Any
+    ) -> None:
+        """The page had told the reader this account exists and then
+        refused to show it, because a door is not a total: the listing
+        behind it was scoped to our money."""
+        subject = await person("Whose Subject Six")
+        _account(client, "Whose Their Pension Six", "1200.00", whose=subject)
+        theirs = client.get(f"/accounts?whose={subject}").text
+        door = [
+            el.get("href")
+            for el in select(theirs, "#portfolio a")
+            if "Pension Six" in text(el)
+        ]
+
+        page = client.get(door[0])
+
+        assert page.status_code == 200
+        assert "Whose Their Pension Six" in text(one(page.text, "#app-content"))
+
+    @pytest.mark.asyncio
+    async def test_their_page_totals_their_money_not_ours(
+        self, client: TestClient, person: Any
+    ) -> None:
+        """A header that summed our accounts over their pension would be
+        two people's money in one figure."""
+        subject = await person("Whose Subject Seven")
+        _account(client, "Whose Our Checking Seven", "500.00")
+        _account(client, "Whose Their Pension Seven", "1200.00", whose=subject)
+        theirs = client.get(f"/accounts?whose={subject}").text
+
+        assert "Whose Our Checking Seven" not in text(one(theirs, "#portfolio"))
+        assert "Whose Their Pension Seven" in text(one(theirs, "#portfolio"))

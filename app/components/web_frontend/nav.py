@@ -154,3 +154,35 @@ def settings_nav(current: str) -> dict[str, Any]:
         ],
         "current_tab": current,
     }
+
+
+def account_tabs(
+    account_id: int, current: str, filed: int = 0
+) -> dict[str, Any]:
+    """An account's two faces, as the sub-nav every section uses.
+
+    The register answers "what happened here", the cover sheet answers
+    "what IS this", and Documents is the paper both of them are read
+    against. One page could not do all three without the facts
+    scrolling away above a thousand rows.
+
+    ``filed`` puts the count on the tab, because the useful thing to
+    know about an account's paper before you click is whether there is
+    any.
+    """
+    base = f'{section("accounts").path}/{account_id}'
+    return {
+        "nav_label": "Account",
+        "nav_id": "account-tabs",
+        "current_tab": current,
+        "sub_nav": [
+            {"key": "cover", "label": "Overview", "href": f"{base}/overview"},
+            {
+                "key": "documents",
+                "label": "Documents",
+                "href": f"{base}/documents",
+                "count": filed,
+            },
+            {"key": "register", "label": "Register", "href": base},
+        ],
+    }
