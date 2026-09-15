@@ -95,6 +95,16 @@ from app.services.finance.models import (  # noqa: F401
     FinanceWebhookEvent,
 )
 
+# Import matter models to register them with SQLModel metadata
+from app.services.matters.models import (  # noqa: F401
+    DocumentParty,
+    Matter,
+    MatterParticipant,
+    Party,
+    Request,
+    RequestItem,
+)
+
 # Import scheduler models to register them with SQLModel metadata
 from app.services.scheduler.models import JobExecution  # noqa: F401
 

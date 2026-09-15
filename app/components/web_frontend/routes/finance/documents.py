@@ -8,16 +8,15 @@ documents an account has, which they ask for by name.
 
 from __future__ import annotations
 
-from datetime import date as date_type
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import document_dialog, save_document
 from app.components.web_frontend.filters import mark_new
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
-    dialog,
     dialog_done,
     render,
     where_from,
@@ -36,7 +35,6 @@ SECTION = section("accounts")
 router = APIRouter()
 
 
-DOCUMENT_API = "/api/v1/documents"
 # One path for a filed document; the viewer and the edit form both hang
 # off it, so the account id cannot drift out of one of them.
 DOCUMENTS = SECTION.path + "/{account_id:int}/documents/{document_id:int}"
@@ -60,52 +58,6 @@ async def _filed_document(
     ):
         raise HTTPException(status_code=404)
     return found
-
-
-async def _document_dialog(
-    request: Request,
-    service: FinanceService,
-    account_id: int,
-    document_id: int,
-    status_code: int = 200,
-    errors: list[str] | None = None,
-) -> Response:
-    """The document beside what we say about it, in the one modal.
-
-    Both halves in one body because they are read together: somebody
-    opening a filed document is checking a figure against the page and
-    correcting what it was filed as, and making that two dialogs is
-    making them click twice to do one thing.
-    """
-    from app.components.web_frontend.filters import short_date
-    from app.services.documents.models import DOCUMENT_KINDS
-    from app.services.documents.queries import pages_for
-
-    found = await _filed_document(service, account_id, document_id)
-    pages = await pages_for(service.db, document_id)
-    return dialog(
-        request,
-        "partials/accounts/document.html",
-        status_code,
-        document=found,
-        dated=short_date(found.document_date or found.received_at),
-        content=f"{DOCUMENT_API}/{document_id}/content",
-        kinds=DOCUMENT_KINDS,
-        post=f"{SECTION.path}/{account_id}/documents/{document_id}",
-        errors=errors or [],
-        pages=[
-            {
-                "number": page.page_number,
-                "read": page.status == "read",
-                # How it was read, so a figure quoted off this page can
-                # say where it came from.
-                "method": page.method,
-                "text": page.text or "",
-                "detail": page.detail or "",
-            }
-            for page in pages
-        ],
-    )
 
 
 @router.get(SECTION.path + "/{account_id:int}/documents", include_in_schema=False)
@@ -144,7 +96,10 @@ async def document(
     service: FinanceService = Depends(get_finance_service),
 ) -> Response:
     """One filed document: the original, its details, and what was read."""
-    return await _document_dialog(request, service, account_id, document_id)
+    found = await _filed_document(service, account_id, document_id)
+    return await document_dialog(
+        request, service.db, found, _post(account_id, document_id)
+    )
 
 
 @router.post(DOCUMENTS, include_in_schema=False)
@@ -158,42 +113,22 @@ async def document_save(
     note: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
 ) -> Response:
-    """Save what we SAY about the document. The bytes never change: a
-    document is what arrived, and correcting it would make the record a
-    lie. A refusal re-renders the whole dialog, page beside form, so the
-    reader never loses what they were looking at."""
-    from datetime import date as date_type
-
-    from app.services.documents.service import DocumentService
-
-    await _filed_document(service, account_id, document_id)
-
-    async def again(errors: list[str]) -> Response:
-        return await _document_dialog(
-            request, service, account_id, document_id, 422, errors
+    """Save what we say about the document. A refusal re-renders the
+    whole dialog, page beside form, so the reader never loses what they
+    were looking at."""
+    found = await _filed_document(service, account_id, document_id)
+    errors = await save_document(
+        service.db,
+        document_id,
+        title=title,
+        kind=kind,
+        document_date=document_date,
+        note=note,
+    )
+    if errors:
+        return await document_dialog(
+            request, service.db, found, _post(account_id, document_id), 422, errors
         )
-
-    if not title.strip():
-        return await again(["Give the document a title."])
-    dated: date_type | None = None
-    if document_date:
-        try:
-            dated = date_type.fromisoformat(document_date)
-        except ValueError:
-            return await again(["That date is not a date."])
-    try:
-        await DocumentService(service.db).update(
-            document_id,
-            {
-                "title": title,
-                "kind": kind,
-                "document_date": dated,
-                "note": note.strip() or None,
-            },
-        )
-    except ValueError as exc:
-        return await again([str(exc)])
-    await service.db.commit()
     # Back to the tab it was opened from. Documents, usually - and
     # landing on Overview after editing a document is the app deciding
     # you meant to go somewhere else.
@@ -201,6 +136,10 @@ async def document_save(
         where_from(request, f"{SECTION.path}/{account_id}/documents"),
         f"Saved {title.strip()}",
     )
+
+
+def _post(account_id: int, document_id: int) -> str:
+    return f"{SECTION.path}/{account_id}/documents/{document_id}"
 
 
 # What a value history shows. ``note`` is what HAPPENED - a sale, a

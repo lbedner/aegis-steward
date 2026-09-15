@@ -1,0 +1,84 @@
+{# What a letter asked for, and what still stands.
+
+   One request draws as one block, and the block is what a mark swaps
+   (pattern 2): settling an item changes the request's own line too, so
+   re-rendering only the item would leave "1 of 3" reading yesterday's
+   answer next to today's item. #}
+{% from "components/macros/layout.html" import badge, dot, dropdown, file_mark, menu_item %}
+{% from "components/macros/form.html" import action %}
+
+{# The verbs on one item. An item that still stands can be answered,
+   ruled out or waived; one that is settled can be put back. The status
+   rides in the URL rather than a form body - there is nothing else to
+   send, and a menu item is not a form. #}
+{% macro _mark(item, base) %}
+{% set swap = 'hx-target="closest [data-request]" hx-swap="outerHTML"' %}
+{% call dropdown("", align="right") %}
+  {% if item.document %}
+  {{ menu_item("Replace the document", hx_dialog(base ~ "/attach")) }}
+  {{ menu_item("Remove the document", 'hx-post="' ~ base ~ '/detach" ' ~ swap) }}
+  {% else %}
+  {{ menu_item("Attach a document", hx_dialog(base ~ "/attach")) }}
+  {% endif %}
+  {% if item.settled %}
+  {{ menu_item("Still needed", 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
+  {% else %}
+  {{ menu_item("Satisfied", 'hx-post="' ~ base ~ '/mark/satisfied" ' ~ swap) }}
+  {{ menu_item("Not applicable", 'hx-post="' ~ base ~ '/mark/not_applicable" ' ~ swap) }}
+  {{ menu_item("Waived", 'hx-post="' ~ base ~ '/mark/waived" ' ~ swap) }}
+  {% endif %}
+{% endcall %}
+{% endmacro %}
+
+{% macro request_card(asked, path) %}
+<article data-request="{{ asked.id }}" class="border border-aegis-border rounded-lg p-4 flex flex-col gap-3 min-w-0">
+  <header class="flex flex-wrap items-baseline justify-between gap-3">
+    <p class="text-sm text-aegis-text">
+      {% if asked.due_on %}Due {{ asked.due_on|short_date }}{% else %}No deadline{% endif %}
+      {%- if asked.overdue %} {{ dot("warn", "Past due") }}{% endif %}
+    </p>
+    <p class="micro-label text-aegis-muted flex items-center gap-3">
+      <span data-standing>{{ asked.settled }} of {{ asked.total }}</span>
+      {{ badge(asked.status, asked.tone) }}
+    </p>
+  </header>
+  <ol class="border-t border-aegis-border/60">
+    {% for item in asked.asks %}
+    <li data-item="{{ item.id }}" class="flex items-start justify-between gap-3 py-2 border-b border-aegis-border/60 text-sm">
+      <div class="min-w-0">
+        <p data-asked class="{{ "text-aegis-muted line-through" if item.settled else "text-aegis-text" }}">{{ item.asked }}</p>
+        <p class="micro-label text-aegis-muted mt-0.5">
+          {%- set facts = [] -%}
+          {%- if item.status != "needed" %}{% set _ = facts.append(item.status|replace("_", " ")|title) %}{% endif -%}
+          {%- if item.as_of %}{% set _ = facts.append("as of " ~ item.as_of|short_date) %}{% endif -%}
+          {%- if item.resolution and not item.document %}{% set _ = facts.append(item.resolution) %}{% endif -%}
+          {{ facts|join(" · ") }}
+        </p>
+        {#- The paper itself, one click from the line that asked for it.
+            A title that cannot be opened is a claim; this is the
+            document. -#}
+        {% if item.document %}
+        <button type="button" {{ hx_dialog(path ~ "/" ~ asked.matter_id ~ "/documents/" ~ item.document.id) }}
+                class="mt-1 inline-flex items-center gap-1.5 text-xs text-aegis-teal hover:underline transition-colors" data-document="{{ item.document.id }}">
+          {{ file_mark(file_badge(item.document.media_type, item.document.title)) }}<span class="truncate">{{ item.document.title }}</span>
+        </button>
+        {% endif %}
+      </div>
+      <div class="shrink-0">{{ _mark(item, path ~ "/requests/items/" ~ item.id) }}</div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if asked.note %}<p class="text-xs text-aegis-muted">{{ asked.note }}</p>{% endif %}
+</article>
+{% endmacro %}
+
+
+{# The whole block on a matter page, so the page and the "recorded"
+   swap draw the same thing from one place. #}
+{% macro requests_block(requests, path, matter_id) %}
+<div id="matter-requests" class="flex flex-col gap-3">
+  {% for asked in requests %}{{ request_card(asked, path) }}{% endfor %}
+  {% if not requests %}<p class="text-sm text-aegis-muted" data-empty>Nothing asked for yet.</p>{% endif %}
+  {{ action("Record a request", hx_dialog(path ~ "/" ~ matter_id ~ "/requests/new")) }}
+</div>
+{% endmacro %}

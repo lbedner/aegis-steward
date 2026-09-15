@@ -1,0 +1,48 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import page_header, card, badge %}
+{% from "components/macros/form.html" import action %}
+{% from "components/macros/matters.html" import requests_block %}
+
+{% block title %}{{ matter.title }} - {{ project_name }}{% endblock %}
+
+{# One case: what it is, whose number it carries, and who is in it.
+   Roles are read off the participant links rather than the party rows -
+   Eleanor is the facility HERE and a payee in the ledger, and neither
+   fact belongs to the other. #}
+{% block app_content %}
+<section id="matter" class="space-y-6">
+  <header class="flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0">
+      <h1 class="text-lg font-semibold text-aegis-text">{{ matter.title }}</h1>
+      <p data-facts class="text-xs text-aegis-muted mt-1">
+        {%- set facts = [] -%}
+        {%- if matter.kind %}{% set _ = facts.append(matter.kind|title) %}{% endif -%}
+        {%- if matter.reference %}{% set _ = facts.append("Their ref " ~ matter.reference) %}{% endif -%}
+        {%- if matter.opened_on %}{% set _ = facts.append("opened " ~ matter.opened_on|short_date) %}{% endif -%}
+        {{ facts|join(" · ") }}
+      </p>
+    </div>
+    {{ badge(matter.status, "ok" if matter.status == "open" else "muted") }}
+  </header>
+
+  {% call card("Who is in it") %}
+  {% if matter.participants %}
+  <dl class="border-t border-aegis-border/60">
+    {% for person in matter.participants %}
+    <div class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
+      <dt class="text-aegis-text min-w-0 truncate" data-party>{{ person.party }}</dt>
+      <dd class="text-aegis-muted shrink-0" data-role>{{ person.role|title }}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>Nobody named yet.</p>
+  {% endif %}
+  {{ action("Add someone", hx_dialog(path ~ "/" ~ matter.id ~ "/participants/new")) }}
+  {% endcall %}
+
+  {% call card("What they asked for") %}
+  {{ requests_block(requests, path, matter.id) }}
+  {% endcall %}
+</section>
+{% endblock %}

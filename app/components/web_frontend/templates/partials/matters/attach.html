@@ -1,0 +1,16 @@
+{# Dialog body: the paper that answers one item.
+
+   Two ways in one body because they are the same intent reached from
+   two places - the document is already in the app, or it is on your
+   desk. Splitting them makes somebody choose a door before they know
+   which one they need. #}
+{% from "components/macros/form.html" import field, file_input, picker, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Attach a document", item.asked) }}
+{{ error_banner(errors) }}
+{{ picker("attach-picker", post, "document_id", documents, hint="Search filed documents", current=current) }}
+<form {{ hx_dialog_post(post) }} hx-encoding="multipart/form-data" class="mt-4 pt-4 border-t border-aegis-border/60 space-y-3">
+  {% call field("Or add one") %}{{ file_input("file", accept=accepts, required=True) }}{% endcall %}
+  {{ primary_button("Add and attach", type="submit") }}
+</form>

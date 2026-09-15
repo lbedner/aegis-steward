@@ -10,6 +10,7 @@ heading. Add a section by adding an entry and a route module; the tests in
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,16 @@ class Section:
     path: str
     # Heroicons 24px outline path data, drawn by the ``nav_item`` macro.
     icon: str
+    # What this section is ABOUT, drawn as a heading above the first
+    # section that carries it. Declared here rather than in the sidebar
+    # so the grouping and the order are one list: a heading written in
+    # the template would be a second place the nav is decided, and the
+    # two would disagree the first time a section moved.
+    #
+    # ``None`` closes the previous group without opening one - the
+    # sections nobody thinks of as belonging to a subject (Chat,
+    # Settings) sit under a rule at the foot instead.
+    group: str | None = None
 
 
 NAV: tuple[Section, ...] = (
@@ -30,6 +41,7 @@ NAV: tuple[Section, ...] = (
         "c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125"
         "h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125"
         "V9.75M8.25 21h8.25",
+        group="Money",
     ),
     Section(
         "accounts",
@@ -42,12 +54,14 @@ NAV: tuple[Section, ...] = (
         "h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125"
         " 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0"
         " 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z",
+        group="Money",
     ),
     Section(
         "bills",
         "Bills & Income",
         "/bills",
         "M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5",
+        group="Money",
     ),
     Section(
         "projected",
@@ -55,18 +69,31 @@ NAV: tuple[Section, ...] = (
         "/projected",
         "M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22"
         "m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941",
+        group="Money",
     ),
     Section(
         "budget",
         "Budget",
         "/budget",
         "M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6zM13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z",
+        group="Money",
     ),
     Section(
         "review",
         "Review",
         "/review",
         "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+        group="Money",
+    ),
+    Section(
+        "matters",
+        "Matters",
+        "/matters",
+        "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125"
+        "v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125"
+        "1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125"
+        "V11.25a9 9 0 00-9-9z",
+        group="Records",
     ),
     Section(
         "chat",
@@ -98,3 +125,32 @@ def section(key: str) -> Section:
         if entry.key == key:
             return entry
     raise KeyError(f"no section {key!r} in NAV")
+
+
+# The Settings sub-nav. Here rather than in the settings routes because
+# it IS navigation, and because a module at its recorded size cannot
+# grow a tab - the budget decided where this lives, which is what having
+# one is for.
+SETTINGS_TABS: tuple[tuple[str, str, str], ...] = (
+    ("connections", "Connections", ""),
+    ("categories", "Categories", "/categories"),
+    ("payees", "Payees", "/payees"),
+    ("institutions", "Institutions", "/institutions"),
+    ("comms", "Comms", "/comms"),
+    ("people", "People", "/people"),
+    ("activity", "Activity", "/activity"),
+)
+
+
+def settings_nav(current: str) -> dict[str, Any]:
+    """The Settings sub-nav context, for whichever module owns a tab."""
+    settings = section("settings")
+    return {
+        "nav_id": "settings-nav",
+        "nav_label": "Settings sections",
+        "sub_nav": [
+            {"key": key, "label": label, "href": settings.path + suffix, "count": 0}
+            for key, label, suffix in SETTINGS_TABS
+        ],
+        "current_tab": current,
+    }

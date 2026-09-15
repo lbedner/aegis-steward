@@ -12,6 +12,14 @@ from app.components.backend.startup.schema_recovery import (
 )
 from app.core.log import logger
 from app.services.documents.models import Document, DocumentTag  # noqa: F401
+from app.services.matters.models import (  # noqa: F401
+    DocumentParty,
+    Matter,
+    MatterParticipant,
+    Party,
+    Request,
+    RequestItem,
+)
 from app.services.scheduler.models import JobExecution  # noqa: F401
 
 

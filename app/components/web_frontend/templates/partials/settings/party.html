@@ -1,0 +1,34 @@
+{# Dialog body: one person or organization.
+
+   ``sort_name`` is shown, not hidden: the app guesses where a party
+   files ("Bedner, James") and the guess has to be visible to be
+   overruled. A rename does not refile - correcting a display name is
+   not a statement about where the row belongs. #}
+{% from "components/macros/form.html" import field, text_input, select, textarea, primary_button, action, control %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{% call dialog_title(party.name if party else "Add a party") %}
+<p class="text-xs text-aegis-muted mb-4">A person or an organization. What they ARE to a case - the subject, the agency, the facility - belongs to the case, not here.</p>
+{% endcall %}
+{{ error_banner(errors) }}
+<form {{ hx_dialog_post("/settings/people/" ~ party.id if party else "/settings/people/new") }} class="space-y-4">
+  {% call field("Name") %}{{ text_input("name", party.name if party else name, placeholder="James Bedner", required=True, autofocus=True) }}{% endcall %}
+  {% if party %}
+  <input type="hidden" name="kind" value="{{ party.kind }}">
+  {% else %}
+  {% call field("Kind") %}{{ select("kind", kinds|as_options, kind, blank=None, block=True) }}{% endcall %}
+  {% endif %}
+  {% call field("Filed under") %}
+  {{ text_input("sort_name", party.sort_name if party else "", placeholder="Bedner, James — left blank, the app files it for you") }}
+  {% endcall %}
+  {% for key, label in contact_fields %}
+  {% call field(label) %}{{ text_input(key, (party.contact or {}).get(key, "") if party else "") }}{% endcall %}
+  {% endfor %}
+  {% call field("Note") %}{{ textarea("note", party.note if party else note, rows=3) }}{% endcall %}
+  <div class="flex items-center gap-3">
+    {{ primary_button("Save", type="submit") }}
+    {% if party %}
+    {{ action("Remove", 'hx-delete="/settings/people/' ~ party.id ~ '" hx-swap="none" hx-confirm="Remove ' ~ party.name ~ '? Anything pointing at them keeps its meaning."', tone="danger") }}
+    {% endif %}
+  </div>
+</form>

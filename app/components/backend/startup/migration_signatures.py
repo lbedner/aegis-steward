@@ -42,6 +42,10 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     ),
     "run_detail": ("column", "finance.finance_import_batch", "detail"),
     "arrival": ("column", "finance.finance_holding", "import_batch_id"),
+    "party": ("table", "party"),
+    "matter": ("table", "matter"),
+    "request": ("table", "request"),
+    "request_item_document": ("column", "request_item", "document_id"),
     # insight_source, not project: the project table only exists in the
     # per-user shape, insight_source in both.
     "insights": ("table", "insight_source"),
