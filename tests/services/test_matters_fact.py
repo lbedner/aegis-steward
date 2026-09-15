@@ -140,3 +140,62 @@ class TestAFact:
                 value_cents=100,
                 provenance="document",
             )
+
+
+class TestAFactAsAProposal:
+    """Illiana can put a figure in front of you. She cannot file one."""
+
+    @pytest.mark.asyncio
+    async def test_the_card_says_whose_what_and_how_it_is_known(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.changes import (
+            RecordFactPayload,
+            record_fact_describe,
+            record_fact_execute,
+        )
+
+        subject = await _james(async_db_session)
+        payload = RecordFactPayload(
+            subject_party_id=subject,
+            attribute="gross_income",
+            provenance="stated",
+            label="IBEW pension",
+            value_cents=5000,
+            period="day",
+            source_note="Read off the pension portal",
+        )
+
+        card = await record_fact_describe(async_db_session, payload, None)
+        said = {row.label: row.value for row in card}
+
+        assert said["About"] == "James Bedner"
+        assert said["Gross income"] == "IBEW pension"
+        # The rate as quoted, and our arithmetic marked as ours.
+        assert said["Figure"] == "$50.00 a day (about $1,521.88 a month)"
+        assert "stated" in said["How it is known"]
+        assert "pension portal" in said["How it is known"]
+
+        await record_fact_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+
+        [recorded] = await FactService(async_db_session).find(
+            subject_party_id=subject
+        )
+        assert recorded.value_cents == 5000
+        # Approving a card is approving what was READ, never a claim
+        # that somebody opened the source and checked it.
+        assert recorded.verified is False
+
+    @pytest.mark.asyncio
+    async def test_an_attribute_nobody_defined_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.changes import RecordFactPayload
+
+        with pytest.raises(ValidationError):
+            RecordFactPayload(
+                subject_party_id=1, attribute="vibes", provenance="stated"
+            )

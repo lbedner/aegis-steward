@@ -78,10 +78,8 @@ BUDGET: dict[str, int] = {
     "services/load_test/worker/service.py": 679,
     "cli/health.py": 674,
     "components/frontend/dashboard/modals/finance_modal/no_payee_panel.py": 668,
-    "services/finance/ai_tools.py": 654,
     "components/frontend/dashboard/cards/card_utils.py": 646,
     "components/frontend/dashboard/modals/redis_modal.py": 645,
-    "services/finance/domains/writes/terms.py": 633,
     "components/frontend/dashboard/modals/database_modal.py": 630,
     "components/frontend/controls/pickers.py": 629,
     "services/ai/domains/llm/providers.py": 603,
@@ -107,7 +105,11 @@ BUDGET: dict[str, int] = {
     "services/finance/domains/ledger/networth.py": 531,
     "components/frontend/dashboard/modals/ai_analytics_tab.py": 530,
     "services/finance/domains/ledger/accounts.py": 521,
-    "services/finance/domains/detection/analyst/prompts.py": 516,
+    # The change-type vocabulary the agent is taught lives in here and
+    # grows by a line or two with every new type. Re-recorded when
+    # account.create learned whose money an account holds; the file is
+    # on the list to split - the vocabulary is its own document.
+    "services/finance/domains/detection/analyst/prompts.py": 529,
     "cli/llm.py": 512,
     "services/finance/domains/detection/transfers.py": 511,
     "services/finance/adapters/providers/connections/snaptrade_sync.py": 504,

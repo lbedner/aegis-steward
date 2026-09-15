@@ -11,6 +11,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.chat.tools import registered_tool_names
+from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 import app.services.matters.ai_tools as ai_tools
 from app.services.matters.facts import FactService
@@ -125,3 +126,88 @@ async def test_facts_carry_their_source_and_the_rate_read_as_a_month(
     assert rows[0]["provenance"] == "stated"
     assert rows[0]["source_note"] == "Read off the pension portal"
     assert rows[0]["verified"] is False
+
+
+class TestWhoseMoneyThroughIlliana:
+    """She can be asked about a parent's account. She is not handed it
+    when the question was about ours."""
+
+    @staticmethod
+    async def _their_account(db: AsyncSession, name: str) -> tuple[int, int]:
+        from app.services.finance.domains.ledger.accounts import create_manual_account
+        from app.services.finance.domains.ledger.subjects import (
+            assign_subject,
+            subject_for_party,
+        )
+
+        party = await PartyService(db).create(name=name, kind="person")
+        subject = await subject_for_party(db, party.id, name=name)
+        await create_manual_account(
+            db, name="Ours Checking", account_type="checking", classification="asset"
+        )
+        theirs = await create_manual_account(
+            db, name="Their Pension", account_type="other_asset", classification="asset"
+        )
+        await assign_subject(db, theirs.id, subject.id)
+        await db.commit()
+        return party.id, subject.id
+
+    @pytest.mark.asyncio
+    async def test_the_default_answer_is_our_money(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from contextlib import asynccontextmanager
+
+        import app.services.finance.ai_account_tools as account_tools
+        import app.services.finance.ai_tools as finance_tools
+
+        @asynccontextmanager
+        async def test_session():
+            yield async_db_session
+
+        monkeypatch.setattr(finance_tools, "get_async_session", test_session)
+        monkeypatch.setattr(account_tools, "get_async_session", test_session)
+        _party_id, subject_id = await self._their_account(
+            async_db_session, "Tool Whose One"
+        )
+
+        ours = await account_tools.accounts()
+        theirs = await account_tools.accounts(whose=str(subject_id))
+        everybody = await account_tools.accounts(whose="all")
+
+        assert "Their Pension" not in [a["name"] for a in ours["accounts"]]
+        assert [a["name"] for a in theirs["accounts"]] == ["Their Pension"]
+        assert "Their Pension" in [a["name"] for a in everybody["accounts"]]
+
+    @pytest.mark.asyncio
+    async def test_a_proposal_can_put_an_account_in_someones_name(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Working a matter adds change types, not tools: the account is
+        proposed like every other write and approved by a person."""
+        from app.services.finance.domains.writes.accounts import (
+            CreateAccountPayload,
+            create_account_describe,
+            create_account_execute,
+        )
+
+        party = await PartyService(async_db_session).create(
+            name="Tool Whose Two", kind="person"
+        )
+        await async_db_session.commit()
+        payload = CreateAccountPayload(
+            name="Tool NYSLRS Pension",
+            account_type="other_asset",
+            whose_party_id=party.id,
+        )
+
+        card = await create_account_describe(async_db_session, payload, None)
+        result = await create_account_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+
+        # The card says whose, because "add an account" and "add an
+        # account that is not ours" are different approvals.
+        assert any("Tool Whose Two" in row.value for row in card)
+        assert result["whose"] == "Tool Whose Two"
+        ours, _ = await FinanceService(async_db_session).list_accounts()
+        assert "Tool NYSLRS Pension" not in [a.name for a in ours]

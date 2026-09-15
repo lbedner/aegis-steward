@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.finance.domains.ledger.queries.accounts import EVERYONE, HOUSEHOLD
+from app.services.finance.domains.ledger.subjects import subject_filter
 from app.services.finance.service import FinanceService
 
 __all__ = ["EVERYONE", "HOUSEHOLD", "chips", "people", "in_someone_elses_name", "whose"]
@@ -59,14 +60,11 @@ async def in_someone_elses_name(
 def whose(value: str | None) -> int | None:
     """The ``?whose=`` parameter as a subject filter.
 
-    Anything unreadable falls back to ours, because a typo in a URL must
-    not quietly widen a total to include money that is not ours.
+    The ledger's own parser, not a second reading of it: a URL, a tool
+    argument and a form all ask this question, and three answers is how
+    one of them starts counting a parent's pension as ours.
     """
-    if value == ALL:
-        return EVERYONE
-    if value and value.isdigit():
-        return int(value)
-    return HOUSEHOLD
+    return subject_filter(value)
 
 
 async def chips(service: FinanceService, current: str | None) -> dict[str, Any]:

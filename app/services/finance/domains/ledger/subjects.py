@@ -14,6 +14,30 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.models import FinanceAccount, FinanceSubject
 from app.services.finance.utils import utcnow
 
+
+def subject_filter(value: str | int | None) -> int | None:
+    """"ours", "all" or an id, as the listing filter.
+
+    One parser, because the question is asked from a URL, from a tool
+    argument and from a form, and three readings of "all" is how one of
+    them quietly starts counting a parent's pension as ours. Anything
+    unreadable is ours: a typo must not widen a total.
+    """
+    from app.services.finance.domains.ledger.queries.accounts import (
+        EVERYONE,
+        HOUSEHOLD,
+    )
+
+    if value in (None, "", "ours", "us", "household"):
+        return HOUSEHOLD
+    if value in ("all", "everyone", "everybody"):
+        return EVERYONE
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return HOUSEHOLD
+
+
 # What a subject can be. The table constrains these too; validating here
 # turns a flush-time IntegrityError into an answer the caller can read.
 SUBJECT_KINDS = ("person", "trust", "estate", "entity")

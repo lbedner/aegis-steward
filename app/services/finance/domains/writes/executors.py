@@ -8,8 +8,9 @@ debt costs); importing this module arms the whole surface.
 
 from __future__ import annotations
 
-from app.services.finance.domains.writes import curation, structure, terms
+from app.services.finance.domains.writes import accounts, curation, structure, terms
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
+from app.services.matters import changes as matters
 
 register(
     ChangeExecutor(
@@ -42,9 +43,9 @@ register(
     ChangeExecutor(
         change_type="account.create",
         title="Add an account the ledger cannot see",
-        payload_model=terms.CreateAccountPayload,
-        execute=terms.create_account_execute,
-        describe=terms.create_account_describe,
+        payload_model=accounts.CreateAccountPayload,
+        execute=accounts.create_account_execute,
+        describe=accounts.create_account_describe,
     )
 )
 register(
@@ -108,5 +109,18 @@ register(
         payload_model=structure.SplitChangePayload,
         execute=structure.split_execute,
         describe=structure.split_describe,
+    )
+)
+
+# The first change type from outside finance. Working a matter adds
+# types, not tools - which is why it registers here rather than growing
+# a second approval queue nobody would see.
+register(
+    ChangeExecutor(
+        change_type="fact.record",
+        title="Record what can be said about someone's money",
+        payload_model=matters.RecordFactPayload,
+        execute=matters.record_fact_execute,
+        describe=matters.record_fact_describe,
     )
 )
