@@ -4,31 +4,33 @@
    (pattern 2): settling an item changes the request's own line too, so
    re-rendering only the item would leave "1 of 3" reading yesterday's
    answer next to today's item. #}
-{% from "components/macros/layout.html" import badge, dot, dropdown, file_mark, menu_item %}
+{% from "components/macros/layout.html" import badge, dot, file_mark %}
 {% from "components/macros/form.html" import action %}
 
 {# The verbs on one item. An item that still stands can be answered,
    ruled out or waived; one that is settled can be put back. The status
    rides in the URL rather than a form body - there is nothing else to
    send, and a menu item is not a form. #}
-{% macro _mark(item, base) %}
-{% set swap = 'hx-target="closest [data-request]" hx-swap="outerHTML"' %}
-{% call dropdown("", align="right") %}
-  {% if item.document %}
-  {{ menu_item("Replace the document", hx_dialog(base ~ "/attach")) }}
-  {{ menu_item("Remove the document", 'hx-post="' ~ base ~ '/detach" ' ~ swap) }}
+{% macro _verbs(option, base, swap) %}
+{#- The verbs on one option, as buttons rather than a menu. A step is
+    opened to DO something; a chevron inside a chevron is a place to
+    hide the thing the reader came for. -#}
+<div class="flex flex-wrap items-center gap-2 pt-1">
+  {% if option.document %}
+  {{ action("Replace the document", hx_dialog(base ~ "/attach")) }}
+  {{ action("Remove the document", 'hx-post="' ~ base ~ '/detach" ' ~ swap) }}
   {% else %}
-  {{ menu_item("Attach a document", hx_dialog(base ~ "/attach")) }}
+  {{ action("Attach a document", hx_dialog(base ~ "/attach")) }}
   {% endif %}
-  {{ menu_item("Correct the wording", hx_dialog(base ~ "/edit")) }}
-  {% if item.settled %}
-  {{ menu_item("Still needed", 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
+  {% if option.settled %}
+  {{ action("Still needed", 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
   {% else %}
-  {{ menu_item("Satisfied", 'hx-post="' ~ base ~ '/mark/satisfied" ' ~ swap) }}
-  {{ menu_item("Not applicable", 'hx-post="' ~ base ~ '/mark/not_applicable" ' ~ swap) }}
-  {{ menu_item("Waived", 'hx-post="' ~ base ~ '/mark/waived" ' ~ swap) }}
+  {{ action("Satisfied", 'hx-post="' ~ base ~ '/mark/satisfied" ' ~ swap) }}
+  {{ action("Not applicable", 'hx-post="' ~ base ~ '/mark/not_applicable" ' ~ swap) }}
+  {{ action("Waived", 'hx-post="' ~ base ~ '/mark/waived" ' ~ swap) }}
   {% endif %}
-{% endcall %}
+  {{ action("Correct the wording", hx_dialog(base ~ "/edit")) }}
+</div>
 {% endmacro %}
 
 {% macro request_card(asked, path) %}
@@ -59,9 +61,9 @@
     </div>
     {% endif %}
 
-    <ol class="{{ "lg:col-span-3" if asked.document_id else "" }} border-t border-aegis-border/60 min-w-0">
+    <ol class="{{ "lg:col-span-3" if asked.document_id else "" }} min-w-0">
       {% for step in asked.steps %}
-      {{ _step(step, path, asked.matter_id) }}
+      {{ _step(step, path, asked.matter_id, loop.index, loop.last) }}
       {% endfor %}
     </ol>
   </div>
@@ -80,42 +82,62 @@
    as ONE step carrying its options, because the county wants any one of
    them and three mandatory-looking rows describe a harder afternoon
    than the one you have. #}
-{% macro _step(step, path, matter_id) %}
-<li data-step="{{ step.id }}" class="border-b border-aegis-border/60 text-sm">
+{% macro _step(step, path, matter_id, number, last=False) %}
+{#- A step on a rail: the number, the line to the next one, and the
+    work. A letter is a sequence somebody walks - four things, in the
+    order it asked - and a flat list of sentences makes the reader
+    rebuild that order every time they come back to it.
+
+    The node carries the state, so the shape of the column answers "how
+    far am I" before any of the words are read. -#}
+<li data-step="{{ step.id }}" class="relative pl-9 pb-4">
+  {% if not last %}
+  <span aria-hidden="true" class="absolute left-[11px] top-7 bottom-0 w-px bg-aegis-border"></span>
+  {% endif %}
+  <span data-node="{{ "done" if step.settled else "open" }}"
+        class="absolute left-0 top-1 w-6 h-6 rounded-full border flex items-center justify-center text-xxs font-semibold
+               {{ "border-aegis-teal bg-aegis-teal/10 text-aegis-teal" if step.settled else "border-aegis-border text-aegis-muted" }}">
+    {%- if step.settled %}✓{% else %}{{ number }}{% endif -%}
+  </span>
+
   <details class="group/step">
-    <summary class="list-none cursor-pointer flex items-start justify-between gap-3 py-2">
+    <summary class="list-none cursor-pointer flex items-start justify-between gap-3">
       <span class="min-w-0">
-        <span class="micro-label text-aegis-muted">{{ step.kind_label }}{% if step.options|length > 1 %} · any one of {{ step.options|length }}{% endif %}</span>
-        <span class="block {{ "text-aegis-muted line-through" if step.settled else "text-aegis-text" }}" data-asked>{{ step.asked }}</span>
+        <span class="micro-label text-aegis-muted">
+          {{ step.kind_label }}{% if step.options|length > 1 %} · any one of {{ step.options|length }}{% endif %}
+          {%- if step.as_of %} · as of {{ step.as_of|short_date }}{% endif -%}
+        </span>
+        <span class="block text-sm {{ "text-aegis-muted line-through" if step.settled else "text-aegis-text" }}" data-asked>{{ step.asked }}</span>
       </span>
-      <span class="shrink-0 flex items-center gap-2">
-        {% if step.as_of %}<span class="micro-label text-aegis-muted">as of {{ step.as_of|short_date }}</span>{% endif %}
-        {{ dot("ok" if step.settled else "muted", "Settled" if step.settled else "Still needed") }}
-      </span>
+      <svg class="shrink-0 w-3 h-3 mt-1 text-aegis-muted group-open/step:rotate-180 transition" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+      </svg>
     </summary>
 
-    <div class="pb-3 pl-1 space-y-2">
+    <div class="mt-2 space-y-3 border-l border-aegis-border/60 pl-3">
+      {% set swap = 'hx-target="closest [data-request]" hx-swap="outerHTML"' %}
       {% for option in step.options %}
-      <div data-item="{{ option.id }}" class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          {% if step.options|length > 1 %}
-          <p class="{{ "text-aegis-muted line-through" if option.settled else "text-aegis-text" }}" data-asked>{{ option.asked }}</p>
-          {% endif %}
-          <p class="micro-label text-aegis-muted">
-            {%- set meta = [] -%}
-            {%- if option.status != "needed" %}{% set _ = meta.append(option.status|replace("_", " ")|title) %}{% endif -%}
-            {%- if option.ask %}{% set _ = meta.append(option.ask) %}{% endif -%}
-            {%- if option.resolution and not option.document %}{% set _ = meta.append(option.resolution) %}{% endif -%}
-            {{ meta|join(" · ") }}
-          </p>
-          {% if option.document %}
-          <button type="button" {{ hx_dialog(path ~ "/" ~ matter_id ~ "/documents/" ~ option.document.id) }}
-                  class="mt-1 inline-flex items-center gap-1.5 text-xs text-aegis-teal hover:underline transition-colors" data-document="{{ option.document.id }}">
-            {{ file_mark(file_badge(option.document.media_type, option.document.title)) }}<span class="truncate">{{ option.document.title }}</span>
-          </button>
-          {% endif %}
-        </div>
-        <div class="shrink-0">{{ _mark(option, path ~ "/requests/items/" ~ option.id) }}</div>
+      {% set base = path ~ "/requests/items/" ~ option.id %}
+      <div data-item="{{ option.id }}" class="min-w-0 text-sm">
+        {% if step.options|length > 1 %}
+        <p class="{{ "text-aegis-muted line-through" if option.settled else "text-aegis-text" }}" data-asked>{{ option.asked }}</p>
+        {% endif %}
+        <p class="micro-label text-aegis-muted">
+          {%- set meta = [] -%}
+          {%- if option.status != "needed" %}{% set _ = meta.append(option.status|replace("_", " ")|title) %}{% endif -%}
+          {%- if option.ask %}{% set _ = meta.append(option.ask) %}{% endif -%}
+          {%- if option.resolution and not option.document %}{% set _ = meta.append(option.resolution) %}{% endif -%}
+          {#- Said plainly rather than left blank: an empty panel reads
+              as a page that failed to load. -#}
+          {{ meta|join(" · ") if meta else "Nothing recorded against it yet" }}
+        </p>
+        {% if option.document %}
+        <button type="button" {{ hx_dialog(path ~ "/" ~ matter_id ~ "/documents/" ~ option.document.id) }}
+                class="mt-1 inline-flex items-center gap-1.5 text-xs text-aegis-teal hover:underline transition-colors" data-document="{{ option.document.id }}">
+          {{ file_mark(file_badge(option.document.media_type, option.document.title)) }}<span class="truncate">{{ option.document.title }}</span>
+        </button>
+        {% endif %}
+        {{ _verbs(option, base, swap) }}
       </div>
       {% endfor %}
     </div>

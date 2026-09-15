@@ -38,7 +38,9 @@ SECTION = section("matters")
 router = APIRouter(prefix=SECTION.path)
 
 MATTER_COLUMNS = (
-    {"key": "title", "label": "Matter", "kind": "open"},
+    # A page, not a modal: a matter is worked for weeks, read beside a
+    # letter and come back to, and none of that survives in a dialog.
+    {"key": "title", "label": "Matter", "kind": "page"},
     {"key": "kind", "label": "Kind"},
     {"key": "reference", "label": "Their reference"},
     {"key": "who", "label": "With"},
