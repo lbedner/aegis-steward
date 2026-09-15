@@ -126,6 +126,33 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
        aria-label="{{ placeholder }}" class="{{ control("input") }} min-w-[12rem]">
 {% endmacro %}
 
+{# Pick one, or name one that is not there yet.
+
+   Every reference to another record uses this. A form that can only
+   point at rows somebody already created sends the reader to another
+   page mid-sentence, and they come back having lost the four fields
+   they had typed - so the new name is a box beside the list, and the
+   route creates it on the way through.
+
+   ``new_field`` is what the typed name posts under; the route resolves
+   "the chosen one, or the one just named" in a single call. #}
+{% macro pick_or_add(name, options, selected=None, blank=None, new_field=None, hint="or name a new one", block=True) %}
+{{ select(name, options, selected, blank=blank, block=block) }}
+{% if new_field %}
+<input type="text" name="{{ new_field }}" placeholder="{{ hint }}" data-new-for="{{ name }}"
+       class="{{ control("input") }} w-full mt-1 text-xs">
+{% endif %}
+{% endmacro %}
+
+
+{# The one file control. Browsers will not be told what the button looks
+   like, so the styling is all on ``file:`` - written once here rather
+   than pasted wherever something takes a file. #}
+{% macro file_input(name, accept="", required=False) %}
+<input type="file" name="{{ name }}" {% if accept %}accept="{{ accept }}"{% endif %} {% if required %}required{% endif %}
+       class="mt-1 block w-full text-sm text-aegis-muted file:mr-3 file:px-3 file:py-1.5 file:rounded file:border file:border-aegis-border file:bg-aegis-bg file:text-aegis-text file:text-xs">
+{% endmacro %}
+
 {# Pick one of many, or name a new one.
 
    A ledger carries a hundred payees, a few hundred categories and as
@@ -149,6 +176,7 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
    are marked AND disabled, because choosing them would write nothing.
    Marked and not hidden, since you still need to see what is on there.
 #}
+
 {% macro picker(id, path, field, options, hint="Search", create=None, hidden="", current=()) %}
 {% set names = options|map(attribute="name")|map("lower")|list %}
 <div id="{{ id }}" x-data='{

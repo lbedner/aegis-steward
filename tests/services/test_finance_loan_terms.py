@@ -237,7 +237,7 @@ class TestAddingTheAccountItself:
     ) -> None:
         """A statement says what is OWED; the ledger holds a liability
         negative. The payload speaks the statement's language."""
-        from app.services.finance.domains.writes.terms import (
+        from app.services.finance.domains.writes.accounts import (
             CreateAccountPayload,
             create_account_execute,
         )
@@ -267,7 +267,7 @@ class TestAddingTheAccountItself:
         """The card says "Held with GreenSky" before approval, so
         approval has to deliver it - a card that promises something the
         write drops is worse than a card that never offered."""
-        from app.services.finance.domains.writes.terms import (
+        from app.services.finance.domains.writes.accounts import (
             CreateAccountPayload,
             create_account_execute,
         )
@@ -296,7 +296,7 @@ class TestAddingTheAccountItself:
     ) -> None:
         """Transactions attach to accounts and balances derive from them,
         so a duplicate is the expensive mistake."""
-        from app.services.finance.domains.writes.terms import (
+        from app.services.finance.domains.writes.accounts import (
             CreateAccountPayload,
             create_account_execute,
         )
@@ -318,7 +318,7 @@ class TestAddingTheAccountItself:
     ) -> None:
         """No rule can know that two names are one debt, so the card
         shows the near-misses and the person approving decides."""
-        from app.services.finance.domains.writes.terms import (
+        from app.services.finance.domains.writes.accounts import (
             CreateAccountPayload,
             create_account_describe,
         )
@@ -344,7 +344,7 @@ class TestAddingTheAccountItself:
         assert "Anthony & Sylvan Pools Fairfield" in shown["You already have"]
 
     def test_an_unknown_type_is_refused(self) -> None:
-        from app.services.finance.domains.writes.terms import CreateAccountPayload
+        from app.services.finance.domains.writes.accounts import CreateAccountPayload
 
         with pytest.raises(ValueError, match="is not an account type"):
             CreateAccountPayload(name="GreenSky", account_type="lone")

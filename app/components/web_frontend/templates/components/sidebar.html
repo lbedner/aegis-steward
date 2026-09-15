@@ -13,8 +13,25 @@
     {{ brand(project_name) }}
   </div>
 
+  {# Grouped by what a section is ABOUT, from ``Section.group`` - the
+     heading and the order are one list, so a section cannot move
+     without its heading moving with it.
+
+     A group CHANGE is what draws the heading, not a count: the first
+     section carrying a name opens it, and a section carrying none
+     closes the last one with a rule. Railed, both disappear - a heading
+     over a column of icons is a word with nothing under it. #}
   <nav aria-label="Sections" class="flex-1 min-h-0 overflow-y-auto py-4 px-2 space-y-0.5">
+    {% set ns = namespace(group="") %}
     {% for section in nav %}
+    {% if section.group != ns.group %}
+    {% if section.group %}
+    <p class="rail-none px-3 pt-4 pb-1 micro-label text-aegis-muted" data-nav-group>{{ section.group }}</p>
+    {% else %}
+    <hr class="rail-none my-2 border-aegis-border" aria-hidden="true">
+    {% endif %}
+    {% set ns.group = section.group %}
+    {% endif %}
     {{ nav_item(section, current_path) }}
     {% endfor %}
   </nav>

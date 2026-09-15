@@ -15,14 +15,36 @@ def create_web_frontend_app() -> APIRouter:
     router = APIRouter()
 
     from app.components.web_frontend.routes.chat import router as chat_router
+    from app.components.web_frontend.routes.facts import (
+        accounts as account_facts_router,
+    )
+    from app.components.web_frontend.routes.facts import router as facts_router
     from app.components.web_frontend.routes.finance import router as finance_router
     from app.components.web_frontend.routes.icons import router as icons_router
     from app.components.web_frontend.routes.jobs import router as jobs_router
+    from app.components.web_frontend.routes.matter_papers import (
+        router as papers_router,
+    )
+    from app.components.web_frontend.routes.matters import router as matters_router
     from app.components.web_frontend.routes.pages import router as pages_router
+    from app.components.web_frontend.routes.people import router as people_router
+    from app.components.web_frontend.routes.request_items import (
+        router as items_router,
+    )
+    from app.components.web_frontend.routes.requests import router as requests_router
+    from app.components.web_frontend.routes.signins import router as signins_router
 
     router.include_router(pages_router)
     router.include_router(finance_router)
     router.include_router(jobs_router)
+    router.include_router(matters_router)
+    router.include_router(papers_router)
+    router.include_router(requests_router)
+    router.include_router(items_router)
+    router.include_router(facts_router)
+    router.include_router(account_facts_router)
+    router.include_router(signins_router)
+    router.include_router(people_router)
     router.include_router(icons_router)
     router.include_router(chat_router)
 

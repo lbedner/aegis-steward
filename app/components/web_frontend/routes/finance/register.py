@@ -33,6 +33,7 @@ from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import mark_new
 from app.core.formatting import payee_label
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
+from app.services.finance.domains.ledger.queries.accounts import EVERYONE
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import AccountResponse, TransactionResponse
 from app.services.finance.service import FinanceService
@@ -210,8 +211,11 @@ async def rows_context(
     for one row or fifty. ``suggestions`` (transaction id -> {category_id,
     category_name}) rides on the row as a preview nothing has written."""
     items = await hydrate_transactions(service, txns)
+    # Every account, not just ours: this is a lookup table for naming
+    # the account a row sits on, and a row on somebody else's account
+    # would otherwise render with no name at all.
     accounts, _ = await service.list_accounts(
-        owner_user_id=owner_user_id, page=1, page_size=500
+        owner_user_id=owner_user_id, page=1, page_size=500, subject_id=EVERYONE
     )
     names = {a.id: a.name for a in accounts}
     return {

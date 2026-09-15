@@ -16,7 +16,7 @@ from starlette.responses import Response
 
 from app.components.backend.api.finance.accounts import list_accounts
 from app.components.web_frontend.filters import money, money_to_cents
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import account_tabs, section
 from app.components.web_frontend.rendering import (
     close_dialog,
     navigate,
@@ -24,6 +24,7 @@ from app.components.web_frontend.rendering import (
     templates,
     with_toast,
 )
+from app.components.web_frontend.routes.finance import subjects
 from app.components.web_frontend.routes.finance.register import (
     RegisterFilters,
     register_context,
@@ -131,18 +132,27 @@ def _filed_count() -> Any:
 
 
 async def _accounts(
-    service: FinanceService, owner_user_id: int | None
+    service: FinanceService,
+    owner_user_id: int | None,
+    seeing: str | None = None,
 ) -> tuple[list[AccountResponse], dict[str, Any]]:
-    """Every live account, and the shape both pages read it through."""
+    """Every live account, and the shape both pages read it through.
+
+    ``seeing`` is the ``?whose=`` parameter. It defaults to ours, so the
+    portfolio total on this page is a statement about our money however
+    many other people's accounts the app is holding.
+    """
     listing = await list_accounts(
         include_hidden=False,
         page=1,
         page_size=200,
+        subject_id=subjects.whose(seeing),
         service=service,
         owner_user_id=owner_user_id,
     )
     return listing.items, {
         "section": SECTION,
+        **await subjects.chips(service, seeing),
         "groups": grouped(listing.items),
         "total": sum(balance(a) for a in listing.items),
         "statement_lines": {a.id: statement_line(a) for a in listing.items},
@@ -157,11 +167,14 @@ async def _one_account(
 ) -> tuple[list[AccountResponse], AccountResponse, dict[str, Any]]:
     """One account and the portfolio it sits in, or a 404.
 
-    Every face of an account needs the whole list anyway - the switcher
-    in its header names all of them - so the account is picked out of
-    that list rather than fetched again.
+    Whose money it is decides which portfolio that IS: a parent's
+    pension sits among their accounts, ours among ours. The listing
+    defaults to the household, right for a total and wrong for a door -
+    so the account says whose it is and is drawn in that world.
     """
-    accounts, context = await _accounts(service, owner_user_id)
+    found = await service.get_account(account_id, owner_user_id=owner_user_id)
+    whose = str(found.subject_id) if found and found.subject_id else None
+    accounts, context = await _accounts(service, owner_user_id, whose)
     selected = next((a for a in accounts if a.id == account_id), None)
     if selected is None:
         raise HTTPException(status_code=404)
@@ -228,6 +241,9 @@ async def _header_context(
         "selected_balance": balance(selected) if selected else None,
         "statement_line": statement_line(selected) if selected else None,
         "held_with": await held_with(service, selected, owner_user_id),
+        "whose_name": await subjects.whose_name(
+            service, selected.subject_id if selected else None
+        ),
         "actions": actions(selected) if selected else [],
         "updated": await _last_updated(service, selected),
     }
@@ -287,11 +303,20 @@ async def _register_page(
     account_id: int | None,
     filters: RegisterFilters,
 ) -> Response:
-    """One register: every account, or one of them."""
-    accounts, context = await _accounts(service, owner_user_id)
-    selected = next((a for a in accounts if a.id == account_id), None)
-    if account_id is not None and selected is None:
-        raise HTTPException(status_code=404)
+    """One register: every account, or one of them.
+
+    Finding the account is ``_one_account``'s job, not a second copy of
+    it here - which is what this was, and it kept the 404 the account
+    page had just stopped giving: a register tab that refused to open
+    the account its own header was naming.
+    """
+    selected: AccountResponse | None = None
+    if account_id is None:
+        accounts, context = await _accounts(service, owner_user_id)
+    else:
+        accounts, selected, context = await _one_account(
+            service, owner_user_id, account_id
+        )
     register = await register_context(
         path=f"{SECTION.path}/{selected.id if selected else 'all'}",
         seen=watermark(request, "register"),
@@ -331,11 +356,12 @@ async def _register_page(
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
+    whose: str | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """The portfolio. No register: that is the other page's job."""
-    _, context = await _accounts(service, owner_user_id)
+    _, context = await _accounts(service, owner_user_id, whose)
     return render(request, "pages/accounts.html", context)
 
 
@@ -349,38 +375,6 @@ async def all_accounts(
     return await _register_page(request, service, owner_user_id, None, filters)
 
 
-def account_tabs(
-    account_id: int, current: str, filed: int = 0
-) -> dict[str, Any]:
-    """An account's two faces, as the sub-nav every section uses.
-
-    The register answers "what happened here", the cover sheet answers
-    "what IS this", and Documents is the paper both of them are read
-    against. One page could not do all three without the facts
-    scrolling away above a thousand rows.
-
-    ``filed`` puts the count on the tab, because the useful thing to
-    know about an account's paper before you click is whether there is
-    any.
-    """
-    base = f"{SECTION.path}/{account_id}"
-    return {
-        "nav_label": "Account",
-        "nav_id": "account-tabs",
-        "current_tab": current,
-        "sub_nav": [
-            {"key": "cover", "label": "Overview", "href": f"{base}/overview"},
-            {
-                "key": "documents",
-                "label": "Documents",
-                "href": f"{base}/documents",
-                "count": filed,
-            },
-            {"key": "register", "label": "Register", "href": base},
-        ],
-    }
-
-
 @router.get(SECTION.path + "/{account_id:int}", include_in_schema=False)
 async def account(
     request: Request,
@@ -392,20 +386,40 @@ async def account(
     return await _register_page(request, service, owner_user_id, account_id, filters)
 
 
-def _new_form(
-    request: Request, errors: list[str], status_code: int = 200, **values: Any
+async def _new_form(
+    request: Request,
+    service: FinanceService,
+    errors: list[str],
+    status_code: int = 200,
+    **values: Any,
 ) -> Response:
     return templates.TemplateResponse(
         request=request,
         name="partials/accounts/new.html",
-        context={"types": ADD_ACCOUNT_TYPES, "errors": errors, **values},
+        context={
+            "types": ADD_ACCOUNT_TYPES,
+            "people": await subjects.people(service),
+            "errors": errors,
+            **values,
+        },
         status_code=status_code,
     )
 
 
 @router.get(SECTION.path + "/new", include_in_schema=False)
-async def new_form(request: Request) -> Response:
-    return _new_form(request, [], name="", account_type="checking", opening_balance="")
+async def new_form(
+    request: Request, service: FinanceService = Depends(get_finance_service)
+) -> Response:
+    return await _new_form(
+        request,
+        service,
+        [],
+        name="",
+        account_type="checking",
+        opening_balance="",
+        whose="",
+        new_whose="",
+    )
 
 
 @router.post(SECTION.path + "/new", include_in_schema=False)
@@ -414,6 +428,8 @@ async def create(
     name: Annotated[str, Form()] = "",
     account_type: Annotated[str, Form()] = "checking",
     opening_balance: Annotated[str, Form()] = "",
+    whose: Annotated[str, Form()] = "",
+    new_whose: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
@@ -429,13 +445,16 @@ async def create(
     if cents is None:
         errors.append("The opening balance is not a number.")
     if errors:
-        return _new_form(
+        return await _new_form(
             request,
+            service,
             errors,
             status_code=422,
             name=name,
             account_type=account_type,
             opening_balance=opening_balance,
+            whose=whose,
+            new_whose=new_whose,
         )
     assert cents is not None
     classification = account_classification(account_type)
@@ -449,6 +468,21 @@ async def create(
         classification=classification,
     )
     assert account.id is not None
+    # Whose money, said once at creation. The subject row is made here
+    # rather than maintained by hand: a person becomes a subject the
+    # moment an account is put in their name.
+    # Named here rather than in Settings: whose money it is arrives
+    # with the account, and a picker that only offers rows somebody
+    # already made sends the reader away mid-form.
+    from app.services.matters.service import party_or_new
+
+    belongs_to = await party_or_new(
+        service.db, whose, new_whose, owner_user_id=owner_user_id
+    )
+    if belongs_to:
+        await subjects.in_someone_elses_name(
+            service, account.id, belongs_to, owner_user_id
+        )
     if balance:
         await service.update_account_balance(
             account.id, current_balance=balance, owner_user_id=owner_user_id

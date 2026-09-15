@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 
 from app.components.backend.api.finance.base import _MAX_IMPORT_BYTES, _NOT_FOUND
 from app.components.backend.api.finance.declare import _preview_payload
-from app.core.db import get_async_session as _job_session
 from app.services.finance.adapters.importers import (
     csv_profiles,
     imports,
@@ -31,10 +30,6 @@ from app.services.finance.schemas import (
     ImportResultResponse,
 )
 from app.services.finance.service import FinanceService
-from app.services.system.jobs import (
-    JobHandle,
-    get_job_runner,
-)
 
 router = APIRouter()
 
@@ -90,22 +85,17 @@ async def import_file(
             )
 
     if background:
-        file_name = file.filename
+        # The bytes go to storage, not into the queue: the worker mounts
+        # the same volume, and a queue is a poor place to park a file.
+        from app.core.storage import get_storage
+        from app.services.finance.domains.imports_job import start_import
 
-        async def work(handle: JobHandle) -> dict:
-            handle.set_label(f"Importing {file_name}...")
-            async with _job_session() as session:
-                result = await FinanceService(session).import_file(
-                    owner_user_id=owner_user_id,
-                    file_name=file_name,
-                    file_bytes=data,
-                    account_id=account_id,
-                )
-                await session.commit()
-            return _import_result_payload(result)
-
-        job_id = get_job_runner().start(
-            f"finance-import:{file_name}", work, label=f"Uploading {file_name}..."
+        storage_key = await get_storage().put(data, content_type=file.content_type)
+        job_id = await start_import(
+            storage_key,
+            file_name=file.filename,
+            account_id=account_id,
+            owner_user_id=owner_user_id,
         )
         return JSONResponse({"job_id": job_id}, status_code=status.HTTP_202_ACCEPTED)
 

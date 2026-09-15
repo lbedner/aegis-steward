@@ -17,6 +17,7 @@ from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import dollars, short_date
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render
+from app.components.web_frontend.routes.finance import subjects
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.merchant_icon import Icon, payee_icons_by_name
 from app.services.finance.schemas import ProjectionPoint, ProjectionResponse
@@ -109,16 +110,22 @@ async def page(
     request: Request,
     days: int = Query(default=DEFAULT_DAYS, ge=1),
     account_ids: list[int] | None = Query(default=None),
+    whose: str | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
+    # The chip says whose line this is; naming accounts is narrower and
+    # decides for itself. Ours by default, because a balance line that
+    # quietly includes a parent's pension is wrong everywhere it is read.
+    seeing = subjects.whose(whose)
     projection = await service.project_balances(
         owner_user_id=owner_user_id,
         days=ranges.horizon(days, MAX_DAYS),
         account_ids=account_ids or None,
+        subject_id=seeing,
     )
     accounts, _total = await service.list_accounts(
-        owner_user_id=owner_user_id, page_size=500
+        owner_user_id=owner_user_id, page_size=500, subject_id=seeing
     )
     icons = await payee_icons_by_name(
         service.db, [p.name for p in projection.points], owner_user_id=owner_user_id
@@ -128,6 +135,7 @@ async def page(
         "pages/projected.html",
         {
             "section": SECTION,
+            **await subjects.chips(service, whose),
             "days": days,
             "ranges": RANGES,
             "selected_ids": account_ids or [],

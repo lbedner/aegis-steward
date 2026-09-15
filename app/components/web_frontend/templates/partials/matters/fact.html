@@ -1,0 +1,31 @@
+{# Dialog body: a claim about someone's money, and how you know.
+
+   The source is not an afterthought on this form. A $2,075.00 deposit
+   and a benefit letter saying $2,180.40 GROSS are both true, and only
+   one of them answers the county - so where it came from is asked for
+   in the same breath as the number. #}
+{% from "components/macros/form.html" import field, text_input, select, pick_or_add, date_input, money_input, checkbox, textarea, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Record a fact", "What you can say, and how you know. A correction later supersedes this rather than replacing it.") }}
+{{ error_banner(errors) }}
+<form {{ hx_dialog_post(post) }} class="space-y-4">
+  {% call field("About") %}{{ pick_or_add("subject_party_id", subjects, typed.subject_party_id, blank="Nobody yet", new_field="new_subject", hint="or name whose money this is") }}{% endcall %}
+  {% call field("What kind of claim") %}{{ select("attribute", attributes|as_options, typed.attribute or "gross_income", blank=None, block=True) }}{% endcall %}
+  {% call field("What the source calls it") %}{{ text_input("label", typed.label, placeholder="IBEW pension, Eleanor incidental") }}{% endcall %}
+  <div class="grid grid-cols-2 gap-3">
+    {% call field("Amount") %}{{ money_input("amount", typed.amount) }}{% endcall %}
+    {% call field("Per") %}{{ select("period", periods|as_options, typed.period or "month", blank=None, block=True) }}{% endcall %}
+  </div>
+  {% call field("Or say it in words") %}{{ text_input("text_value", typed.text_value, placeholder="A 2014 Ford Escape, policy 8812-A") }}{% endcall %}
+  {% call field("As of") %}{{ date_input("as_of", typed.as_of, block=True) }}{% endcall %}
+  {% call field("How you know") %}{{ select("provenance", provenances|as_options, typed.provenance or "stated", blank=None, block=True) }}{% endcall %}
+  {% call field("From which document") %}{{ select("document_id", documents, typed.document_id, blank="Not from a document", block=True) }}{% endcall %}
+  {% call field("Where it says so") %}{{ text_input("source_note", typed.source_note, placeholder="Read off the pension portal, 14 September") }}{% endcall %}
+  {#- The place first, the exact page second: a portal is somewhere in
+      the address book, and the deep link is which page of it. -#}
+  {% call field("Where") %}{{ pick_or_add("source_party_id", places, typed.source_party_id, blank="Nowhere in particular", new_field="new_place", hint="or name the place it came from") }}{% endcall %}
+  {% call field("The page itself") %}{{ text_input("source_url", typed.source_url, placeholder="pensionportal.example.com/benefits") }}{% endcall %}
+  <div class="pt-1">{{ checkbox("verified", label="I checked this against the source") }}</div>
+  <div>{{ primary_button("Record", type="submit") }}</div>
+</form>

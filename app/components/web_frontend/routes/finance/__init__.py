@@ -11,12 +11,14 @@ from app.components.web_frontend.routes.finance import (
     account_manage,
     accounts,
     bills,
+    bills_match,
     budget,
     budget_envelopes,
     budget_goals,
     cover,
     documents,
     imports,
+    institutions,
     overview,
     projected,
     review,
@@ -31,7 +33,9 @@ router.include_router(account_manage.router)
 router.include_router(cover.router)
 router.include_router(documents.router)
 router.include_router(imports.router)
+router.include_router(institutions.router)
 router.include_router(bills.router)
+router.include_router(bills_match.router)
 router.include_router(projected.router)
 router.include_router(budget.router)
 router.include_router(budget_goals.router)

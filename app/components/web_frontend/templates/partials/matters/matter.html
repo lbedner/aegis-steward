@@ -1,0 +1,21 @@
+{# Dialog body: open a case.
+
+   ``reference`` is the agency's OWN number. It is how two letters agree
+   they are about the same thing, so a reference that already names a
+   matter opens that one instead of making a second. #}
+{% from "components/macros/form.html" import field, text_input, select, pick_or_add, date_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{% call dialog_title("Open a matter") %}
+<p class="text-xs text-aegis-muted mb-4">A case a letter belongs to. Their reference is the number the agency uses; a second letter carrying it lands here rather than starting again.</p>
+{% endcall %}
+{{ error_banner(errors) }}
+<form {{ hx_dialog_post("/matters/new") }} class="space-y-4">
+  {% call field("Title") %}{{ text_input("title", title, placeholder="Medicaid renewal", required=True, autofocus=True) }}{% endcall %}
+  {% call field("Kind") %}{{ text_input("kind", kind, placeholder="medicaid, insurance, tax, estate") }}{% endcall %}
+  {% call field("Their reference") %}{{ text_input("reference", reference, placeholder="MA258760XX") }}{% endcall %}
+  {% call field("About") %}{{ pick_or_add("subject_party_id", parties, blank="Nobody yet", new_field="new_subject", hint="or name the person this is about") }}{% endcall %}
+  {% call field("With") %}{{ pick_or_add("counterpart_party_id", parties, blank="Nobody yet", new_field="new_counterpart", hint="or name the agency that wrote") }}{% endcall %}
+  {% call field("Opened") %}{{ date_input("opened_on", "", block=True) }}{% endcall %}
+  {{ primary_button("Open", type="submit") }}
+</form>

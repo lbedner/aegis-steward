@@ -47,6 +47,19 @@ templates.env.globals["nav"] = NAV
 templates.env.globals["category_glyph"] = category_glyph
 templates.env.globals["account_glyph"] = account_glyph
 templates.env.globals["file_badge"] = file_badge
+
+# The matters vocabulary: every string those pages say comes from one
+# module, so a status spelled in a template cannot drift from the same
+# status spelled in another.
+from app.services.matters.words import (  # noqa: E402
+    item_status,
+    role_label,
+    word,
+)
+
+templates.env.globals["word"] = word
+templates.env.filters["role_label"] = role_label
+templates.env.filters["item_status"] = item_status
 templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.

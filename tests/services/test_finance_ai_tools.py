@@ -54,9 +54,11 @@ def _tools_use_test_session(
         yield session
 
     monkeypatch.setattr(ai_tools, "get_async_session", test_session)
-    # The write tools live in their own module with their own import.
-    from app.services.finance import ai_write_tools
+    # The balance sheet and the write tools live in their own modules,
+    # each with their own import of the session opener.
+    from app.services.finance import ai_account_tools, ai_write_tools
 
+    monkeypatch.setattr(ai_account_tools, "get_async_session", test_session)
     monkeypatch.setattr(ai_write_tools, "get_async_session", test_session)
 
 
