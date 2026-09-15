@@ -111,6 +111,38 @@ class RequestService:
             ).all()
         )
 
+    async def amend(
+        self,
+        item_id: int,
+        *,
+        asked: str | None = None,
+        ask: str | None = None,
+        as_of: date | None = None,
+    ) -> RequestItem | None:
+        """Correct what an item says.
+
+        The sentence is the county's, not ours - which is exactly why a
+        mistyped one has to be fixable. Recording it wrong and then
+        answering the wrong question is worse than the typo, and a
+        record nobody can correct is one people keep outside the app.
+        """
+        item = await self.db.get(RequestItem, item_id)
+        if item is None:
+            return None
+        if asked is not None:
+            written = " ".join(asked.split())
+            if not written:
+                raise ValueError("An item needs the sentence that was asked.")
+            item.asked = written
+        if ask is not None:
+            item.ask = ask.strip() or None
+        if as_of is not None:
+            item.as_of = as_of
+        item.updated_at = _utcnow()
+        self.db.add(item)
+        await self.db.flush()
+        return item
+
     async def mark(
         self, item_id: int, status: str, resolution: str | None = None
     ) -> RequestItem | None:

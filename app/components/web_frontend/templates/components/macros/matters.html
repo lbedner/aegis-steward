@@ -20,6 +20,7 @@
   {% else %}
   {{ menu_item("Attach a document", hx_dialog(base ~ "/attach")) }}
   {% endif %}
+  {{ menu_item("Correct the wording", hx_dialog(base ~ "/edit")) }}
   {% if item.settled %}
   {{ menu_item("Still needed", 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
   {% else %}

@@ -158,6 +158,62 @@ async def mark_item(request: Request, item_id: int, status: str) -> Response:
         return await _card(request, db, item.request_id)
 
 
+@router.get(ITEM + "/edit", include_in_schema=False)
+async def edit_item(request: Request, item_id: int) -> Response:
+    async with get_async_session() as db:
+        item = await RequestService(db).item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        return dialog(
+            request,
+            "partials/matters/item.html",
+            item=item,
+            post=f"{SECTION.path}{ITEM.replace('{item_id:int}', str(item_id))}/edit",
+            errors=[],
+        )
+
+
+@router.post(ITEM + "/edit", include_in_schema=False)
+async def save_item(
+    request: Request,
+    item_id: int,
+    asked: Annotated[str, Form()] = "",
+    ask: Annotated[str, Form()] = "",
+    as_of: Annotated[str, Form()] = "",
+) -> Response:
+    """Correct the sentence, or what would satisfy it."""
+    async with get_async_session() as db:
+        requests = RequestService(db)
+        item = await requests.item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        try:
+            await requests.amend(
+                item_id,
+                asked=asked,
+                ask=ask,
+                as_of=date_type.fromisoformat(as_of) if as_of else None,
+            )
+        except ValueError as exc:
+            return dialog(
+                request,
+                "partials/matters/item.html",
+                422,
+                item=item,
+                post=(
+                    f"{SECTION.path}"
+                    f"{ITEM.replace('{item_id:int}', str(item_id))}/edit"
+                ),
+                errors=[str(exc)],
+            )
+        found = await requests.get(item.request_id)
+        await db.commit()
+    return dialog_done(
+        where_from(request, f"{SECTION.path}/{found.matter_id if found else ''}"),
+        "Saved",
+    )
+
+
 @router.get(ITEM + "/attach", include_in_schema=False)
 async def attach_form(request: Request, item_id: int) -> Response:
     """Link the paper that answers this item, or add it.

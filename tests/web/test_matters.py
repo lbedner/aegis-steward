@@ -724,3 +724,42 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
     visitor = one(theirs, "[data-visitor]")
     assert "Both Ends Owner" in text(visitor)
     assert "Retirement Online" in text(visitor)
+
+
+def test_a_mistyped_item_can_be_corrected(client: TestClient) -> None:
+    """The sentence is the county's, not ours - which is exactly why a
+    mistyped one has to be fixable. Answering the wrong question is
+    worse than the typo."""
+    page = _matter(client, "MA-EDIT-1")
+    client.post(
+        page + "/requests/new",
+        data={"asked": "Proof of income for the IBEW and iHeart pensions"},
+    )
+    item = one(client.get(page).text, "#matter-requests [data-item]")
+    item_id = item.get("data-item")
+
+    answer = client.post(
+        f"/matters/requests/items/{item_id}/edit",
+        data={
+            "asked": "Proof of GROSS monthly income for the IBEW pension",
+            "ask": "fact:gross_income",
+            "as_of": "",
+        },
+    )
+
+    assert answer.status_code == 200
+    asked = text(one(client.get(page).text, "#matter-requests [data-asked]"))
+    assert asked == "Proof of GROSS monthly income for the IBEW pension"
+
+
+def test_an_item_cannot_be_emptied(client: TestClient) -> None:
+    page = _matter(client, "MA-EDIT-2")
+    client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
+    item_id = one(client.get(page).text, "#matter-requests [data-item]").get("data-item")
+
+    answer = client.post(
+        f"/matters/requests/items/{item_id}/edit", data={"asked": "   "}
+    )
+
+    assert answer.status_code == 422
+    assert "sentence that was asked" in answer.text
