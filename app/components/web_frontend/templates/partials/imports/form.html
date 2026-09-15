@@ -15,7 +15,13 @@
    ``hx-include="#import-form"`` - remove it and the commit has nothing
    to send. #}
 {% from "components/macros/form.html" import field, file_input, select, button_classes, control %}
-<div id="import-dialog" x-data="{ busy: false }">
+{#- While a run is in flight the dialog holds one line of text. The
+    shell it was sitting in is sized for a form - four fields and a
+    radio list - so the file being imported floated in a box six times
+    its height. ``data-narrow`` is the dialog's own hook for exactly
+    this, bound rather than set: it comes off again if the run fails and
+    the chooser returns with its retry. -#}
+<div id="import-dialog" x-data="{ busy: false }" :data-narrow="busy ? '' : null">
 <div id="import-chooser" x-show="!busy">
 {{ dialog_title("Import a file") }}
 <form id="import-form" hx-encoding="multipart/form-data" class="space-y-4">
@@ -40,6 +46,6 @@
 </div>
 {# The result pane is what knows the state, re-read on every swap
    INCLUDING the job follower's own frames. #}
-<div id="import-result" class="mt-5"
+<div id="import-result" :class="busy ? '' : 'mt-5'"
      @htmx:after-swap="busy = !!$el.firstElementChild && !$el.querySelector('[data-import-retry]')"></div>
 </div>

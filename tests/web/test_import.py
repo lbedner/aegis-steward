@@ -106,6 +106,25 @@ class TestDialog:
             "a rejected file is the one case where picking another one is the next step"
         )
 
+    def test_the_dialog_shrinks_to_what_it_is_holding(
+        self, client: TestClient, hx: TestClient, ledger: Ledger
+    ) -> None:
+        """Reported live 2026-09-15: a run in flight is one line of text
+        in a shell sized for a four-field form, so the file being
+        imported floated in a box six times its height.
+
+        Bound rather than set, because the chooser comes back when a file
+        is rejected and it needs the room again.
+        """
+        dialog = hx.get(f"/accounts/import?account_id={ledger.checking}").text
+        scope = one(dialog, "#import-dialog")
+
+        narrow = scope.get(":data-narrow") or ""
+        assert "busy" in narrow, "the dialog only narrows while a run is in flight"
+        assert "null" in narrow, "and widens again when the chooser returns"
+        # The hook the dialog shell actually reads.
+        assert scope.get("data-narrow") is None
+
     def test_only_a_rejected_file_puts_the_chooser_back(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -287,8 +306,24 @@ class TestImportJob:
         )  # type: ignore[arg-type]
         assert "boom" in text(one(html, '[role="alert"]'))
 
-    def test_unknown_job_is_404(self, client: TestClient) -> None:
-        assert client.get("/jobs/nope/events").status_code == 404
+    def test_a_job_the_app_no_longer_has_says_so_and_offers_the_file_again(
+        self, client: TestClient
+    ) -> None:
+        """Reported live 2026-09-15: the app restarted mid-import, and
+        the dialog followed a job that no longer existed. A 404 on an SSE
+        stream is invisible to the extension - no frame arrives, the
+        spinner turns forever, and the reader believes an import is
+        still going.
+
+        One terminal frame instead, carrying the retry marker so the file
+        picker comes back.
+        """
+        answer = client.get("/jobs/nope/events")
+
+        assert answer.status_code == 200
+        assert "event: status" in answer.text
+        assert "restarted" in answer.text
+        assert "data-import-retry" in answer.text
 
 
 class TestJobFrames:
