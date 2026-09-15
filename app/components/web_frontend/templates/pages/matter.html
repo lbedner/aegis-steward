@@ -14,7 +14,18 @@
 <section id="matter" class="space-y-6">
   <header class="flex flex-wrap items-start justify-between gap-4">
     <div class="min-w-0">
-      <h1 class="text-lg font-semibold text-aegis-text">{{ matter.title }}</h1>
+      {#- The way back. A page you navigate TO needs one: the sidebar
+          takes you to the section, not to the list you came from with
+          its filters, and a reader who has to hunt for it learns to use
+          the browser's button and lose the page state anyway. -#}
+      <a href="{{ path }}" {{ hx_page(path) }} data-back
+         class="inline-flex items-center gap-1 text-xs text-aegis-muted hover:text-aegis-text transition-colors">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+        {{ section.label }}
+      </a>
+      <h1 class="text-lg font-semibold text-aegis-text mt-1">{{ matter.title }}</h1>
       <p data-facts class="text-xs text-aegis-muted mt-1">
         {%- set meta = [] -%}
         {%- if matter.kind %}{% set _ = meta.append(matter.kind|title) %}{% endif -%}

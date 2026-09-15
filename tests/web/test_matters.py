@@ -950,3 +950,14 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
     assert "Walk pension" in text(said)
     assert "$1,200.00" in text(said)
     assert "Read off the portal" in text(said)
+
+
+def test_a_matter_page_has_the_way_back(client: TestClient) -> None:
+    """A page you navigate TO needs one: the sidebar takes you to the
+    section, not to the list you came from."""
+    page = _matter(client, "MA-BACK-1")
+
+    back = one(client.get(page).text, "#matter [data-back]")
+
+    assert back.get("href") == "/matters"
+    assert text(back) == "Matters"
