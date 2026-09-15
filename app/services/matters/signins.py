@@ -94,6 +94,25 @@ class SignInService:
             ).all()
         )
 
+    async def at_site(self, party_id: int) -> list[SignIn]:
+        """The sign-ins that get you into THIS organization's site.
+
+        The other side of ``for_party``: James's page lists the logins
+        he owns, and the pension fund's page lists who signs in there.
+        One row, read from both ends - a page that can only be reached
+        from one of them is a page somebody will swear is empty.
+        """
+        return list(
+            (
+                await self.db.exec(
+                    select(SignIn)
+                    .where(SignIn.site_party_id == party_id)
+                    .where(col(SignIn.deleted_at).is_(None))
+                    .order_by(col(SignIn.label))
+                )
+            ).all()
+        )
+
     async def change(
         self, sign_in_id: int, changes: dict[str, Any], secret: str | None = None
     ) -> SignIn | None:

@@ -43,6 +43,23 @@
   <p class="text-sm text-aegis-muted" data-empty>No sign-ins yet.</p>
   {% endif %}
 
+  {#- The other end of the same rows: whose logins get you into THIS
+      organization. A page that says "no sign-ins" while one points
+      straight at it is a page somebody will swear is empty. -#}
+  {% if visitors %}
+  <div data-visitors class="pt-2">
+    <h4 class="micro-label text-aegis-muted mb-1">Who signs in here</h4>
+    <ul class="divide-y divide-aegis-border/60">
+      {% for visitor in visitors %}
+      <li data-visitor="{{ visitor.id }}" class="py-2 text-sm text-aegis-text">
+        {{ visitor.whose }}
+        <span class="text-aegis-muted">· {{ visitor.label }}{% if visitor.username %} · {{ visitor.username }}{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   {% if form is not none %}
   {#- Its own form, not nested in the party's: a form inside a form is
       not markup a browser accepts, and the two save different things. -#}

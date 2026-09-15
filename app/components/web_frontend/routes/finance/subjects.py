@@ -127,3 +127,66 @@ async def whose_name(service: FinanceService, subject_id: int | None) -> str | N
         if subject.id == subject_id:
             return subject.name
     return None
+
+
+async def who_and_where(
+    service: FinanceService, account: Any, owner_user_id: int | None = None
+) -> dict[str, Any]:
+    """The people and places behind an account.
+
+    An account with no transactions is not an account with nothing to
+    say. Whose money it is and who it is held with are both rows in the
+    address book, carrying an address, a phone and a website that are
+    exactly what somebody reaches for when they have to ring the pension
+    fund - and they were a click away behind two dialogs, on a page that
+    looked empty.
+
+    Nothing at all when the account has neither: an empty card on every
+    ordinary account teaches people to skip the space it sits in.
+    """
+    from app.services.matters.service import PartyService
+    from app.services.matters.signins import SignInService, drawn
+
+    parties = PartyService(service.db)
+    cards: list[dict[str, Any]] = []
+    subject_party_id: int | None = None
+    if account is not None and account.subject_id:
+        for subject in await service.list_subjects():
+            if subject.id == account.subject_id and subject.party_id:
+                subject_party_id = subject.party_id
+    held_party_id: int | None = None
+    if account is not None and account.institution_id:
+        for bank in await service.list_institutions(owner_user_id=owner_user_id):
+            if bank.id == account.institution_id:
+                held_party_id = bank.party_id
+    for role, party_id in (("Whose money", subject_party_id), ("Held with", held_party_id)):
+        if not party_id:
+            continue
+        party = await parties.get(party_id)
+        if party is None:
+            continue
+        # Only under the place: a login is how you get INTO somewhere,
+        # and listing it under its owner too says one thing twice on a
+        # page that is already answering one question.
+        rows = (
+            await SignInService(service.db).at_site(party_id)
+            if role == "Held with"
+            else []
+        )
+        cards.append(
+            {
+                "role": role,
+                "party_id": party.id,
+                "name": party.name,
+                "contact": {
+                    key: value
+                    for key, value in (party.contact or {}).items()
+                    if value
+                },
+                # The way IN, named but never opened here: the password
+                # lives one deliberate click away, on the party.
+                "signins": [drawn(one) for one in rows],
+                "note": party.note or "",
+            }
+        )
+    return {"who_and_where": cards}

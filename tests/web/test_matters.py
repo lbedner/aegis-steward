@@ -681,3 +681,39 @@ class TestAPlace:
 
         assert answer.status_code == 422
         assert "http or https" in answer.text
+
+
+def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
+    """The other end of the same row. The pension fund's page said "No
+    sign-ins yet" while a sign-in pointed straight at it, because the
+    list only ever read one side of the link."""
+    client.post(
+        "/settings/people/new",
+        data={
+            "name": "Both Ends Fund",
+            "kind": "organization",
+            "sort_name": "",
+            "website": "bothends.example.com",
+            "note": "",
+        },
+    )
+    _party(client, "Both Ends Owner", "person")
+    people = client.get("/settings/people?q=Both Ends").text
+    ids = {
+        text(el): el.get("hx-get").rsplit("/", 1)[-1]
+        for el in select(people, "#people tbody [data-open]")
+    }
+
+    client.post(
+        f"/settings/people/{ids['Both Ends Owner']}/signins/new",
+        data={
+            "label": "Retirement Online",
+            "site_party_id": ids["Both Ends Fund"],
+            "username": "owner@",
+        },
+    )
+
+    theirs = client.get(f"/settings/people/{ids['Both Ends Fund']}/signins").text
+    visitor = one(theirs, "[data-visitor]")
+    assert "Both Ends Owner" in text(visitor)
+    assert "Retirement Online" in text(visitor)

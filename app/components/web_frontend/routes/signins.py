@@ -34,8 +34,21 @@ SIGN_IN = "/people/signins/{sign_in_id:int}"
 
 async def signins_for(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
     book = await place_book(db)
+    return [drawn(one, book) for one in await SignInService(db).for_party(party_id)]
+
+
+async def signins_at(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
+    """Who signs in HERE: the other end of the same rows.
+
+    An organization's page said "No sign-ins yet" while a sign-in
+    pointed straight at it, because the list only ever read one side of
+    the link.
+    """
+    names = {party.id: party.name for party in await PartyService(db).find()}
+    book = await place_book(db)
     return [
-        drawn(one, book) for one in await SignInService(db).for_party(party_id)
+        {**drawn(one, book), "whose": names.get(one.party_id, "")}
+        for one in await SignInService(db).at_site(party_id)
     ]
 
 
@@ -55,6 +68,7 @@ async def _block(
         status_code,
         party_id=party_id,
         signins=await signins_for(db, party_id),
+        visitors=await signins_at(db, party_id),
         # Somewhere with a website is somewhere you can be sent; the
         # rest of the address book is not a place to log in to.
         places=[

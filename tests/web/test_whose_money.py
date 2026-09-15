@@ -300,3 +300,64 @@ class TestHeldWith:
         # The party's website came with it: the ledger row is made from
         # the address book rather than beside it.
         assert held.get("href") == "https://heldpension.example.com"
+
+
+class TestTheAccountFrontPage:
+    """An account with no transactions is not an account with nothing to
+    say: whose money it is and who it is held with are rows in the
+    address book, with the phone number somebody actually needs."""
+
+    @pytest.mark.asyncio
+    async def test_it_names_the_person_and_the_place_with_their_details(
+        self, client: TestClient, person: Any, organization: Any
+    ) -> None:
+        subject = await person("Front Subject One")
+        place = await organization("Front Pension Fund", "frontpension.example.com")
+        client.post(
+            "/accounts/new",
+            data={
+                "name": "Front Their Pension",
+                "account_type": "other_asset",
+                "opening_balance": "",
+                "whose": subject,
+            },
+        )
+        theirs = client.get(f"/accounts?whose={subject}").text
+        base = [
+            el.get("href")
+            for el in select(theirs, "#portfolio a")
+            if "Front Their Pension" in text(el)
+        ][0].removesuffix("/overview")
+        client.post(f"{base}/institution", data={"institution_id": f"party:{place}"})
+
+        page = client.get(f"{base}/overview").text
+
+        whose = one(page, '[data-who="whose-money"]')
+        held = one(page, '[data-who="held-with"]')
+        assert text(one(whose, "[data-party]")) == "Front Subject One"
+        assert text(one(held, "[data-party]")) == "Front Pension Fund"
+        assert one(held, "[data-website]").get("href") == (
+            "https://frontpension.example.com"
+        )
+
+    def test_an_ordinary_account_gets_no_empty_card(
+        self, client: TestClient
+    ) -> None:
+        """An empty card on every account teaches people to skip the
+        space it sits in."""
+        client.post(
+            "/accounts/new",
+            data={
+                "name": "Front Our Savings",
+                "account_type": "savings",
+                "opening_balance": "10.00",
+            },
+        )
+        listing = client.get("/accounts").text
+        base = [
+            el.get("href")
+            for el in select(listing, "#portfolio a")
+            if "Front Our Savings" in text(el)
+        ][0].removesuffix("/overview")
+
+        none(client.get(f"{base}/overview").text, "[data-who]")
