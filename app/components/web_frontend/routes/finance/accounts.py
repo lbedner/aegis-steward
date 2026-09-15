@@ -300,11 +300,20 @@ async def _register_page(
     account_id: int | None,
     filters: RegisterFilters,
 ) -> Response:
-    """One register: every account, or one of them."""
-    accounts, context = await _accounts(service, owner_user_id)
-    selected = next((a for a in accounts if a.id == account_id), None)
-    if account_id is not None and selected is None:
-        raise HTTPException(status_code=404)
+    """One register: every account, or one of them.
+
+    Finding the account is ``_one_account``'s job, not a second copy of
+    it here - which is what this was, and it kept the 404 the account
+    page had just stopped giving: a register tab that refused to open
+    the account its own header was naming.
+    """
+    selected: AccountResponse | None = None
+    if account_id is None:
+        accounts, context = await _accounts(service, owner_user_id)
+    else:
+        accounts, selected, context = await _one_account(
+            service, owner_user_id, account_id
+        )
     register = await register_context(
         path=f"{SECTION.path}/{selected.id if selected else 'all'}",
         seen=watermark(request, "register"),

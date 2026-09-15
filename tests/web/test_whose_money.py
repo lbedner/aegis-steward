@@ -158,6 +158,25 @@ class TestSomebodyElsesMoney:
         assert "Whose Their Pension Six" in text(one(page.text, "#app-content"))
 
     @pytest.mark.asyncio
+    async def test_every_tab_of_their_account_opens(
+        self, client: TestClient, person: Any
+    ) -> None:
+        """Overview, Documents and Register are three doors to one
+        account. Fixing one and leaving the others is how a page ends up
+        with a header naming an account its own tab cannot open."""
+        subject = await person("Whose Subject Eight")
+        _account(client, "Whose Their Pension Eight", "1200.00", whose=subject)
+        theirs = client.get(f"/accounts?whose={subject}").text
+        base = [
+            el.get("href")
+            for el in select(theirs, "#portfolio a")
+            if "Pension Eight" in text(el)
+        ][0].removesuffix("/overview")
+
+        for tab in (f"{base}/overview", f"{base}/documents", base):
+            assert client.get(tab).status_code == 200, tab
+
+    @pytest.mark.asyncio
     async def test_their_page_totals_their_money_not_ours(
         self, client: TestClient, person: Any
     ) -> None:
