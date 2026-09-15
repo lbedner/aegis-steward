@@ -240,7 +240,7 @@ async def list_accounts(
     include_hidden: bool = False,
     page: int = 1,
     page_size: int = 50,
-    subject_id: int | None = None,
+    subject_id: int | None = queries.HOUSEHOLD,
 ) -> tuple[list[FinanceAccount], int]:
     return await queries.accounts_page(
         db,

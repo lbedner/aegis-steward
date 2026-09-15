@@ -15,6 +15,10 @@ from app.services.finance.domains.ledger import (
     subjects,
     valuations,
 )
+from app.services.finance.domains.ledger.queries.accounts import (  # noqa: F401
+    EVERYONE,
+    HOUSEHOLD,
+)
 from app.services.finance.models import (
     FinanceAccount,
     FinanceCurrency,
@@ -184,7 +188,7 @@ class AccountsMixin(FinanceServiceBase):
         include_hidden: bool = False,
         page: int = 1,
         page_size: int = 50,
-        subject_id: int | None = None,
+        subject_id: int | None = HOUSEHOLD,
     ) -> tuple[list[FinanceAccount], int]:
         return await accounts.list_accounts(
             self.db,

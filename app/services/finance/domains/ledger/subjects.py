@@ -25,6 +25,7 @@ async def create_subject(
     name: str,
     kind: str = "person",
     note: str | None = None,
+    party_id: int | None = None,
     owner_user_id: int | None = None,
 ) -> FinanceSubject:
     """Record someone whose money this household tracks."""
@@ -37,7 +38,11 @@ async def create_subject(
             f"{', '.join(SUBJECT_KINDS)}."
         )
     subject = FinanceSubject(
-        owner_user_id=owner_user_id, name=display, kind=kind, note=note
+        owner_user_id=owner_user_id,
+        party_id=party_id,
+        name=display,
+        kind=kind,
+        note=note,
     )
     db.add(subject)
     await db.flush()
@@ -90,3 +95,32 @@ async def assign_subject(
     db.add(account)
     await db.flush()
     return account
+
+
+async def subject_for_party(
+    db: AsyncSession,
+    party_id: int,
+    *,
+    name: str,
+    owner_user_id: int | None = None,
+) -> FinanceSubject:
+    """The subject for this party, made if it is not there yet.
+
+    Nobody maintains a second list. A person becomes a subject the
+    moment an account is put in their name, and the row is found by
+    party rather than by name - two people called Bedner are two
+    subjects, which is the same call ``party`` itself makes.
+    """
+    found = (
+        await db.exec(
+            select(FinanceSubject).where(
+                FinanceSubject.party_id == party_id,
+                FinanceSubject.deleted_at.is_(None),
+            )
+        )
+    ).first()
+    if found is not None:
+        return found
+    return await create_subject(
+        db, name=name, party_id=party_id, owner_user_id=owner_user_id
+    )

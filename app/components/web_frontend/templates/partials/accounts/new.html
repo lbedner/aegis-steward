@@ -9,6 +9,13 @@
   {% call field("Name") %}{{ text_input("name", name, placeholder="Ally Savings", required=True, autofocus=True) }}{% endcall %}
   {% call field("Type") %}{{ select("account_type", types|as_options, account_type, blank=None, block=True) }}{% endcall %}
   {% call field("Opening balance") %}{{ money_input("opening_balance", opening_balance) }}{% endcall %}
+  {#- Whose money, asked only when the address book holds somebody it
+      could be. A household tracking nobody else's money never sees a
+      question with one answer. -#}
   <p class="text-xxs text-aegis-muted">For a card or loan, enter what you owe.</p>
+  {% if people %}
+  {% call field("Whose money") %}{{ select("whose", people, whose, blank="Ours", block=True) }}{% endcall %}
+  <p class="text-xxs text-aegis-muted">Somebody else's money stays out of our totals, forecast and budget.</p>
+  {% endif %}
   {{ primary_button("Add account", type="submit") }}
 </form>

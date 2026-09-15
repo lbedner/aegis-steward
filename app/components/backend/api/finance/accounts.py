@@ -32,6 +32,7 @@ from app.services.finance.schemas import (
     ValuationResponse,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.service.accounts import HOUSEHOLD
 
 router = APIRouter()
 
@@ -65,15 +66,21 @@ async def list_accounts(
     include_hidden: bool = False,
     page: int = 1,
     page_size: int = 50,
+    subject_id: int | None = HOUSEHOLD,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> AccountListResponse:
-    """List the caller's accounts (soft-deleted rows excluded)."""
+    """List the caller's accounts (soft-deleted rows excluded).
+
+    ``subject_id`` is whose money: ``0`` (the default) the household's
+    own, an id for one person's, and omitted-as-null for everybody's.
+    """
     accounts, total = await service.list_accounts(
         owner_user_id=owner_user_id,
         include_hidden=include_hidden,
         page=page,
         page_size=page_size,
+        subject_id=subject_id,
     )
     # Scope the balance aggregate to just this page's accounts.
     page_ids = [account.id for account in accounts]

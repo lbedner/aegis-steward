@@ -24,6 +24,7 @@ from app.components.web_frontend.rendering import (
     templates,
     with_toast,
 )
+from app.components.web_frontend.routes.finance import subjects
 from app.components.web_frontend.routes.finance.register import (
     RegisterFilters,
     register_context,
@@ -131,18 +132,27 @@ def _filed_count() -> Any:
 
 
 async def _accounts(
-    service: FinanceService, owner_user_id: int | None
+    service: FinanceService,
+    owner_user_id: int | None,
+    seeing: str | None = None,
 ) -> tuple[list[AccountResponse], dict[str, Any]]:
-    """Every live account, and the shape both pages read it through."""
+    """Every live account, and the shape both pages read it through.
+
+    ``seeing`` is the ``?whose=`` parameter. It defaults to ours, so the
+    portfolio total on this page is a statement about our money however
+    many other people's accounts the app is holding.
+    """
     listing = await list_accounts(
         include_hidden=False,
         page=1,
         page_size=200,
+        subject_id=subjects.whose(seeing),
         service=service,
         owner_user_id=owner_user_id,
     )
     return listing.items, {
         "section": SECTION,
+        **await subjects.chips(service, seeing),
         "groups": grouped(listing.items),
         "total": sum(balance(a) for a in listing.items),
         "statement_lines": {a.id: statement_line(a) for a in listing.items},
@@ -331,11 +341,12 @@ async def _register_page(
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
+    whose: str | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """The portfolio. No register: that is the other page's job."""
-    _, context = await _accounts(service, owner_user_id)
+    _, context = await _accounts(service, owner_user_id, whose)
     return render(request, "pages/accounts.html", context)
 
 
@@ -392,20 +403,39 @@ async def account(
     return await _register_page(request, service, owner_user_id, account_id, filters)
 
 
-def _new_form(
-    request: Request, errors: list[str], status_code: int = 200, **values: Any
+async def _new_form(
+    request: Request,
+    service: FinanceService,
+    errors: list[str],
+    status_code: int = 200,
+    **values: Any,
 ) -> Response:
     return templates.TemplateResponse(
         request=request,
         name="partials/accounts/new.html",
-        context={"types": ADD_ACCOUNT_TYPES, "errors": errors, **values},
+        context={
+            "types": ADD_ACCOUNT_TYPES,
+            "people": await subjects.people(service),
+            "errors": errors,
+            **values,
+        },
         status_code=status_code,
     )
 
 
 @router.get(SECTION.path + "/new", include_in_schema=False)
-async def new_form(request: Request) -> Response:
-    return _new_form(request, [], name="", account_type="checking", opening_balance="")
+async def new_form(
+    request: Request, service: FinanceService = Depends(get_finance_service)
+) -> Response:
+    return await _new_form(
+        request,
+        service,
+        [],
+        name="",
+        account_type="checking",
+        opening_balance="",
+        whose="",
+    )
 
 
 @router.post(SECTION.path + "/new", include_in_schema=False)
@@ -414,6 +444,7 @@ async def create(
     name: Annotated[str, Form()] = "",
     account_type: Annotated[str, Form()] = "checking",
     opening_balance: Annotated[str, Form()] = "",
+    whose: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
@@ -429,13 +460,15 @@ async def create(
     if cents is None:
         errors.append("The opening balance is not a number.")
     if errors:
-        return _new_form(
+        return await _new_form(
             request,
+            service,
             errors,
             status_code=422,
             name=name,
             account_type=account_type,
             opening_balance=opening_balance,
+            whose=whose,
         )
     assert cents is not None
     classification = account_classification(account_type)
@@ -449,6 +482,13 @@ async def create(
         classification=classification,
     )
     assert account.id is not None
+    # Whose money, said once at creation. The subject row is made here
+    # rather than maintained by hand: a person becomes a subject the
+    # moment an account is put in their name.
+    if whose:
+        await subjects.in_someone_elses_name(
+            service, account.id, int(whose), owner_user_id
+        )
     if balance:
         await service.update_account_balance(
             account.id, current_balance=balance, owner_user_id=owner_user_id

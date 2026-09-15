@@ -6,7 +6,7 @@
    shape (routes/finance/accounts.grouped), so a change to how an
    account is grouped, totalled or linked lands in both at once.
 #}
-{% from "components/macros/layout.html" import dropdown, menu_item, avatar, badge, dot, TONE_TEXT %}
+{% from "components/macros/layout.html" import chip, dropdown, menu_item, avatar, badge, dot, TONE_TEXT %}
 
 {# Where an account opens. One answer, so a door added later opens the
    same way.
@@ -143,4 +143,20 @@
     {% endif %}
   </div>
 </header>
+{% endmacro %}
+
+
+{# Whose money the page is showing. Drawn only when the app holds
+   somebody else's - a control with one option is noise - and "Ours" is
+   where every page starts, so a total is a statement about our money
+   until somebody deliberately widens it. #}
+{% macro whose_bar(options, current, path) %}
+{% if options %}
+<nav data-whose class="flex items-center gap-2 mb-4" aria-label="Whose money">
+  {% for option in options %}
+  {% set url = path ~ "?whose=" ~ option.key %}
+  {{ chip(option.label, active=(option.key == current), href=url, hx=hx_page(url)) }}
+  {% endfor %}
+</nav>
+{% endif %}
 {% endmacro %}
