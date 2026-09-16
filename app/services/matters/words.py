@@ -96,5 +96,11 @@ def item_status(status: str) -> str:
     return ITEM_STATUS_LABELS.get(status, status.replace("_", " ").title())
 
 
+def item_kind(kind: str) -> str:
+    from app.services.matters.models import ITEM_KINDS
+
+    return dict(ITEM_KINDS).get(kind, kind.replace("_", " ").title())
+
+
 def item_verb(status: str) -> str:
     return ITEM_VERBS.get(status, item_status(status))

@@ -107,7 +107,6 @@ BUDGET: dict[str, int] = {
     # grows by a line or two with every new type. Re-recorded when
     # account.create learned whose money an account holds; the file is
     # on the list to split - the vocabulary is its own document.
-    "services/finance/domains/detection/analyst/prompts.py": 529,
     "cli/llm.py": 512,
     "services/finance/domains/detection/transfers.py": 511,
     "services/finance/adapters/providers/connections/snaptrade_sync.py": 504,

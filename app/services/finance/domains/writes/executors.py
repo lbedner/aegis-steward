@@ -124,3 +124,21 @@ register(
         describe=matters.record_fact_describe,
     )
 )
+register(
+    ChangeExecutor(
+        change_type="ask.amend",
+        title="Correct an ask",
+        payload_model=matters.AmendAskPayload,
+        execute=matters.amend_ask_execute,
+        describe=matters.amend_ask_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="ask.add",
+        title="Add an ask the letter makes",
+        payload_model=matters.AddAskPayload,
+        execute=matters.add_ask_execute,
+        describe=matters.add_ask_describe,
+    )
+)

@@ -22,7 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.matters.facts import ATTRIBUTE_KEYS, LABELS, monthly_cents
-from app.services.matters.models import FACT_PERIODS, FACT_PROVENANCE
+from app.services.matters.models import FACT_PERIODS, FACT_PROVENANCE, ITEM_KINDS
 
 
 class RecordFactPayload(BaseModel):
@@ -143,4 +143,123 @@ async def record_fact_describe(
     if payload.source_note:
         source = f"{source} · {payload.source_note}"
     rows.append(ChangeDisplayRow(label="How it is known", value=source))
+    return rows
+
+
+# --- Asks: what a letter obliges you to produce -------------------------
+#
+# Illiana reads the letter (``paper``) and the asks (``requests``) and can
+# see when they disagree - "the letter says July 1 and NYSLRS; the ask
+# says August 1 and IBEW". Without a change type she can only say so.
+# These let her propose the correction, and the person approves it the
+# way every other write is approved.
+
+ITEM_KIND_KEYS = tuple(key for key, _label in ITEM_KINDS)
+
+
+def known_item_kind(value: str | None) -> str | None:
+    """The one rule for what an ask's ``kind`` may be, for every payload
+    that carries one."""
+    if value is not None and value not in ITEM_KIND_KEYS:
+        raise ValueError(f"kind must be one of {', '.join(ITEM_KIND_KEYS)}")
+    return value
+
+
+class AmendAskPayload(BaseModel):
+    """Correct an ask: its wording, the kind of work, or the date it is
+    asked as of. Only what is given changes; the rest stands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int
+    asked: str | None = None
+    kind: str | None = None
+    as_of: date | None = None
+    reason: str | None = None
+
+    _kind_is_known = field_validator("kind")(known_item_kind)
+
+
+class AddAskPayload(BaseModel):
+    """A new ask on a request - one the letter makes and the record
+    does not yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: int
+    asked: str
+    kind: str = "document"
+    as_of: date | None = None
+    reason: str | None = None
+
+    _kind_is_known = field_validator("kind")(known_item_kind)
+
+
+async def amend_ask_execute(
+    db: AsyncSession, payload: AmendAskPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.requests import RequestService
+
+    item = await RequestService(db).amend(
+        payload.item_id, asked=payload.asked, kind=payload.kind, as_of=payload.as_of
+    )
+    if item is None:
+        raise ValueError(f"No ask with id {payload.item_id}")
+    await db.flush()
+    return {"item_id": item.id, "asked": item.asked}
+
+
+async def amend_ask_describe(
+    db: AsyncSession, payload: AmendAskPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    """The card: what it says now, what it would say, and why."""
+    from app.services.matters.requests import RequestService
+    from app.services.matters.words import item_kind
+
+    item = await RequestService(db).item(payload.item_id)
+    rows = [ChangeDisplayRow(label="Ask", value=item.asked if item else "Unknown")]
+    if payload.asked is not None:
+        rows.append(ChangeDisplayRow(label="Would read", value=payload.asked))
+    if payload.kind is not None:
+        rows.append(ChangeDisplayRow(label="Kind", value=item_kind(payload.kind)))
+    if payload.as_of is not None:
+        rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))
+    if payload.reason:
+        rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
+    return rows
+
+
+async def add_ask_execute(
+    db: AsyncSession, payload: AddAskPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.requests import RequestService
+
+    item = await RequestService(db).add_item(
+        payload.request_id, asked=payload.asked, kind=payload.kind, as_of=payload.as_of
+    )
+    await db.flush()
+    return {"item_id": item.id, "asked": item.asked}
+
+
+async def add_ask_describe(
+    db: AsyncSession, payload: AddAskPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.matters.requests import RequestService
+    from app.services.matters.words import item_kind
+
+    request = await RequestService(db).get(payload.request_id)
+    rows = [
+        ChangeDisplayRow(
+            label="On the request",
+            value=f"due {request.due_on.isoformat()}"
+            if request and request.due_on
+            else "-",
+        ),
+        ChangeDisplayRow(label="Ask", value=payload.asked),
+        ChangeDisplayRow(label="Kind", value=item_kind(payload.kind)),
+    ]
+    if payload.as_of is not None:
+        rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))
+    if payload.reason:
+        rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
     return rows
