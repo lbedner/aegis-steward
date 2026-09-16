@@ -43,11 +43,10 @@
   {% endif %}
 
   {#- The other end of the same rows: whose logins get you into THIS
-      organization. A page that says "no sign-ins" while one points
-      straight at it is a page somebody will swear is empty. -#}
+      organization. On a place's page that IS the list - no heading,
+      the page already says where you are. -#}
   {% if visitors %}
-  <div data-visitors class="pt-2">
-    <h4 class="micro-label text-aegis-muted mb-1">Who signs in here</h4>
+  <div data-visitors>
     <ul class="divide-y divide-aegis-border/60">
       {% for visitor in visitors %}
       <li data-visitor="{{ visitor.id }}" class="py-2 text-sm text-aegis-text">
