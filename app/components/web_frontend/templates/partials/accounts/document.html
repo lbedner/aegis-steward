@@ -9,11 +9,11 @@
    OF the document, not the document, and a figure has to be checked
    against the page as it was printed. The bytes are the one thing the
    form cannot touch: a document is what arrived. #}
-{% from "components/macros/form.html" import field, text_input, select, date_input, textarea, primary_button, action %}
+{% from "components/macros/form.html" import field, text_input, select, date_input, textarea, primary_button, action, chip_select %}
 {% from "components/macros/layout.html" import dialog_title, doors %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% call dialog_title(document.title) %}
-<p class="text-aegis-muted micro-label mb-4">{{ document.kind }}{% if dated %} · {{ dated }}{% endif %}{% if filed %} · <span data-filed>Filed under {{ doors(filed, unfile=unfile_post) }}</span>{% endif %} · <a href="{{ content }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-download>Open the original</a></p>
+<p class="text-aegis-muted micro-label mb-4">{{ document.kind }}{% if dated %} · {{ dated }}{% endif %}{% if filed %} · <span data-filed>Filed under {{ doors(filed) }}</span>{% endif %} · <a href="{{ content }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-download>Open the original</a></p>
 {% endcall %}
 
 {# The page gets two thirds of a WIDE dialog: a mortgage schedule is a
@@ -43,18 +43,13 @@
     {% call field("Title") %}{{ text_input("title", document.title, required=True) }}{% endcall %}
     {% call field("Kind") %}{{ select("kind", kinds|as_options, document.kind, blank=None, block=True) }}{% endcall %}
     {% call field("Dated (the period it covers, not the day it arrived)") %}{{ date_input("document_date", document.document_date, block=True) }}{% endcall %}
+    {# Where it is filed: a contact, a matter, an account, any number.
+       The tag is the same one filing from that page writes, so the
+       shelf, the page and Illiana all read one thing. #}
+    {% call field("Filed under") %}{{ chip_select("place", places, filed_chips) }}{% endcall %}
     {% call field("Note") %}{{ textarea("note", document.note or "", rows=3) }}{% endcall %}
     {{ primary_button("Save", type="submit") }}
   </form>
-  {# Put it with a contact, a matter or an account after the fact. The
-     tag is the same one filing from that page writes, so the shelf,
-     the page and Illiana all read one thing. #}
-  {% if places %}
-  <form hx-post="{{ file_post }}" hx-target="#dialog-body" class="mt-4 space-y-2" data-file-under>
-    {% call field("File it under") %}{{ select("place", places, blank="Pick a place", block=True) }}{% endcall %}
-    {{ primary_button("File it", type="submit") }}
-  </form>
-  {% endif %}
 </div>
 
 <div class="mt-4 flex items-center gap-3">

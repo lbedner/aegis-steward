@@ -363,3 +363,36 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 {% endcall %}
 {% endfor %}
 {% endmacro %}
+
+{# Several answers from a known list, drawn as chips. Click into it and
+   every place there is drops down; pick one and it becomes a chip with
+   its taker; the chips travel with the form as hidden ``name`` inputs.
+   ``chosen`` and ``options`` are ``{id, name}``. The ``<name>_sent``
+   marker says the field was on the form, so a save without any chip
+   means "none", never "the browser dropped it". #}
+{% macro chip_select(name, options, chosen=(), hint="Add a place") %}
+<div data-chips="{{ name }}" data-options='{{ options|tojson }}' data-chosen='{{ chosen|tojson }}'
+     x-data="{
+       open: false, query: '',
+       options: JSON.parse($el.dataset.options), chosen: JSON.parse($el.dataset.chosen),
+       get needle() { return this.query.trim().toLowerCase() },
+       get free() { return this.options.filter(o => !this.chosen.some(c => c.id === o.id) && (!this.needle || o.name.toLowerCase().includes(this.needle))) },
+       pick(o) { this.chosen.push(o); this.query = ''; this.open = false },
+       drop(o) { this.chosen = this.chosen.filter(c => c.id !== o.id) },
+     }" @click.outside="open = false" class="relative mt-1">
+  <input type="hidden" name="{{ name }}_sent" value="1">
+  <template x-for="c in chosen" :key="c.id"><input type="hidden" name="{{ name }}" :value="c.id"></template>
+  <div class="{{ control("input") }} flex flex-wrap items-center gap-1.5 h-auto min-h-[2.5rem] py-1.5 cursor-text" @click="open = true; $refs.query.focus()">
+    <template x-for="c in chosen" :key="c.id">
+      <span class="chip inline-flex items-center gap-1"><span x-text="c.name"></span><button type="button" @click.stop="drop(c)" class="text-aegis-muted hover:text-aegis-text leading-none" :aria-label="'Take off ' + c.name">×</button></span>
+    </template>
+    <input x-ref="query" x-model="query" @focus="open = true" @keydown.escape="open = false"
+           type="text" placeholder="{{ hint }}" aria-label="{{ hint }}" class="flex-1 min-w-[8rem] bg-transparent border-0 p-0 text-sm focus:outline-none focus:ring-0">
+  </div>
+  <ul x-show="open && free.length" x-cloak class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-md border border-aegis-border bg-aegis-card shadow-lg divide-y divide-aegis-border/60">
+    <template x-for="o in free" :key="o.id">
+      <li><button type="button" @click="pick(o)" class="w-full px-3 py-2 text-left text-sm text-aegis-text hover:bg-aegis-border/20 transition-colors" x-text="o.name"></button></li>
+    </template>
+  </ul>
+</div>
+{% endmacro %}

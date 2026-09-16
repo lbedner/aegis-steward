@@ -164,30 +164,78 @@ class TestFilingItSomewhere:
     def test_the_dialog_files_a_document_under_a_contact_and_takes_it_off(
         self, client: TestClient
     ) -> None:
-        """A document on the shelf can be put with a contact after the
-        fact, and taken off again; both leave you in the same dialog."""
+        """Where a document is filed is a field on its form: every place
+        offered, the chosen ones as chips, saved with the rest."""
+        import json
+
         from tests.web.test_contacts import _contact
 
         party_id = _contact(client, "Filing Testcase", "organization")
         document_id = _file(client, "filing.pdf")
         dialog = client.get(f"/documents/{document_id}").text
-        chooser = one(dialog, 'form[data-file-under] select[name="place"]')
-        assert f'party:{party_id}' in [o.get("value") for o in select(chooser, "option")]
+        chips = one(dialog, 'form[data-details] [data-chips="place"]')
+        offered = {o["id"]: o["name"] for o in json.loads(chips.get("data-options"))}
+        assert offered[f"party:{party_id}"].startswith("Filing Testcase")
+        assert json.loads(chips.get("data-chosen")) == []
 
+        said = {
+            "title": "filing.pdf",
+            "kind": "other",
+            "document_date": "",
+            "note": "",
+            "place_sent": "1",
+        }
         filed = client.post(
-            f"/documents/{document_id}/file", data={"place": f"party:{party_id}"}
+            f"/documents/{document_id}",
+            data={**said, "place": [f"party:{party_id}"]},
+            headers={"HX-Current-URL": "http://testserver/documents"},
         )
         assert filed.status_code == 200
-        door = one(filed.text, f'[data-filed] a[href="/contacts/{party_id}"]')
-        assert "Filing Testcase" in text(door)
-        taker = one(filed.text, f'[data-filed] button[value="party:{party_id}"]')
-        assert taker.get("hx-post") == f"/documents/{document_id}/unfile"
-
-        page = client.get(f"/contacts/{party_id}").text
-        assert "filing.pdf" in text(one(page, "#contact-paper"))
+        dialog = client.get(f"/documents/{document_id}").text
+        one(dialog, f'[data-filed] a[href="/contacts/{party_id}"]')
+        chips = one(dialog, '[data-chips="place"]')
+        assert [c["id"] for c in json.loads(chips.get("data-chosen"))] == [
+            f"party:{party_id}"
+        ]
+        assert "filing.pdf" in text(
+            one(client.get(f"/contacts/{party_id}").text, "#contact-paper")
+        )
 
         gone = client.post(
-            f"/documents/{document_id}/unfile", data={"place": f"party:{party_id}"}
+            f"/documents/{document_id}",
+            data=said,
+            headers={"HX-Current-URL": "http://testserver/documents"},
         )
         assert gone.status_code == 200
-        none(gone.text, f'[data-filed] a[href="/contacts/{party_id}"]')
+        none(client.get(f"/documents/{document_id}").text, "[data-filed]")
+
+    def test_a_form_without_the_field_refiles_nothing(self, client: TestClient) -> None:
+        """A save that did not carry the chips leaves the filing alone."""
+        from tests.web.test_contacts import _contact
+
+        party_id = _contact(client, "Keep Filing Testcase", "organization")
+        document_id = _file(client, "keep-filing.pdf")
+        client.post(
+            f"/documents/{document_id}",
+            data={
+                "title": "keep-filing.pdf",
+                "kind": "other",
+                "document_date": "",
+                "note": "",
+                "place_sent": "1",
+                "place": [f"party:{party_id}"],
+            },
+        )
+        client.post(
+            f"/documents/{document_id}",
+            data={
+                "title": "keep-filing.pdf",
+                "kind": "other",
+                "document_date": "",
+                "note": "",
+            },
+        )
+        one(
+            client.get(f"/documents/{document_id}").text,
+            f'[data-filed] a[href="/contacts/{party_id}"]',
+        )

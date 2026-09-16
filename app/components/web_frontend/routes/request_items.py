@@ -225,6 +225,8 @@ async def document_save(
     kind: Annotated[str, Form()] = "other",
     document_date: Annotated[str, Form()] = "",
     note: Annotated[str, Form()] = "",
+    place: Annotated[list[str], Form()] = [],
+    place_sent: Annotated[str, Form()] = "",
 ) -> Response:
     """Save what we say about the paper. The bytes never change."""
     async with get_async_session() as db:
@@ -236,6 +238,7 @@ async def document_save(
             kind=kind,
             document_date=document_date,
             note=note,
+            places=place if place_sent else None,
         )
         if errors:
             return await document_dialog(

@@ -110,6 +110,8 @@ async def document_save(
     kind: Annotated[str, Form()] = "other",
     document_date: Annotated[str, Form()] = "",
     note: Annotated[str, Form()] = "",
+    place: Annotated[list[str], Form()] = [],
+    place_sent: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
 ) -> Response:
     """Save what we say about the document. A refusal re-renders the
@@ -123,6 +125,7 @@ async def document_save(
         kind=kind,
         document_date=document_date,
         note=note,
+        places=place if place_sent else None,
     )
     if errors:
         return await document_dialog(

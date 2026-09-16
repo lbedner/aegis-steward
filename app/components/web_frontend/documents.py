@@ -59,11 +59,10 @@ async def document_dialog(
         dated=short_date(document.document_date or document.received_at),
         content=content_url(document.id),
         filed=filed.get(document.id, []),
-        # Filing it somewhere lives with the document, wherever the
-        # dialog opened; the answer is this dialog again.
-        places=await places(db, tags),
-        file_post=f"/documents/{document.id}/file",
-        unfile_post=f"/documents/{document.id}/unfile",
+        filed_chips=[
+            {"id": d["tag"], "name": d["label"]} for d in filed.get(document.id, [])
+        ],
+        places=await places(db),
         kinds=DOCUMENT_KINDS,
         post=post,
         # Read again lives with the document, wherever the dialog opened.
@@ -93,8 +92,12 @@ async def save_document(
     kind: str,
     document_date: str,
     note: str,
+    places: list[str] | None = None,
 ) -> list[str]:
     """Save what we SAY about a document, and give back what refused it.
+
+    ``places`` is where it is filed, whole: the chips on the form. None
+    means the form did not carry the field, and nothing is refiled.
 
     The bytes never change: a document is what arrived, and correcting
     it would make the record a lie. Errors come back as a list rather
@@ -123,6 +126,14 @@ async def save_document(
         )
     except ValueError as exc:
         return [str(exc)]
+    if places is not None:
+        documents = DocumentService(db)
+        wanted = {p for p in places if place_key(p)}
+        current = {t for t in await documents.tags_for(document_id) if place_key(t)}
+        for tag in wanted - current:
+            await documents.tag(document_id, tag)
+        for tag in current - wanted:
+            await documents.untag(document_id, tag)
     await db.commit()
     return []
 
@@ -186,9 +197,8 @@ async def filed_under(
     }
 
 
-async def places(db: AsyncSession, already: list[str]) -> list[dict[str, str]]:
-    """Everywhere a document could be filed that it is not yet, as
-    ``{id, name}`` options for the one select."""
+async def places(db: AsyncSession) -> list[dict[str, str]]:
+    """Everywhere a document can be filed, as ``{id, name}`` options."""
     from sqlmodel import select
 
     options: list[dict[str, str]] = []
@@ -197,7 +207,6 @@ async def places(db: AsyncSession, already: list[str]) -> list[dict[str, str]]:
         options.extend(
             {"id": f"{prefix}:{row.id}", "name": f"{getattr(row, field)} ({what})"}
             for row in rows
-            if f"{prefix}:{row.id}" not in already
         )
     return options
 
