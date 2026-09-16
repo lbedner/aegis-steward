@@ -58,7 +58,7 @@
   <ul class="border-t border-aegis-border/60" data-held>
     {% for account in held %}
     <li class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
-      <a href="/accounts/{{ account.id }}" {{ hx_page("/accounts/" ~ account.id) }} class="text-aegis-text hover:text-aegis-teal min-w-0 truncate">{{ account.name }}</a>
+      <a href="/accounts/{{ account.id }}" {{ hx_page("/accounts/" ~ account.id) }} class="text-aegis-teal hover:underline min-w-0 truncate">{{ account.name }}</a>
       <span class="text-aegis-muted shrink-0">{{ account.account_type|replace("_", " ") }}</span>
     </li>
     {% endfor %}
@@ -73,7 +73,7 @@
   <ul class="border-t border-aegis-border/60" data-cases>
     {% for case in cases %}
     <li class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
-      <a href="/matters/{{ case.id }}" {{ hx_page("/matters/" ~ case.id) }} class="text-aegis-text hover:text-aegis-teal min-w-0 truncate">{{ case.title }}</a>
+      <a href="/matters/{{ case.id }}" {{ hx_page("/matters/" ~ case.id) }} class="text-aegis-teal hover:underline min-w-0 truncate">{{ case.title }}</a>
       <span class="flex items-center gap-3 shrink-0">
         <span class="text-aegis-muted" data-role>{{ case.role|role_label }}</span>
         {{ badge(case.status, "ok" if case.status == "open" else "muted") }}
@@ -106,7 +106,7 @@
   <ul class="border-t border-aegis-border/60" data-letters>
     {% for letter in letters %}
     <li class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
-      <a href="/matters/{{ letter.matter_id }}" {{ hx_page("/matters/" ~ letter.matter_id) }} class="text-aegis-text hover:text-aegis-teal">
+      <a href="/matters/{{ letter.matter_id }}" {{ hx_page("/matters/" ~ letter.matter_id) }} class="text-aegis-teal hover:underline">
         {% if letter.received_on %}Received {{ letter.received_on|short_date }}{% else %}A request{% endif %}
       </a>
       <span class="text-aegis-muted shrink-0">{% if letter.due_on %}due {{ letter.due_on|short_date }} · {% endif %}{{ letter.status }}</span>

@@ -50,7 +50,7 @@
     <ul class="divide-y divide-aegis-border/60">
       {% for visitor in visitors %}
       <li data-visitor="{{ visitor.id }}" class="py-2 text-sm text-aegis-text">
-        <a href="/contacts/{{ visitor.whose_id }}" {{ hx_page("/contacts/" ~ visitor.whose_id) }} class="text-aegis-text hover:text-aegis-teal" data-whose>{{ visitor.whose }}</a>
+        <a href="/contacts/{{ visitor.whose_id }}" {{ hx_page("/contacts/" ~ visitor.whose_id) }} class="text-aegis-teal hover:underline" data-whose>{{ visitor.whose }}</a>
         <span class="text-aegis-muted">· {{ visitor.label }}{% if visitor.username %} · {{ visitor.username }}{% endif %}</span>
       </li>
       {% endfor %}
