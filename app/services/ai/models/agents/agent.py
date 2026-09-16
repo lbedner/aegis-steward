@@ -30,6 +30,12 @@ class Agent(SQLModel, table=True):
     category: str | None = None
     model_id: str | None = Field(default=None, index=True)
     system_prompt: str
+    # The fingerprint of the prompt the APP last wrote here. A row whose
+    # prompt no longer matches it was edited by hand (the dashboard), and
+    # a resync refuses to overwrite that unless told to. None on rows
+    # older than the column: nothing is known about them, and a resync
+    # treats them as it always did.
+    prompt_fingerprint: str | None = Field(default=None, max_length=64)
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=1000)
     memory_modules: list[str] = Field(default_factory=list, sa_column=Column(JSON))

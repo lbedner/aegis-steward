@@ -1777,7 +1777,12 @@ class TestPromptsInCodeReachTheInstall:
         slug = finance_chat_agent_definition()["slug"]
         row = db_session.exec(select(Agent).where(Agent.slug == slug)).first()
         assert row is not None
+        # An older release WROTE this prompt, so its fingerprint matches it;
+        # that is what tells it apart from a prompt a person rewrote.
+        from app.services.ai.domains.chat.agent_registry import prompt_fingerprint
+
         row.system_prompt = "a prompt from an older release"
+        row.prompt_fingerprint = prompt_fingerprint(row.system_prompt)
         db_session.add(row)
         db_session.commit()
 
@@ -1786,6 +1791,62 @@ class TestPromptsInCodeReachTheInstall:
         assert result[slug] == "updated"
         db_session.refresh(row)
         assert row.system_prompt == finance_chat_agent_definition()["system_prompt"]
+
+    def test_a_prompt_rewritten_in_the_dashboard_is_not_overwritten(
+        self, db_session: Session
+    ) -> None:
+        """The fingerprint is the app's own last write; a row that no
+        longer matches it was edited by a person, and that is theirs."""
+        from app.services.ai.models import Agent
+        from app.services.finance.domains.detection.analyst.seeds import (
+            finance_chat_agent_definition,
+            load_finance_agent_fixtures,
+            resync_finance_agent_prompts,
+        )
+
+        load_finance_agent_fixtures(db_session)
+        slug = finance_chat_agent_definition()["slug"]
+        row = db_session.exec(select(Agent).where(Agent.slug == slug)).first()
+        assert row is not None and row.prompt_fingerprint  # seeded rows are stamped
+        row.system_prompt = "You are Illiana, and today you speak only in haiku."
+        db_session.add(row)
+        db_session.commit()
+
+        result = resync_finance_agent_prompts(db_session)
+
+        assert result[slug] == "edited by hand"
+        db_session.refresh(row)
+        assert row.system_prompt.endswith("haiku.")
+
+        forced = resync_finance_agent_prompts(db_session, force=True)
+
+        assert forced[slug] == "updated"
+        db_session.refresh(row)
+        assert row.system_prompt == finance_chat_agent_definition()["system_prompt"]
+
+    def test_a_row_from_before_the_fingerprint_is_still_resynced(
+        self, db_session: Session
+    ) -> None:
+        """Nothing is known about it, so nothing is protected - the old
+        behaviour, and the row is stamped from here on."""
+        from app.services.ai.models import Agent
+        from app.services.finance.domains.detection.analyst.seeds import (
+            finance_chat_agent_definition,
+            load_finance_agent_fixtures,
+            resync_finance_agent_prompts,
+        )
+
+        load_finance_agent_fixtures(db_session)
+        slug = finance_chat_agent_definition()["slug"]
+        row = db_session.exec(select(Agent).where(Agent.slug == slug)).first()
+        assert row is not None
+        row.system_prompt, row.prompt_fingerprint = "an older release's prompt", None
+        db_session.add(row)
+        db_session.commit()
+
+        assert resync_finance_agent_prompts(db_session)[slug] == "updated"
+        db_session.refresh(row)
+        assert row.prompt_fingerprint is not None
 
     def test_a_current_row_is_left_alone(self, db_session: Session) -> None:
         """Reporting "updated" for a row it did not touch would make the

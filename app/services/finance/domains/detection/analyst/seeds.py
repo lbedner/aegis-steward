@@ -8,6 +8,11 @@ from sqlmodel import (
 )
 
 from app.core.log import logger
+from app.services.ai.domains.chat.agent_registry import (
+    edited_by_hand,
+    prompt_fingerprint,
+    stamped,
+)
 from app.services.ai.models.agents import (
     Agent,
     AgentTool,
@@ -233,7 +238,9 @@ def _attach_chat_tools(session: Session) -> int:
     return attached
 
 
-def resync_finance_agent_prompts(session: Session) -> dict[str, str]:
+def resync_finance_agent_prompts(
+    session: Session, *, force: bool = False
+) -> dict[str, str]:
     """Push the system prompts in CODE onto the agent rows.
 
     The seeder deliberately never touches a row that exists - the agents
@@ -248,7 +255,12 @@ def resync_finance_agent_prompts(session: Session) -> dict[str, str]:
     in the dashboard is a choice about THIS install; the prompt is the
     app's own instructions and belongs to the code.
 
-    Returns slug -> "updated" or "unchanged".
+    A prompt rewritten in the dashboard is a choice about this install
+    too, and the one this command could silently destroy: the row's
+    fingerprint says whether a person changed it, and if so the row is
+    reported "edited by hand" and left alone unless ``force`` is given.
+
+    Returns slug -> "updated", "unchanged" or "edited by hand".
     """
     result: dict[str, str] = {}
     for definition in (
@@ -265,7 +277,11 @@ def resync_finance_agent_prompts(session: Session) -> dict[str, str]:
         if row.system_prompt == wanted:
             result[definition["slug"]] = "unchanged"
             continue
+        if edited_by_hand(row) and not force:
+            result[definition["slug"]] = "edited by hand"
+            continue
         row.system_prompt = wanted
+        row.prompt_fingerprint = prompt_fingerprint(wanted)
         session.add(row)
         result[definition["slug"]] = "updated"
     if any(v == "updated" for v in result.values()):
@@ -307,7 +323,7 @@ def load_finance_agent_fixtures(session: Session) -> dict[str, int]:
             is not None
         ):
             continue
-        session.add(Agent(**definition))
+        session.add(Agent(**stamped(definition)))
         counts["finance_agents"] += 1
         logger.info(f"Seeded agent '{definition['slug']}'")
 

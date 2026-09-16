@@ -12,6 +12,7 @@ from typing import Any
 import typer
 
 from app.cli import theme
+from app.cli.finance_agents import agents_app
 from app.i18n import lazy_t, t
 
 app = typer.Typer(help="Finance service commands.")
@@ -198,31 +199,6 @@ async def _recompute_stream_amounts(owner_user_id: int | None) -> None:
         f"released {counts['released']} member(s); "
         f"{counts['changed']} amount(s) changed.[/]"
     )
-
-
-@app.command("resync-agent-prompts")
-def resync_agent_prompts() -> None:
-    """Push the system prompts in CODE onto this install's agent rows.
-
-    The seeder never touches an agent that already exists, so a prompt
-    improved in code reaches nobody - silently. Run this after changing
-    one. It overwrites the prompt and NOTHING else: a model, a
-    temperature or a tool set picked in the dashboard is a choice about
-    this install; the prompt is the app's own instructions.
-    """
-    from app.core.db import db_session
-    from app.services.finance.domains.detection.analyst.seeds import (
-        resync_finance_agent_prompts,
-    )
-
-    with db_session() as session:
-        result = resync_finance_agent_prompts(session)
-    if not result:
-        console.print("[yellow]No finance agents on this install.[/]")
-        return
-    for slug, state in sorted(result.items()):
-        tone = "green" if state == "updated" else "dim"
-        console.print(f"[{tone}]{slug}: {state}[/]")
 
 
 @app.command("recompute-payee-aliases")
@@ -662,6 +638,7 @@ async def _fire_webhook(
 
 snaptrade_app = typer.Typer(help="SnapTrade brokerage connections.")
 app.add_typer(snaptrade_app, name="snaptrade")
+app.add_typer(agents_app, name="agents")
 
 
 @snaptrade_app.command("connect")
