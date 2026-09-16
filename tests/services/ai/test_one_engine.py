@@ -11,13 +11,21 @@ was the emergency fix; one engine is the real one, and this keeps it.
 import inspect
 
 from app.services.ai import usage_recording
-from app.services.ai.domains.chat import conversation
-from app.services.ai.service import status, usage
+from app.services.ai.domains.chat import conversation, llm_catalog_context
+from app.services.ai.service import contexts, status, usage
 
 
 def test_the_ai_store_never_opens_a_sync_session() -> None:
-    for module in (conversation, usage_recording, usage, status):
+    for module in (
+        conversation,
+        llm_catalog_context,
+        usage_recording,
+        usage,
+        status,
+        contexts,
+    ):
         source = inspect.getsource(module)
         assert "db_session" not in source, module.__name__
         assert "SessionLocal" not in source, module.__name__
         assert "run_in_threadpool" not in source, module.__name__
+        assert "Session(engine)" not in source, module.__name__

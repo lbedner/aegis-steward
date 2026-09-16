@@ -11,7 +11,8 @@ from datetime import UTC, datetime
 import re
 
 from sqlalchemy.orm import selectinload
-from sqlmodel import Session, select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.models.llm import (
     Direction,
@@ -123,7 +124,7 @@ class LLMCatalogContext:
         self.flagships = flagships
 
     @classmethod
-    def build(cls, session: Session) -> LLMCatalogContext:
+    async def build(cls, session: AsyncSession) -> LLMCatalogContext:
         """
         Build catalog context from database using efficient batch queries.
 
@@ -139,8 +140,8 @@ class LLMCatalogContext:
             LLMCatalogContext with top models from each vendor.
         """
         # Query 1: Get all featured vendors in one query
-        vendors = session.exec(
-            select(LLMOrg).where(LLMOrg.name.in_(FEATURED_VENDORS))
+        vendors = (
+            await session.exec(select(LLMOrg).where(LLMOrg.name.in_(FEATURED_VENDORS)))
         ).all()
 
         if not vendors:
@@ -161,7 +162,7 @@ class LLMCatalogContext:
                 selectinload(LargeLanguageModel.modalities),
             )
         )
-        all_models = session.exec(stmt).all()
+        all_models = (await session.exec(stmt)).all()
 
         # Group models by vendor, filtering out aliases (-latest, etc.)
         vendor_models: dict[int, list[LargeLanguageModel]] = defaultdict(list)
@@ -292,7 +293,7 @@ class LLMCatalogContext:
         return "\n".join(lines)
 
 
-def get_llm_catalog_context(session: Session) -> str:
+async def get_llm_catalog_context(session: AsyncSession) -> str:
     """
     Get formatted LLM catalog context for prompt injection.
 
@@ -304,7 +305,7 @@ def get_llm_catalog_context(session: Session) -> str:
     Returns:
         Formatted string for prompt injection, or empty string if no data.
     """
-    context = LLMCatalogContext.build(session)
+    context = await LLMCatalogContext.build(session)
     return context.format_for_prompt()
 
 

@@ -163,7 +163,7 @@ class StreamingMixin(ChatMixin):
                 await self._build_usage_context() if is_default_agent else None
             )
             catalog_context = (
-                self._build_catalog_context() if is_default_agent else None
+                await self._build_catalog_context() if is_default_agent else None
             )
 
             # Guarded per-user memory block (saved via the save_memory tool)

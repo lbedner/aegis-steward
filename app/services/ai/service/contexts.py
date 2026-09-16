@@ -8,9 +8,7 @@ the prompt layer injects into the system prompt. Failures degrade to
 from datetime import datetime
 from typing import Any
 
-from sqlmodel import Session
-
-from app.core.db import engine
+from app.core.db import get_async_session
 from app.core.log import logger
 from app.services.ai.domains.chat.health_context import HealthContext
 from app.services.ai.domains.chat.llm_catalog_context import get_llm_catalog_context
@@ -139,7 +137,7 @@ class ContextsMixin(UsageMixin):
             logger.debug(f"Failed to build usage context: {e}")
             return None
 
-    def _build_catalog_context(self) -> str | None:
+    async def _build_catalog_context(self) -> str | None:
         """
         Build LLM catalog context from database.
 
@@ -151,8 +149,8 @@ class ContextsMixin(UsageMixin):
         """
 
         try:
-            with Session(engine) as session:
-                return get_llm_catalog_context(session)
+            async with get_async_session() as session:
+                return await get_llm_catalog_context(session)
         except Exception as e:
             logger.debug(f"Failed to build catalog context: {e}")
             return None
