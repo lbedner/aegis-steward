@@ -104,7 +104,11 @@ def harness(
         return None
 
     monkeypatch.setattr(AIService, "_build_usage_context", no_usage)
-    monkeypatch.setattr(AIService, "_build_catalog_context", lambda self: None)
+
+    async def no_catalog(self: AIService) -> None:
+        return None
+
+    monkeypatch.setattr(AIService, "_build_catalog_context", no_catalog)
 
     # The user-memory block opens the app's REAL async engine. Left unstubbed
     # it binds that engine's pool to whichever test loop touches it first,
@@ -304,6 +308,10 @@ class TestAgentSlugSelection:
         assert seen == ["support"]
 
 
+async def _catalog_block(self: AIService) -> str:
+    return "CATALOG-BLOCK"
+
+
 async def _fake_usage(self: AIService) -> _FakeUsageContext:
     return _FakeUsageContext()
 
@@ -322,9 +330,7 @@ class TestOpsContextScoping:
         self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
     ) -> None:
         service, _recorder, captured, monkeypatch = harness
-        monkeypatch.setattr(
-            AIService, "_build_catalog_context", lambda self: "CATALOG-BLOCK"
-        )
+        monkeypatch.setattr(AIService, "_build_catalog_context", _catalog_block)
         monkeypatch.setattr(AIService, "_build_usage_context", _fake_usage)
         _stub_resolve(monkeypatch, _custom_config())
 
@@ -337,9 +343,7 @@ class TestOpsContextScoping:
         self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
     ) -> None:
         service, _recorder, captured, monkeypatch = harness
-        monkeypatch.setattr(
-            AIService, "_build_catalog_context", lambda self: "CATALOG-BLOCK"
-        )
+        monkeypatch.setattr(AIService, "_build_catalog_context", _catalog_block)
         monkeypatch.setattr(AIService, "_build_usage_context", _fake_usage)
         _stub_resolve(monkeypatch, default_agent_config())
 
