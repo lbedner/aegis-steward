@@ -152,6 +152,8 @@ class TestAContactHasAPage:
         party_id = _contact(client, "NYSLRS Paper Testcase", "organization")
         page = client.get(f"/contacts/{party_id}").text
         one(page, f'button[hx-get="/contacts/{party_id}/documents/new"]')
+        # The shelf says what it is for; an empty card with a name is a riddle.
+        assert WORDS["their_paper_is"] in text(one(page, "#contact-paper"))
 
         answer = client.post(
             f"/contacts/{party_id}/documents/new",

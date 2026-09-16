@@ -10,10 +10,10 @@
    against the page as it was printed. The bytes are the one thing the
    form cannot touch: a document is what arrived. #}
 {% from "components/macros/form.html" import field, text_input, select, date_input, textarea, primary_button, action %}
-{% from "components/macros/layout.html" import dialog_title %}
+{% from "components/macros/layout.html" import dialog_title, doors %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% call dialog_title(document.title) %}
-<p class="text-aegis-muted micro-label mb-4">{{ document.kind }}{% if dated %} · {{ dated }}{% endif %} · <a href="{{ content }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-download>Open the original</a></p>
+<p class="text-aegis-muted micro-label mb-4">{{ document.kind }}{% if dated %} · {{ dated }}{% endif %}{% if filed %} · <span data-filed>Filed under {{ doors(filed) }}</span>{% endif %} · <a href="{{ content }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-download>Open the original</a></p>
 {% endcall %}
 
 {# The page gets two thirds of a WIDE dialog: a mortgage schedule is a

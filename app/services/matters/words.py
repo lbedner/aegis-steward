@@ -88,6 +88,7 @@ WORDS: dict[str, str] = {
     "about": "What we can say about them",
     "letters_from": "Letters from them",
     "their_paper": "Their paper",
+    "their_paper_is": "Statements, notices and letters that are theirs, filed here whatever matter later needs them",
     "signins": "Sign-ins",
     "edit_contact": "Edit",
 }

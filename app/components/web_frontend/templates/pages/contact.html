@@ -122,7 +122,7 @@
   {# Theirs: statements, benefit letters, the annual notice - filed
      against the contact, no matter required, so the next letter's ask
      is answered from a shelf rather than a hunt. #}
-  {% call card(word("their_paper"), id="contact-paper") %}
+  {% call card(word("their_paper"), word("their_paper_is"), id="contact-paper") %}
   {{ data_table(paper_columns, papers, empty="Nothing filed with them yet", path=path) }}
   {{ action(word("add_paper"), hx_dialog(path ~ "/" ~ party.id ~ "/documents/new")) }}
   {% endcall %}

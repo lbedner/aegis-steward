@@ -110,10 +110,16 @@ def hx_filter(url: str, target: str) -> Markup:
     never swapped. Swapping it takes the caret and the focus with it, and
     the next keystroke lands nowhere. No pushed URL either — a dialog's
     search is not a place you navigate back to.
+
+    ``hx-disinherit`` because htmx hands these attributes down to every
+    element inside the form, and an opener placed beside the search box
+    borrowed the ``hx-select``: the dialog's answer was narrowed to an
+    element it does not contain and the modal opened empty.
     """
     return Markup(
         f'hx-get="{escape(url)}" hx-target="{escape(target)}" '
-        f'hx-select="{escape(target)}" hx-swap="outerHTML"'
+        f'hx-select="{escape(target)}" hx-swap="outerHTML" '
+        'hx-disinherit="hx-get hx-target hx-select hx-swap"'
     )
 
 

@@ -24,7 +24,11 @@ def _file(client: TestClient, title: str = "letter.pdf") -> int:
         data={"kind": "letter"},
     )
     assert answer.status_code == 200, answer.text
-    rows = select(client.get("/documents").text, "#documents tbody tr")
+    # By title: the shelf is shared by every worker of the run and shows
+    # a page of 200, so an unnarrowed list can have pushed this one off.
+    rows = select(
+        client.get("/documents", params={"q": title}).text, "#documents tbody tr"
+    )
     row = next(r for r in rows if title in text(r))
     return int(row.get("id").split("-")[-1])
 
@@ -33,7 +37,9 @@ class TestTheShelf:
     def test_the_page_renders_and_is_a_records_section(
         self, client: TestClient
     ) -> None:
-        page = client.get("/documents").text
+        answer = client.get("/documents")
+        assert answer.status_code == 200, answer.text[-1500:]
+        page = answer.text
         one(page, "#documents")
         assert one(page, 'a[aria-current="page"]').get("href") == "/documents"
 
@@ -106,5 +112,49 @@ class TestTheDialog:
             headers={"HX-Current-URL": "http://testserver/documents"},
         )
         assert answer.status_code == 200
-        row = one(client.get("/documents").text, f"tr#document-{document_id}")
+        shelf = client.get("/documents", params={"q": "Renewal letter"}).text
+        row = one(shelf, f"tr#document-{document_id}")
         assert "Renewal letter" in text(row)
+
+
+class TestWhereItWasFiled:
+    def test_the_opener_is_not_starved_by_the_filter_form(
+        self, client: TestClient
+    ) -> None:
+        """The Add button sits inside the search form, and htmx hands every
+        inherited attribute down: the form's ``hx-select`` narrowed the
+        dialog's answer to an element it does not have, and the modal
+        opened empty. A filter form keeps its attributes to itself."""
+        form = one(client.get("/documents").text, "#documents form[data-filters]")
+        assert "hx-select" in form.get("hx-disinherit", "")
+
+    def test_filed_under_names_the_place_and_goes_there(
+        self, client: TestClient
+    ) -> None:
+        """A tag is a key; a reader wants the contact's name, as a door."""
+        from tests.web.test_contacts import _contact
+
+        party_id = _contact(client, "Filed Under Testcase", "organization")
+        client.post(
+            f"/contacts/{party_id}/documents/new",
+            files={
+                "file": (
+                    "filed-under.pdf",
+                    pdf_bytes(["Filed under a contact"]),
+                    "application/pdf",
+                )
+            },
+        )
+        shelf = client.get("/documents", params={"q": "filed-under"}).text
+        row = next(
+            r
+            for r in select(shelf, "#documents tbody tr")
+            if "filed-under.pdf" in text(r)
+        )
+        door = one(row, f'a[href="/contacts/{party_id}"]')
+        assert "Filed Under Testcase" in text(door)
+        assert "party:" not in text(row)
+
+        opener = one(row, "[data-open]")
+        dialog = client.get(opener.get("hx-get")).text
+        one(dialog, f'[data-filed] a[href="/contacts/{party_id}"]')

@@ -14,7 +14,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from starlette.responses import Response
 
-from app.components.web_frontend.documents import document_dialog, save_document
+from app.components.web_frontend.documents import (
+    document_dialog,
+    filed_under,
+    save_document,
+)
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
@@ -36,11 +40,11 @@ COLUMNS = (
     {"key": "kind", "label": "Kind"},
     {"key": "at", "label": "Dated"},
     {"key": "pages", "label": "Pages"},
-    {"key": "tags", "label": "Filed under"},
+    {"key": "filed", "label": "Filed under", "kind": "links"},
 )
 
 
-def _row(document: Any, tags: list[str]) -> dict[str, Any]:
+def _row(document: Any, filed: list[dict[str, str]]) -> dict[str, Any]:
     from app.components.web_frontend.filters import short_date
     from app.components.web_frontend.glyphs import file_badge
 
@@ -54,7 +58,7 @@ def _row(document: Any, tags: list[str]) -> dict[str, Any]:
         "kind": document.kind,
         "at": short_date(document.document_date or document.received_at),
         "pages": document.page_count or "",
-        "tags": ", ".join(tags),
+        "filed": filed,
     }
 
 
@@ -79,13 +83,14 @@ async def page(
         if q:
             documents = [d for d in documents if q.lower() in d.title.lower()]
         tags = await queries.tags_for_many(db, [d.id for d in documents])
+        filed = await filed_under(db, tags)
         return render(
             request,
             "pages/documents.html",
             {
                 "section": SECTION,
                 "path": SECTION.path,
-                "rows": [_row(d, tags.get(d.id, [])) for d in documents],
+                "rows": [_row(d, filed.get(d.id, [])) for d in documents],
                 "columns": list(COLUMNS),
                 "q": q,
                 "kind": kind,

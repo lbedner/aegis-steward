@@ -33,7 +33,7 @@
    pull the table a further 1.25rem off the left of the page. #}
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/form.html" import control %}
-{% from "components/macros/layout.html" import avatar, badge, contact_link, file_mark, mark %}
+{% from "components/macros/layout.html" import avatar, badge, contact_link, doors, file_mark, mark %}
 
 {% macro _cell(row, col) -%}
 {%- set value = row[col.key] -%}
@@ -75,6 +75,9 @@
   {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
   <span>{{ value.label }}</span>
 </a>
+{%- elif col.kind == "links" -%}
+{# Several places at once, each a door: where a document is filed. #}
+{{ doors(value) }}
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}

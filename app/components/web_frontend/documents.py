@@ -46,8 +46,12 @@ async def document_dialog(
     from app.services.documents.domains.extraction.pages import how_read
     from app.services.documents.models import DOCUMENT_KINDS
     from app.services.documents.queries import pages_for
+    from app.services.documents.service import DocumentService
 
     pages = await pages_for(db, document.id)
+    filed = await filed_under(
+        db, {document.id: await DocumentService(db).tags_for(document.id)}
+    )
     return dialog(
         request,
         "partials/accounts/document.html",
@@ -55,6 +59,7 @@ async def document_dialog(
         document=document,
         dated=short_date(document.document_date or document.received_at),
         content=content_url(document.id),
+        filed=filed.get(document.id, []),
         kinds=DOCUMENT_KINDS,
         post=post,
         # Read again lives with the document, wherever the dialog opened.
@@ -127,6 +132,44 @@ PAPER_COLUMNS = (
     {"key": "at", "label": "Dated"},
     {"key": "pages", "label": "Pages"},
 )
+
+
+async def filed_under(
+    db: AsyncSession, tags_by_document: dict[int, list[str]]
+) -> dict[int, list[dict[str, str]]]:
+    """Where each document is filed, as ``{label, url}`` doors: a tag is
+    a key (``party:3``) and a reader wants the name and the page. One
+    query per kind of home for the whole shelf, never one per row."""
+    from sqlmodel import select
+
+    from app.components.web_frontend.nav import section
+    from app.services.finance.models.accounts import FinanceAccount
+    from app.services.matters.models import Matter, Party
+
+    homes: dict[str, tuple[Any, str, str]] = {
+        "matter": (Matter, "title", section("matters").path),
+        "account": (FinanceAccount, "name", section("accounts").path),
+        "party": (Party, "name", section("contacts").path),
+    }
+
+    def key(tag: str) -> tuple[str, int] | None:
+        prefix, _, rest = tag.partition(":")
+        return (prefix, int(rest)) if prefix in homes and rest.isdigit() else None
+
+    keyed = {k for tags in tags_by_document.values() for t in tags if (k := key(t))}
+    door: dict[tuple[str, int], dict[str, str]] = {}
+    for prefix, (model, field, path) in homes.items():
+        ids = [i for p, i in keyed if p == prefix]
+        if ids:
+            for row in (await db.exec(select(model).where(model.id.in_(ids)))).all():
+                door[(prefix, row.id)] = {
+                    "label": getattr(row, field),
+                    "url": f"{path}/{row.id}",
+                }
+    return {
+        document_id: [door[k] for t in tags if (k := key(t)) in door]
+        for document_id, tags in tags_by_document.items()
+    }
 
 
 async def papers_on(db: AsyncSession, tag: str, open_base: str) -> list[dict[str, Any]]:
