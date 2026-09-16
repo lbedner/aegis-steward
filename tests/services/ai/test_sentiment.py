@@ -225,3 +225,34 @@ class TestJobGate:
         await analyze_sentiment_job()
 
         assert touched["ran"] is True
+
+
+class TestTheReadEndsBeforeTheModelCall:
+    """The batch's shared lock must not be held through the model call:
+    SQLite fails the read-then-write upgrade at once under another
+    writer, and a nightly job that trips on it scores nothing."""
+
+    async def test_the_first_model_call_sees_the_batch_committed(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await _add_conversation(session, "c1")
+        commits = 0
+        real_commit = session.commit
+
+        async def counting_commit() -> None:
+            nonlocal commits
+            commits += 1
+            await real_commit()
+
+        seen: list[int] = []
+
+        async def fake_llm_score(transcript: str) -> dict[str, Any]:
+            seen.append(commits)
+            return dict(_GOOD_VERDICT)
+
+        monkeypatch.setattr(sentiment_module, "_llm_score", fake_llm_score)
+        session.commit = counting_commit  # type: ignore[method-assign]
+
+        await sentiment_module.score_unscored_conversations(session=session)
+
+        assert seen and seen[0] >= 1

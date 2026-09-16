@@ -191,4 +191,7 @@ async def attach_labs(session: Session, model_ids: list[str]) -> None:
         _grant_role(session, org, ROLE_MAKER)
         model.made_by_org_id = org.id
         session.add(model)
-    session.commit()
+        # Each model lands on its own. The next one's lookup is a network
+        # call, and a write left pending would hold SQLite's lock across
+        # it - the same lock every other process is waiting for.
+        session.commit()
