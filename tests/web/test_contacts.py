@@ -98,8 +98,9 @@ def _contact(client: TestClient, name: str, kind: str) -> int:
     rows = select(
         client.get("/contacts", params={"q": name}).text, "#contacts tbody tr"
     )
-    row = next(r for r in rows if name in text(r))
-    return int(row.get("id").split("-")[-1])
+    # The newest row of that name: the app-owned database is shared for
+    # the run, and another file may have filed the same party before.
+    return max(int(r.get("id").split("-")[-1]) for r in rows if name in text(r))
 
 
 class TestAContactHasAPage:

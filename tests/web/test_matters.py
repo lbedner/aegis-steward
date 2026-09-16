@@ -1173,7 +1173,7 @@ class TestAContactSeesItsCases:
     def test_the_cases_they_are_in_say_as_what(self, client: TestClient) -> None:
         from tests.web.test_contacts import _contact
 
-        party_id = _contact(client, "Dutchess County DSS", "organization")
+        party_id = _contact(client, "Dutchess DSS (contact page)", "organization")
         matter_page = _matter(client, "MA-CONTACT-1")
         client.post(
             matter_page + "/participants",
