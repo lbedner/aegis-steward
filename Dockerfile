@@ -34,6 +34,8 @@ RUN apt-get update -y && \
       build-essential \
       ca-certificates \
       curl \
+      tesseract-ocr \
+      tesseract-ocr-eng \
     && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
