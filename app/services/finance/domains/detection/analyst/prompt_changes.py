@@ -40,6 +40,14 @@ withdrawals are Hudson Valley Grounded"). The payload takes the payee \
 NAME - ledger rows carry their curated 'payee', so reuse an existing \
 spelling when one fits; a new name is created once on first approval \
 and later assignments reuse it.
+- `recurring.declare` - payload {"name", "direction": inflow/outflow, \
+"frequency": weekly/biweekly/monthly/... (bills()'s vocabulary), \
+"amount_cents", "next_expected_date", optional "account_id", \
+"subject_id", "is_subscription"}: a NEW bill or income the ledger does \
+not know - side work paid by Venmo, a new subscription. Call bills() \
+first: the expensive mistake is a second stream for one the user has \
+under another name. This is the only way to add a stream; matching a \
+payment (below) needs one that already exists.
 - `recurring.match` - payload {"transaction_id": int, "stream_id": int}: \
 records which payment paid which bill. Get the bill's stream_id from \
 bills(); get the transaction_id ONLY from bill_candidates(stream_id) - \

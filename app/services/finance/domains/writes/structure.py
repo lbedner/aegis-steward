@@ -4,9 +4,10 @@ The hub module ``executors`` registers these."""
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection.insights.formatting import format_usd
@@ -146,4 +147,99 @@ async def split_describe(
                     value=f"{format_usd(remainder)} · the rest",
                 )
             )
+    return rows
+
+
+# --- Declaring a stream ---------------------------------------------------
+#
+# The one act Illiana could not do: "call it $90 a week and be done with
+# it". She could match a payment to a bill that exists; she could not
+# say a new one exists. Same act as the Bills page's "declare recurring",
+# proposed as a card and approved like every other write.
+
+DIRECTIONS = ("inflow", "outflow")
+
+
+class DeclarePayload(BaseModel):
+    """A new recurring stream: income or a bill, its rhythm and amount."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    direction: str
+    frequency: str
+    amount_cents: int = Field(gt=0)
+    next_expected_date: date
+    account_id: int | None = None
+    subject_id: int | None = None
+    is_subscription: bool = False
+
+    @field_validator("direction")
+    @classmethod
+    def _known_direction(cls, value: str) -> str:
+        if value not in DIRECTIONS:
+            raise ValueError(f"direction must be one of {', '.join(DIRECTIONS)}")
+        return value
+
+    @field_validator("frequency")
+    @classmethod
+    def _known_frequency(cls, value: str) -> str:
+        from app.services.finance.constants import BILL_FREQUENCY_OPTIONS
+
+        if value not in BILL_FREQUENCY_OPTIONS:
+            raise ValueError(
+                f"frequency must be one of {', '.join(BILL_FREQUENCY_OPTIONS)}"
+            )
+        return value
+
+
+async def declare_execute(
+    db: AsyncSession, payload: DeclarePayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.finance.domains.planning.recurring import streams
+
+    stream = await streams.create_recurring_stream(
+        db,
+        owner_user_id=owner_user_id,
+        name=payload.name,
+        direction=payload.direction,
+        frequency=payload.frequency,
+        expected_amount=payload.amount_cents,
+        next_expected_date=payload.next_expected_date,
+        account_id=payload.account_id,
+        is_subscription=payload.is_subscription,
+        subject_id=payload.subject_id,
+    )
+    await db.flush()
+    return {"stream_id": stream.id, "name": stream.name}
+
+
+async def declare_describe(
+    db: AsyncSession, payload: DeclarePayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    """The card: what, which way, how often, how much, from when."""
+    from app.services.finance.constants import frequency_label
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+
+    rows = [
+        ChangeDisplayRow(label="Stream", value=payload.name),
+        ChangeDisplayRow(
+            label="Direction",
+            value="Income" if payload.direction == "inflow" else "Bill",
+        ),
+        ChangeDisplayRow(label="Every", value=frequency_label(payload.frequency)),
+        ChangeDisplayRow(label="Amount", value=format_usd(payload.amount_cents)),
+        ChangeDisplayRow(
+            label="Starting", value=payload.next_expected_date.isoformat()
+        ),
+    ]
+    if payload.account_id is not None:
+        from app.services.finance.domains.ledger.queries.accounts import account_by_id
+
+        account = await account_by_id(
+            db, payload.account_id, owner_user_id=owner_user_id
+        )
+        rows.append(
+            ChangeDisplayRow(label="Account", value=account.name if account else "-")
+        )
     return rows

@@ -1,0 +1,82 @@
+"""Illiana can say a bill or an income exists: ``recurring.declare``.
+
+She could match a payment to a stream that existed and could not say a
+new one did - "call it $90 a week and be done with it" died on an
+unknown change type. Same act as the Bills page's declare, as a card.
+"""
+
+from datetime import date
+
+from pydantic import ValidationError
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.services.finance.domains.writes.structure import (
+    DeclarePayload,
+    declare_describe,
+    declare_execute,
+)
+from app.services.finance.service import FinanceService
+
+
+async def test_the_card_says_what_which_way_how_often_and_the_stream_lands(
+    async_db_session: AsyncSession,
+) -> None:
+    payload = DeclarePayload(
+        name="Marisa side work",
+        direction="inflow",
+        frequency="weekly",
+        amount_cents=9000,
+        next_expected_date=date(2026, 9, 22),
+    )
+
+    said = {
+        r.label: r.value
+        for r in await declare_describe(async_db_session, payload, None)
+    }
+    assert said["Stream"] == "Marisa side work"
+    assert said["Direction"] == "Income"
+    assert said["Every"] == "Weekly"
+    assert said["Amount"] == "$90.00"
+    assert said["Starting"] == "2026-09-22"
+
+    result = await declare_execute(async_db_session, payload, None)
+    await async_db_session.commit()
+
+    stream = await FinanceService(async_db_session).get_recurring(
+        result["stream_id"], None
+    )
+    assert stream is not None
+    assert (stream.direction, stream.frequency, stream.expected_amount) == (
+        "inflow",
+        "weekly",
+        9000,
+    )
+    assert stream.next_expected_date == date(2026, 9, 22)
+
+
+def test_a_direction_or_rhythm_nobody_defined_is_refused() -> None:
+    with pytest.raises(ValidationError):
+        DeclarePayload(
+            name="x",
+            direction="sideways",
+            frequency="weekly",
+            amount_cents=1,
+            next_expected_date=date(2026, 9, 22),
+        )
+    with pytest.raises(ValidationError):
+        DeclarePayload(
+            name="x",
+            direction="inflow",
+            frequency="whenever",
+            amount_cents=1,
+            next_expected_date=date(2026, 9, 22),
+        )
+    with pytest.raises(ValidationError):
+        DeclarePayload(
+            name="x",
+            direction="inflow",
+            frequency="weekly",
+            amount_cents=0,
+            next_expected_date=date(2026, 9, 22),
+        )

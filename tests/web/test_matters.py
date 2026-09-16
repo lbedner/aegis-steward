@@ -1188,3 +1188,24 @@ class TestAContactSeesItsCases:
         case = one(page, "[data-cases] li")
         assert "Medicaid renewal" in text(case)
         assert text(one(case, "[data-role]")) == "Agency"
+
+    def test_on_the_matter_its_participants_and_the_list(
+        self, client: TestClient
+    ) -> None:
+        from tests.web.test_contacts import _contact
+
+        party_id = _contact(client, "Door County DSS", "organization")
+        matter_page = _matter(client, "MA-DOOR-1")
+        client.post(
+            matter_page + "/participants",
+            data={
+                "party_id": str(party_id),
+                "new_name": "",
+                "role": "agency",
+                "note": "",
+            },
+        )
+        page = client.get(matter_page).text
+        door = one(page, f'#matter [data-party] a[data-contact="{party_id}"]')
+        assert door.get("href") == f"/contacts/{party_id}"
+        assert door.get("hx-get") == f"/contacts/{party_id}"

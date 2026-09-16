@@ -86,6 +86,15 @@ register(
 )
 register(
     ChangeExecutor(
+        change_type="recurring.declare",
+        title="Declare a bill or an income",
+        payload_model=structure.DeclarePayload,
+        execute=structure.declare_execute,
+        describe=structure.declare_describe,
+    )
+)
+register(
+    ChangeExecutor(
         change_type="transaction.tag",
         title="Tag a transaction",
         payload_model=curation.TagPayload,
