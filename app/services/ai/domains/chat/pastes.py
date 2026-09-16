@@ -35,6 +35,8 @@ from datetime import UTC, datetime
 import re
 from typing import Any
 
+from sqlmodel.ext.asyncio.session import AsyncSession
+
 from app.core.log import logger
 from app.core.storage import get_storage
 from app.services.ai.domains.chat.tools import register_tool
@@ -247,18 +249,20 @@ async def read_paste(user_id: str, paste_id: str) -> tuple[dict[str, Any], str] 
     return match, data.decode("utf-8", errors="replace")
 
 
-async def document_text(document_id: int) -> str | None:
+async def document_text(
+    document_id: int, session: AsyncSession | None = None
+) -> str | None:
     """Every read page of a document, in order, as one body of text.
 
     A page that could not be read is a row too, with its reason, so it
     is named here rather than silently skipped: the agent must be able
     to tell a page that said nothing from one nobody could read.
     """
-    from app.core.db import get_async_session
+    from app.services.ai.domains.chat.user_memory import session_or
     from app.services.documents.queries import pages_for
 
-    async with get_async_session() as session:
-        pages = await pages_for(session, document_id)
+    async with session_or(session) as db:
+        pages = await pages_for(db, document_id)
     if not pages:
         return None
     parts = [

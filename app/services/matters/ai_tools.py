@@ -21,7 +21,10 @@ from datetime import date
 from typing import Any
 
 from app.core.db import get_async_session
+from app.services.ai.domains.chat.pastes import document_text
 from app.services.ai.domains.chat.tools import register_tool
+from app.services.documents.domains.extraction.dispatch import start_extraction
+from app.services.documents.service import DocumentService
 from app.services.finance.utils import current_date
 from app.services.matters.facts import FactService, monthly_cents
 from app.services.matters.matters import MatterService
@@ -104,16 +107,16 @@ async def matters(status: str = "open") -> dict[str, Any]:
                         "open": len(standing_requests),
                         "total": len(asked),
                         "next_due": _iso(min(due)) if due else None,
-                        "overdue_count": sum(
-                            1 for one in asked if overdue(one, today)
-                        ),
+                        "overdue_count": sum(1 for one in asked if overdue(one, today)),
                     },
                 }
             )
     return {"matters": rows}
 
 
-async def requests(matter_id: int | None = None, outstanding: bool = True) -> dict[str, Any]:
+async def requests(
+    matter_id: int | None = None, outstanding: bool = True
+) -> dict[str, Any]:
     """What has been asked for, by when, and what still stands.
 
     Args:
@@ -131,9 +134,7 @@ async def requests(matter_id: int | None = None, outstanding: bool = True) -> di
     today = current_date()
     async with get_async_session() as db:
         service = RequestService(db)
-        cases = await MatterService(db).find(
-            status=None if matter_id else "open"
-        )
+        cases = await MatterService(db).find(status=None if matter_id else "open")
         titles = {case.id: case.title for case in cases}
         wanted = [matter_id] if matter_id else list(titles)
         rows = []
@@ -239,6 +240,43 @@ async def facts(
     }
 
 
+async def paper(document_id: int) -> dict[str, Any]:
+    """The text of one document on file, page by page - the letter a
+    request came from, a statement attached to an ask, a fact's source.
+    The ids come from `matters`, `requests` and `facts` ('document_id').
+
+    A document already read comes straight back. One never read is
+    handed to the worker to read (a scanned page with no text layer goes
+    to the vision model when one is configured) and this returns with
+    'read' False and 'reading' set: say the letter is being read and
+    call again in a moment. An unreadable page is named in place, so a
+    page that said nothing is never mistaken for one nobody read.
+
+    Returns 'id', 'title', 'kind', 'media_type', 'page_count', 'dated',
+    'read', 'reading' (the job id while it is on the worker) and 'text'
+    - the pages in order, each under a '--- page N ---' heading.
+    """
+    async with get_async_session() as db:
+        document = await DocumentService(db).get(document_id)
+        if document is None:
+            return {"error": f"No document with id {document_id}"}
+        text = await document_text(document_id, db)
+    reading = None
+    if text is None:
+        reading = await start_extraction(document_id, owner_user_id=None, force=False)
+    return {
+        "id": document.id,
+        "title": document.title,
+        "kind": document.kind,
+        "media_type": document.media_type,
+        "page_count": document.page_count,
+        "dated": _iso(document.document_date),
+        "read": bool(text),
+        "reading": reading,
+        "text": text or "",
+    }
+
+
 register_tool(
     "parties",
     parties,
@@ -261,5 +299,11 @@ register_tool(
     "facts",
     facts,
     description="What can be said about someone's money, with where it came from",
+    replace=True,
+)
+register_tool(
+    "paper",
+    paper,
+    description="The text of a document on file; queued for reading if it never was",
     replace=True,
 )

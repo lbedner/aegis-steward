@@ -237,12 +237,8 @@ class TestWhoseMoneyThroughIlliana:
         parties = PartyService(async_db_session)
         person = await parties.create(name="Linked Subject", kind="person")
         fund = await parties.create(name="Linked Pension Fund", kind="organization")
-        subject = await subject_for_party(
-            async_db_session, person.id, name=person.name
-        )
-        bank = await institution_for_party(
-            async_db_session, fund.id, name=fund.name
-        )
+        subject = await subject_for_party(async_db_session, person.id, name=person.name)
+        bank = await institution_for_party(async_db_session, fund.id, name=fund.name)
         account = await create_manual_account(
             async_db_session,
             name="Linked Pension",
@@ -263,3 +259,76 @@ class TestWhoseMoneyThroughIlliana:
         assert row["whose"] == "Linked Subject"
         assert row["held_with"] == "Linked Pension Fund"
         assert row["reference"] == "R10932601"
+
+
+async def _on_file(db: AsyncSession, *, pages: list[str] | None) -> int:
+    """A stored document, with its pages already read or not read at all."""
+    from app.services.documents.models import DocumentPage
+    from app.services.documents.service import DocumentService
+
+    document = await DocumentService(db).ingest(
+        b"%PDF-1.4 not really",
+        title="Bedner J Request.pdf",
+        media_type="application/pdf",
+    )
+    for number, text in enumerate(pages or [], start=1):
+        db.add(
+            DocumentPage(
+                document_id=document.id,
+                page_number=number,
+                status="read",
+                method="text",
+                text=text,
+            )
+        )
+    await db.commit()
+    return int(document.id or 0)
+
+
+async def test_paper_returns_a_read_document_without_reading_it_again(
+    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+
+    async def never(document_id: int, **kwargs: object) -> str:
+        calls.append(document_id)
+        return "job"
+
+    monkeypatch.setattr(ai_tools, "start_extraction", never)
+    document_id = await _on_file(
+        async_db_session, pages=["REQUEST FOR INFORMATION", "Provide proof of income"]
+    )
+
+    found = await ai_tools.paper(document_id)
+
+    assert found["read"] is True
+    assert found["title"] == "Bedner J Request.pdf"
+    assert "--- page 1 ---" in found["text"] and "--- page 2 ---" in found["text"]
+    assert "Provide proof of income" in found["text"]
+    assert calls == []  # already read: no second pass
+
+
+async def test_paper_hands_an_unread_document_to_the_worker(
+    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not inline: a scan can take minutes, and the turn says it is being
+    read rather than holding the person on the line."""
+    queued: list[int] = []
+
+    async def enqueue(document_id: int, **kwargs: object) -> str:
+        queued.append(document_id)
+        return "job-1"
+
+    monkeypatch.setattr(ai_tools, "start_extraction", enqueue)
+    document_id = await _on_file(async_db_session, pages=None)
+
+    found = await ai_tools.paper(document_id)
+
+    assert queued == [document_id]
+    assert found["read"] is False
+    assert found["reading"] == "job-1"
+    assert found["text"] == ""
+
+
+async def test_paper_names_a_missing_document() -> None:
+    assert "error" in await ai_tools.paper(999_999)

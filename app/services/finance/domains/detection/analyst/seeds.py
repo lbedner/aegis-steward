@@ -178,6 +178,9 @@ FINANCE_CHAT_TOOL_NAMES = (
     # And the numbers with their sources, because a figure without its
     # provenance is not fit to put on a government form.
     "facts",
+    # The paper itself, by the id the three above hand back: the letter
+    # behind a request, read to the person who asked what it says.
+    "paper",
 )
 
 
