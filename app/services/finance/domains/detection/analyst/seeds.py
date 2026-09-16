@@ -275,6 +275,12 @@ def resync_finance_agent_prompts(
             continue
         wanted = definition["system_prompt"]
         if row.system_prompt == wanted:
+            # A row from before the fingerprint that already matches code
+            # is stamped here: true, and from now on it is protected.
+            if row.prompt_fingerprint is None:
+                row.prompt_fingerprint = prompt_fingerprint(wanted)
+                session.add(row)
+                session.commit()
             result[definition["slug"]] = "unchanged"
             continue
         if edited_by_hand(row) and not force:

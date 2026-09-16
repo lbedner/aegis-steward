@@ -1848,6 +1848,30 @@ class TestPromptsInCodeReachTheInstall:
         db_session.refresh(row)
         assert row.prompt_fingerprint is not None
 
+    def test_a_matching_row_from_before_the_fingerprint_is_stamped(
+        self, db_session: Session
+    ) -> None:
+        """ "Unchanged" is true of the prompt; the stamp is what makes the
+        next hand edit visible."""
+        from app.services.ai.models import Agent
+        from app.services.finance.domains.detection.analyst.seeds import (
+            finance_chat_agent_definition,
+            load_finance_agent_fixtures,
+            resync_finance_agent_prompts,
+        )
+
+        load_finance_agent_fixtures(db_session)
+        slug = finance_chat_agent_definition()["slug"]
+        row = db_session.exec(select(Agent).where(Agent.slug == slug)).first()
+        assert row is not None
+        row.prompt_fingerprint = None
+        db_session.add(row)
+        db_session.commit()
+
+        assert resync_finance_agent_prompts(db_session)[slug] == "unchanged"
+        db_session.refresh(row)
+        assert row.prompt_fingerprint is not None
+
     def test_a_current_row_is_left_alone(self, db_session: Session) -> None:
         """Reporting "updated" for a row it did not touch would make the
         command useless for telling whether anything moved."""
