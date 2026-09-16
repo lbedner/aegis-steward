@@ -43,6 +43,7 @@ async def document_dialog(
     making them click twice to do one thing.
     """
     from app.components.web_frontend.filters import short_date
+    from app.services.documents.domains.extraction.pages import how_read
     from app.services.documents.models import DOCUMENT_KINDS
     from app.services.documents.queries import pages_for
 
@@ -56,6 +57,8 @@ async def document_dialog(
         content=content_url(document.id),
         kinds=DOCUMENT_KINDS,
         post=post,
+        # Read again lives with the document, wherever the dialog opened.
+        reread=f"/documents/{document.id}/read",
         errors=errors or [],
         pages=[
             {
@@ -64,6 +67,7 @@ async def document_dialog(
                 # How it was read, so a figure quoted off this page can
                 # say where it came from.
                 "method": page.method,
+                "how": how_read(page),
                 "text": page.text or "",
                 "detail": page.detail or "",
             }

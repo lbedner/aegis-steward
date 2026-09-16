@@ -9,7 +9,7 @@
    OF the document, not the document, and a figure has to be checked
    against the page as it was printed. The bytes are the one thing the
    form cannot touch: a document is what arrived. #}
-{% from "components/macros/form.html" import field, text_input, select, date_input, textarea, primary_button %}
+{% from "components/macros/form.html" import field, text_input, select, date_input, textarea, primary_button, action %}
 {% from "components/macros/layout.html" import dialog_title %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% call dialog_title(document.title) %}
@@ -48,8 +48,15 @@
   </form>
 </div>
 
+<div class="mt-4 flex items-center gap-3">
+  {# Read again: the pages are read on the worker and the text below
+     refreshes on the next open. A page already read is read again
+     too - that is what "again" is for. #}
+  {{ action("Read again", 'hx-post="' ~ reread ~ '" hx-swap="none"') }}
+  <span class="micro-label text-aegis-muted">{{ pages|length }} page{{ "s" if pages|length != 1 }}{% if not pages %} - not read yet{% endif %}</span>
+</div>
 {% if pages %}
-<details class="mt-4 group/text">
+<details class="mt-2 group/text">
   <summary class="list-none cursor-pointer inline-flex items-center gap-1 text-xs text-aegis-muted hover:text-aegis-text transition-colors">
     <span class="group-open/text:hidden">Show the text that was read</span>
     <span class="hidden group-open/text:inline">Hide the text</span>
@@ -60,11 +67,11 @@
     <div data-page="{{ page.number }}">
       {# A page carries HOW it was read, so a figure quoted off it can
          cite both the page and the way it came. #}
-      <p class="micro-label text-aegis-muted">Page {{ page.number }} · {{ page.method }}</p>
+      <p class="micro-label text-aegis-muted" data-how>Page {{ page.number }} · {{ page.how }}</p>
       {% if page.read %}
       <pre class="mt-1 max-h-64 overflow-auto rounded border border-aegis-border bg-aegis-bg p-2 text-xs font-mono whitespace-pre-wrap text-aegis-text">{{ page.text }}</pre>
       {% else %}
-      <p class="mt-1 text-xs text-aegis-muted italic" data-unread>Not read{% if page.detail %} · {{ page.detail }}{% endif %}</p>
+      <p class="mt-1 text-xs text-aegis-muted italic" data-unread>{{ page.how }}</p>
       {% endif %}
     </div>
     {% endfor %}

@@ -25,6 +25,7 @@ class TestNav:
             "review",
             "matters",
             "contacts",
+            "documents",
             "chat",
             "settings",
         ]

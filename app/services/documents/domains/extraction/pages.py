@@ -212,7 +212,9 @@ async def _read_with_ocr(page: DocumentPage, image: bytes | None) -> bool:
     text, confidence = read
     if not ocr.looks_like_text(text, confidence, MIN_TEXT_CHARS):
         return False
-    _mark_read(page, text.strip(), method="ocr", model=None)
+    _mark_read(
+        page, text.strip(), method="ocr", model=None, detail=f"{confidence:.0f}% sure"
+    )
     return True
 
 
@@ -238,15 +240,39 @@ async def _read_with_vision(
     _mark_read(page, text.strip(), method="vision", model=model)
 
 
+# What each method reads as to a person. Every surface that says how a
+# page was read - the document dialog, the API, the dashboard's page
+# panel - says it through ``how_read``, so the words have one home.
+READ_LABELS = {"text_layer": "Text layer", "ocr": "OCR", "vision": "Model"}
+
+
+def how_read(page: DocumentPage) -> str:
+    """``Model · gpt-5.6-luna``, ``OCR · 91% sure``, ``Text layer``, or
+    ``Not read · why``."""
+    if page.status != "read":
+        return f"Not read · {page.detail}" if page.detail else "Not read"
+    parts = [READ_LABELS.get(page.method, page.method)]
+    if page.model:
+        parts.append(page.model)
+    if page.detail:
+        parts.append(page.detail)
+    return " · ".join(parts)
+
+
 def _mark_read(
-    page: DocumentPage, text: str, *, method: str, model: str | None
+    page: DocumentPage,
+    text: str,
+    *,
+    method: str,
+    model: str | None,
+    detail: str | None = None,
 ) -> None:
     page.status, page.method, page.text, page.model, page.detail = (
         "read",
         method,
         text,
         model,
-        None,
+        detail,
     )
 
 
