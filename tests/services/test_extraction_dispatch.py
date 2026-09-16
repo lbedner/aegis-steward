@@ -127,3 +127,55 @@ async def test_a_document_already_being_read_is_not_read_twice(
 
     assert second == first
     assert enqueued == [7]
+
+
+@pytest.mark.asyncio
+async def test_waiting_ends_when_the_job_does(
+    store: _FakeStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    states = iter(["running", "running", "done"])
+
+    async def get(job_id: str) -> JobSnapshot:
+        return JobSnapshot(
+            job_id=job_id,
+            name="documents-extract:7",
+            status=next(states),
+            label="",
+            result=None,
+            error=None,
+        )
+
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(store, "get", get, raising=False)
+    monkeypatch.setattr(dispatch.asyncio, "sleep", no_sleep, raising=False) if hasattr(
+        dispatch, "asyncio"
+    ) else None
+    monkeypatch.setattr("asyncio.sleep", no_sleep)
+
+    assert await dispatch.wait_for_extraction("j") == "done"
+    assert store.closed
+
+
+@pytest.mark.asyncio
+async def test_waiting_gives_up_after_the_budget(
+    store: _FakeStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def get(job_id: str) -> JobSnapshot:
+        return JobSnapshot(
+            job_id=job_id,
+            name="documents-extract:7",
+            status="running",
+            label="",
+            result=None,
+            error=None,
+        )
+
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(store, "get", get, raising=False)
+    monkeypatch.setattr("asyncio.sleep", no_sleep)
+
+    assert await dispatch.wait_for_extraction("j", budget=5.0) == "running"

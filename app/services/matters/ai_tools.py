@@ -23,7 +23,10 @@ from typing import Any
 from app.core.db import get_async_session
 from app.services.ai.domains.chat.pastes import document_text
 from app.services.ai.domains.chat.tools import register_tool
-from app.services.documents.domains.extraction.dispatch import start_extraction
+from app.services.documents.domains.extraction.dispatch import (
+    start_extraction,
+    wait_for_extraction,
+)
 from app.services.documents.service import DocumentService
 from app.services.finance.utils import current_date
 from app.services.matters.facts import FactService, monthly_cents
@@ -254,14 +257,17 @@ async def paper(document_id: int) -> dict[str, Any]:
 
     A document already read comes straight back. One never read is
     handed to the worker to read (a scanned page with no text layer goes
-    to the vision model when one is configured) and this returns with
-    'read' False and 'reading' set: say the letter is being read and
-    call again in a moment. An unreadable page is named in place, so a
-    page that said nothing is never mistaken for one nobody read.
+    to the vision model when one is configured) and this WAITS for it -
+    a few minutes for a long scan - then returns the text in the same
+    call. Only if the read outlasts the wait does this return with
+    'read' False and 'reading' set; then say it is still being read and
+    call again. An unreadable page is named in place, so a page that
+    said nothing is never mistaken for one nobody read.
 
     Returns 'id', 'title', 'kind', 'media_type', 'page_count', 'dated',
-    'read', 'reading' (the job id while it is on the worker) and 'text'
-    - the pages in order, each under a '--- page N ---' heading.
+    'read', 'reading' (the job id, only while it is still on the worker)
+    and 'text' - the pages in order, each under a '--- page N ---'
+    heading.
     """
     async with get_async_session() as db:
         document = await DocumentService(db).get(document_id)
@@ -270,7 +276,12 @@ async def paper(document_id: int) -> dict[str, Any]:
         text = await document_text(document_id, db)
     reading = None
     if text is None:
-        reading = await start_extraction(document_id, owner_user_id=None, force=False)
+        job_id = await start_extraction(document_id, owner_user_id=None, force=False)
+        if await wait_for_extraction(job_id) == "running":
+            reading = job_id
+        else:
+            async with get_async_session() as db:
+                text = await document_text(document_id, db)
     return {
         "id": document.id,
         "title": document.title,

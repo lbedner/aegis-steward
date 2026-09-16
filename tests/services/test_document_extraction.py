@@ -244,5 +244,6 @@ class TestEachPageLandsOnItsOwn:
         svc.db.commit = counting_commit  # type: ignore[method-assign]
         await extract_document(svc.db, doc.id, owner_user_id=1, vision=vision)
 
-        # The second page's model call sees the first page committed, and so on.
-        assert commits_at_call == [0, 1, 2]
+        # The reads are committed before the first model call, and each
+        # call after that sees one more page landed than the last.
+        assert commits_at_call == [1, 2, 3]

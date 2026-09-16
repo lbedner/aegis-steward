@@ -315,26 +315,61 @@ async def test_paper_returns_a_read_document_without_reading_it_again(
     assert calls == []  # already read: no second pass
 
 
-async def test_paper_hands_an_unread_document_to_the_worker(
+async def test_paper_waits_for_the_worker_and_returns_the_text(
     async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Not inline: a scan can take minutes, and the turn says it is being
-    read rather than holding the person on the line."""
+    """On the worker, not inline - but the call sits on the job, so the
+    person asking gets the letter in the same turn."""
+    from app.services.documents.models import DocumentPage
+
     queued: list[int] = []
 
     async def enqueue(document_id: int, **kwargs: object) -> str:
         queued.append(document_id)
         return "job-1"
 
+    async def lands(job_id: str, **kwargs: object) -> str:
+        async_db_session.add(
+            DocumentPage(
+                document_id=queued[0],
+                page_number=1,
+                status="read",
+                method="vision",
+                text="Due 9/8/2026",
+            )
+        )
+        await async_db_session.commit()
+        return "done"
+
     monkeypatch.setattr(ai_tools, "start_extraction", enqueue)
+    monkeypatch.setattr(ai_tools, "wait_for_extraction", lands)
     document_id = await _on_file(async_db_session, pages=None)
 
     found = await ai_tools.paper(document_id)
 
     assert queued == [document_id]
+    assert found["read"] is True
+    assert found["reading"] is None
+    assert "Due 9/8/2026" in found["text"]
+
+
+async def test_paper_says_so_when_the_read_outlasts_the_wait(
+    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def enqueue(document_id: int, **kwargs: object) -> str:
+        return "job-1"
+
+    async def still_going(job_id: str, **kwargs: object) -> str:
+        return "running"
+
+    monkeypatch.setattr(ai_tools, "start_extraction", enqueue)
+    monkeypatch.setattr(ai_tools, "wait_for_extraction", still_going)
+    document_id = await _on_file(async_db_session, pages=None)
+
+    found = await ai_tools.paper(document_id)
+
     assert found["read"] is False
     assert found["reading"] == "job-1"
-    assert found["text"] == ""
 
 
 async def test_paper_names_a_missing_document() -> None:

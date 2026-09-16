@@ -80,6 +80,13 @@ async def extract_document(
         )
 
     existing = {p.page_number: p for p in await pages_for(db, document_id)}
+    # End the read here. SQLite fails a read-then-write UPGRADE at once
+    # under another writer - busy_timeout never applies to it - so the
+    # first write below must open its own transaction, where waiting
+    # its turn works. The chat writing its usage row at the wrong
+    # moment cost a whole document: "database is locked" on the very
+    # first UPDATE, before a single page was read.
+    await db.commit()
     result = ExtractionResult()
     media_type = (document.media_type or "").lower()
     if media_type == "application/pdf":

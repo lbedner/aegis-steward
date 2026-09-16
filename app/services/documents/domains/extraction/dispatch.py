@@ -80,3 +80,38 @@ async def _enqueue(
         force,
         _queue_name=queue_name,
     )
+
+
+# How long a caller may sit on a reading before it gives the job id back
+# instead: a seven-page scan through the vision model is a couple of
+# minutes, and the stream says how long it has been quiet the whole time.
+WAIT_BUDGET_SECONDS = 180.0
+WAIT_POLL_SECONDS = 2.0
+
+
+async def wait_for_extraction(
+    job_id: str, *, budget: float = WAIT_BUDGET_SECONDS
+) -> str:
+    """Sit on a reading until it lands, fails, or the budget runs out.
+
+    Returns the job's final status - "done", "failed" - or "running" when
+    the budget ran out first, so the caller can say the read is still
+    going rather than pretend it never started.
+    """
+    import asyncio
+
+    from app.core.config import settings
+    from app.services.system.job_store import RedisJobStore
+
+    store = RedisJobStore.from_url(settings.REDIS_URL)
+    try:
+        waited = 0.0
+        while waited < budget:
+            job = await store.get(job_id)
+            if job is None or job.status != "running":
+                return job.status if job else "done"
+            await asyncio.sleep(WAIT_POLL_SECONDS)
+            waited += WAIT_POLL_SECONDS
+        return "running"
+    finally:
+        await store.aclose()
