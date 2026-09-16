@@ -42,7 +42,7 @@ MATTER_COLUMNS = (
     {"key": "title", "label": "Matter", "kind": "page"},
     {"key": "kind", "label": "Kind"},
     {"key": "reference", "label": "Their reference"},
-    {"key": "who", "label": "With"},
+    {"key": "who", "label": "With", "kind": "contact"},
     {"key": "state", "label": "", "kind": "status"},
 )
 
@@ -56,7 +56,14 @@ def _row(matter: Any, names: dict[int, str], late: set[int]) -> dict[str, Any]:
         },
         "kind": (matter.kind or "").title(),
         "reference": matter.reference or "",
-        "who": names.get(matter.counterpart_party_id or -1, ""),
+        "who": (
+            {
+                "id": matter.counterpart_party_id,
+                "label": names.get(matter.counterpart_party_id, ""),
+            }
+            if matter.counterpart_party_id
+            else ""
+        ),
         # Overdue outranks open: a case with a missed deadline is the
         # row the reader is looking for.
         "state": (

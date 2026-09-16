@@ -171,3 +171,47 @@ class TestAContactHasAPage:
         opener = one(row, "[data-open]")
         dialog = client.get(opener.get("hx-get")).text
         one(dialog, "[data-original]")
+
+
+class TestANameIsADoor:
+    """Wherever a contact is named, the name opens their page - one macro,
+    so no card draws it as text and no other as a dialog."""
+
+    def test_on_the_matter_its_participants_and_the_list(
+        self, client: TestClient
+    ) -> None:
+        from tests.web.test_matters import _matter
+
+        party_id = _contact(client, "Door County DSS", "organization")
+        matter_page = _matter(client, "MA-DOOR-1")
+        client.post(
+            matter_page + "/participants",
+            data={
+                "party_id": str(party_id),
+                "new_name": "",
+                "role": "agency",
+                "note": "",
+            },
+        )
+        page = client.get(matter_page).text
+        door = one(page, f'#matter [data-party] a[data-contact="{party_id}"]')
+        assert door.get("href") == f"/contacts/{party_id}"
+        assert door.get("hx-get") == f"/contacts/{party_id}"
+
+    def test_on_a_place_the_people_who_sign_in(self, client: TestClient) -> None:
+        place = _contact(client, "Door Retirement System", "organization")
+        person = _contact(client, "Door Testcase", "person")
+        client.post(
+            f"/contacts/{person}/signins/new",
+            data={
+                "label": "Retirement portal",
+                "site_party_id": str(place),
+                "username": "d",
+                "secret": "",
+            },
+        )
+        block = client.get(f"/contacts/{place}/signins").text
+        assert (
+            one(block, f'a[data-contact="{person}"]').get("href")
+            == f"/contacts/{person}"
+        )

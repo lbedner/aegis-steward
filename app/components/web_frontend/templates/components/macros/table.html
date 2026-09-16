@@ -33,7 +33,7 @@
    pull the table a further 1.25rem off the left of the page. #}
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/form.html" import control %}
-{% from "components/macros/layout.html" import avatar, badge, file_mark, mark %}
+{% from "components/macros/layout.html" import avatar, badge, contact_link, file_mark, mark %}
 
 {% macro _cell(row, col) -%}
 {%- set value = row[col.key] -%}
@@ -61,6 +61,11 @@
   {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
   <span>{{ value.label }}</span>
 </button>
+{%- elif col.kind == "contact" -%}
+{# A contact named in a cell: the one link everywhere a party is drawn,
+   and not the row's door - a row may be a matter whose door is its
+   title while the county named beside it is a door of its own. #}
+{%- if value %}{{ contact_link(value.id, value.label) }}{% endif -%}
 {%- elif col.kind == "page" -%}
 {# A cell that GOES somewhere. The same door, drawn the same way, but
    for a row that is a place rather than a record you glance at: a

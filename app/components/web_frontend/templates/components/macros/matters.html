@@ -4,7 +4,7 @@
    (pattern 2): settling an item changes the request's own line too, so
    re-rendering only the item would leave "1 of 3" reading yesterday's
    answer next to today's item. #}
-{% from "components/macros/layout.html" import badge, dot, file_mark %}
+{% from "components/macros/layout.html" import badge, dot, file_mark, contact_link %}
 {% from "components/macros/form.html" import action %}
 
 {# The verbs on one item. An item that still stands can be answered,
@@ -187,6 +187,8 @@
     {% if fact.source_site %}
     <a href="{{ fact.source_site }}" target="_blank" rel="noopener noreferrer"
        class="mt-1 inline-block text-xs text-aegis-teal hover:underline transition-colors" data-site>{{ fact.source_place or "The site" }}</a>
+    {% elif fact.source_place and fact.source_party_id %}
+    <p class="mt-1 text-xs" data-place>{{ contact_link(fact.source_party_id, fact.source_place) }}</p>
     {% elif fact.source_place %}
     <p class="mt-1 text-xs text-aegis-muted" data-place>{{ fact.source_place }}</p>
     {% endif %}

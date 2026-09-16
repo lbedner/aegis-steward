@@ -313,6 +313,13 @@
 {# A small status word with a dot: ``tone`` is ok, warn, error, muted or
    accent; no tone renders the label plain. One shape for every "state"
    cell and chip, so tests find them by role. #}
+{# A contact's name, as the door to their page. Every place a party is
+   named draws it through this, so a name is never plain text in one
+   card and a dialog in another. #}
+{% macro contact_link(party_id, name) -%}
+<a href="/contacts/{{ party_id }}" {{ hx_page("/contacts/" ~ party_id) }} class="text-aegis-teal hover:underline transition-colors" data-contact="{{ party_id }}">{{ name }}</a>
+{%- endmacro %}
+
 {% macro badge(label, tone=None) %}
 <span data-tone="{{ tone or '' }}" class="inline-flex items-center gap-1.5 whitespace-nowrap {{ TONE_TEXT.get(tone, 'text-aegis-text') }}">
   {% if tone %}{{ dot(tone) }}{% endif %}{{ label }}
