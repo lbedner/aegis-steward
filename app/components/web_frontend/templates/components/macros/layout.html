@@ -320,9 +320,11 @@
 <a href="/contacts/{{ party_id }}" {{ hx_page("/contacts/" ~ party_id) }} class="text-aegis-teal hover:underline transition-colors" data-contact="{{ party_id }}">{{ name }}</a>
 {%- endmacro %}
 
-{# Several places, each a door, read as a list: "Filed under NYSLRS, Renewal". #}
-{% macro doors(places) -%}
-{% for place in places %}<a href="{{ place.url }}" {{ hx_page(place.url) }} class="text-aegis-teal hover:underline transition-colors">{{ place.label }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+{# Several places, each a door, read as a list: "Filed under NYSLRS, Renewal".
+   With ``unfile`` each door also has its taker: a button that posts the
+   place back and takes the document off it. #}
+{% macro doors(places, unfile=None) -%}
+{% for place in places %}<span class="inline-flex items-center gap-1"><a href="{{ place.url }}" {{ hx_page(place.url) }} class="text-aegis-teal hover:underline transition-colors">{{ place.label }}</a>{% if unfile %}<button type="button" name="place" value="{{ place.tag }}" hx-post="{{ unfile }}" hx-target="#dialog-body" hx-vals='{"place": "{{ place.tag }}"}' class="text-aegis-muted hover:text-aegis-text" aria-label="Take {{ place.label }} off">×</button>{% endif %}</span>{% if not loop.last %}, {% endif %}{% endfor %}
 {%- endmacro %}
 
 {% macro badge(label, tone=None) %}

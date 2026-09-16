@@ -17,6 +17,7 @@ from starlette.responses import Response
 from app.components.web_frontend.documents import (
     document_dialog,
     filed_under,
+    place_key,
     save_document,
 )
 from app.components.web_frontend.nav import section
@@ -197,3 +198,38 @@ async def read_again(request: Request, document_id: int) -> Response:
         found = await _filed(db, document_id)
     await start_extraction(document_id, owner_user_id=None, force=True)
     return with_toast(Response(status_code=204), f"Reading {found.title} again")
+
+
+async def _refile(request: Request, document_id: int, place: str, on: bool) -> Response:
+    """Put a document with a place, or take it off, and show the dialog
+    again. The place is a tag that names a home we know; anything else
+    is a 400, because a bare label typed into the form is not a place."""
+    from app.services.documents.service import DocumentService
+
+    if place_key(place) is None:
+        raise HTTPException(status_code=400, detail="Pick a place.")
+    async with get_async_session() as db:
+        found = await _filed(db, document_id)
+        documents = DocumentService(db)
+        if on:
+            await documents.tag(document_id, place)
+        else:
+            await documents.untag(document_id, place)
+        await db.commit()
+        return await document_dialog(
+            request, db, found, f"{SECTION.path}/{document_id}"
+        )
+
+
+@router.post("/{document_id:int}/file", include_in_schema=False)
+async def file_under(
+    request: Request, document_id: int, place: Annotated[str, Form()] = ""
+) -> Response:
+    return await _refile(request, document_id, place, on=True)
+
+
+@router.post("/{document_id:int}/unfile", include_in_schema=False)
+async def unfile(
+    request: Request, document_id: int, place: Annotated[str, Form()] = ""
+) -> Response:
+    return await _refile(request, document_id, place, on=False)

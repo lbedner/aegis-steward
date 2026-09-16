@@ -239,3 +239,66 @@ class TestIllianaCanCorrectAnAsk:
 
         with pytest.raises(ValidationError):
             AmendAskPayload(item_id=1, kind="wish")
+
+
+class TestThePaperThatAnswersAnAsk:
+    @pytest.mark.asyncio
+    async def test_attaching_answers_the_ask_and_files_it_on_the_matter(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Illiana finds the statement on the shelf and puts it on the
+        step: the item is satisfied by that document, and the document is
+        on the matter's paper, the way the web's Attach does it."""
+        from app.services.documents.service import DocumentService
+        from app.services.matters.changes import (
+            AttachAskPayload,
+            attach_ask_describe,
+            attach_ask_execute,
+        )
+        from app.services.matters.models import matter_tag
+        from tests._pdf import pdf_bytes
+
+        matter_id, request_id = await _renewal(async_db_session)
+        item = (await RequestService(async_db_session).items(request_id))[1]
+        documents = DocumentService(async_db_session)
+        document = await documents.ingest(
+            pdf_bytes(["Net Benefit: $1004.93"]),
+            title="NYSLRS Monthly Statement.pdf",
+            media_type="application/pdf",
+            source="upload",
+        )
+        payload = AttachAskPayload(
+            item_id=item.id,
+            document_id=document.id,
+            reason="The statement names the pension the ask is for",
+        )
+
+        said = {
+            r.label: r.value
+            for r in await attach_ask_describe(async_db_session, payload, None)
+        }
+        assert said["Ask"] == ASKED[1]
+        assert said["Document"] == "NYSLRS Monthly Statement.pdf"
+        assert "pension" in said["Because"]
+
+        await attach_ask_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+        answered = await RequestService(async_db_session).item(item.id)
+        assert answered.document_id == document.id
+        assert answered.status == "satisfied"
+        assert matter_tag(matter_id) in await documents.tags_for(document.id)
+
+    @pytest.mark.asyncio
+    async def test_a_document_nobody_filed_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.changes import AttachAskPayload, attach_ask_execute
+
+        _matter_id, request_id = await _renewal(async_db_session)
+        item = (await RequestService(async_db_session).items(request_id))[0]
+        with pytest.raises(ValueError, match="document"):
+            await attach_ask_execute(
+                async_db_session,
+                AttachAskPayload(item_id=item.id, document_id=999999),
+                None,
+            )

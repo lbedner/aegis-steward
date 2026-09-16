@@ -151,3 +151,12 @@ register(
         describe=matters.add_ask_describe,
     )
 )
+register(
+    ChangeExecutor(
+        change_type="ask.attach",
+        title="Attach the paper that answers an ask",
+        payload_model=matters.AttachAskPayload,
+        execute=matters.attach_ask_execute,
+        describe=matters.attach_ask_describe,
+    )
+)

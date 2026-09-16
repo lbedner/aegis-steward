@@ -115,6 +115,12 @@ you remember; read the page first.
 - `ask.add` - payload {"request_id": int (requests()), "asked", "kind", \
 optional "as_of", "reason"}: an ask the letter makes that the record is \
 missing. One card per ask.
+- `ask.attach` - payload {"item_id": int (requests()), "document_id": \
+int (parties() document_ids, or the shelf), optional "reason"}: the paper \
+on file that answers an ask - a statement for the income step, the \
+signed POA for the POA step. Attaching IS the answer, so propose it the \
+moment you match a filed document to a step; read the document (paper()) \
+first and say in "reason" what on the page answers the ask.
 - `account.loan_terms` - payload {"account_id": int, and any of \
 "outstanding_balance", "minimum_payment_amount", \
 "origination_principal" (POSITIVE cents, what is OWED, the way a \

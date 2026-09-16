@@ -13,7 +13,7 @@
 {% from "components/macros/layout.html" import dialog_title, doors %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% call dialog_title(document.title) %}
-<p class="text-aegis-muted micro-label mb-4">{{ document.kind }}{% if dated %} · {{ dated }}{% endif %}{% if filed %} · <span data-filed>Filed under {{ doors(filed) }}</span>{% endif %} · <a href="{{ content }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-download>Open the original</a></p>
+<p class="text-aegis-muted micro-label mb-4">{{ document.kind }}{% if dated %} · {{ dated }}{% endif %}{% if filed %} · <span data-filed>Filed under {{ doors(filed, unfile=unfile_post) }}</span>{% endif %} · <a href="{{ content }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-download>Open the original</a></p>
 {% endcall %}
 
 {# The page gets two thirds of a WIDE dialog: a mortgage schedule is a
@@ -46,6 +46,15 @@
     {% call field("Note") %}{{ textarea("note", document.note or "", rows=3) }}{% endcall %}
     {{ primary_button("Save", type="submit") }}
   </form>
+  {# Put it with a contact, a matter or an account after the fact. The
+     tag is the same one filing from that page writes, so the shelf,
+     the page and Illiana all read one thing. #}
+  {% if places %}
+  <form hx-post="{{ file_post }}" hx-target="#dialog-body" class="mt-4 space-y-2" data-file-under>
+    {% call field("File it under") %}{{ select("place", places, blank="Pick a place", block=True) }}{% endcall %}
+    {{ primary_button("File it", type="submit") }}
+  </form>
+  {% endif %}
 </div>
 
 <div class="mt-4 flex items-center gap-3">

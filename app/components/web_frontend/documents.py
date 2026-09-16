@@ -49,9 +49,8 @@ async def document_dialog(
     from app.services.documents.service import DocumentService
 
     pages = await pages_for(db, document.id)
-    filed = await filed_under(
-        db, {document.id: await DocumentService(db).tags_for(document.id)}
-    )
+    tags = await DocumentService(db).tags_for(document.id)
+    filed = await filed_under(db, {document.id: tags})
     return dialog(
         request,
         "partials/accounts/document.html",
@@ -60,6 +59,11 @@ async def document_dialog(
         dated=short_date(document.document_date or document.received_at),
         content=content_url(document.id),
         filed=filed.get(document.id, []),
+        # Filing it somewhere lives with the document, wherever the
+        # dialog opened; the answer is this dialog again.
+        places=await places(db, tags),
+        file_post=f"/documents/{document.id}/file",
+        unfile_post=f"/documents/{document.id}/unfile",
         kinds=DOCUMENT_KINDS,
         post=post,
         # Read again lives with the document, wherever the dialog opened.
@@ -134,42 +138,68 @@ PAPER_COLUMNS = (
 )
 
 
-async def filed_under(
-    db: AsyncSession, tags_by_document: dict[int, list[str]]
-) -> dict[int, list[dict[str, str]]]:
-    """Where each document is filed, as ``{label, url}`` doors: a tag is
-    a key (``party:3``) and a reader wants the name and the page. One
-    query per kind of home for the whole shelf, never one per row."""
-    from sqlmodel import select
-
+def _homes() -> dict[str, tuple[Any, str, str, str]]:
+    """Where a document can be filed: tag prefix -> (model, name field,
+    section path, what to call it). Bound in a function, never at import."""
     from app.components.web_frontend.nav import section
     from app.services.finance.models.accounts import FinanceAccount
     from app.services.matters.models import Matter, Party
 
-    homes: dict[str, tuple[Any, str, str]] = {
-        "matter": (Matter, "title", section("matters").path),
-        "account": (FinanceAccount, "name", section("accounts").path),
-        "party": (Party, "name", section("contacts").path),
+    return {
+        "party": (Party, "name", section("contacts").path, "contact"),
+        "matter": (Matter, "title", section("matters").path, "matter"),
+        "account": (FinanceAccount, "name", section("accounts").path, "account"),
     }
 
-    def key(tag: str) -> tuple[str, int] | None:
-        prefix, _, rest = tag.partition(":")
-        return (prefix, int(rest)) if prefix in homes and rest.isdigit() else None
 
-    keyed = {k for tags in tags_by_document.values() for t in tags if (k := key(t))}
+def place_key(tag: str) -> tuple[str, int] | None:
+    """``party:3`` as ``("party", 3)``; a bare label, or a home nobody
+    defined, is None."""
+    prefix, _, rest = tag.partition(":")
+    return (prefix, int(rest)) if prefix in _homes() and rest.isdigit() else None
+
+
+async def filed_under(
+    db: AsyncSession, tags_by_document: dict[int, list[str]]
+) -> dict[int, list[dict[str, str]]]:
+    """Where each document is filed, as ``{label, url, tag}`` doors: a
+    tag is a key (``party:3``) and a reader wants the name and the page.
+    One query per kind of home for the whole shelf, never one per row."""
+    from sqlmodel import select
+
+    keyed = {
+        k for tags in tags_by_document.values() for t in tags if (k := place_key(t))
+    }
     door: dict[tuple[str, int], dict[str, str]] = {}
-    for prefix, (model, field, path) in homes.items():
+    for prefix, (model, field, path, _what) in _homes().items():
         ids = [i for p, i in keyed if p == prefix]
         if ids:
             for row in (await db.exec(select(model).where(model.id.in_(ids)))).all():
                 door[(prefix, row.id)] = {
                     "label": getattr(row, field),
                     "url": f"{path}/{row.id}",
+                    "tag": f"{prefix}:{row.id}",
                 }
     return {
-        document_id: [door[k] for t in tags if (k := key(t)) in door]
+        document_id: [door[k] for t in tags if (k := place_key(t)) in door]
         for document_id, tags in tags_by_document.items()
     }
+
+
+async def places(db: AsyncSession, already: list[str]) -> list[dict[str, str]]:
+    """Everywhere a document could be filed that it is not yet, as
+    ``{id, name}`` options for the one select."""
+    from sqlmodel import select
+
+    options: list[dict[str, str]] = []
+    for prefix, (model, field, _path, what) in _homes().items():
+        rows = (await db.exec(select(model).order_by(getattr(model, field)))).all()
+        options.extend(
+            {"id": f"{prefix}:{row.id}", "name": f"{getattr(row, field)} ({what})"}
+            for row in rows
+            if f"{prefix}:{row.id}" not in already
+        )
+    return options
 
 
 async def papers_on(db: AsyncSession, tag: str, open_base: str) -> list[dict[str, Any]]:

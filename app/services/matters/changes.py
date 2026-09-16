@@ -263,3 +263,54 @@ async def add_ask_describe(
     if payload.reason:
         rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
     return rows
+
+
+class AttachAskPayload(BaseModel):
+    """The paper on the shelf that answers an ask. Attaching IS the
+    answer, as it is from the matter page; the document is filed on the
+    matter as well, so the case's paper stays findable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int
+    document_id: int
+    reason: str | None = None
+
+
+async def attach_ask_execute(
+    db: AsyncSession, payload: AttachAskPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.documents.service import DocumentService
+    from app.services.matters.models import matter_tag
+    from app.services.matters.requests import RequestService
+
+    requests = RequestService(db)
+    item = await requests.item(payload.item_id)
+    if item is None:
+        raise ValueError(f"No ask with id {payload.item_id}")
+    request = await requests.get(item.request_id)
+    documents = DocumentService(db)
+    document = await documents.get(payload.document_id)
+    if document is None or request is None:
+        raise ValueError(f"No document with id {payload.document_id}")
+    await documents.tag(document.id, matter_tag(request.matter_id))
+    await requests.attach(item.id, document.id, document.title)
+    await db.flush()
+    return {"item_id": item.id, "document_id": document.id}
+
+
+async def attach_ask_describe(
+    db: AsyncSession, payload: AttachAskPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.documents.service import DocumentService
+    from app.services.matters.requests import RequestService
+
+    item = await RequestService(db).item(payload.item_id)
+    document = await DocumentService(db).get(payload.document_id)
+    rows = [
+        ChangeDisplayRow(label="Ask", value=item.asked if item else "-"),
+        ChangeDisplayRow(label="Document", value=document.title if document else "-"),
+    ]
+    if payload.reason:
+        rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
+    return rows

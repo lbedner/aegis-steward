@@ -158,3 +158,36 @@ class TestWhereItWasFiled:
         opener = one(row, "[data-open]")
         dialog = client.get(opener.get("hx-get")).text
         one(dialog, f'[data-filed] a[href="/contacts/{party_id}"]')
+
+
+class TestFilingItSomewhere:
+    def test_the_dialog_files_a_document_under_a_contact_and_takes_it_off(
+        self, client: TestClient
+    ) -> None:
+        """A document on the shelf can be put with a contact after the
+        fact, and taken off again; both leave you in the same dialog."""
+        from tests.web.test_contacts import _contact
+
+        party_id = _contact(client, "Filing Testcase", "organization")
+        document_id = _file(client, "filing.pdf")
+        dialog = client.get(f"/documents/{document_id}").text
+        chooser = one(dialog, 'form[data-file-under] select[name="place"]')
+        assert f'party:{party_id}' in [o.get("value") for o in select(chooser, "option")]
+
+        filed = client.post(
+            f"/documents/{document_id}/file", data={"place": f"party:{party_id}"}
+        )
+        assert filed.status_code == 200
+        door = one(filed.text, f'[data-filed] a[href="/contacts/{party_id}"]')
+        assert "Filing Testcase" in text(door)
+        taker = one(filed.text, f'[data-filed] button[value="party:{party_id}"]')
+        assert taker.get("hx-post") == f"/documents/{document_id}/unfile"
+
+        page = client.get(f"/contacts/{party_id}").text
+        assert "filing.pdf" in text(one(page, "#contact-paper"))
+
+        gone = client.post(
+            f"/documents/{document_id}/unfile", data={"place": f"party:{party_id}"}
+        )
+        assert gone.status_code == 200
+        none(gone.text, f'[data-filed] a[href="/contacts/{party_id}"]')
