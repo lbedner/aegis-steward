@@ -1132,3 +1132,4 @@ class TestFilesCanBeDropped:
         zone = one(dialog, "[data-dropzone]")
         assert zone.get("@drop.prevent"), "the drop lands in the input"
         assert one(zone, "input[type=file]").get("x-ref") == "file"
+        assert zone.get("@paste.window"), "and so does the clipboard"
