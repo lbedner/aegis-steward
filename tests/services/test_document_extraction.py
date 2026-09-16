@@ -212,3 +212,37 @@ class TestOtherMedia:
         assert (result.read, result.unread) == (0, 1)
         (page,) = await pages_for(svc.db, doc.id)
         assert "unsupported" in (page.detail or "").lower()
+
+
+class TestEachPageLandsOnItsOwn:
+    """One transaction across a whole scan held the write lock for every
+    model call of every page - minutes - and two readings of one file
+    deadlocked. A page commits as soon as it is read."""
+
+    async def test_a_page_is_committed_before_the_next_is_read(self, svc) -> None:
+        from tests._pdf import pdf_bytes
+
+        doc = await svc.ingest(
+            pdf_bytes(["", "", ""]),
+            title="scan.pdf",
+            media_type="application/pdf",
+            owner_user_id=1,
+        )
+        commits_at_call: list[int] = []
+        commits = 0
+        real_commit = svc.db.commit
+
+        async def counting_commit() -> None:
+            nonlocal commits
+            commits += 1
+            await real_commit()
+
+        async def vision(image: bytes, media_type: str) -> tuple[str, str]:
+            commits_at_call.append(commits)
+            return "read", "fake-model"
+
+        svc.db.commit = counting_commit  # type: ignore[method-assign]
+        await extract_document(svc.db, doc.id, owner_user_id=1, vision=vision)
+
+        # The second page's model call sees the first page committed, and so on.
+        assert commits_at_call == [0, 1, 2]

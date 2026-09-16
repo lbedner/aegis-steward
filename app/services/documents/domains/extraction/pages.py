@@ -127,6 +127,13 @@ async def _extract_pdf(
             else:
                 await _read_with_vision(page, page.image_key, PNG_MEDIA_TYPE, vision)
             _finish(db, page, result)
+            # Each page lands on its own. A read is minutes of model calls
+            # on a scan, and one transaction across all of them holds
+            # SQLite's single write lock for the whole document: every
+            # other writer - the ledger row the model call itself
+            # records, a second page of this same document, the chat -
+            # waits on this one, and two readings of one file deadlock.
+            await db.commit()
             if progress is not None:
                 progress(number, total)
     finally:
@@ -155,6 +162,7 @@ async def _extract_image(
         db.add(document)
     await _read_with_vision(page, page.image_key, document.media_type or "", vision)
     _finish(db, page, result)
+    await db.commit()
 
 
 async def _unsupported(
