@@ -38,16 +38,11 @@ async def valuation_history(
 
     if account.classification != "asset":
         return []
-    found = await list_valuations(
-        service.db, account.id, owner_user_id=owner_user_id
-    )
+    found = await list_valuations(service.db, account.id, owner_user_id=owner_user_id)
     return [
         valuation_row(row)
         for row in sorted(found, key=lambda v: v.as_of_date, reverse=True)
     ]
-
-
-
 
 
 def valuation_chart(
@@ -88,9 +83,7 @@ def purchase_index(
     paid = getattr(getattr(account, "property", None), "purchase_price", None)
     if not paid:
         return None
-    return next(
-        (i for i, row in enumerate(series) if row["value"] == paid), None
-    )
+    return next((i for i, row in enumerate(series) if row["value"] == paid), None)
 
 
 def in_window(

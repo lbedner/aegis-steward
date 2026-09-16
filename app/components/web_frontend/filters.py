@@ -121,9 +121,6 @@ def cents_to_input(cents: int | None) -> str:
     return "" if cents is None else f"{cents / 100:,.2f}"
 
 
-
-
-
 def arrived(row: Any, batches: Mapping[int, datetime] | None = None) -> Any:
     """When a ledger row came in.
 
@@ -335,9 +332,7 @@ def positions_from_text(raw: str) -> tuple[list[dict[str, Any]], list[str]]:
             if price is None:
                 errors.append(f"{line.strip()} - {rest[0]!r} is not a price")
                 continue
-        rows.append(
-            {"ticker": ticker.upper(), "quantity": shares, "price": price}
-        )
+        rows.append({"ticker": ticker.upper(), "quantity": shares, "price": price})
     return rows, errors
 
 

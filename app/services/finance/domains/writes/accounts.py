@@ -66,9 +66,7 @@ class CreateAccountPayload(BaseModel):
         return value
 
 
-async def _similar(
-    db: AsyncSession, name: str, owner_user_id: int | None
-) -> list[str]:
+async def _similar(db: AsyncSession, name: str, owner_user_id: int | None) -> list[str]:
     """Accounts whose names share a word with this one.
 
     A duplicate account is the expensive mistake here - transactions
@@ -222,9 +220,5 @@ async def create_account_describe(
         )
     near = await _similar(db, payload.name, owner_user_id)
     if near:
-        rows.append(
-            ChangeDisplayRow(label="You already have", value=", ".join(near))
-        )
+        rows.append(ChangeDisplayRow(label="You already have", value=", ".join(near)))
     return rows
-
-

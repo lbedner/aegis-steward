@@ -45,6 +45,5 @@ def statement_line(account: AccountResponse) -> str | None:
         due = liability.next_payment_due_date
         parts.append(f"Due {due:%b} {due.day}")
     if liability.minimum_payment_amount is not None:
-
         parts.append(f"min {money(liability.minimum_payment_amount, account.currency)}")
     return " · ".join(parts) or None

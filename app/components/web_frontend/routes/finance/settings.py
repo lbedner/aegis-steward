@@ -510,6 +510,7 @@ RUN_COLUMNS = [
     {"key": "state", "label": "", "kind": "status"},
 ]
 
+
 @router.get("/activity", include_in_schema=False)
 async def activity(
     request: Request,

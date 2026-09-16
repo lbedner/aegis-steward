@@ -173,8 +173,6 @@ async def institution_save(
     )
 
 
-
-
 async def _from_party(service: FinanceService, party_id: int) -> Any:
     """The ledger's institution row for a party, made if it is new."""
     from app.services.finance.domains.ledger.subjects import institution_for_party

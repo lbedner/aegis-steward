@@ -94,9 +94,7 @@ async def start_import(
             owner_user_id=owner_user_id,
         )
     except Exception as exc:
-        logger.warning(
-            "finance.import.no_worker", error=str(exc), file_name=file_name
-        )
+        logger.warning("finance.import.no_worker", error=str(exc), file_name=file_name)
         return start_import_in_process(
             storage_key,
             file_name=file_name,

@@ -13,20 +13,21 @@ the tool reads it when the model calls ``save_memory``. Without it the
 tool declines politely instead of guessing.
 """
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.db import get_async_session
+from app.core.db import get_async_session, retry_on_locked
 from app.core.log import logger
-from app.services.ai.domains.chat.tools import register_tool
 from app.services.ai.models.agents import AgentUserMemory
 from app.services.ai.models.agents.timestamps import utcnow_naive
+
+T = TypeVar("T")
 
 MEMORY_CATEGORIES = (
     "family",
@@ -369,109 +370,15 @@ async def build_user_memory_context(
         return format_user_memory(await get_user_memory(owned_session, user_id))
 
 
-async def save_memory(new_fact: str, category: str = "general") -> str:
-    """Remember one durable fact about the current user.
+async def own_write(work: Callable[[AsyncSession], Awaitable[T]]) -> T:
+    """A memory write in a session of its own, retried on the lock-upgrade
+    failure. Every memory tool reads the row and writes it back; under
+    another writer - the worker's health check, an extraction landing a
+    page - that upgrade fails at once, and a turn's cleanup silently did
+    nothing (2026-09-16: two forget_memory calls, both lost)."""
 
-    Category is one of: family, food, lifestyle, health, personal,
-    program, general.
-    """
-    user_id = current_user_id.get()
-    if not user_id:
-        logger.warning("save_memory called without user context; nothing saved")
-        return "No user context available; nothing was saved."
-    if not new_fact.strip():
-        return "Nothing to save; provide a fact."
-    async with get_async_session() as session:
-        return await save_user_fact(user_id, new_fact, category, session=session)
+    async def attempt() -> T:
+        async with get_async_session() as session:
+            return await work(session)
 
-
-async def replace_memory(memory_text: str) -> str:
-    """Replace everything known about the current user, one fact per line."""
-    user_id = current_user_id.get()
-    if not user_id:
-        logger.warning("replace_memory called without user context; nothing saved")
-        return "No user context available; nothing was saved."
-    async with get_async_session() as session:
-        return await replace_user_memory(user_id, memory_text, session=session)
-
-
-def _find_fact(facts: list[dict[str, Any]], words: str) -> int | None:
-    """The one saved fact ``words`` picks out, or None. A quote of the fact
-    (either direction, case-insensitive) is enough; two matches is a
-    question back to the model rather than a guess."""
-    hits = [
-        i
-        for i, entry in enumerate(facts)
-        if _is_duplicate(str(entry.get("fact", "")), words)
-    ]
-    return hits[0] if len(hits) == 1 else None
-
-
-async def update_memory(old_fact: str, new_fact: str) -> str:
-    """Rewrite one saved fact that has changed - Marisa's hours firmed up,
-    a valuation was revised - in place, instead of saving a second one
-    beside the first. ``old_fact`` is a quote of the saved fact."""
-    user_id = current_user_id.get()
-    if not user_id:
-        return "No user context available; nothing was changed."
-    if not new_fact.strip():
-        return "Nothing to save; provide the corrected fact."
-    async with get_async_session() as session:
-        facts = await list_user_facts(user_id, session=session)
-        index = _find_fact(facts, old_fact)
-        if index is None:
-            return (
-                "No single saved fact matches that; quote it more exactly, or "
-                "save_memory if it is new."
-            )
-        entry = await update_user_fact(user_id, index, fact=new_fact, session=session)
-    return f"Updated ({entry['category']}): {entry['fact']}"
-
-
-async def forget_memory(fact: str) -> str:
-    """Drop one saved fact - because it is no longer true, or because a
-    tool can now read it (a stream that was declared, an account that
-    was created). ``fact`` is a quote of the saved fact."""
-    user_id = current_user_id.get()
-    if not user_id:
-        return "No user context available; nothing was forgotten."
-    async with get_async_session() as session:
-        facts = await list_user_facts(user_id, session=session)
-        index = _find_fact(facts, fact)
-        if index is None:
-            return "No single saved fact matches that; quote it more exactly."
-        gone = facts[index]["fact"]
-        await delete_user_fact(user_id, index, session=session)
-    return f"Forgot: {gone}"
-
-
-# Built-in registration: importing this module makes the tools grantable
-# via the agent registry. replace=True keeps re-imports idempotent.
-register_tool(
-    "save_memory",
-    save_memory,
-    description="Persist one durable fact about the current user",
-    native_write=True,
-    replace=True,
-)
-register_tool(
-    "replace_memory",
-    replace_memory,
-    description="Replace all saved facts about the current user",
-    native_write=True,
-    replace=True,
-)
-register_tool(
-    "update_memory",
-    update_memory,
-    description="Rewrite one saved fact that has changed, in place",
-    native_write=True,
-    replace=True,
-)
-register_tool(
-    "forget_memory",
-    forget_memory,
-    description="Drop one saved fact that is no longer true or that a tool can now read",
-    native_write=True,
-    replace=True,
-)
+    return await retry_on_locked(attempt)

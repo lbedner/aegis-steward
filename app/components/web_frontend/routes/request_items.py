@@ -93,8 +93,7 @@ async def save_item(
                 item=item,
                 kinds=ITEM_KINDS,
                 post=(
-                    f"{SECTION.path}"
-                    f"{ITEM.replace('{item_id:int}', str(item_id))}/edit"
+                    f"{SECTION.path}{ITEM.replace('{item_id:int}', str(item_id))}/edit"
                 ),
                 errors=[str(exc)],
             )

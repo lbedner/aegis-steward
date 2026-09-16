@@ -47,9 +47,7 @@ class TestPortfolio:
     ) -> None:
         assert "$125.00" in text(one(client.get("/accounts").text, "[data-net-worth]"))
 
-    def test_a_row_opens_that_account(
-        self, client: TestClient, ledger: Ledger
-    ) -> None:
+    def test_a_row_opens_that_account(self, client: TestClient, ledger: Ledger) -> None:
         """The portfolio's job is to hand you off; each row is a door to
         one account, navigated the way any section is - and it opens on
         the cover sheet, because the first question about an account is
@@ -130,7 +128,14 @@ class TestRegister:
         card = client.get(f"/accounts/{ledger.card}").text
         assert [text(li) for li in select(card, "#manage-menu li")] == [
             LABELS[key]
-            for key in ("rename", "institution", "reconcile", "terms", "secured_by", "remove")
+            for key in (
+                "rename",
+                "institution",
+                "reconcile",
+                "terms",
+                "secured_by",
+                "remove",
+            )
         ]
         checking = client.get(f"/accounts/{ledger.checking}").text
         assert [text(li) for li in select(checking, "#manage-menu li")] == [
@@ -140,7 +145,7 @@ class TestRegister:
     def test_the_header_says_how_current_the_account_is(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        """"Updated" means something different per kind of account, and
+        """ "Updated" means something different per kind of account, and
         the header asks one question of whichever source fills it: a
         connected account is as current as its last sync, an investment
         account as its newest holdings date, a property as its newest
@@ -345,7 +350,6 @@ class TestEveryAccountCarriesAMark:
         row = portfolio_row(page, "Checking")
         img = row.find(".//img")
         assert img is not None and "/icons?key=" in (img.get("src") or "")
-
 
 
 class TestTheInstitutionsSettingsTab:
@@ -698,7 +702,10 @@ class TestViewingAFiledDocument:
         )
         documents = DocumentService(session)
         document = await documents.ingest(
-            b"%PDF-1.4 schedule", title=name, kind="statement", media_type="application/pdf"
+            b"%PDF-1.4 schedule",
+            title=name,
+            kind="statement",
+            media_type="application/pdf",
         )
         await documents.tag(int(document.id), account_tag(int(account.id)))
         await session.commit()
@@ -852,9 +859,9 @@ class TestEditingWhatWeSayAboutADocument:
         account_id, document_id = await self._filed(finance, async_db_session)
         other = await seed_account(finance, name="Checking")
 
-        assert hx.get(
-            f"/accounts/{other.id}/documents/{document_id}"
-        ).status_code == 404
+        assert (
+            hx.get(f"/accounts/{other.id}/documents/{document_id}").status_code == 404
+        )
 
 
 class TestOneWayToDrawASelect:
@@ -919,12 +926,24 @@ class TestTheValueLine:
         from datetime import date
 
         return [
-            {"as_of_date": date(2026, 8, 1), "note": "Zestimate",
-             "source": "zillow", "value": 71_120_000},
-            {"as_of_date": date(2015, 11, 18), "note": "Sold",
-             "source": "zillow", "value": 28_500_000},
-            {"as_of_date": date(2007, 1, 29), "note": "Prior sale",
-             "source": "zillow", "value": 45_100_000},
+            {
+                "as_of_date": date(2026, 8, 1),
+                "note": "Zestimate",
+                "source": "zillow",
+                "value": 71_120_000,
+            },
+            {
+                "as_of_date": date(2015, 11, 18),
+                "note": "Sold",
+                "source": "zillow",
+                "value": 28_500_000,
+            },
+            {
+                "as_of_date": date(2007, 1, 29),
+                "note": "Prior sale",
+                "source": "zillow",
+                "value": 45_100_000,
+            },
         ]
 
     def test_the_line_reads_forwards(self) -> None:
@@ -996,10 +1015,19 @@ class TestTheValueLine:
             valuation_chart,
         )
 
-        assert valuation_chart(
-            [{"as_of_date": date(2026, 8, 1), "note": "-", "source": "manual",
-              "value": 1}]
-        ) is None
+        assert (
+            valuation_chart(
+                [
+                    {
+                        "as_of_date": date(2026, 8, 1),
+                        "note": "-",
+                        "source": "manual",
+                        "value": 1,
+                    }
+                ]
+            )
+            is None
+        )
 
     @pytest.mark.asyncio
     async def test_the_page_draws_it(
@@ -1013,7 +1041,9 @@ class TestTheValueLine:
         )
 
         house = await seed_account(
-            finance, name="House Bedner", account_type="property",
+            finance,
+            name="House Bedner",
+            account_type="property",
             classification="asset",
         )
         await valuation_execute(
@@ -1022,10 +1052,17 @@ class TestTheValueLine:
                 account_id=int(house.id),
                 source="zillow",
                 points=[
-                    {"as_of_date": date(2015, 11, 18), "value": 28_500_000,
-                     "note": "Sold"},
-                    {"as_of_date": date(2026, 8, 1), "value": 71_120_000,
-                     "note": "Zestimate", "is_estimate": True},
+                    {
+                        "as_of_date": date(2015, 11, 18),
+                        "value": 28_500_000,
+                        "note": "Sold",
+                    },
+                    {
+                        "as_of_date": date(2026, 8, 1),
+                        "value": 71_120_000,
+                        "note": "Zestimate",
+                        "is_estimate": True,
+                    },
                 ],
             ),
             1,
@@ -1047,9 +1084,7 @@ class TestTheValueWindow:
     but a second way to say "how far back" is a second thing to keep in
     step, so it is one macro, one field and one ``since()``."""
 
-    async def _house(
-        self, finance: FinanceService, session: AsyncSession
-    ) -> int:
+    async def _house(self, finance: FinanceService, session: AsyncSession) -> int:
         from datetime import date, timedelta
 
         from app.services.finance.domains.writes.terms import (
@@ -1059,7 +1094,9 @@ class TestTheValueWindow:
         from app.services.finance.utils import current_date
 
         house = await seed_account(
-            finance, name="House Bedner", account_type="property",
+            finance,
+            name="House Bedner",
+            account_type="property",
             classification="asset",
         )
         today = current_date()
@@ -1069,12 +1106,21 @@ class TestTheValueWindow:
                 account_id=int(house.id),
                 source="zillow",
                 points=[
-                    {"as_of_date": date(2007, 1, 29), "value": 45_100_000,
-                     "note": "Prior sale"},
-                    {"as_of_date": today - timedelta(days=200),
-                     "value": 68_000_000, "note": "Estimate"},
-                    {"as_of_date": today - timedelta(days=10),
-                     "value": 71_120_000, "note": "Estimate"},
+                    {
+                        "as_of_date": date(2007, 1, 29),
+                        "value": 45_100_000,
+                        "note": "Prior sale",
+                    },
+                    {
+                        "as_of_date": today - timedelta(days=200),
+                        "value": 68_000_000,
+                        "note": "Estimate",
+                    },
+                    {
+                        "as_of_date": today - timedelta(days=10),
+                        "value": 71_120_000,
+                        "note": "Estimate",
+                    },
                 ],
             ),
             1,
@@ -1124,9 +1170,7 @@ class TestTheRunUpToBuyingIt:
     has done since, are positions in that house's own story - and a
     house is the thing people ask about that way."""
 
-    async def _house(
-        self, finance: FinanceService, session: AsyncSession
-    ) -> int:
+    async def _house(self, finance: FinanceService, session: AsyncSession) -> int:
         from datetime import date
 
         from app.services.finance.domains.ledger.properties import (
@@ -1138,7 +1182,9 @@ class TestTheRunUpToBuyingIt:
         )
 
         house = await seed_account(
-            finance, name="House Bedner", account_type="property",
+            finance,
+            name="House Bedner",
+            account_type="property",
             classification="asset",
         )
         house.metadata_ = set_property_metadata(
@@ -1154,14 +1200,26 @@ class TestTheRunUpToBuyingIt:
                 account_id=int(house.id),
                 source="zillow",
                 points=[
-                    {"as_of_date": date(2007, 1, 29), "value": 45_100_000,
-                     "note": "Prior sale"},
-                    {"as_of_date": date(2014, 10, 13), "value": 32_250_000,
-                     "note": "Listed for sale"},
-                    {"as_of_date": date(2015, 11, 18), "value": 28_500_000,
-                     "note": "Sold"},
-                    {"as_of_date": date(2026, 8, 1), "value": 71_120_000,
-                     "note": "Estimate"},
+                    {
+                        "as_of_date": date(2007, 1, 29),
+                        "value": 45_100_000,
+                        "note": "Prior sale",
+                    },
+                    {
+                        "as_of_date": date(2014, 10, 13),
+                        "value": 32_250_000,
+                        "note": "Listed for sale",
+                    },
+                    {
+                        "as_of_date": date(2015, 11, 18),
+                        "value": 28_500_000,
+                        "note": "Sold",
+                    },
+                    {
+                        "as_of_date": date(2026, 8, 1),
+                        "value": 71_120_000,
+                        "note": "Estimate",
+                    },
                 ],
             ),
             1,
@@ -1201,7 +1259,9 @@ class TestTheRunUpToBuyingIt:
         from, and a chip that cannot answer is worse than no chip."""
         house = await self._house(finance, async_db_session)
         plain = await seed_account(
-            finance, name="Dad's House", account_type="property",
+            finance,
+            name="Dad's House",
+            account_type="property",
             classification="asset",
         )
 
@@ -1228,7 +1288,9 @@ class TestALongHistoryScrollsInsideItsCard:
         )
 
         house = await seed_account(
-            finance, name="House Bedner", account_type="property",
+            finance,
+            name="House Bedner",
+            account_type="property",
             classification="asset",
         )
         await valuation_execute(
@@ -1272,11 +1334,15 @@ class TestWhatIsLeftAfterTheMortgage:
         from app.services.finance.utils import current_date
 
         house = await seed_account(
-            finance, name="House Bedner", account_type="property",
+            finance,
+            name="House Bedner",
+            account_type="property",
             classification="asset",
         )
         mortgage = await seed_account(
-            finance, name="Citizens Bank Mortgage", account_type="loan",
+            finance,
+            name="Citizens Bank Mortgage",
+            account_type="loan",
             classification="liability",
         )
         await upsert_valuation(
@@ -1321,7 +1387,7 @@ class TestWhatIsLeftAfterTheMortgage:
     async def test_the_debt_that_secures_it_is_named(
         self, hx: TestClient, finance: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        """"Secured" is a number until it says by what."""
+        """ "Secured" is a number until it says by what."""
         house = await self._house_and_mortgage(finance, async_db_session)
 
         page = hx.get(f"/accounts/{house}/overview").text
@@ -1334,9 +1400,7 @@ class TestWhatIsLeftAfterTheMortgage:
     ) -> None:
         """A property with no confirmed lien showing 100% equity is a
         claim nobody made."""
-        house = await self._house_and_mortgage(
-            finance, async_db_session, linked=False
-        )
+        house = await self._house_and_mortgage(finance, async_db_session, linked=False)
 
         page = hx.get(f"/accounts/{house}/overview").text
 
@@ -1393,8 +1457,6 @@ class TestWhatIsLeftAfterTheMortgage:
     ) -> None:
         """Which figures exist depends on what is linked, so a key with
         no cell is a 404 rather than an empty modal."""
-        house = await self._house_and_mortgage(
-            finance, async_db_session, linked=False
-        )
+        house = await self._house_and_mortgage(finance, async_db_session, linked=False)
 
         assert hx.get(f"/accounts/{house}/figures/ltv").status_code == 404

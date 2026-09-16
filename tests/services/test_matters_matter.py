@@ -94,8 +94,14 @@ class TestAMatter:
         await matters.add_participant(estate.id, cast["eleanor"], "other")
         await async_db_session.commit()
 
-        assert [p["role"] for p in (await summarised(async_db_session, renewal))["participants"]] == ["facility"]
-        assert [p["role"] for p in (await summarised(async_db_session, estate))["participants"]] == ["other"]
+        assert [
+            p["role"]
+            for p in (await summarised(async_db_session, renewal))["participants"]
+        ] == ["facility"]
+        assert [
+            p["role"]
+            for p in (await summarised(async_db_session, estate))["participants"]
+        ] == ["other"]
 
     @pytest.mark.asyncio
     async def test_one_party_can_be_two_things_in_one_matter(
@@ -110,7 +116,10 @@ class TestAMatter:
         await matters.add_participant(case.id, cast["leonard"], "other")
         await async_db_session.commit()
 
-        roles = [p["role"] for p in (await summarised(async_db_session, case))["participants"]]
+        roles = [
+            p["role"]
+            for p in (await summarised(async_db_session, case))["participants"]
+        ]
         assert sorted(roles) == ["other", "representative"]
 
     @pytest.mark.asyncio
@@ -126,8 +135,7 @@ class TestAMatter:
         await async_db_session.commit()
 
         named = dict(
-            (role, party.name)
-            for role, party in await matters.document_parties(7)
+            (role, party.name) for role, party in await matters.document_parties(7)
         )
         assert named == {
             "sender": "Dutchess County DSS",

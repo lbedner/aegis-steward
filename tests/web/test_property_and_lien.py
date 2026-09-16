@@ -195,9 +195,7 @@ class TestPositionsByHand:
             account_type="checking", classification="asset", is_manual=True
         )
 
-    def test_a_paste_files_every_line(
-        self, client: TestClient, brokerage: int
-    ) -> None:
+    def test_a_paste_files_every_line(self, client: TestClient, brokerage: int) -> None:
         account = brokerage
 
         client.post(

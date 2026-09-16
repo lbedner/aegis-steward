@@ -109,9 +109,7 @@ async def cover(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """The account's cover sheet: everything true about it, by kind."""
-    accounts, selected, context = await _one_account(
-        service, owner_user_id, account_id
-    )
+    accounts, selected, context = await _one_account(service, owner_user_id, account_id)
     filed = await _filed_count()(service, account_id)
     valuations = await valuation_history(service, selected, owner_user_id)
     # The window narrows the LINE and the rows under it together: a
@@ -137,9 +135,7 @@ async def cover(
             "payoff": payoff_terms(selected),
             "valuations": valuations,
             "valuation_chart": valuation_chart(valuations, selected),
-            "secured": await secured_strip(
-                service, selected, accounts, owner_user_id
-            ),
+            "secured": await secured_strip(service, selected, accounts, owner_user_id),
             "value_ranges": windows,
             "days": days,
             "valuation_columns": list(VALUATION_COLUMNS),

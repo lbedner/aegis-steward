@@ -32,7 +32,6 @@ def owner_clause_txn(column, owner_user_id: int | None):
     return column.is_(None) if owner_user_id is None else column == owner_user_id
 
 
-
 async def all_live_streams(db: AsyncSession) -> list[FinanceRecurringStream]:
     return list(
         (

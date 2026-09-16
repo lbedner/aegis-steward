@@ -390,15 +390,16 @@ class TestFilingADocumentAgainstAnAccount:
         # The paste is the handle the conversation holds; it points at
         # the document the marker named.
         paste = await store_document(
-            "0", int(document.id), "Amortization_Schedule.pdf", 19_105,
+            "0",
+            int(document.id),
+            "Amortization_Schedule.pdf",
+            19_105,
             async_db_session,
         )
 
         await file_document_execute(
             async_db_session,
-            FileDocumentPayload(
-                paste_id=str(paste["id"]), account_id=int(account.id)
-            ),
+            FileDocumentPayload(paste_id=str(paste["id"]), account_id=int(account.id)),
             None,
         )
         await async_db_session.commit()
@@ -453,9 +454,7 @@ class TestFilingADocumentAgainstAnAccount:
 
         rows = await file_document_describe(
             async_db_session,
-            FileDocumentPayload(
-                paste_id=str(paste["id"]), account_id=int(account.id)
-            ),
+            FileDocumentPayload(paste_id=str(paste["id"]), account_id=int(account.id)),
             None,
         )
 
@@ -597,10 +596,17 @@ class TestRecordingWhatAnAssetWasWorth:
             ValuationPayload(
                 account_id=int(house.id),
                 points=[
-                    {"as_of_date": date(2026, 8, 1), "value": 71_120_000,
-                     "note": "Zestimate", "is_estimate": True},
-                    {"as_of_date": date(2015, 11, 18), "value": 28_500_000,
-                     "note": "Sold"},
+                    {
+                        "as_of_date": date(2026, 8, 1),
+                        "value": 71_120_000,
+                        "note": "Zestimate",
+                        "is_estimate": True,
+                    },
+                    {
+                        "as_of_date": date(2015, 11, 18),
+                        "value": 28_500_000,
+                        "note": "Sold",
+                    },
                 ],
             ),
             1,

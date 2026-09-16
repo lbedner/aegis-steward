@@ -17,6 +17,7 @@ from app.services.ai.domains.chat.agent_loader import (
     default_agent_config,
 )
 from app.services.ai.domains.chat.agent_registry import stamped
+import app.services.ai.domains.chat.memory_tools  # noqa: F401
 
 # Importing the module registers the built-in memory tools. The registry
 # only holds tools whose module was imported, and seeding runs in

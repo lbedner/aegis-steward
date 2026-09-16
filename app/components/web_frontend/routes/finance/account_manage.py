@@ -430,8 +430,7 @@ async def _terms_dialog(
     terms = shape_for(account.account_type)
     current = await _liability_detail(service, account.id)
     on_record = {
-        term.name: _as_input(term, getattr(current, term.name, None))
-        for term in terms
+        term.name: _as_input(term, getattr(current, term.name, None)) for term in terms
     }
     return dialog(
         request,
@@ -626,7 +625,9 @@ async def positions_save(
         )
     await service.db.commit()
     response = await _positions_dialog(request, service, owner_user_id, account, [])
-    return with_toast(response, f"Saved {len(rows)} position{'s' if len(rows) != 1 else ''}")
+    return with_toast(
+        response, f"Saved {len(rows)} position{'s' if len(rows) != 1 else ''}"
+    )
 
 
 # --- secured by --------------------------------------------------------------
@@ -721,4 +722,3 @@ async def secured_by_save(
     )
     await service.db.commit()
     return dialog_done(f"{SECTION.path}/{account_id}", "Lien link saved")
-

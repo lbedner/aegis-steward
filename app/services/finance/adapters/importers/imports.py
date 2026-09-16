@@ -59,7 +59,6 @@ def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-
 # What a source is CALLED where a person reads it. The stored value is
 # the machine's word (``snaptrade_sync``, ``csv``), constrained by the
 # batch table itself; this is the answer to "where did this come from",

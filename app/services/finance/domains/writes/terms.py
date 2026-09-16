@@ -122,6 +122,7 @@ def shape_for(account_type: str) -> tuple[Term, ...]:
     """The terms this kind of account is asked for, in order."""
     return tuple(BY_NAME[name] for name in SHAPES.get(account_type, ()))
 
+
 # The sources a valuation row may claim, as the model's own constraint
 # allows. A price history pasted off a listing site is "zillow"; a
 # figure somebody states is "manual".
@@ -418,9 +419,7 @@ def typed(term: Term, raw: str) -> tuple[Any, str | None]:
     return text, None
 
 
-async def _detail(
-    db: AsyncSession, account_id: int
-) -> FinanceLiabilityDetail | None:
+async def _detail(db: AsyncSession, account_id: int) -> FinanceLiabilityDetail | None:
     return (
         await db.exec(
             select(FinanceLiabilityDetail).where(
@@ -440,9 +439,7 @@ async def loan_terms_execute(
     if account is None:
         raise ValueError(f"Account {payload.account_id} not found.")
     if account.classification != "liability":
-        raise ValueError(
-            f"{account.name} is an asset; only a debt has loan terms."
-        )
+        raise ValueError(f"{account.name} is an asset; only a debt has loan terms.")
     detail = await _detail(db, payload.account_id)
     if detail is None:
         detail = FinanceLiabilityDetail(

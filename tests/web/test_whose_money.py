@@ -340,9 +340,7 @@ class TestTheAccountFrontPage:
             "https://frontpension.example.com"
         )
 
-    def test_an_ordinary_account_gets_no_empty_card(
-        self, client: TestClient
-    ) -> None:
+    def test_an_ordinary_account_gets_no_empty_card(self, client: TestClient) -> None:
         """An empty card on every account teaches people to skip the
         space it sits in."""
         client.post(
@@ -401,9 +399,7 @@ class TestTheirIncome:
         await async_db_session.commit()
 
         ours = await queries.active_streams(async_db_session)
-        everybody = await queries.active_streams(
-            async_db_session, subject_id=EVERYONE
-        )
+        everybody = await queries.active_streams(async_db_session, subject_id=EVERYONE)
 
         assert "Stream Their Pension" not in [s.name for s in ours]
         assert "Stream Our Rent" in [s.name for s in ours]
@@ -453,7 +449,7 @@ class TestTheirIncome:
 
 
 def test_the_menu_says_both_things_the_dialog_does(client: TestClient) -> None:
-    """"Rename" named one of the two things behind it, so the number the
+    """ "Rename" named one of the two things behind it, so the number the
     institution prints was findable only by opening a menu item that did
     not mention it."""
     client.post(

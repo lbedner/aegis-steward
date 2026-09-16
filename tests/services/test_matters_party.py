@@ -23,9 +23,7 @@ class TestAParty:
         parties = PartyService(async_db_session)
 
         james = await parties.create(name="James Bedner", kind="person")
-        dss = await parties.create(
-            name="Dutchess County DSS", kind="organization"
-        )
+        dss = await parties.create(name="Dutchess County DSS", kind="organization")
         facility = await parties.create(
             name="Eleanor Nursing Care Center", kind="organization"
         )

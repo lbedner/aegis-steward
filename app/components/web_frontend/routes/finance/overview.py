@@ -95,7 +95,10 @@ def net_worth_chart(points: list[NetWorthPoint]) -> dict[str, Any] | None:
     return {
         "labels": [p.as_of_date.isoformat() for p in points],
         "series": [
-            {"label": "Net worth", "values": [dollars(p.net_worth_amount) for p in points]}
+            {
+                "label": "Net worth",
+                "values": [dollars(p.net_worth_amount) for p in points],
+            }
         ],
     }
 
