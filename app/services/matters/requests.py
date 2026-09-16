@@ -149,6 +149,22 @@ class RequestService:
             ).all()
         )
 
+    async def overdue(self, today: date | None = None) -> list[Request]:
+        """Every open request whose deadline has passed - the sidebar's
+        mark and the list's red rows read from this one query, so the
+        two cannot disagree about what is late."""
+        return list(
+            (
+                await self.db.exec(
+                    select(Request)
+                    .where(Request.status == "open")
+                    .where(col(Request.due_on) < (today or datetime.now(UTC).date()))
+                    .where(col(Request.deleted_at).is_(None))
+                    .order_by(col(Request.due_on))
+                )
+            ).all()
+        )
+
     async def for_matter(self, matter_id: int) -> list[Request]:
         return list(
             (
@@ -321,7 +337,9 @@ assert set(SETTLED) <= set(ITEM_STATUSES)
 assert "overdue" not in REQUEST_STATUSES, "overdue is derived, never stored"
 
 
-async def drawn(db: AsyncSession, request: Request, today: date | None = None) -> dict[str, Any]:
+async def drawn(
+    db: AsyncSession, request: Request, today: date | None = None
+) -> dict[str, Any]:
     """One request as a page draws it.
 
     The status and the lateness are computed HERE, once, so the template
@@ -343,7 +361,7 @@ async def drawn(db: AsyncSession, request: Request, today: date | None = None) -
         "due_on": request.due_on,
         "status": request.status,
         "overdue": late,
-        "tone": "warn" if late else ("ok" if request.status != "open" else "muted"),
+        "tone": "error" if late else ("ok" if request.status != "open" else "muted"),
         "settled": settled,
         "total": total,
         "note": request.note,
@@ -372,9 +390,7 @@ async def titles(
     wanted = [one for one in document_ids if one]
     if not wanted:
         return {}
-    rows = (
-        await db.exec(select(Document).where(col(Document.id).in_(wanted)))
-    ).all()
+    rows = (await db.exec(select(Document).where(col(Document.id).in_(wanted)))).all()
     return {
         row.id: {"id": row.id, "title": row.title, "media_type": row.media_type}
         for row in rows

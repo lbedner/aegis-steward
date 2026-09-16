@@ -44,7 +44,7 @@
   <header class="flex flex-wrap items-baseline justify-between gap-3">
     <p class="text-sm text-aegis-text">
       {% if asked.due_on %}Due {{ asked.due_on|short_date }}{% else %}No deadline{% endif %}
-      {%- if asked.overdue %} {{ dot("warn", "Past due") }}{% endif %}
+      {%- if asked.overdue %} {{ dot("error", "Overdue") }}{% endif %}
     </p>
     <p class="micro-label text-aegis-muted flex items-center gap-3">
       <span data-standing>{{ asked.settled }} of {{ asked.total }}</span>

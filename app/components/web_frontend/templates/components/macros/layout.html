@@ -58,6 +58,7 @@
     <path stroke-linecap="round" stroke-linejoin="round" d="{{ section.icon }}"/>
   </svg>
   <span class="rail-hide">{{ section.label }}</span>
+  {% if section.attention %}<span data-attention hx-get="{{ section.attention }}" hx-trigger="load, every 5m" hx-swap="innerHTML" class="inline-flex"></span>{% endif %}
 </a>
 {% endmacro %}
 

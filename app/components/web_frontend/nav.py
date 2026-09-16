@@ -30,6 +30,9 @@ class Section:
     # sections nobody thinks of as belonging to a subject (Chat,
     # Settings) sit under a rule at the foot instead.
     group: str | None = None
+    # A partial the nav fetches for a mark beside the label (an overdue
+    # deadline), or None for sections with nothing to flag.
+    attention: str | None = None
 
 
 NAV: tuple[Section, ...] = (
@@ -94,6 +97,7 @@ NAV: tuple[Section, ...] = (
         "1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125"
         "V11.25a9 9 0 00-9-9z",
         group="Records",
+        attention="/matters/attention",
     ),
     Section(
         "chat",

@@ -19,6 +19,7 @@ from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
     render,
+    templates,
     where_from,
 )
 from app.components.web_frontend.routes.facts import facts_for
@@ -48,7 +49,7 @@ MATTER_COLUMNS = (
 )
 
 
-def _row(matter: Any, names: dict[int, str]) -> dict[str, Any]:
+def _row(matter: Any, names: dict[int, str], late: set[int]) -> dict[str, Any]:
     return {
         "id": matter.id,
         "title": {
@@ -58,10 +59,16 @@ def _row(matter: Any, names: dict[int, str]) -> dict[str, Any]:
         "kind": (matter.kind or "").title(),
         "reference": matter.reference or "",
         "who": names.get(matter.counterpart_party_id or -1, ""),
-        "state": {
-            "label": matter.status,
-            "tone": "ok" if matter.status == "open" else "muted",
-        },
+        # Overdue outranks open: a case with a missed deadline is the
+        # row the reader is looking for.
+        "state": (
+            {"label": "overdue", "tone": "error"}
+            if matter.id in late
+            else {
+                "label": matter.status,
+                "tone": "ok" if matter.status == "open" else "muted",
+            }
+        ),
     }
 
 
@@ -73,16 +80,31 @@ async def page(
     async with get_async_session() as db:
         matters = await MatterService(db).find(owner_user_id=owner_user_id)
         names = {p.id: p.name for p in await PartyService(db).find()}
+        late = {r.matter_id for r in await RequestService(db).overdue()}
         return render(
             request,
             "pages/matters.html",
             {
                 "section": SECTION,
-                "rows": [_row(m, names) for m in matters],
+                "rows": [_row(m, names, late) for m in matters],
                 "columns": list(MATTER_COLUMNS),
                 "path": SECTION.path,
             },
         )
+
+
+@router.get("/attention", include_in_schema=False)
+async def attention(request: Request) -> Response:
+    """The sidebar's mark: a red dot while any request is overdue, nothing
+    otherwise. Fetched by the nav on load, so a page that never touches
+    matters still shows the deadline that passed."""
+    async with get_async_session() as db:
+        count = len(await RequestService(db).overdue())
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/matters/attention.html",
+        context={"count": count},
+    )
 
 
 @router.get("/new", include_in_schema=False)
@@ -255,6 +277,4 @@ async def add_participant(
                 matter_id, whom, role, note=note.strip() or None
             )
             await db.commit()
-    return dialog_done(
-        where_from(request, f"{SECTION.path}/{matter_id}"), "Added"
-    )
+    return dialog_done(where_from(request, f"{SECTION.path}/{matter_id}"), "Added")

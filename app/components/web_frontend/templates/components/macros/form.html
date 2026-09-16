@@ -148,9 +148,20 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 {# The one file control. Browsers will not be told what the button looks
    like, so the styling is all on ``file:`` - written once here rather
    than pasted wherever something takes a file. #}
+{# A file input that is also a drop target. One macro, so every place
+   a file can be chosen is a place it can be dragged; the dropped files
+   land in the input itself, and a ``change`` event lets whatever was
+   listening to the input keep listening. #}
 {% macro file_input(name, accept="", required=False) %}
-<input type="file" name="{{ name }}" {% if accept %}accept="{{ accept }}"{% endif %} {% if required %}required{% endif %}
-       class="mt-1 block w-full text-sm text-aegis-muted file:mr-3 file:px-3 file:py-1.5 file:rounded file:border file:border-aegis-border file:bg-aegis-bg file:text-aegis-text file:text-xs">
+<div data-dropzone x-data="{ over: false }"
+     @dragover.prevent="over = true" @dragleave.prevent="over = false"
+     @drop.prevent="over = false; $refs.file.files = $event.dataTransfer.files; $refs.file.dispatchEvent(new Event('change', { bubbles: true }))"
+     :class="over ? 'border-aegis-teal bg-aegis-teal/5' : 'border-aegis-border'"
+     class="mt-1 rounded-md border border-dashed p-3 transition-colors">
+  <input type="file" name="{{ name }}" x-ref="file" {% if accept %}accept="{{ accept }}"{% endif %} {% if required %}required{% endif %}
+         class="block w-full text-sm text-aegis-muted file:mr-3 file:px-3 file:py-1.5 file:rounded file:border file:border-aegis-border file:bg-aegis-bg file:text-aegis-text file:text-xs">
+  <p class="mt-2 micro-label text-aegis-muted">or drop it here</p>
+</div>
 {% endmacro %}
 
 {# Pick one of many, or name a new one.

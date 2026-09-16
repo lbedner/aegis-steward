@@ -1081,3 +1081,51 @@ class TestTheVerbsOnAnAsk:
             ITEM_VERBS["waived"],
         ]
         assert rows[1].get("aria-label") == WORDS["mark_as"]
+
+
+class TestOverdueIsRed:
+    """Late is not "warn". A deadline that has passed is the one thing on
+    the page that must not read as a caution: the card, the list and the
+    sidebar all say it in red, from one query."""
+
+    def _late(self, client: TestClient, reference: str) -> str:
+        page = _matter(client, reference)
+        client.post(
+            page + "/requests/new",
+            data={"asked": ASKED, "due_on": "2000-01-01", "received_on": ""},
+        )
+        return page
+
+    def test_the_card_carries_a_red_dot(self, client: TestClient) -> None:
+        page = self._late(client, "MA-LATE-1")
+        card = one(client.get(page).text, "#matter-requests [data-request]")
+        assert select(card, "header [data-dot=error]"), "the due line carries the red dot"
+
+    def test_the_list_row_says_overdue(self, client: TestClient) -> None:
+        self._late(client, "MA-LATE-2")
+        rows = select(client.get("/matters").text, "#matters tbody tr")
+        states = {
+            text(one(r, "[data-tone]")): one(r, "[data-tone]").get("data-tone")
+            for r in rows
+        }
+        assert states.get("overdue") == "error"
+
+    def test_the_sidebar_fetches_a_mark_that_is_red_only_when_late(
+        self, client: TestClient
+    ) -> None:
+        nav = one(client.get("/matters").text, "[data-attention]")
+        assert nav.get("hx-get") == "/matters/attention"
+        assert "load" in (nav.get("hx-trigger") or "")
+        none(client.get("/matters/attention").text, "[data-dot]")
+        self._late(client, "MA-LATE-3")
+        mark = one(client.get("/matters/attention").text, "[data-dot]")
+        assert mark.get("data-dot") == "error"
+
+
+class TestFilesCanBeDropped:
+    def test_every_file_input_is_a_drop_target(self, client: TestClient) -> None:
+        page = _matter(client, "MA-DROP")
+        dialog = client.get(page + "/documents/new").text
+        zone = one(dialog, "[data-dropzone]")
+        assert zone.get("@drop.prevent"), "the drop lands in the input"
+        assert one(zone, "input[type=file]").get("x-ref") == "file"
