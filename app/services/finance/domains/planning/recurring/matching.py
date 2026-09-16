@@ -15,6 +15,7 @@ from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import CADENCES
+from app.services.finance.domains.ledger.queries.accounts import EVERYONE
 from app.services.finance.domains.planning.recurring import queries
 from app.services.finance.domains.planning.recurring.membership import amount_band
 from app.services.finance.domains.planning.recurring.streams import get_recurring
@@ -117,7 +118,9 @@ async def recurring_match_candidates(
     # the tie goes to the human.
     siblings = [
         (s.name, s.merchant_id)
-        for s in await queries.active_streams(db, owner_user_id=owner_user_id)
+        for s in await queries.active_streams(
+            db, owner_user_id=owner_user_id, subject_id=EVERYONE
+        )
         if s.id != stream.id and s.direction == stream.direction
     ]
 

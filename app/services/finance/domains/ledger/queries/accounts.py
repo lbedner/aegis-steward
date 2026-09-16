@@ -57,6 +57,13 @@ async def account_by_id(
     return (await db.exec(query)).first()
 
 
+# Whose money a listing covers. ``HOUSEHOLD`` is the rows nobody
+# assigned - ours - and ``EVERYONE`` drops the filter entirely, which
+# only the pages that SHOW other people's accounts want.
+HOUSEHOLD = 0
+EVERYONE: int | None = None
+
+
 async def accounts_page(
     db: AsyncSession,
     *,
@@ -64,14 +71,20 @@ async def accounts_page(
     include_hidden: bool,
     page: int,
     page_size: int,
-    subject_id: int | None = None,
+    subject_id: int | None = HOUSEHOLD,
 ) -> tuple[list[FinanceAccount], int]:
     """One page of live accounts plus the total count (two statements).
 
     ``subject_id`` narrows to whose money the rows describe: an id for one
-    subject's accounts, ``0`` for the household's own (the rows nobody
-    assigned), and None for everything, which is what every caller that
-    predates subjects means.
+    subject's accounts, ``HOUSEHOLD`` for our own (the rows nobody
+    assigned), and ``EVERYONE`` for the lot.
+
+    The DEFAULT is the household, and that is the whole point of the
+    flag. A net worth, a budget and a forecast are statements about our
+    money; the day somebody's pension account is tracked here, a default
+    of "everything" folds their benefit into our totals silently and
+    every number on the dashboard is quietly wrong. A caller that means
+    everything says so.
     """
     query = select(FinanceAccount).where(FinanceAccount.deleted_at.is_(None))
     count_query = (

@@ -127,21 +127,21 @@ class TestTurn:
 
 
 @pytest.fixture(autouse=True)
-def _own_conversations() -> None:
+async def _own_conversations() -> None:
     """The app-owned test database lives for the whole session and commits,
     so conversations from other tests would otherwise be "the latest" here
     and pad the history; each test starts with none on this surface."""
     manager = ai_service.conversation_manager
-    for conversation in manager.list_conversations(
+    for conversation in await manager.list_conversations(
         STANDALONE_USER_ID, surface="finance"
     ):
-        manager.delete_conversation(conversation.id)
+        await manager.delete_conversation(conversation.id)
 
 
 @pytest.fixture
-def stored() -> tuple[str, str]:
+async def stored() -> tuple[str, str]:
     """A conversation with one answered turn, the way a stream leaves it."""
-    conversation = ai_service.conversation_manager.create_conversation(
+    conversation = await ai_service.conversation_manager.create_conversation(
         provider=AIProvider.OLLAMA,
         model="gpt-5.6-luna",
         user_id=STANDALONE_USER_ID,
@@ -166,7 +166,7 @@ def stored() -> tuple[str, str]:
             ],
         },
     )
-    ai_service.conversation_manager.save_conversation(conversation)
+    await ai_service.conversation_manager.save_conversation(conversation)
     return conversation.id, reply.id
 
 
@@ -291,10 +291,10 @@ class TestWords:
 
 
 @pytest.fixture
-def proposed(review: Review) -> tuple[str, str]:
+async def proposed(review: Review) -> tuple[str, str]:
     """A turn whose trace proposed the review fixture's change and batch,
     plus a marker of a kind nobody knows."""
-    conversation = ai_service.conversation_manager.create_conversation(
+    conversation = await ai_service.conversation_manager.create_conversation(
         provider=AIProvider.OLLAMA,
         model="m",
         user_id=STANDALONE_USER_ID,
@@ -334,7 +334,7 @@ def proposed(review: Review) -> tuple[str, str]:
             ]
         },
     )
-    ai_service.conversation_manager.save_conversation(conversation)
+    await ai_service.conversation_manager.save_conversation(conversation)
     return conversation.id, reply.id
 
 
@@ -562,10 +562,10 @@ class TestHistory:
         none(thread, "li[data-role]")
         assert one(thread, "input#chat-conversation[hx-swap-oob]").get("value") == ""
 
-    def test_replayed_user_message_drops_its_attachment_marker(
+    async def test_replayed_user_message_drops_its_attachment_marker(
         self, hx: TestClient
     ) -> None:
-        conversation = ai_service.conversation_manager.create_conversation(
+        conversation = await ai_service.conversation_manager.create_conversation(
             provider=AIProvider.OLLAMA,
             model="m",
             user_id=STANDALONE_USER_ID,
@@ -574,7 +574,7 @@ class TestHistory:
         conversation.add_message(
             MessageRole.USER, "What is this?\n\n[attached 1 image: receipt.png]"
         )
-        ai_service.conversation_manager.save_conversation(conversation)
+        await ai_service.conversation_manager.save_conversation(conversation)
         thread = hx.get(f"/chat/conversations/{conversation.id}").text
         assert text(one(thread, "[data-role=user] [data-text]")) == "What is this?"
 
@@ -602,7 +602,7 @@ class TestAttachments:
 
         png = b"\x89PNG-not-really-a-png"
         key = await get_storage().put(png, content_type="image/png")
-        conversation = ai_service.conversation_manager.create_conversation(
+        conversation = await ai_service.conversation_manager.create_conversation(
             provider=AIProvider.OLLAMA,
             model="m",
             user_id=STANDALONE_USER_ID,
@@ -617,7 +617,7 @@ class TestAttachments:
                 ]
             },
         )
-        ai_service.conversation_manager.save_conversation(conversation)
+        await ai_service.conversation_manager.save_conversation(conversation)
 
         thread = hx.get(f"/chat/conversations/{conversation.id}").text
         img = one(thread, "[data-role=user] [data-attachments] img")
@@ -913,9 +913,7 @@ class TestAPastedWallBecomesAChip:
     a page: the conversation disappeared into it, and because history is
     replayed it rode every later turn until the budget pushed it out."""
 
-    def test_the_turn_draws_a_chip_and_keeps_the_sentence(
-        self, hx: TestClient
-    ) -> None:
+    def test_the_turn_draws_a_chip_and_keeps_the_sentence(self, hx: TestClient) -> None:
         page = "Your Orders\n" + ("Amazon order line. " * 200)
 
         html = hx.post(
@@ -939,9 +937,7 @@ class TestAPastedWallBecomesAChip:
         assert "pasted text #" in sent
         assert "Amazon order line." not in sent
 
-    def test_the_chip_opens_the_whole_page_in_the_dialog(
-        self, hx: TestClient
-    ) -> None:
+    def test_the_chip_opens_the_whole_page_in_the_dialog(self, hx: TestClient) -> None:
         page = "Your Orders\n" + ("Amazon order line. " * 200)
         html = hx.post("/chat/turns", data={"message": page}).text
         chip = one(html, "[data-pastes] button[data-paste]")
@@ -973,9 +969,7 @@ class TestAPastedWallBecomesAChip:
         assert staged["chars"] == len(page)
         assert f'pasted("{staged["id"]}")' in staged["marker"]
 
-    def test_a_message_carrying_a_marker_draws_its_chip(
-        self, hx: TestClient
-    ) -> None:
+    def test_a_message_carrying_a_marker_draws_its_chip(self, hx: TestClient) -> None:
         """By the time the message arrives its wall is already lifted,
         so the marker is what says which paste to draw."""
         page = "Your Orders\n" + "\n".join(["Buy it again"] * 400)

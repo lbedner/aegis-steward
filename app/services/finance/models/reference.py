@@ -147,6 +147,10 @@ class FinanceSubject(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     owner_user_id: int | None = Field(default=None)
+    # The address-book row this is the money side of. A plain column,
+    # like every other party reference: the ledger keeps saying whose
+    # money it was after a party is tidied away.
+    party_id: int | None = Field(default=None, index=True)
     name: str = Field(max_length=128)
     kind: str = Field(default="person", max_length=16)
     note: str | None = None

@@ -58,7 +58,9 @@ class TestThePdfReachesTheTurn:
 
     @pytest.mark.asyncio
     async def test_the_agent_reads_the_pages_back(self) -> None:
-        _, metadata = await prepare_turn("read this", [_attached(STATEMENT, unique="two")], "doc-u2")
+        _, metadata = await prepare_turn(
+            "read this", [_attached(STATEMENT, unique="two")], "doc-u2"
+        )
         paste_id = metadata["pastes"][0]["id"]
 
         with memory_user("doc-u2"):
@@ -75,7 +77,9 @@ class TestThePdfReachesTheTurn:
     async def test_the_text_has_one_home(self) -> None:
         """The entry points at the document; it does not copy the text
         into the paste store beside it."""
-        _, metadata = await prepare_turn("read this", [_attached(STATEMENT, unique="three")], "doc-u3")
+        _, metadata = await prepare_turn(
+            "read this", [_attached(STATEMENT, unique="three")], "doc-u3"
+        )
 
         entry = metadata["pastes"][0]
         assert entry["document_id"]
@@ -136,7 +140,9 @@ class TestImagesAreUntouched:
         """Only documents are read here; a screenshot is still a
         screenshot, and the vision path is unchanged."""
         image = ChatAttachment(
-            media_type="image/png", data_b64=base64.b64encode(b"x").decode(), name="s.png"
+            media_type="image/png",
+            data_b64=base64.b64encode(b"x").decode(),
+            name="s.png",
         )
 
         text, metadata = await prepare_turn("look", [image], "doc-u6")

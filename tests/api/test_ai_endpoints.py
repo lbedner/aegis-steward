@@ -67,6 +67,7 @@ class TestUsageStatsEndpoint:
         """Test successful usage stats retrieval."""
         with patch(
             "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            new_callable=AsyncMock,
             return_value=mock_usage_stats,
         ):
             response = client.get("/api/v1/ai/usage/stats")
@@ -84,6 +85,7 @@ class TestUsageStatsEndpoint:
         """Test usage stats with query parameters."""
         with patch(
             "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            new_callable=AsyncMock,
             return_value=mock_usage_stats,
         ) as mock_get:
             response = client.get(
@@ -104,6 +106,7 @@ class TestUsageStatsEndpoint:
         """Test error handling when service fails."""
         with patch(
             "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            new_callable=AsyncMock,
             side_effect=Exception("Database error"),
         ):
             response = client.get("/api/v1/ai/usage/stats")
@@ -117,6 +120,7 @@ class TestUsageStatsEndpoint:
         """Test response matches Pydantic schema."""
         with patch(
             "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            new_callable=AsyncMock,
             return_value=mock_usage_stats,
         ):
             response = client.get("/api/v1/ai/usage/stats")
@@ -159,6 +163,7 @@ class TestUsageStatsEndpoint:
         }
         with patch(
             "app.components.backend.api.ai.router.ai_service.get_usage_stats",
+            new_callable=AsyncMock,
             return_value=empty_stats,
         ):
             response = client.get("/api/v1/ai/usage/stats")

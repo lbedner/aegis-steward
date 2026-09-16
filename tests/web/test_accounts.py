@@ -16,7 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.service import FinanceService
 from tests.services._finance_factories import seed_account
 from tests.web.conftest import Ledger
-from tests.web.dom import none, one, select, table_rows, text, triggers
+from tests.web.dom import none, one, portfolio_row, select, table_rows, text, triggers
 
 
 def groups(page: str) -> list[str]:
@@ -322,7 +322,7 @@ class TestEveryAccountCarriesAMark:
         self, client: TestClient, ledger: Ledger
     ) -> None:
         page = client.get("/accounts").text
-        row = _portfolio_row(page, "Checking")
+        row = portfolio_row(page, "Checking")
         assert row.find(".//*[@data-glyph]") is not None
 
     @pytest.mark.asyncio
@@ -342,17 +342,10 @@ class TestEveryAccountCarriesAMark:
             f"/accounts/{ledger.checking}/institution", data={"new_name": "Fidelity"}
         )
         page = client.get("/accounts").text
-        row = _portfolio_row(page, "Checking")
+        row = portfolio_row(page, "Checking")
         img = row.find(".//img")
         assert img is not None and "/icons?key=" in (img.get("src") or "")
 
-
-def _portfolio_row(page: str, name: str):  # noqa: ANN202
-    """The portfolio row for one account, by the name it shows."""
-    for cell in select(page, "#portfolio [data-name]"):
-        if text(cell).strip() == name:
-            return cell.getparent().getparent()
-    raise AssertionError(f"no portfolio row named {name!r}")
 
 
 class TestTheInstitutionsSettingsTab:

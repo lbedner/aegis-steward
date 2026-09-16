@@ -46,6 +46,10 @@ from app.services.ai.service.prompt import PromptMixin, history_char_budget
 # API, the CLI, and code-mode agents alike.
 import app.services.finance.ai_tools  # noqa: F401
 
+# And the matter tools (parties, matters, requests, facts): the case
+# surface is read the same way, by name, in every process that chats.
+import app.services.matters.ai_tools  # noqa: F401
+
 
 class ChatMixin(PromptMixin):
     """Non-streaming chat turn plus conversation setup/teardown."""
@@ -100,8 +104,10 @@ class ChatMixin(PromptMixin):
             # Kept, not just carried: the bytes ride this turn's model
             # call and the message remembers where the image was stored,
             # so reopening the conversation still shows it.
-            stored_text, stored_metadata = await prepare_turn(message, attachments, user_id)
-            conversation = self._setup_conversation(
+            stored_text, stored_metadata = await prepare_turn(
+                message, attachments, user_id
+            )
+            conversation = await self._setup_conversation(
                 stored_text,
                 conversation_id,
                 user_id,
@@ -120,7 +126,9 @@ class ChatMixin(PromptMixin):
             is_default_agent = (
                 agent_config is None or agent_config.slug == DEFAULT_AGENT_SLUG
             )
-            usage_context = self._build_usage_context() if is_default_agent else None
+            usage_context = (
+                await self._build_usage_context() if is_default_agent else None
+            )
             catalog_context = (
                 self._build_catalog_context() if is_default_agent else None
             )
@@ -198,7 +206,7 @@ class ChatMixin(PromptMixin):
 
             # Record usage tracking, attributed to the resolved agent
             usage = self._extract_usage(result)
-            self._record_usage(f"chat:{agent_config.slug}", usage, user_id)
+            await self._record_usage(f"chat:{agent_config.slug}", usage, user_id)
 
             # Add TPS (tokens per second) to metadata for performance monitoring
             output_tokens = usage.get("output_tokens", 0)
@@ -210,7 +218,7 @@ class ChatMixin(PromptMixin):
             ai_message.metadata["output_tokens"] = output_tokens
 
             # Finalize conversation (update metadata and save)
-            self._finalize_conversation(conversation, response_time_ms)
+            await self._finalize_conversation(conversation, response_time_ms)
 
             return ai_message
 
@@ -229,7 +237,7 @@ class ChatMixin(PromptMixin):
             logger.exception(error_msg)
             raise AIServiceError(error_msg) from e
 
-    def _setup_conversation(
+    async def _setup_conversation(
         self,
         message: str,
         conversation_id: str | None,
@@ -260,11 +268,13 @@ class ChatMixin(PromptMixin):
 
         # Get or create conversation
         if conversation_id:
-            conversation = self.conversation_manager.get_conversation(conversation_id)
+            conversation = await self.conversation_manager.get_conversation(
+                conversation_id
+            )
             if not conversation:
                 raise ConversationError(f"Conversation {conversation_id} not found")
         else:
-            conversation = self.conversation_manager.create_conversation(
+            conversation = await self.conversation_manager.create_conversation(
                 provider=cfg.provider,
                 model=cfg.model,
                 user_id=user_id,
@@ -279,7 +289,7 @@ class ChatMixin(PromptMixin):
 
         return conversation
 
-    def _finalize_conversation(
+    async def _finalize_conversation(
         self,
         conversation: Conversation,
         response_time_ms: float,
@@ -306,4 +316,4 @@ class ChatMixin(PromptMixin):
         conversation.metadata.update(metadata_update)
 
         # Save conversation
-        self.conversation_manager.save_conversation(conversation)
+        await self.conversation_manager.save_conversation(conversation)

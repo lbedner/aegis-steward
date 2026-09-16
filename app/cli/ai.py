@@ -4,6 +4,7 @@ AI service CLI commands.
 Command-line interface for AI service management and chat functionality.
 """
 
+import asyncio
 import os
 import shutil
 
@@ -474,7 +475,6 @@ def chat(
         False, "--verbose", "-v", help=lazy_t("ai.opt_verbose")
     ),
 ) -> None:
-    import asyncio
 
     from app.services.ai.service import AIService
 
@@ -486,7 +486,7 @@ def chat(
 
                 # Resume most recent conversation by default
                 if not new and not conversation_id:
-                    convos = ai_service.list_conversations(user_id)
+                    convos = await ai_service.list_conversations(user_id)
                     if convos:
                         conversation_id = convos[0].id
                         typer.echo(
@@ -531,7 +531,7 @@ def conversations(
 
     with suppress_logs():
         ai_service = AIService(settings)
-    convos = ai_service.list_conversations(user_id)[:limit]
+    convos = asyncio.run(ai_service.list_conversations(user_id))[:limit]
 
     if not convos:
         typer.echo(t("ai.no_conversations", user_id=user_id))
@@ -561,7 +561,7 @@ def history(
 
     with suppress_logs():
         ai_service = AIService(settings)
-    conversation = ai_service.get_conversation(conversation_id)
+    conversation = asyncio.run(ai_service.get_conversation(conversation_id))
 
     if not conversation:
         typer.echo(
@@ -605,7 +605,6 @@ def voice(
         "cli-user", "--user-id", "-u", help=lazy_t("ai.opt_user_id")
     ),
 ) -> None:
-    import asyncio
     from pathlib import Path
 
     from app.services.ai.domains.voice import AudioFormat, AudioInput
@@ -733,7 +732,6 @@ def record(
         None, "--collection", help=lazy_t("ai.opt_collection")
     ),
 ) -> None:
-    import asyncio
     from pathlib import Path
     import subprocess
     import tempfile
@@ -1049,7 +1047,6 @@ def transcribe(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help=lazy_t("ai.opt_json")),
 ) -> None:
-    import asyncio
     import json
     from pathlib import Path
 
@@ -1202,7 +1199,6 @@ def speak(
         1.0, "--speed", "-s", min=0.25, max=4.0, help=lazy_t("ai.opt_speed")
     ),
 ) -> None:
-    import asyncio
     from pathlib import Path
 
     from app.services.ai.domains.voice import SpeechRequest
@@ -1336,7 +1332,6 @@ def usage(
         help=lazy_t("ai.opt_json"),
     ),
 ) -> None:
-    import asyncio
     from datetime import datetime
     import json
     import sys
@@ -1569,7 +1564,6 @@ def sentiment(
         help=lazy_t("ai.opt_json"),
     ),
 ) -> None:
-    import asyncio
     import json
     import sys
 
@@ -1693,7 +1687,7 @@ async def _send_message(
 
         # Show conversation info (only in verbose mode)
         conv_id = response.metadata.get("conversation_id", "unknown")
-        conversation = ai_service.get_conversation(conv_id)
+        conversation = await ai_service.get_conversation(conv_id)
         if verbose and conversation:
             typer.echo(t("ai.conversation_id_label", id=conversation.id))
             if conversation.title:
@@ -1721,7 +1715,6 @@ async def _interactive_chat_session(
     conversation_id: str | None = None,
 ) -> None:
     """Start an interactive chat session with continuous conversation."""
-    import asyncio
 
     from app import __aegis_version__
 
@@ -1791,7 +1784,9 @@ async def _interactive_chat_session(
     initial_tokens = 0
     initial_cost = 0.0
     if current_conversation_id:
-        resumed_conversation = ai_service.get_conversation(current_conversation_id)
+        resumed_conversation = await ai_service.get_conversation(
+            current_conversation_id
+        )
         if resumed_conversation:
             initial_tokens = resumed_conversation.metadata.get("cumulative_tokens", 0)
             initial_cost = resumed_conversation.metadata.get("cumulative_cost", 0.0)
@@ -2085,7 +2080,7 @@ async def _stream_chat_response(
 
                             # Persist cumulative totals to conversation metadata
                             if conversation_info:
-                                conversation = ai_service.get_conversation(
+                                conversation = await ai_service.get_conversation(
                                     conversation_info
                                 )
                                 if conversation:
@@ -2095,7 +2090,7 @@ async def _stream_chat_response(
                                     conversation.metadata["cumulative_cost"] = (
                                         session_state.cumulative_cost
                                     )
-                                    ai_service.conversation_manager.save_conversation(
+                                    await ai_service.conversation_manager.save_conversation(
                                         conversation
                                     )
 
@@ -2126,7 +2121,7 @@ async def _stream_chat_response(
             console.print()
 
             if verbose and conversation_info:
-                conversation = ai_service.get_conversation(conversation_info)
+                conversation = await ai_service.get_conversation(conversation_info)
                 if conversation:
                     console.print(
                         f"{t('ai.conversation_label')} {conversation.id}", style="dim"

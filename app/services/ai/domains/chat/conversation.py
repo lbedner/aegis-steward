@@ -5,6 +5,9 @@ AI conversation management.
 SQLite-based conversation storage and management for AI chat sessions.
 Provides persistent conversation history across application restarts.
 
+Async, like every other store in the app: a chat turn saves its
+conversation on the event loop, and a sync engine there waits its
+SQLite turn with the whole server frozen behind it.
 """
 
 from datetime import UTC, datetime
@@ -12,9 +15,11 @@ from typing import Any
 import uuid
 
 from sqlalchemy import delete, func, text
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.db import db_session, init_database
+from app.core.db import get_async_session, init_database, retry_on_locked
 from app.core.log import logger
 from app.models.conversation import Conversation as ConversationModel
 from app.models.conversation import ConversationMessage as MessageModel
@@ -24,6 +29,30 @@ from app.services.ai.models import (
     ConversationMessage,
     MessageRole,
 )
+
+
+def _to_conversation(conv_db: ConversationModel, messages_db: Any) -> Conversation:
+    """The stored row and its messages as the service's model."""
+    meta_data = conv_db.meta_data or {}
+    return Conversation(
+        id=conv_db.id,
+        title=conv_db.title,
+        provider=AIProvider(meta_data.get("provider", "openai")),
+        model=meta_data.get("model", "unknown"),
+        created_at=conv_db.created_at,
+        updated_at=conv_db.updated_at,
+        messages=[
+            ConversationMessage(
+                id=msg.id,
+                role=MessageRole(msg.role),
+                content=msg.content,
+                timestamp=msg.timestamp,
+                metadata=msg.meta_data or {},
+            )
+            for msg in sorted(messages_db, key=lambda m: m.timestamp)
+        ],
+        metadata=meta_data,
+    )
 
 
 class ConversationManager:
@@ -43,7 +72,7 @@ class ConversationManager:
         # This allows CLI commands (like 'ai chat') to work without starting the server
         init_database()
 
-    def create_conversation(
+    async def create_conversation(
         self,
         provider: AIProvider,
         model: str,
@@ -78,12 +107,11 @@ class ConversationManager:
             metadata=metadata,
         )
 
-        # Save to database
-        self._save_to_db(conversation)
+        await self._save_to_db(conversation)
 
         return conversation
 
-    def get_conversation(self, conversation_id: str) -> Conversation | None:
+    async def get_conversation(self, conversation_id: str) -> Conversation | None:
         """
         Get a conversation by ID.
 
@@ -94,46 +122,20 @@ class ConversationManager:
             Conversation | None: The conversation if found, None otherwise
         """
 
-        with db_session() as session:
-            conv_db = session.get(ConversationModel, conversation_id)
+        async with get_async_session() as session:
+            conv_db = await session.get(ConversationModel, conversation_id)
             if not conv_db:
                 return None
 
-            # Load messages
             stmt = (
                 select(MessageModel)
                 .where(MessageModel.conversation_id == conversation_id)
                 .order_by(MessageModel.timestamp)
             )
-            messages_db = session.exec(stmt).all()
+            messages_db = (await session.exec(stmt)).all()
+            return _to_conversation(conv_db, messages_db)
 
-            # Convert to Pydantic models
-            messages = [
-                ConversationMessage(
-                    id=msg.id,
-                    role=MessageRole(msg.role),
-                    content=msg.content,
-                    timestamp=msg.timestamp,
-                    metadata=msg.meta_data or {},
-                )
-                for msg in messages_db
-            ]
-
-            # Get provider/model from meta_data
-            meta_data = conv_db.meta_data or {}
-
-            return Conversation(
-                id=conv_db.id,
-                title=conv_db.title,
-                provider=AIProvider(meta_data.get("provider", "openai")),
-                model=meta_data.get("model", "unknown"),
-                created_at=conv_db.created_at,
-                updated_at=conv_db.updated_at,
-                messages=messages,
-                metadata=meta_data,
-            )
-
-    def save_conversation(self, conversation: Conversation) -> None:
+    async def save_conversation(self, conversation: Conversation) -> None:
         """
         Save a conversation (update in storage).
 
@@ -142,9 +144,9 @@ class ConversationManager:
         """
         conversation.updated_at = datetime.now(UTC)
 
-        self._save_to_db(conversation)
+        await self._save_to_db(conversation)
 
-    def list_conversations(
+    async def list_conversations(
         self, user_id: str | None = None, surface: str | None = None
     ) -> list[Conversation]:
         """
@@ -158,16 +160,14 @@ class ConversationManager:
             list[Conversation]: List of conversations
         """
 
-        from sqlalchemy.orm import selectinload
-
-        with db_session() as session:
+        async with get_async_session() as session:
             # Use selectinload to eagerly load messages (2 queries instead of N+1)
             stmt = (
                 select(ConversationModel)
                 .options(selectinload(ConversationModel.messages))  # type: ignore[arg-type]
                 .order_by(ConversationModel.updated_at.desc())
             )
-            all_convs = session.exec(stmt).all()
+            all_convs = (await session.exec(stmt)).all()
 
             conversations = []
             for conv_db in all_convs:
@@ -180,33 +180,11 @@ class ConversationManager:
                     continue
 
                 # Messages already loaded via selectinload
-                messages = [
-                    ConversationMessage(
-                        id=msg.id,
-                        role=MessageRole(msg.role),
-                        content=msg.content,
-                        timestamp=msg.timestamp,
-                        metadata=msg.meta_data or {},
-                    )
-                    for msg in sorted(conv_db.messages, key=lambda m: m.timestamp)
-                ]
-
-                conversations.append(
-                    Conversation(
-                        id=conv_db.id,
-                        title=conv_db.title,
-                        provider=AIProvider(meta_data.get("provider", "openai")),
-                        model=meta_data.get("model", "unknown"),
-                        created_at=conv_db.created_at,
-                        updated_at=conv_db.updated_at,
-                        messages=messages,
-                        metadata=meta_data,
-                    )
-                )
+                conversations.append(_to_conversation(conv_db, conv_db.messages))
 
             return conversations
 
-    def delete_conversation(self, conversation_id: str) -> bool:
+    async def delete_conversation(self, conversation_id: str) -> bool:
         """
         Delete a conversation.
 
@@ -217,8 +195,8 @@ class ConversationManager:
             bool: True if conversation was deleted, False if not found
         """
 
-        with db_session() as session:
-            conv_db = session.get(ConversationModel, conversation_id)
+        async with get_async_session() as session:
+            conv_db = await session.get(ConversationModel, conversation_id)
             if not conv_db:
                 return False
 
@@ -226,17 +204,15 @@ class ConversationManager:
             stmt = select(MessageModel).where(
                 MessageModel.conversation_id == conversation_id
             )
-            messages = session.exec(stmt).all()
-            for msg in messages:
-                session.delete(msg)
+            for msg in (await session.exec(stmt)).all():
+                await session.delete(msg)
 
-            # Delete conversation
-            session.delete(conv_db)
-            session.commit()
+            await session.delete(conv_db)
+            await session.commit()
 
             return True
 
-    def get_conversation_count(self, user_id: str | None = None) -> int:
+    async def get_conversation_count(self, user_id: str | None = None) -> int:
         """
         Get count of conversations.
 
@@ -249,14 +225,14 @@ class ConversationManager:
 
         if user_id:
             # Must filter by JSON metadata field
-            return len(self.list_conversations(user_id))
+            return len(await self.list_conversations(user_id))
 
-        with db_session() as session:
-            return session.exec(
-                select(func.count()).select_from(ConversationModel)
+        async with get_async_session() as session:
+            return (
+                await session.exec(select(func.count()).select_from(ConversationModel))
             ).one()
 
-    def get_recent_conversations(
+    async def get_recent_conversations(
         self, limit: int = 10, user_id: str | None = None
     ) -> list[Conversation]:
         """
@@ -269,10 +245,10 @@ class ConversationManager:
         Returns:
             list[Conversation]: Recent conversations
         """
-        conversations = self.list_conversations(user_id)
+        conversations = await self.list_conversations(user_id)
         return conversations[:limit]
 
-    def cleanup_old_conversations(self, max_age_hours: int = 24) -> int:
+    async def cleanup_old_conversations(self, max_age_hours: int = 24) -> int:
         """
         Clean up old conversations.
 
@@ -287,11 +263,13 @@ class ConversationManager:
 
         cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
 
-        with db_session() as session:
+        async with get_async_session() as session:
             # Find IDs of old conversations
-            old_conv_ids = session.exec(
-                select(ConversationModel.id).where(
-                    ConversationModel.updated_at < cutoff
+            old_conv_ids = (
+                await session.exec(
+                    select(ConversationModel.id).where(
+                        ConversationModel.updated_at < cutoff
+                    )
                 )
             ).all()
 
@@ -299,17 +277,17 @@ class ConversationManager:
                 return 0
 
             # Bulk delete messages first (FK constraint), then conversations
-            session.execute(
+            await session.execute(
                 delete(MessageModel).where(
                     MessageModel.conversation_id.in_(old_conv_ids)  # type: ignore[union-attr]
                 )
             )
-            session.execute(
+            await session.execute(
                 delete(ConversationModel).where(
                     ConversationModel.id.in_(old_conv_ids)  # type: ignore[union-attr]
                 )
             )
-            session.commit()
+            await session.commit()
 
             deleted_count = len(old_conv_ids)
 
@@ -318,7 +296,7 @@ class ConversationManager:
 
         return deleted_count
 
-    def get_stats(self) -> dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """
         Get conversation manager statistics.
 
@@ -326,26 +304,25 @@ class ConversationManager:
             dict: Statistics about conversations
         """
 
-        with db_session() as session:
+        async with get_async_session() as session:
             # Use SQL COUNT queries instead of loading all rows into memory
-            total_conversations = session.exec(
-                select(func.count()).select_from(ConversationModel)
+            total_conversations = (
+                await session.exec(select(func.count()).select_from(ConversationModel))
             ).one()
 
-            total_messages = session.exec(
-                select(func.count()).select_from(MessageModel)
+            total_messages = (
+                await session.exec(select(func.count()).select_from(MessageModel))
             ).one()
 
             unique_users = (
-                session.execute(
+                await session.execute(
                     text(
                         "SELECT COUNT(DISTINCT json_extract(meta_data, '$.user_id')) "
                         "FROM conversation "
                         "WHERE json_extract(meta_data, '$.user_id') IS NOT NULL"
                     )
-                ).scalar()
-                or 0
-            )
+                )
+            ).scalar() or 0
 
             return {
                 "total_conversations": total_conversations,
@@ -358,40 +335,49 @@ class ConversationManager:
                 ),
             }
 
-    def _save_to_db(self, conversation: Conversation) -> None:
-        """Save conversation and its messages to database."""
-        with db_session() as session:
-            # Build meta_data with provider/model included
-            meta_data = {
-                **conversation.metadata,
-                "provider": conversation.provider.value,
-                "model": conversation.model,
-            }
+    async def _save_to_db(self, conversation: Conversation) -> None:
+        """Save conversation and its messages to database.
 
-            # Check if conversation exists
-            conv_db = session.get(ConversationModel, conversation.id)
-            if conv_db:
-                # Update existing
-                conv_db.title = conversation.title
-                conv_db.updated_at = conversation.updated_at
-                conv_db.meta_data = meta_data
-            else:
-                # Create new
-                conv_db = ConversationModel(
-                    id=conversation.id,
-                    title=conversation.title,
-                    user_id=conversation.metadata.get("user_id", "default"),
-                    created_at=conversation.created_at,
-                    updated_at=conversation.updated_at,
-                    meta_data=meta_data,
-                )
-                session.add(conv_db)
+        Its own short session, read then write: the upgrade can fail at
+        once under another writer, so it is retried where it happens.
+        """
 
-            # Save messages
-            for message in conversation.messages:
-                msg_db = session.get(MessageModel, message.id)
-                if not msg_db:
-                    msg_db = MessageModel(
+        async def write() -> None:
+            async with get_async_session() as session:
+                await self._write(session, conversation)
+
+        await retry_on_locked(write)
+
+    @staticmethod
+    async def _write(session: AsyncSession, conversation: Conversation) -> None:
+        # Build meta_data with provider/model included
+        meta_data = {
+            **conversation.metadata,
+            "provider": conversation.provider.value,
+            "model": conversation.model,
+        }
+
+        conv_db = await session.get(ConversationModel, conversation.id)
+        if conv_db:
+            conv_db.title = conversation.title
+            conv_db.updated_at = conversation.updated_at
+            conv_db.meta_data = meta_data
+        else:
+            conv_db = ConversationModel(
+                id=conversation.id,
+                title=conversation.title,
+                user_id=conversation.metadata.get("user_id", "default"),
+                created_at=conversation.created_at,
+                updated_at=conversation.updated_at,
+                meta_data=meta_data,
+            )
+            session.add(conv_db)
+
+        for message in conversation.messages:
+            msg_db = await session.get(MessageModel, message.id)
+            if not msg_db:
+                session.add(
+                    MessageModel(
                         id=message.id,
                         conversation_id=conversation.id,
                         role=message.role.value,
@@ -399,6 +385,6 @@ class ConversationManager:
                         timestamp=message.timestamp,
                         meta_data=message.metadata,
                     )
-                    session.add(msg_db)
+                )
 
-            session.commit()
+        await session.commit()

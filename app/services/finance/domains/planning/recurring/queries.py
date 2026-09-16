@@ -16,6 +16,7 @@ from sqlalchemy.orm import aliased
 from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.domains.ledger.queries.accounts import HOUSEHOLD
 from app.services.finance.models import (
     FinanceAccount,
     FinanceCategory,
@@ -31,6 +32,7 @@ def owner_clause_txn(column, owner_user_id: int | None):
     return column.is_(None) if owner_user_id is None else column == owner_user_id
 
 
+
 async def all_live_streams(db: AsyncSession) -> list[FinanceRecurringStream]:
     return list(
         (
@@ -44,13 +46,29 @@ async def all_live_streams(db: AsyncSession) -> list[FinanceRecurringStream]:
 
 
 async def active_streams(
-    db: AsyncSession, *, owner_user_id: int | None = None
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None = None,
+    subject_id: int | None = HOUSEHOLD,
 ) -> list[FinanceRecurringStream]:
-    """Live, non-cancelled streams, soonest-due first."""
+    """Live, non-cancelled streams, soonest-due first.
+
+    Household-only by default, for the reason the account listing is:
+    a forecast, a budget and a bills page are statements about OUR
+    money, and a parent's pension arriving every month would walk
+    straight into the balance line the day somebody recorded it. The
+    column has been here since subjects shipped; the filter had not.
+    """
     query = select(FinanceRecurringStream).where(
         FinanceRecurringStream.deleted_at.is_(None),
         FinanceRecurringStream.status != "cancelled",
     )
+    if subject_id is not None:
+        query = query.where(
+            FinanceRecurringStream.subject_id.is_(None)
+            if subject_id == HOUSEHOLD
+            else FinanceRecurringStream.subject_id == subject_id
+        )
     if owner_user_id is not None:
         query = query.where(FinanceRecurringStream.owner_user_id == owner_user_id)
     query = query.order_by(FinanceRecurringStream.next_expected_date)

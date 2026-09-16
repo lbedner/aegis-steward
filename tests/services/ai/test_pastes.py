@@ -64,9 +64,7 @@ class TestTheMarker:
     def test_it_says_what_the_paste_is_and_how_to_read_it(self) -> None:
         """A marker the agent cannot act on is a hole in the
         conversation."""
-        line = marker(
-            {"id": "a3f19c2b", "title": "Your Orders", "chars": 16_681}
-        )
+        line = marker({"id": "a3f19c2b", "title": "Your Orders", "chars": 16_681})
 
         assert "#a3f19c2b" in line
         assert "Your Orders" in line

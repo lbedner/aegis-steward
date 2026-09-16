@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import Integer, func
 from sqlmodel import select
 
-from app.core.db import db_session
+from app.core.db import get_async_session
 from app.core.log import logger
 
 # Single source of truth for LLM usage extraction / pricing / ledger writes.
@@ -42,7 +42,7 @@ class UsageMixin(AIServiceBase):
         # the same code the non-chat callers use.
         return usage_recording.extract_usage(result)
 
-    def calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
+    async def calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
         """
         Calculate cost for given token usage.
 
@@ -57,11 +57,11 @@ class UsageMixin(AIServiceBase):
             Total cost in USD
         """
 
-        return usage_recording.calculate_cost(
+        return await usage_recording.calculate_cost(
             self.config.model, input_tokens, output_tokens
         )
 
-    def _record_usage(
+    async def _record_usage(
         self,
         action: str,
         usage: dict[str, int],
@@ -80,7 +80,7 @@ class UsageMixin(AIServiceBase):
             error_message: Error message if request failed
         """
 
-        usage_recording.record_usage(
+        await usage_recording.record_usage(
             action,
             self.config.model,
             usage,
@@ -89,7 +89,7 @@ class UsageMixin(AIServiceBase):
             error_message=error_message,
         )
 
-    def get_usage_stats(
+    async def get_usage_stats(
         self,
         user_id: str | None = None,
         start_time: datetime | None = None,
@@ -111,12 +111,14 @@ class UsageMixin(AIServiceBase):
             dict containing totals, model breakdown, and recent activity
         """
         try:
-            with db_session() as session:
-                totals = self._get_usage_totals(session, user_id, start_time, end_time)
-                models = self._get_model_breakdown(
+            async with get_async_session() as session:
+                totals = await self._get_usage_totals(
                     session, user_id, start_time, end_time
                 )
-                recent = self._get_recent_activity(
+                models = await self._get_model_breakdown(
+                    session, user_id, start_time, end_time
+                )
+                recent = await self._get_recent_activity(
                     session, user_id, start_time, end_time, recent_limit
                 )
 
@@ -138,7 +140,7 @@ class UsageMixin(AIServiceBase):
                 "recent_activity": [],
             }
 
-    def _get_usage_totals(
+    async def _get_usage_totals(
         self,
         session: Any,
         user_id: str | None,
@@ -155,7 +157,7 @@ class UsageMixin(AIServiceBase):
         )
 
         stmt = self._apply_usage_filters(stmt, user_id, start_time, end_time)
-        result = session.exec(stmt).first()
+        result = (await session.exec(stmt)).first()
 
         input_tokens = result.input_tokens if result else 0
         output_tokens = result.output_tokens if result else 0
@@ -175,7 +177,7 @@ class UsageMixin(AIServiceBase):
             "success_rate": round(success_rate, 1),
         }
 
-    def _get_model_breakdown(
+    async def _get_model_breakdown(
         self,
         session: Any,
         user_id: str | None,
@@ -214,7 +216,7 @@ class UsageMixin(AIServiceBase):
         )
 
         stmt = self._apply_usage_filters(stmt, user_id, start_time, end_time)
-        results = session.exec(stmt).all()
+        results = (await session.exec(stmt)).all()
 
         # Calculate total requests for percentage
         total_requests = sum(r.requests for r in results) if results else 0
@@ -237,7 +239,7 @@ class UsageMixin(AIServiceBase):
 
         return models
 
-    def _get_recent_activity(
+    async def _get_recent_activity(
         self,
         session: Any,
         user_id: str | None,
@@ -264,7 +266,7 @@ class UsageMixin(AIServiceBase):
         )
 
         stmt = self._apply_usage_filters(stmt, user_id, start_time, end_time)
-        results = session.exec(stmt).all()
+        results = (await session.exec(stmt)).all()
 
         return [
             {

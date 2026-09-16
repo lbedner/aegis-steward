@@ -10,8 +10,9 @@ from datetime import date
 from fastapi.testclient import TestClient
 
 from app.components.web_frontend.rendering import templates
+from app.services.finance.service import FinanceService
 from tests.web.conftest import Ledger
-from tests.web.dom import none, one, select, text
+from tests.web.dom import none, one, portfolio_row, select, text
 
 COLUMNS = [
     {"key": "when", "label": "Date", "kind": "date"},
@@ -224,3 +225,36 @@ class TestWhatArrivedSinceYouLooked:
         response = remember(request_with(jar2), Response(), "register", later)
         jar3 = response.headers["set-cookie"].split(";")[0]
         assert watermark(request_with(jar3), "register") == soon
+
+
+class TestThePortfolioCarriesTheSameMark:
+    """The account row says "something arrived here" with the register's
+    own dot and the register's own watermark, so the two pages can never
+    disagree about what is new. A first visit marks nothing, as before.
+    """
+
+    async def test_an_account_with_unseen_rows_is_marked(
+        self, client: TestClient, finance: FinanceService, ledger: Ledger
+    ) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from app.services.finance.utils import current_date
+
+        # Looked at the register long ago, then a row arrived at Checking.
+        seen = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        client.cookies.set("seen_register", f"{seen}|{seen}")
+        await finance.create_transaction(
+            account_id=ledger.checking,
+            amount=-1_000,
+            txn_date=current_date(),
+            name="NEW ARRIVAL",
+        )
+        page = client.get("/accounts").text
+        assert portfolio_row(page, "Checking").find(".//*[@data-arrived]") is not None
+        assert portfolio_row(page, "Savings").find(".//*[@data-arrived]") is None
+
+    def test_a_first_visit_marks_no_account(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get("/accounts").text
+        assert not select(page, "#portfolio [data-arrived]")

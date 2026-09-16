@@ -2,7 +2,8 @@
 {% from "components/macros/layout.html" import card, chart_panel, stats_strip %}
 {% from "components/macros/accounts.html" import account_header %}
 {% from "components/macros/table.html" import data_table %}
-{% from "components/macros/form.html" import range_chips %}
+{% from "components/macros/form.html" import action, range_chips %}
+{% from "components/macros/matters.html" import fact_row %}
 
 {% block title %}{{ selected.name }} - {{ project_name }}{% endblock %}
 
@@ -15,9 +16,67 @@
 <section id="account-detail" class="space-y-6">
   {{ account_header(section, groups, total, selected, selected_balance,
                     actions=actions, held_with=held_with, statement_line=statement_line,
-                    updated=updated) }}
+                    updated=updated, whose_name=whose_name) }}
 
   {% include "components/sub_nav.html" %}
+
+  {#- Who and where, first: an account with no transactions still has a
+      person whose money it is and an organization it is held with, and
+      their address, phone and website are exactly what somebody reaches
+      for when they have to ring the pension fund. Both were a click
+      away behind two dialogs, on a page that looked empty. -#}
+  {% if who_and_where %}
+  {% call card("Who and where") %}
+  <dl class="grid gap-5 sm:grid-cols-2">
+    {% for who in who_and_where %}
+    <div data-who="{{ who.role|lower|replace(" ", "-") }}" class="min-w-0">
+      <dt class="micro-label text-aegis-muted">{{ who.role }}</dt>
+      <dd class="mt-0.5">
+        <button type="button" {{ hx_dialog("/settings/people/" ~ who.party_id) }}
+                class="text-sm text-aegis-teal hover:underline transition-colors" data-party>{{ who.name }}</button>
+        <ul class="mt-1 space-y-0.5 text-xs text-aegis-muted">
+          {% if who.contact.website %}
+          <li><a href="{{ who.contact.website }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-website>{{ who.contact.website|replace("https://", "")|replace("http://", "") }}</a></li>
+          {% endif %}
+          {% if who.contact.phone %}<li data-phone>{{ who.contact.phone }}</li>{% endif %}
+          {% if who.contact.email %}<li data-email>{{ who.contact.email }}</li>{% endif %}
+          {% if who.contact.address %}<li data-address>{{ who.contact.address }}</li>{% endif %}
+          {#- The way in, named but never opened here: the password is
+              one deliberate click away, on the party. -#}
+          {% for signin in who.signins %}
+          <li data-signin>{{ signin.label }}{% if signin.username %} · {{ signin.username }}{% endif %}</li>
+          {% endfor %}
+          {% if who.note %}<li class="text-aegis-muted/80">{{ who.note }}</li>{% endif %}
+        </ul>
+      </dd>
+    </div>
+    {% endfor %}
+  </dl>
+  {% endcall %}
+  {% endif %}
+
+  {#- What can be said about whose money it is, and the case that asked.
+      A pension holds no transactions and never will - the money lands
+      in a bank account somewhere else - so what it is FOR is the figure
+      somebody has to put on a form. The same row the matter draws, from
+      the same macro. -#}
+  {% if about or matters or fact_party_id %}
+  {% call card(word("can_say")) %}
+  {% if about %}
+  <ul class="border-t border-aegis-border/60">
+    {% for fact in about %}{{ fact_row(fact, "/matters") }}{% endfor %}
+  </ul>
+  {% endif %}
+  {% for matter in matters %}
+  <p class="text-xs text-aegis-muted" data-matter>
+    In <a href="/matters/{{ matter.id }}" {{ hx_page("/matters/" ~ matter.id) }} class="text-aegis-teal hover:underline">{{ matter.title }}</a>, still {{ matter.status }}.
+  </p>
+  {% endfor %}
+  {% if fact_party_id %}
+  {{ action(word("add_fact"), hx_dialog(section.path ~ "/" ~ selected.id ~ "/facts/new")) }}
+  {% endif %}
+  {% endcall %}
+  {% endif %}
 
   {% if loan_terms %}{{ stats_strip(loan_terms) }}{% endif %}
   {# What the place is worth against what is secured on it. Derived from

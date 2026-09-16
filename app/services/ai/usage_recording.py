@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlmodel import select
 
-from app.core.db import db_session
+from app.core.db import get_async_session, retry_on_locked
 from app.core.log import logger
 
 from .models.llm import LargeLanguageModel, LLMPrice, LLMUsage
@@ -66,21 +66,27 @@ def extract_usage(result: Any) -> dict[str, int]:
     }
 
 
-def _latest_price(session: Any, model_name: str) -> LLMPrice | None:
+async def _latest_price(session: Any, model_name: str) -> LLMPrice | None:
     """Current price row for a bare model name, or None if uncataloged."""
-    llm = session.exec(
-        select(LargeLanguageModel).where(LargeLanguageModel.model_id == model_name)
+    llm = (
+        await session.exec(
+            select(LargeLanguageModel).where(LargeLanguageModel.model_id == model_name)
+        )
     ).first()
     if not llm:
         return None
-    return session.exec(
-        select(LLMPrice)
-        .where(LLMPrice.llm_id == llm.id)
-        .order_by(LLMPrice.effective_date.desc())
+    return (
+        await session.exec(
+            select(LLMPrice)
+            .where(LLMPrice.llm_id == llm.id)
+            .order_by(LLMPrice.effective_date.desc())
+        )
     ).first()
 
 
-def calculate_cost(model_name: str, input_tokens: int, output_tokens: int) -> float:
+async def calculate_cost(
+    model_name: str, input_tokens: int, output_tokens: int
+) -> float:
     """Full-rate cost estimate in USD, 0.0 when model/price is uncataloged.
 
     This charges every input token at the base rate; it takes aggregate counts
@@ -91,8 +97,8 @@ def calculate_cost(model_name: str, input_tokens: int, output_tokens: int) -> fl
     """
     bare = _bare_model_name(model_name)
     try:
-        with db_session() as session:
-            price = _latest_price(session, bare)
+        async with get_async_session() as session:
+            price = await _latest_price(session, bare)
             if not price:
                 return 0.0
             return (
@@ -130,7 +136,7 @@ def _priced_input_cost(usage: dict[str, int], input_price: float) -> float:
     )
 
 
-def record_usage(
+async def record_usage(
     action: str,
     model_name: str,
     usage: dict[str, int],
@@ -148,11 +154,15 @@ def record_usage(
     """
     bare = _bare_model_name(model_name)
     total_cost = 0.0
-    try:
-        with db_session() as session:
-            price = _latest_price(session, bare)
+
+    async def write() -> float:
+        # Read the price, then write the row: an upgrade that can fail
+        # at once under another writer, so it is retried where it happens.
+        async with get_async_session() as session:
+            price = await _latest_price(session, bare)
+            cost = 0.0
             if price:
-                total_cost = (
+                cost = (
                     _priced_input_cost(usage, price.input_cost_per_token)
                     + usage.get("output_tokens", 0) * price.output_cost_per_token
                 )
@@ -169,12 +179,16 @@ def record_usage(
                     timestamp=datetime.now(UTC),
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
-                    total_cost=total_cost,
+                    total_cost=cost,
                     success=success,
                     error_message=error_message,
                     duration_ms=duration_ms,
                 )
             )
+            return cost
+
+    try:
+        total_cost = await retry_on_locked(write)
         logger.info(
             "Usage committed to database",
             model=bare,

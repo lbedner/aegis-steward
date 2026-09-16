@@ -36,6 +36,7 @@ from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_CHAT_AGENT_SLUG,
     SNAPSHOT_MODULE_SLUG,
 )
+import app.services.matters.ai_tools  # noqa: F401
 
 SNAPSHOT_TOKEN_ESTIMATE = 1_200
 
@@ -166,6 +167,17 @@ FINANCE_CHAT_TOOL_NAMES = (
     # agent that has lost four pasted pages answers "no match found" in
     # exactly the voice of one that still has them.
     "context",
+    # The case surface (ST-12). A matter is invisible most of the year
+    # and urgent for eight days, which is exactly what a tool is for and
+    # exactly what the snapshot must not carry.
+    "parties",
+    "matters",
+    # What is outstanding, by deadline, with what each item is answered
+    # by - the three piles of the renewal said out loud.
+    "requests",
+    # And the numbers with their sources, because a figure without its
+    # provenance is not fit to put on a government form.
+    "facts",
 )
 
 

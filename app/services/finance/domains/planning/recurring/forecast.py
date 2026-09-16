@@ -24,12 +24,13 @@ from app.services.finance.domains.detection.insights.commitments import (
 )
 from app.services.finance.domains.ledger import accounts
 from app.services.finance.domains.ledger import queries as ledger_queries
+from app.services.finance.domains.ledger.queries.accounts import EVERYONE, HOUSEHOLD
 from app.services.finance.domains.planning import allocation, budgets, goals, queries
 from app.services.finance.domains.planning.recurring import queries as recurring_queries
+from app.services.finance.domains.planning.recurring import queries as stream_queries
 from app.services.finance.domains.planning.recurring.schedule import occurrences
 from app.services.finance.domains.planning.recurring.streams import (
     in_account_scope,
-    list_recurring,
     payment_stream_ids,
     stream_category_names,
     transfer_stream_ids,
@@ -94,6 +95,7 @@ async def project_balances(
     days: int = 180,
     today: date | None = None,
     account_ids: list[int] | None = None,
+    subject_id: int | None = HOUSEHOLD,
 ) -> ProjectionResponse:
     """Walk today's cash balance forward through scheduled bills/income.
 
@@ -112,8 +114,15 @@ async def project_balances(
     today = today or current_date()
     horizon = today + timedelta(days=days)
 
+    # Whose money this line is about. Naming accounts is the narrower
+    # statement and wins: asked for a parent's pension account, the
+    # answer is their money, not an empty chart explaining that it was
+    # never ours. Asked for nothing, it is ours - a balance line that
+    # quietly includes somebody else's income is wrong everywhere it is
+    # read.
+    scope = EVERYONE if account_ids is not None else subject_id
     account_rows, _ = await accounts.list_accounts(
-        db, owner_user_id=owner_user_id, page_size=500
+        db, owner_user_id=owner_user_id, page_size=500, subject_id=scope
     )
     # The dialog-wide account filter reaches the forecast too: a
     # balance line that walks through bills on accounts you are not
@@ -132,7 +141,9 @@ async def project_balances(
     )
     start_balance = display_cash_balance(cash, totals)
 
-    streams = await list_recurring(db, owner_user_id=owner_user_id)
+    streams = await stream_queries.active_streams(
+        db, owner_user_id=owner_user_id, subject_id=scope
+    )
     transfer_ids = await transfer_stream_ids(db, [s.id for s in streams])
     # Payment streams are the carve-out from the transfer exclusion:
     # the card autopay genuinely drains checking on a rhythm, and a

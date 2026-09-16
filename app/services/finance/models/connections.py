@@ -82,6 +82,11 @@ class FinanceInstitution(SQLModel, table=True):
     # Plaid ins_xxx / SnapTrade brokerage id — provider taxonomy, plain text.
     provider_institution_id: str | None = Field(default=None)
     name: str = Field(max_length=128, index=True)
+    # The address-book row this bank IS, where the app knows it as one:
+    # identity belongs to ``party``, and this row carries what only a
+    # ledger cares about - the logo, the provider id, the capability
+    # flags a connection gates on.
+    party_id: int | None = Field(default=None, index=True)
     # The dedup key, as for a payee: typed names forgive case and spacing.
     normalized_name: str = Field(default="", max_length=128)
     domain: str | None = Field(default=None, max_length=255)

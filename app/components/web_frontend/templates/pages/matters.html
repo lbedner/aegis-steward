@@ -1,0 +1,17 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import page_header, card %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/form.html" import action %}
+
+{% block title %}Matters - {{ project_name }}{% endblock %}
+
+{# Every case. A letter from an agency is an episode in a relationship,
+   and this is the list of relationships - so the next letter has
+   somewhere to land and the last one is findable. #}
+{% block app_content %}
+{{ page_header("Matters", "The cases your letters belong to") }}
+{% call card(id="matters") %}
+<div class="flex justify-end">{{ action("Open a matter", hx_dialog(path ~ "/new")) }}</div>
+{{ data_table(columns, rows, empty="No matters yet", row_id="matter") }}
+{% endcall %}
+{% endblock %}

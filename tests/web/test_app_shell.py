@@ -44,6 +44,35 @@ class TestAppShell:
         assert text(one(page, "aside#sidebar a[href='/'] span"))
         assert text(one(page, "[data-powered-by]")) == "Powered by Aegis Stack"
 
+    def test_the_sections_are_grouped_by_what_they_are_about(self) -> None:
+        """The heading and the order are one list. A heading written in
+        the template would be a second place the nav is decided, and the
+        two would disagree the first time a section moved.
+
+        A group CHANGE draws it, so a section carrying no group closes
+        the last one with a rule rather than sitting under a heading it
+        has nothing to do with.
+        """
+        from app.components.web_frontend.nav import NAV
+
+        page = render_shell()
+        drawn = [text(el) for el in select(page, "#sidebar [data-nav-group]")]
+        declared = []
+        for entry in NAV:
+            if entry.group and entry.group not in declared:
+                declared.append(entry.group)
+        assert drawn == declared
+
+        # Chat and Settings carry no group, so a rule closes Records
+        # rather than leaving them filed under it.
+        one(page, "#sidebar nav hr")
+
+        # Railed, a heading is a word with nothing under it.
+        for el in select(page, "#sidebar [data-nav-group]") + select(
+            page, "#sidebar nav hr"
+        ):
+            assert "rail-none" in (el.get("class") or "")
+
     def test_the_sidebar_rails_down_to_its_icons(self) -> None:
         """Collapsing is a stored preference, not page state: theme.js
         puts it on <html> before the first paint, so a railed sidebar

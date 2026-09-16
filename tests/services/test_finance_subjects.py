@@ -77,15 +77,35 @@ class TestSubjects:
         assert [a.name for a in rows] == ["Household Checking"]
 
     @pytest.mark.asyncio
-    async def test_no_filter_still_means_everything(
+    async def test_no_filter_means_ours(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
+        """The default is the household, and that is the point of the
+        flag. A net worth, a budget and a forecast are statements about
+        OUR money; a default of "everything" folds a parent's pension
+        into our totals the day one is tracked, silently, everywhere."""
         subject = await svc.create_subject(name="Dad", owner_user_id=1)
         theirs = await _account(svc, name="HVCU Checking")
         await _account(svc, name="Household Checking")
         await svc.assign_subject(theirs.id, subject.id, owner_user_id=1)
 
         rows, _total = await svc.list_accounts(owner_user_id=1)
+
+        assert [a.name for a in rows] == ["Household Checking"]
+
+    @pytest.mark.asyncio
+    async def test_everybody_is_asked_for_by_name(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """A caller that means everybody says so."""
+        from app.services.finance.service.accounts import EVERYONE
+
+        subject = await svc.create_subject(name="Dad", owner_user_id=1)
+        theirs = await _account(svc, name="HVCU Checking")
+        await _account(svc, name="Household Checking")
+        await svc.assign_subject(theirs.id, subject.id, owner_user_id=1)
+
+        rows, _total = await svc.list_accounts(owner_user_id=1, subject_id=EVERYONE)
 
         assert len(rows) == 2
 

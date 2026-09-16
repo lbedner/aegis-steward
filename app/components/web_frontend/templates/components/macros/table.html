@@ -61,6 +61,15 @@
   {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
   <span>{{ value.label }}</span>
 </button>
+{%- elif col.kind == "page" -%}
+{# A cell that GOES somewhere. The same door, drawn the same way, but
+   for a row that is a place rather than a record you glance at: a
+   matter is worked for weeks, and a modal is the wrong container for
+   something you come back to, bookmark and read beside a letter. #}
+<a href="{{ value.url }}" {{ hx_page(value.url) }} class="inline-flex items-center gap-2 text-left text-aegis-teal hover:underline transition-colors" data-open>
+  {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
+  <span>{{ value.label }}</span>
+</a>
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}
@@ -95,9 +104,13 @@ text-aegis-text
    run, so it gets the dot and no door rather than a link to nothing.
 
    Rendered inside a cell that is ``relative``; see ``table_row``. #}
+{% macro new_dot() -%}
+<span class="w-1.5 h-1.5 rounded-full bg-aegis-teal" aria-hidden="true"></span>
+{%- endmacro %}
+
 {% macro new_mark(row) %}
 {%- if row.is_new -%}
-{%- set dot %}<span class="w-1.5 h-1.5 rounded-full bg-aegis-teal" aria-hidden="true"></span>{% endset -%}
+{%- set dot = new_dot() -%}
 {%- if row.import_batch_id -%}
 {# The mark provokes exactly one question - "this is new, where did it
    come from?" - so it answers it. A button, not the dot alone: a 6px

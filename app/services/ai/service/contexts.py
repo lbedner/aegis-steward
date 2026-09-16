@@ -103,7 +103,7 @@ class ContextsMixin(UsageMixin):
             timestamp=datetime.now(),
         )
 
-    def _build_usage_context(self) -> UsageContext | None:
+    async def _build_usage_context(self) -> UsageContext | None:
         """
         Build usage context from AI service statistics.
 
@@ -115,7 +115,7 @@ class ContextsMixin(UsageMixin):
         """
 
         try:
-            stats = self.get_usage_stats(recent_limit=5)
+            stats = await self.get_usage_stats(recent_limit=5)
 
             # Find top model by request count
             top_model = None

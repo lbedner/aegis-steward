@@ -38,7 +38,7 @@ def providers(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestNav:
     def test_every_tab_is_a_sibling_route(self, client: TestClient) -> None:
         page = client.get("/settings").text
-        from app.components.web_frontend.routes.finance.settings import TABS
+        from app.components.web_frontend.nav import SETTINGS_TABS as TABS
 
         # The tabs are declared once; the test walks that list rather
         # than repeating it, so adding one is a route to write and not a
