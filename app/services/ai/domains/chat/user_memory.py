@@ -395,6 +395,56 @@ async def replace_memory(memory_text: str) -> str:
         return await replace_user_memory(user_id, memory_text, session=session)
 
 
+def _find_fact(facts: list[dict[str, Any]], words: str) -> int | None:
+    """The one saved fact ``words`` picks out, or None. A quote of the fact
+    (either direction, case-insensitive) is enough; two matches is a
+    question back to the model rather than a guess."""
+    hits = [
+        i
+        for i, entry in enumerate(facts)
+        if _is_duplicate(str(entry.get("fact", "")), words)
+    ]
+    return hits[0] if len(hits) == 1 else None
+
+
+async def update_memory(old_fact: str, new_fact: str) -> str:
+    """Rewrite one saved fact that has changed - Marisa's hours firmed up,
+    a valuation was revised - in place, instead of saving a second one
+    beside the first. ``old_fact`` is a quote of the saved fact."""
+    user_id = current_user_id.get()
+    if not user_id:
+        return "No user context available; nothing was changed."
+    if not new_fact.strip():
+        return "Nothing to save; provide the corrected fact."
+    async with get_async_session() as session:
+        facts = await list_user_facts(user_id, session=session)
+        index = _find_fact(facts, old_fact)
+        if index is None:
+            return (
+                "No single saved fact matches that; quote it more exactly, or "
+                "save_memory if it is new."
+            )
+        entry = await update_user_fact(user_id, index, fact=new_fact, session=session)
+    return f"Updated ({entry['category']}): {entry['fact']}"
+
+
+async def forget_memory(fact: str) -> str:
+    """Drop one saved fact - because it is no longer true, or because a
+    tool can now read it (a stream that was declared, an account that
+    was created). ``fact`` is a quote of the saved fact."""
+    user_id = current_user_id.get()
+    if not user_id:
+        return "No user context available; nothing was forgotten."
+    async with get_async_session() as session:
+        facts = await list_user_facts(user_id, session=session)
+        index = _find_fact(facts, fact)
+        if index is None:
+            return "No single saved fact matches that; quote it more exactly."
+        gone = facts[index]["fact"]
+        await delete_user_fact(user_id, index, session=session)
+    return f"Forgot: {gone}"
+
+
 # Built-in registration: importing this module makes the tools grantable
 # via the agent registry. replace=True keeps re-imports idempotent.
 register_tool(
@@ -408,6 +458,20 @@ register_tool(
     "replace_memory",
     replace_memory,
     description="Replace all saved facts about the current user",
+    native_write=True,
+    replace=True,
+)
+register_tool(
+    "update_memory",
+    update_memory,
+    description="Rewrite one saved fact that has changed, in place",
+    native_write=True,
+    replace=True,
+)
+register_tool(
+    "forget_memory",
+    forget_memory,
+    description="Drop one saved fact that is no longer true or that a tool can now read",
     native_write=True,
     replace=True,
 )
