@@ -26,10 +26,10 @@ from app.services.matters.facts import place_book
 from app.services.matters.service import PartyService, party_or_new
 from app.services.matters.signins import SignInService, drawn
 
-SECTION = section("settings")
+SECTION = section("contacts")
 router = APIRouter(prefix=SECTION.path)
 
-SIGN_IN = "/people/signins/{sign_in_id:int}"
+SIGN_IN = "/signins/{sign_in_id:int}"
 
 
 async def signins_for(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
@@ -82,7 +82,7 @@ async def _block(
     )
 
 
-@router.get("/people/{party_id:int}/signins", include_in_schema=False)
+@router.get("/{party_id:int}/signins", include_in_schema=False)
 async def listing(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         if await PartyService(db).get(party_id) is None:
@@ -90,7 +90,7 @@ async def listing(request: Request, party_id: int) -> Response:
         return await _block(request, db, party_id)
 
 
-@router.get("/people/{party_id:int}/signins/new", include_in_schema=False)
+@router.get("/{party_id:int}/signins/new", include_in_schema=False)
 async def new_signin(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         if await PartyService(db).get(party_id) is None:
@@ -106,12 +106,10 @@ async def edit_signin(request: Request, sign_in_id: int) -> Response:
         sign_in = await SignInService(db).get(sign_in_id)
         if sign_in is None:
             raise HTTPException(status_code=404)
-        return await _block(
-            request, db, sign_in.party_id, form=drawn(sign_in)
-        )
+        return await _block(request, db, sign_in.party_id, form=drawn(sign_in))
 
 
-@router.post("/people/{party_id:int}/signins/new", include_in_schema=False)
+@router.post("/{party_id:int}/signins/new", include_in_schema=False)
 async def add_signin(
     request: Request,
     party_id: int,

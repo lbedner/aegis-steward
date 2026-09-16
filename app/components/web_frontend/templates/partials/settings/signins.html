@@ -31,10 +31,10 @@
       </div>
       <div class="shrink-0 flex items-center gap-2">
         {% if signin.has_secret %}
-        {{ action("Show", 'hx-post="/settings/people/signins/' ~ signin.id ~ '/reveal" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+        {{ action("Show", 'hx-post="/contacts/signins/' ~ signin.id ~ '/reveal" hx-target="#sign-ins" hx-swap="outerHTML"') }}
         {% endif %}
-        {{ action("Edit", 'hx-get="/settings/people/signins/' ~ signin.id ~ '/edit" hx-target="#sign-ins" hx-swap="outerHTML"') }}
-        {{ action("Remove", 'hx-delete="/settings/people/signins/' ~ signin.id ~ '" hx-target="#sign-ins" hx-swap="outerHTML" hx-confirm="Remove ' ~ signin.label ~ '?"', tone="danger") }}
+        {{ action("Edit", 'hx-get="/contacts/signins/' ~ signin.id ~ '/edit" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+        {{ action("Remove", 'hx-delete="/contacts/signins/' ~ signin.id ~ '" hx-target="#sign-ins" hx-swap="outerHTML" hx-confirm="Remove ' ~ signin.label ~ '?"', tone="danger") }}
       </div>
     </li>
     {% endfor %}
@@ -64,7 +64,7 @@
   {#- Its own form, not nested in the party's: a form inside a form is
       not markup a browser accepts, and the two save different things. -#}
   <div class="rounded-lg border border-aegis-border p-3 space-y-3" data-signin-form>
-    {% set post = "/settings/people/signins/" ~ form.id if form.id else "/settings/people/" ~ party_id ~ "/signins/new" %}
+    {% set post = "/contacts/signins/" ~ form.id if form.id else "/contacts/" ~ party_id ~ "/signins/new" %}
     {% call field("What it gets you into") %}{{ text_input("label", form.label, placeholder="IBEW pension portal", required=True, autofocus=True) }}{% endcall %}
     {#- Where it gets you in, picked from the address book: a portal
         typed as free text is spelled three ways by the third sign-in. -#}
@@ -77,10 +77,10 @@
     {% call field("Note") %}{{ text_input("note", form.note) }}{% endcall %}
     <div class="flex items-center gap-3">
       {{ primary_button("Save", attrs='hx-post="' ~ post ~ '" hx-include="closest [data-signin-form]" hx-target="#sign-ins" hx-swap="outerHTML"') }}
-      {{ action("Cancel", 'hx-get="/settings/people/' ~ party_id ~ '/signins" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+      {{ action("Cancel", 'hx-get="/contacts/' ~ party_id ~ '/signins" hx-target="#sign-ins" hx-swap="outerHTML"') }}
     </div>
   </div>
   {% else %}
-  {{ action("Add a sign-in", 'hx-get="/settings/people/' ~ party_id ~ '/signins/new" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+  {{ action("Add a sign-in", 'hx-get="/contacts/' ~ party_id ~ '/signins/new" hx-target="#sign-ins" hx-swap="outerHTML"') }}
   {% endif %}
 </div>

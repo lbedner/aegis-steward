@@ -10,7 +10,7 @@ from tests.web.dom import none, one, select, text
 
 def _party(client: TestClient, name: str, kind: str) -> None:
     client.post(
-        "/settings/people/new",
+        "/contacts/new",
         data={"name": name, "kind": kind, "sort_name": "", "note": ""},
     )
 
@@ -32,10 +32,10 @@ class TestTheMattersPage:
         so opening a matter writes the links too."""
         _party(client, "James Bedner", "person")
         _party(client, "Dutchess County DSS", "organization")
-        people = client.get("/settings/people").text
+        people = client.get("/contacts").text
         ids = [
             el.get("hx-get").rsplit("/", 1)[-1]
-            for el in select(people, "#people tbody [data-open]")
+            for el in select(people, "#contacts tbody [data-open]")
         ]
 
         client.post(
@@ -363,9 +363,9 @@ class TestWhatWeCanSay:
 
     def _party(self, client: TestClient, name: str) -> str:
         _party(client, name, "person")
-        people = client.get(f"/settings/people?q={name}").text
+        people = client.get(f"/contacts?q={name}").text
         return str(
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
@@ -472,9 +472,9 @@ class TestSignIns:
 
     def _party(self, client: TestClient, name: str) -> str:
         _party(client, name, "person")
-        people = client.get(f"/settings/people?q={name}").text
+        people = client.get(f"/contacts?q={name}").text
         return str(
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
@@ -485,7 +485,7 @@ class TestSignIns:
         party_id = self._party(client, "Signin Subject One")
 
         added = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={
                 "label": "IBEW pension portal",
                 "url": "pensionportal.example.com",
@@ -503,26 +503,26 @@ class TestSignIns:
             "https://pensionportal.example.com"
         )
 
-        shown = client.post(f"/settings/people/signins/{row.get('data-signin')}/reveal")
+        shown = client.post(f"/contacts/signins/{row.get('data-signin')}/reveal")
         assert text(one(shown.text, "[data-secret]")) == "correct-horse"
 
         # And it is gone again on the next draw.
-        again = client.get(f"/settings/people/{party_id}/signins")
+        again = client.get(f"/contacts/{party_id}/signins")
         assert select(again.text, "[data-secret]") == []
 
     def test_editing_the_username_keeps_the_password(self, client: TestClient) -> None:
         party_id = self._party(client, "Signin Subject Two")
         added = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={"label": "Portal", "username": "old", "secret": "keep-me"},
         )
         sign_in_id = one(added.text, "#sign-ins [data-signin]").get("data-signin")
 
         client.post(
-            f"/settings/people/signins/{sign_in_id}",
+            f"/contacts/signins/{sign_in_id}",
             data={"label": "Portal", "username": "new", "secret": ""},
         )
-        shown = client.post(f"/settings/people/signins/{sign_in_id}/reveal")
+        shown = client.post(f"/contacts/signins/{sign_in_id}/reveal")
 
         assert text(one(shown.text, "[data-username]")) == "new"
         assert text(one(shown.text, "[data-secret]")) == "keep-me"
@@ -531,7 +531,7 @@ class TestSignIns:
         party_id = self._party(client, "Signin Subject Three")
 
         answer = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={"label": " ", "secret": "x"},
         )
 
@@ -544,9 +544,9 @@ def test_a_fact_links_the_site_it_was_read_off(client: TestClient) -> None:
     """ "Read off the pension portal" is a note, not a way back."""
     page = _matter(client, "MA-URL-1")
     _party(client, "Url Subject", "person")
-    people = client.get("/settings/people?q=Url Subject").text
+    people = client.get("/contacts?q=Url Subject").text
     subject = (
-        select(people, "#people tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
+        select(people, "#contacts tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
     )
 
     client.post(
@@ -572,9 +572,9 @@ def test_a_link_that_is_not_a_link_is_refused(client: TestClient) -> None:
     href is a script the page runs."""
     page = _matter(client, "MA-URL-2")
     _party(client, "Url Subject Two", "person")
-    people = client.get("/settings/people?q=Url Subject Two").text
+    people = client.get("/contacts?q=Url Subject Two").text
     subject = (
-        select(people, "#people tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
+        select(people, "#contacts tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
     )
 
     answer = client.post(
@@ -597,7 +597,7 @@ class TestAPlace:
 
     def _org(self, client: TestClient, name: str, website: str) -> str:
         client.post(
-            "/settings/people/new",
+            "/contacts/new",
             data={
                 "name": name,
                 "kind": "organization",
@@ -606,9 +606,9 @@ class TestAPlace:
                 "note": "",
             },
         )
-        people = client.get(f"/settings/people?q={name}").text
+        people = client.get(f"/contacts?q={name}").text
         return str(
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
@@ -617,9 +617,9 @@ class TestAPlace:
         page = _matter(client, "MA-PLACE-1")
         place = self._org(client, "Place Pension Fund", "placepension.example.com")
         _party(client, "Place Subject One", "person")
-        people = client.get("/settings/people?q=Place Subject One").text
+        people = client.get("/contacts?q=Place Subject One").text
         subject = (
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
@@ -652,15 +652,15 @@ class TestAPlace:
     def test_a_sign_in_points_at_the_same_place(self, client: TestClient) -> None:
         place = self._org(client, "Place Portal Co", "placeportal.example.com")
         _party(client, "Place Subject Two", "person")
-        people = client.get("/settings/people?q=Place Subject Two").text
+        people = client.get("/contacts?q=Place Subject Two").text
         party_id = (
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
 
         added = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={"label": "Portal", "site_party_id": place, "username": "jb"},
         )
 
@@ -670,7 +670,7 @@ class TestAPlace:
 
     def test_a_website_that_is_not_a_link_is_refused(self, client: TestClient) -> None:
         answer = client.post(
-            "/settings/people/new",
+            "/contacts/new",
             data={
                 "name": "Bad Place Co",
                 "kind": "organization",
@@ -689,7 +689,7 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
     sign-ins yet" while a sign-in pointed straight at it, because the
     list only ever read one side of the link."""
     client.post(
-        "/settings/people/new",
+        "/contacts/new",
         data={
             "name": "Both Ends Fund",
             "kind": "organization",
@@ -699,14 +699,14 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
         },
     )
     _party(client, "Both Ends Owner", "person")
-    people = client.get("/settings/people?q=Both Ends").text
+    people = client.get("/contacts?q=Both Ends").text
     ids = {
         text(el): el.get("hx-get").rsplit("/", 1)[-1]
-        for el in select(people, "#people tbody [data-open]")
+        for el in select(people, "#contacts tbody [data-open]")
     }
 
     client.post(
-        f"/settings/people/{ids['Both Ends Owner']}/signins/new",
+        f"/contacts/{ids['Both Ends Owner']}/signins/new",
         data={
             "label": "Retirement Online",
             "site_party_id": ids["Both Ends Fund"],
@@ -714,7 +714,7 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
         },
     )
 
-    theirs = client.get(f"/settings/people/{ids['Both Ends Fund']}/signins").text
+    theirs = client.get(f"/contacts/{ids['Both Ends Fund']}/signins").text
     visitor = one(theirs, "[data-visitor]")
     assert "Both Ends Owner" in text(visitor)
     assert "Retirement Online" in text(visitor)
@@ -925,7 +925,7 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
     # 6. And the figure the other step wants, with where it came from.
     _party(client, "Walk Subject", "person")
     subject = select(
-        client.get("/settings/people?q=Walk Subject").text, "#people tbody [data-open]"
+        client.get("/contacts?q=Walk Subject").text, "#contacts tbody [data-open]"
     )
     client.post(
         page + "/facts/new",
@@ -995,8 +995,8 @@ class TestNamingSomebodyWhereYouNeedThem:
         said = one(client.get(page).text, "#matter-facts [data-fact]")
         assert "$10.00" in text(said)
         # And the person exists afterwards, in the one address book.
-        people = client.get("/settings/people?q=Inline Subject").text
-        assert "Inline Subject" in text(one(people, "#people"))
+        people = client.get("/contacts?q=Inline Subject").text
+        assert "Inline Subject" in text(one(people, "#contacts"))
 
     def test_the_typed_name_wins_over_the_list(self, client: TestClient) -> None:
         """Somebody who types a name after picking from the list has
@@ -1005,8 +1005,8 @@ class TestNamingSomebodyWhereYouNeedThem:
         _party(client, "Inline Picked", "person")
         picked = (
             select(
-                client.get("/settings/people?q=Inline Picked").text,
-                "#people tbody [data-open]",
+                client.get("/contacts?q=Inline Picked").text,
+                "#contacts tbody [data-open]",
             )[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]

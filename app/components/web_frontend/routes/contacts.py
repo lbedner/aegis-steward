@@ -18,7 +18,6 @@ from fastapi import APIRouter, Depends, Form, Request
 from starlette.responses import Response
 
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.nav import settings_nav as nav_context
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
@@ -31,7 +30,7 @@ from app.services.matters.facts import web_address
 from app.services.matters.models import PARTY_KINDS
 from app.services.matters.service import PartyService
 
-SECTION = section("settings")
+SECTION = section("contacts")
 router = APIRouter(prefix=SECTION.path)
 
 PARTY_COLUMNS = (
@@ -71,14 +70,14 @@ def _row(party: Any) -> dict[str, Any]:
         "sort_name": party.sort_name,
         "name": {
             "label": party.name,
-            "url": f"{SECTION.path}/people/{party.id}",
+            "url": f"{SECTION.path}/{party.id}",
         },
         "kind": party.kind.title(),
         "reach": _reach(party.contact),
     }
 
 
-@router.get("/people", include_in_schema=False)
+@router.get("", include_in_schema=False)
 async def people(
     request: Request,
     q: str = "",
@@ -89,10 +88,9 @@ async def people(
         parties = await PartyService(db).find(owner_user_id=owner_user_id, q=q)
         return render(
             request,
-            "pages/settings/people.html",
+            "pages/contacts.html",
             {
                 "section": SECTION,
-                **nav_context("people"),
                 "rows": [_row(p) for p in parties],
                 "columns": list(PARTY_COLUMNS),
                 "path": SECTION.path,
@@ -122,12 +120,12 @@ def _form(
     )
 
 
-@router.get("/people/new", include_in_schema=False)
+@router.get("/new", include_in_schema=False)
 async def new_party(request: Request) -> Response:
     return _form(request, errors=[], name="", kind="person")
 
 
-@router.get("/people/{party_id:int}", include_in_schema=False)
+@router.get("/{party_id:int}", include_in_schema=False)
 async def edit_party(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         party = await PartyService(db).get(party_id)
@@ -136,8 +134,8 @@ async def edit_party(request: Request, party_id: int) -> Response:
     return _form(request, errors=[], party=party)
 
 
-@router.post("/people/new", include_in_schema=False)
-@router.post("/people/{party_id:int}", include_in_schema=False)
+@router.post("/new", include_in_schema=False)
+@router.post("/{party_id:int}", include_in_schema=False)
 async def save_party(
     request: Request,
     party_id: int | None = None,
@@ -210,12 +208,10 @@ async def save_party(
             )
         await db.commit()
         saved = party.name
-    return dialog_done(
-        where_from(request, f"{SECTION.path}/people"), f"Saved {saved}"
-    )
+    return dialog_done(where_from(request, f"{SECTION.path}/people"), f"Saved {saved}")
 
 
-@router.delete("/people/{party_id:int}", include_in_schema=False)
+@router.delete("/{party_id:int}", include_in_schema=False)
 async def remove_party(request: Request, party_id: int) -> Response:
     """Soft delete: matters and documents point here."""
     async with get_async_session() as db:

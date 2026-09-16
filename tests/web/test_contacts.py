@@ -10,23 +10,23 @@ from tests.web.dom import none, one, select, text
 
 
 class TestThePeoplePage:
-    def test_the_page_renders_and_is_marked_current(
-        self, client: TestClient
-    ) -> None:
-        page = client.get("/settings/people").text
-        one(page, "#people")
-        marked = one(page, '#settings-nav a[aria-current="page"]')
-        assert marked.get("href") == "/settings/people"
+    def test_the_page_renders_and_is_marked_current(self, client: TestClient) -> None:
+        page = client.get("/contacts").text
+        one(page, "#contacts")
+        # A Records section of its own, beside Matters - not a Settings tab.
+        marked = one(page, 'a[aria-current="page"]')
+        assert marked.get("href") == "/contacts"
+        none(page, "#settings-nav")
 
     def test_nothing_found_says_so(self, client: TestClient) -> None:
         """Asserted through a search that matches nothing rather than an
         empty table: the workers share a database, so whether any party
         exists is another test's business, not this one's."""
-        page = client.get("/settings/people", params={"q": "zzzznobody"}).text
-        assert "Nobody yet" in text(one(page, "#people"))
+        page = client.get("/contacts", params={"q": "zzzznobody"}).text
+        assert "Nobody yet" in text(one(page, "#contacts"))
 
     def test_fragment_has_no_shell(self, hx: TestClient) -> None:
-        none(hx.get("/settings/people").text, "html")
+        none(hx.get("/contacts").text, "html")
 
     def test_the_three_the_case_needs(self, client: TestClient) -> None:
         """A person, an agency and a facility - the ticket's own gate,
@@ -37,12 +37,12 @@ class TestThePeoplePage:
             ("Eleanor Nursing Care Center", "organization"),
         ):
             client.post(
-                "/settings/people/new",
+                "/contacts/new",
                 data={"name": name, "kind": kind, "sort_name": "", "note": ""},
             )
 
-        page = client.get("/settings/people").text
-        rows = [text(cell) for cell in select(page, "#people tbody td")]
+        page = client.get("/contacts").text
+        rows = [text(cell) for cell in select(page, "#contacts tbody td")]
         assert "James Bedner" in rows
         assert "Dutchess County DSS" in rows
         # Filed where a reader looks: the person files under B.
@@ -58,29 +58,30 @@ class TestThePeoplePage:
         share a database and other tests put people in it.
         """
         client.post(
-            "/settings/people/new",
-            data={"name": "Quilliam Testcase", "kind": "person", "sort_name": "", "note": ""},
+            "/contacts/new",
+            data={
+                "name": "Quilliam Testcase",
+                "kind": "person",
+                "sort_name": "",
+                "note": "",
+            },
         )
-        page = client.get("/settings/people", params={"q": "Quilliam"}).text
-        party = one(page, "#people tbody [data-open]")
+        page = client.get("/contacts", params={"q": "Quilliam"}).text
+        party = one(page, "#contacts tbody [data-open]")
 
         form = client.get(party.get("hx-get")).text
 
         filed = one(form, 'input[name="sort_name"]')
         assert filed.get("value") == "Testcase, Quilliam"
 
-    def test_a_party_with_no_name_is_refused_in_place(
-        self, client: TestClient
-    ) -> None:
+    def test_a_party_with_no_name_is_refused_in_place(self, client: TestClient) -> None:
         body = client.post(
-            "/settings/people/new",
+            "/contacts/new",
             data={"name": "   ", "kind": "person", "sort_name": "", "note": ""},
         )
         assert body.status_code == 422
         assert "needs a name" in body.text
         # Nothing was written: a blank-named party would file under a
         # blank sort name, which is the top of the list.
-        page = client.get("/settings/people").text
-        assert not [
-            cell for cell in select(page, "#people tbody td") if not text(cell)
-        ]
+        page = client.get("/contacts").text
+        assert not [cell for cell in select(page, "#contacts tbody td") if not text(cell)]

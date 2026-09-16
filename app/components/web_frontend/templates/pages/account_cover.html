@@ -32,7 +32,7 @@
     <div data-who="{{ who.role|lower|replace(" ", "-") }}" class="min-w-0">
       <dt class="micro-label text-aegis-muted">{{ who.role }}</dt>
       <dd class="mt-0.5">
-        <button type="button" {{ hx_dialog("/settings/people/" ~ who.party_id) }}
+        <button type="button" {{ hx_dialog("/contacts/" ~ who.party_id) }}
                 class="text-sm text-aegis-teal hover:underline transition-colors" data-party>{{ who.name }}</button>
         <ul class="mt-1 space-y-0.5 text-xs text-aegis-muted">
           {% if who.contact.website %}
