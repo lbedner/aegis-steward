@@ -174,7 +174,9 @@ class TestWhatWasAskedFor:
         )
         items = select(client.get(page).text, "#matter-requests [data-item]")
 
-        answer = client.post(f"/matters/requests/items/{items[0].get('data-item')}/mark/satisfied")
+        answer = client.post(
+            f"/matters/requests/items/{items[0].get('data-item')}/mark/satisfied"
+        )
 
         assert answer.status_code == 200
         none(answer.text, "html")
@@ -208,7 +210,9 @@ class TestWhatWasAskedFor:
         item = one(client.get(page).text, "#matter-requests [data-item]")
 
         client.post(f"/matters/requests/items/{item.get('data-item')}/mark/waived")
-        back = client.post(f"/matters/requests/items/{item.get('data-item')}/mark/needed")
+        back = client.post(
+            f"/matters/requests/items/{item.get('data-item')}/mark/needed"
+        )
 
         assert text(one(back.text, "[data-standing]")) == "0 of 1"
 
@@ -225,7 +229,9 @@ class TestWhatWasAskedFor:
         client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
         item = one(client.get(page).text, "#matter-requests [data-item]")
 
-        answer = client.post(f"/matters/requests/items/{item.get('data-item')}/mark/lost")
+        answer = client.post(
+            f"/matters/requests/items/{item.get('data-item')}/mark/lost"
+        )
 
         assert answer.status_code == 400
 
@@ -243,9 +249,7 @@ class TestThePaperThatAnswers:
         item = one(client.get(page).text, "#matter-requests [data-item]")
         return page, str(item.get("data-item"))
 
-    def test_adding_one_files_it_and_answers_the_item(
-        self, client: TestClient
-    ) -> None:
+    def test_adding_one_files_it_and_answers_the_item(self, client: TestClient) -> None:
         from tests._pdf import pdf_bytes
 
         page, item_id = self._item(client, "MA-DOC-1")
@@ -253,7 +257,9 @@ class TestThePaperThatAnswers:
 
         answer = client.post(
             base + "/attach",
-            files={"file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")},
+            files={
+                "file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")
+            },
         )
         assert answer.status_code == 200
 
@@ -272,7 +278,9 @@ class TestThePaperThatAnswers:
         page, item_id = self._item(client, "MA-DOC-2")
         client.post(
             f"/matters/requests/items/{item_id}/attach",
-            files={"file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")},
+            files={
+                "file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")
+            },
         )
         door = one(client.get(page).text, "#matter-requests [data-document]")
 
@@ -392,9 +400,7 @@ class TestWhatWeCanSay:
         assert "$1,521.88" in text(one(row, "[data-monthly]"))
         assert "Read off the pension portal" in text(row)
 
-    def test_two_sources_can_disagree_and_both_stand(
-        self, client: TestClient
-    ) -> None:
+    def test_two_sources_can_disagree_and_both_stand(self, client: TestClient) -> None:
         page = _matter(client, "MA-FACT-2")
         subject = self._party(client, "Fact Subject Two")
         for amount, provenance in (("2075.00", "ledger"), ("2180.40", "stated")):
@@ -497,18 +503,14 @@ class TestSignIns:
             "https://pensionportal.example.com"
         )
 
-        shown = client.post(
-            f"/settings/people/signins/{row.get('data-signin')}/reveal"
-        )
+        shown = client.post(f"/settings/people/signins/{row.get('data-signin')}/reveal")
         assert text(one(shown.text, "[data-secret]")) == "correct-horse"
 
         # And it is gone again on the next draw.
         again = client.get(f"/settings/people/{party_id}/signins")
         assert select(again.text, "[data-secret]") == []
 
-    def test_editing_the_username_keeps_the_password(
-        self, client: TestClient
-    ) -> None:
+    def test_editing_the_username_keeps_the_password(self, client: TestClient) -> None:
         party_id = self._party(client, "Signin Subject Two")
         added = client.post(
             f"/settings/people/{party_id}/signins/new",
@@ -539,14 +541,12 @@ class TestSignIns:
 
 
 def test_a_fact_links_the_site_it_was_read_off(client: TestClient) -> None:
-    """"Read off the pension portal" is a note, not a way back."""
+    """ "Read off the pension portal" is a note, not a way back."""
     page = _matter(client, "MA-URL-1")
     _party(client, "Url Subject", "person")
     people = client.get("/settings/people?q=Url Subject").text
     subject = (
-        select(people, "#people tbody [data-open]")[-1]
-        .get("hx-get")
-        .rsplit("/", 1)[-1]
+        select(people, "#people tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
     )
 
     client.post(
@@ -574,9 +574,7 @@ def test_a_link_that_is_not_a_link_is_refused(client: TestClient) -> None:
     _party(client, "Url Subject Two", "person")
     people = client.get("/settings/people?q=Url Subject Two").text
     subject = (
-        select(people, "#people tbody [data-open]")[-1]
-        .get("hx-get")
-        .rsplit("/", 1)[-1]
+        select(people, "#people tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
     )
 
     answer = client.post(
@@ -615,9 +613,7 @@ class TestAPlace:
             .rsplit("/", 1)[-1]
         )
 
-    def test_a_fact_names_the_place_it_was_read_off(
-        self, client: TestClient
-    ) -> None:
+    def test_a_fact_names_the_place_it_was_read_off(self, client: TestClient) -> None:
         page = _matter(client, "MA-PLACE-1")
         place = self._org(client, "Place Pension Fund", "placepension.example.com")
         _party(client, "Place Subject One", "person")
@@ -672,9 +668,7 @@ class TestAPlace:
         assert text(one(row, "[data-site]")) == "Place Portal Co"
         assert one(row, "[data-site]").get("href") == "https://placeportal.example.com"
 
-    def test_a_website_that_is_not_a_link_is_refused(
-        self, client: TestClient
-    ) -> None:
+    def test_a_website_that_is_not_a_link_is_refused(self, client: TestClient) -> None:
         answer = client.post(
             "/settings/people/new",
             data={
@@ -755,7 +749,9 @@ def test_a_mistyped_item_can_be_corrected(client: TestClient) -> None:
 def test_an_item_cannot_be_emptied(client: TestClient) -> None:
     page = _matter(client, "MA-EDIT-2")
     client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
-    item_id = one(client.get(page).text, "#matter-requests [data-item]").get("data-item")
+    item_id = one(client.get(page).text, "#matter-requests [data-item]").get(
+        "data-item"
+    )
 
     answer = client.post(
         f"/matters/requests/items/{item_id}/edit", data={"asked": "   "}
@@ -804,7 +800,7 @@ class TestTheStepsOfARequest:
         Three mandatory-looking rows describe a harder afternoon than
         the one you have."""
         page, request_id = self._request(client, "MA-STEP-2")
-        first = one(client.get(page).text, "#matter-requests [data-item]")
+        first = select(client.get(page).text, "#matter-requests [data-item]")[0]
 
         client.post(
             f"/matters/requests/{request_id}/items/new",
@@ -821,9 +817,7 @@ class TestTheStepsOfARequest:
         assert text(one(drawn, "[data-standing]")) == "0 of 1"
 
         # Either one closes it.
-        client.post(
-            f"/matters/requests/items/{first.get('data-item')}/mark/satisfied"
-        )
+        client.post(f"/matters/requests/items/{first.get('data-item')}/mark/satisfied")
         assert text(one(client.get(page).text, "[data-standing]")) == "1 of 1"
 
     def test_the_letter_sits_beside_the_asks_it_produced(
@@ -968,9 +962,7 @@ class TestNamingSomebodyWhereYouNeedThem:
     reader to another page mid-sentence, and they come back having lost
     the four fields they had typed."""
 
-    def test_a_participant_can_be_named_on_the_matter(
-        self, client: TestClient
-    ) -> None:
+    def test_a_participant_can_be_named_on_the_matter(self, client: TestClient) -> None:
         page = _matter(client, "MA-INLINE-1")
 
         client.post(
@@ -1028,7 +1020,9 @@ class TestNamingSomebodyWhereYouNeedThem:
             },
         )
 
-        named = {text(el) for el in select(client.get(page).text, "#matter [data-party]")}
+        named = {
+            text(el) for el in select(client.get(page).text, "#matter [data-party]")
+        }
         assert "Inline Typed" in named
         assert "Inline Picked" not in named
 
@@ -1061,3 +1055,29 @@ def test_every_dialog_on_a_matter_renders(client: TestClient) -> None:
         assert answer.status_code == 200, f"{url} -> {answer.status_code}"
         # A dialog body, never a whole page swapped into the modal.
         none(answer.text, "html")
+
+
+class TestTheVerbsOnAnAsk:
+    """Two rows: what you do to the ask, and what you mark it as. The
+    words come from one place, and they are the generic ones."""
+
+    def test_doing_and_marking_are_separate_rows(self, client: TestClient) -> None:
+        from app.services.matters.words import ITEM_VERBS, WORDS
+
+        page = _matter(client, "MA-VERBS")
+        client.post(
+            page + "/requests/new",
+            data={"asked": ASKED, "due_on": "2026-09-08", "received_on": ""},
+        )
+        first = select(client.get(page).text, "#matter-requests [data-item]")[0]
+        rows = select(first, "[data-verbs] > div")
+        assert len(rows) == 2
+        doing = [text(b) for b in rows[0].findall(".//button")]
+        marking = [text(b) for b in rows[1].findall(".//button")]
+        assert doing == [WORDS["attach"], WORDS["edit"]]
+        assert marking == [
+            ITEM_VERBS["satisfied"],
+            ITEM_VERBS["not_applicable"],
+            ITEM_VERBS["waived"],
+        ]
+        assert rows[1].get("aria-label") == WORDS["mark_as"]

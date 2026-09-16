@@ -53,6 +53,7 @@ templates.env.globals["file_badge"] = file_badge
 # status spelled in another.
 from app.services.matters.words import (  # noqa: E402
     item_status,
+    item_verb,
     role_label,
     word,
 )
@@ -60,6 +61,7 @@ from app.services.matters.words import (  # noqa: E402
 templates.env.globals["word"] = word
 templates.env.filters["role_label"] = role_label
 templates.env.filters["item_status"] = item_status
+templates.env.filters["item_verb"] = item_verb
 templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.

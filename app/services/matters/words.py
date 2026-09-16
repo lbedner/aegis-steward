@@ -35,6 +35,16 @@ ITEM_STATUS_LABELS: dict[str, str] = {
     "waived": "Waived",
 }
 
+# The verb that PUTS an ask in a state: generic, one word where it can
+# be. The state itself is named above; "Complete" is what you do, and
+# "Satisfied" is what it then reads as.
+ITEM_VERBS: dict[str, str] = {
+    "satisfied": "Complete",
+    "not_applicable": "Not applicable",
+    "waived": "Waived",
+    "needed": "Reopen",
+}
+
 REQUEST_STATUS_LABELS: dict[str, str] = {
     "open": "open",
     "satisfied": "satisfied",
@@ -50,6 +60,12 @@ WORDS: dict[str, str] = {
     # One demand inside a request.
     "ask": "ask",
     "add_ask": "Add an ask",
+    # The verbs on one ask.
+    "edit": "Edit",
+    "attach": "Attach a document",
+    "replace": "Replace the document",
+    "remove": "Remove the document",
+    "mark_as": "Mark as",
     # One letter's demands, and the deadline that came with them.
     "request": "request",
     "add_request": "Record a request",
@@ -78,3 +94,7 @@ def role_label(role: str) -> str:
 
 def item_status(status: str) -> str:
     return ITEM_STATUS_LABELS.get(status, status.replace("_", " ").title())
+
+
+def item_verb(status: str) -> str:
+    return ITEM_VERBS.get(status, item_status(status))

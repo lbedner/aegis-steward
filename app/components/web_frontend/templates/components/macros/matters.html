@@ -12,24 +12,30 @@
    rides in the URL rather than a form body - there is nothing else to
    send, and a menu item is not a form. #}
 {% macro _verbs(option, base, swap) %}
-{#- The verbs on one option, as buttons rather than a menu. A step is
-    opened to DO something; a chevron inside a chevron is a place to
-    hide the thing the reader came for. -#}
-<div class="flex flex-wrap items-center gap-2 pt-1">
-  {% if option.document %}
-  {{ action("Replace the document", hx_dialog(base ~ "/attach")) }}
-  {{ action("Remove the document", 'hx-post="' ~ base ~ '/detach" ' ~ swap) }}
-  {% else %}
-  {{ action("Attach a document", hx_dialog(base ~ "/attach")) }}
-  {% endif %}
-  {% if option.settled %}
-  {{ action("needed"|item_status, 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
-  {% else %}
-  {{ action("satisfied"|item_status, 'hx-post="' ~ base ~ '/mark/satisfied" ' ~ swap) }}
-  {{ action("not_applicable"|item_status, 'hx-post="' ~ base ~ '/mark/not_applicable" ' ~ swap) }}
-  {{ action("waived"|item_status, 'hx-post="' ~ base ~ '/mark/waived" ' ~ swap) }}
-  {% endif %}
-  {{ action("Correct the wording", hx_dialog(base ~ "/edit")) }}
+{#- The verbs on one option, in two rows: what you DO to it (the
+    document, the wording) and what you MARK it as. Buttons rather
+    than a menu - a step is opened to do something, and a chevron
+    inside a chevron hides the thing the reader came for. -#}
+<div class="flex flex-col gap-2 pt-1" data-verbs>
+  <div class="flex flex-wrap items-center gap-2">
+    {% if option.document %}
+    {{ action(word("replace"), hx_dialog(base ~ "/attach")) }}
+    {{ action(word("remove"), 'hx-post="' ~ base ~ '/detach" ' ~ swap) }}
+    {% else %}
+    {{ action(word("attach"), hx_dialog(base ~ "/attach"), tone="primary") }}
+    {% endif %}
+    {{ action(word("edit"), hx_dialog(base ~ "/edit")) }}
+  </div>
+  <div class="flex flex-wrap items-center gap-2" role="group" aria-label="{{ word('mark_as') }}">
+    <span class="micro-label text-aegis-muted">{{ word("mark_as") }}</span>
+    {% if option.settled %}
+    {{ action("needed"|item_verb, 'hx-post="' ~ base ~ '/mark/needed" ' ~ swap) }}
+    {% else %}
+    {{ action("satisfied"|item_verb, 'hx-post="' ~ base ~ '/mark/satisfied" ' ~ swap) }}
+    {{ action("not_applicable"|item_verb, 'hx-post="' ~ base ~ '/mark/not_applicable" ' ~ swap) }}
+    {{ action("waived"|item_verb, 'hx-post="' ~ base ~ '/mark/waived" ' ~ swap) }}
+    {% endif %}
+  </div>
 </div>
 {% endmacro %}
 
