@@ -63,7 +63,7 @@
         <p class="p-3 text-xs text-aegis-muted">This browser will not display the letter.
           <a href="/api/v1/documents/{{ asked.document_id }}/content" class="text-aegis-teal hover:underline">Open it</a>.</p>
       </object>
-      <p class="mt-1 micro-label text-aegis-muted truncate">{{ asked.letter }}</p>
+      <p class="mt-1 micro-label text-aegis-muted truncate" data-letter-title>{{ asked.letter.title }}</p>
     </div>
     {% endif %}
 

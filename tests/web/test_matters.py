@@ -840,7 +840,8 @@ class TestTheStepsOfARequest:
 
         drawn = client.get(page).text
         assert one(drawn, "#matter-requests [data-letter]") is not None
-        assert "request.pdf" in text(one(drawn, "#matter-requests [data-request]"))
+        # The caption is the title, not the row it came from.
+        assert text(one(drawn, "#matter-requests [data-letter-title]")).strip() == "request.pdf"
 
     def test_an_ask_needs_a_sentence(self, client: TestClient) -> None:
         _page, request_id = self._request(client, "MA-STEP-4")
