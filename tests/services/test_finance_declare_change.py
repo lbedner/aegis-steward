@@ -80,3 +80,36 @@ def test_a_direction_or_rhythm_nobody_defined_is_refused() -> None:
             amount_cents=0,
             next_expected_date=date(2026, 9, 22),
         )
+
+
+async def test_the_account_and_category_ride_the_card_and_the_stream(
+    async_db_session: AsyncSession,
+) -> None:
+    """ "I need to specify the account and category": both are named on
+    the card by name, and both land on the stream."""
+    from tests.services._finance_factories import seed_account, seed_category
+
+    svc = FinanceService(async_db_session)
+    account = await seed_account(svc, "TOTAL CHECKING")
+    category = await seed_category(async_db_session, "Income:Side work")
+    payload = DeclarePayload(
+        name="Marisa side work",
+        direction="inflow",
+        frequency="weekly",
+        amount_cents=9000,
+        next_expected_date=date(2026, 9, 22),
+        account_id=account.id,
+        category_id=category.id,
+    )
+
+    said = {
+        r.label: r.value
+        for r in await declare_describe(async_db_session, payload, None)
+    }
+    assert said["Account"] == "TOTAL CHECKING"
+    assert said["Category"] == "Income:Side work"
+
+    result = await declare_execute(async_db_session, payload, None)
+    await async_db_session.commit()
+    stream = await svc.get_recurring(result["stream_id"], None)
+    assert (stream.account_id, stream.category_id) == (account.id, category.id)

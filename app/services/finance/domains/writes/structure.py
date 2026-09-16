@@ -171,6 +171,9 @@ class DeclarePayload(BaseModel):
     amount_cents: int = Field(gt=0)
     next_expected_date: date
     account_id: int | None = None
+    # Stated ABOUT THE STREAM and stopping there, the way the Bills page
+    # sets it: its transactions keep their own categories.
+    category_id: int | None = None
     subject_id: int | None = None
     is_subscription: bool = False
 
@@ -210,6 +213,9 @@ async def declare_execute(
         is_subscription=payload.is_subscription,
         subject_id=payload.subject_id,
     )
+    if payload.category_id is not None:
+        stream.category_id = payload.category_id
+        db.add(stream)
     await db.flush()
     return {"stream_id": stream.id, "name": stream.name}
 
@@ -241,5 +247,12 @@ async def declare_describe(
         )
         rows.append(
             ChangeDisplayRow(label="Account", value=account.name if account else "-")
+        )
+    if payload.category_id is not None:
+        from app.services.finance.models import FinanceCategory
+
+        category = await db.get(FinanceCategory, payload.category_id)
+        rows.append(
+            ChangeDisplayRow(label="Category", value=category.name if category else "-")
         )
     return rows

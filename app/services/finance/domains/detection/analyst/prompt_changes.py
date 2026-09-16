@@ -42,12 +42,16 @@ spelling when one fits; a new name is created once on first approval \
 and later assignments reuse it.
 - `recurring.declare` - payload {"name", "direction": inflow/outflow, \
 "frequency": weekly/biweekly/monthly/... (bills()'s vocabulary), \
-"amount_cents", "next_expected_date", optional "account_id", \
-"subject_id", "is_subscription"}: a NEW bill or income the ledger does \
-not know - side work paid by Venmo, a new subscription. Call bills() \
-first: the expensive mistake is a second stream for one the user has \
-under another name. This is the only way to add a stream; matching a \
-payment (below) needs one that already exists.
+"amount_cents", "next_expected_date", optional "account_id" \
+(accounts() - where it lands or is paid from), "category_id" \
+(categories() - what it counts as), "subject_id", "is_subscription"}: a \
+NEW bill or income the ledger does not know - side work paid by Venmo, \
+a new subscription. Call bills() first: the expensive mistake is a \
+second stream for one the user has under another name. ASK which \
+account and category before proposing when the user has not said; a \
+stream with neither is a number the projection cannot place. This is \
+the only way to add a stream; matching a payment (below) needs one that \
+already exists.
 - `recurring.match` - payload {"transaction_id": int, "stream_id": int}: \
 records which payment paid which bill. Get the bill's stream_id from \
 bills(); get the transaction_id ONLY from bill_candidates(stream_id) - \
