@@ -40,6 +40,7 @@ from app.components.backend.api.finance.payees import (
 )
 from app.components.web_frontend import ranges
 from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import settings_nav as nav_context  # noqa: E402
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
@@ -56,14 +57,6 @@ from app.services.finance.service import FinanceService
 SECTION = section("settings")
 router = APIRouter(prefix=SECTION.path)
 
-TABS: tuple[tuple[str, str, str], ...] = (
-    ("connections", "Connections", ""),
-    ("categories", "Categories", "/categories"),
-    ("payees", "Payees", "/payees"),
-    ("institutions", "Institutions", "/institutions"),
-    ("comms", "Comms", "/comms"),
-    ("activity", "Activity", "/activity"),
-)
 CATEGORY_COLUMNS = [
     {"key": "name", "label": "Name"},
     {"key": "classification", "label": "Kind"},
@@ -228,18 +221,6 @@ def _provider(key: str) -> Provider:
 
 
 # --- the sub-nav -----------------------------------------------------------
-
-
-def nav_context(current: str) -> dict[str, Any]:
-    return {
-        "nav_id": "settings-nav",
-        "nav_label": "Settings sections",
-        "sub_nav": [
-            {"key": key, "label": label, "href": SECTION.path + suffix, "count": 0}
-            for key, label, suffix in TABS
-        ],
-        "current_tab": current,
-    }
 
 
 # --- connections -----------------------------------------------------------

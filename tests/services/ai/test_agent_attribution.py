@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -99,7 +99,11 @@ def harness(
         return (None, None)
 
     monkeypatch.setattr(AIService, "_build_health_context", no_health)
-    monkeypatch.setattr(AIService, "_build_usage_context", lambda self: None)
+
+    async def no_usage(self: AIService) -> None:
+        return None
+
+    monkeypatch.setattr(AIService, "_build_usage_context", no_usage)
     monkeypatch.setattr(AIService, "_build_catalog_context", lambda self: None)
 
     # The user-memory block opens the app's REAL async engine. Left unstubbed
@@ -111,7 +115,7 @@ def harness(
     monkeypatch.setattr(chat_module, "build_user_memory_context", no_memory)
     monkeypatch.setattr(streaming_module, "build_user_memory_context", no_memory)
 
-    recorder = MagicMock()
+    recorder = AsyncMock()
     monkeypatch.setattr(service, "_record_usage", recorder)
 
     captured: dict[str, Any] = {}
@@ -300,6 +304,10 @@ class TestAgentSlugSelection:
         assert seen == ["support"]
 
 
+async def _fake_usage(self: AIService) -> _FakeUsageContext:
+    return _FakeUsageContext()
+
+
 class _FakeUsageContext:
     def format_for_prompt(self, compact: bool = False) -> str:
         return "USAGE-BLOCK"
@@ -317,9 +325,7 @@ class TestOpsContextScoping:
         monkeypatch.setattr(
             AIService, "_build_catalog_context", lambda self: "CATALOG-BLOCK"
         )
-        monkeypatch.setattr(
-            AIService, "_build_usage_context", lambda self: _FakeUsageContext()
-        )
+        monkeypatch.setattr(AIService, "_build_usage_context", _fake_usage)
         _stub_resolve(monkeypatch, _custom_config())
 
         await service.chat("hello")
@@ -334,9 +340,7 @@ class TestOpsContextScoping:
         monkeypatch.setattr(
             AIService, "_build_catalog_context", lambda self: "CATALOG-BLOCK"
         )
-        monkeypatch.setattr(
-            AIService, "_build_usage_context", lambda self: _FakeUsageContext()
-        )
+        monkeypatch.setattr(AIService, "_build_usage_context", _fake_usage)
         _stub_resolve(monkeypatch, default_agent_config())
 
         await service.chat("hello")
@@ -504,7 +508,7 @@ class TestToolUseSurfacing:
         assert [n["tool"] for n in run_code["nested"]] == ["ledger", "accounts"]
         # The saved message keeps what the frame reported: one dict, so a
         # replay shows the same model, cost and trace the live turn did.
-        stored = service.get_conversation(finals[-1].conversation_id)
+        stored = await service.get_conversation(finals[-1].conversation_id)
         assert stored is not None
         kept = stored.messages[-1].metadata
         assert kept["tool_trace"] == trace

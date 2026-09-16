@@ -237,6 +237,14 @@ PROPERTY_ACCOUNT_TYPE = "property"
 # Account types whose detail view is holdings (positions), not transactions.
 INVESTMENT_ACCOUNT_TYPES = frozenset({"brokerage", "investment", "crypto"})
 
+# Assets whose worth is STATED rather than derived. A checking balance
+# comes from its transactions and a brokerage's from its holdings, so a
+# hand-typed value history would be a second answer to a question the
+# ledger already answers. A house, a car and a pension reserve have no
+# such source: somebody reads a figure off a statement or a listing, and
+# what it was last year is worth keeping.
+STATED_VALUE_ACCOUNT_TYPES = frozenset({"property", "vehicle", "other_asset"})
+
 
 def account_group(account_type: str) -> str:
     for label, types in ACCOUNT_GROUPS:
@@ -288,7 +296,10 @@ class AccountThing(NamedTuple):
 # hunt for it to edit an APR; "Reconcile" is the right accounting word
 # and stays the DIALOG's title, where there is room to mean it.
 ACCOUNT_THINGS: dict[str, AccountThing] = {
-    "rename": AccountThing("Rename"),
+    # Not "Rename": the dialog behind it also holds the number the
+    # institution prints, and a menu that says one of the two things it
+    # does is a menu somebody closes before finding the other.
+    "rename": AccountThing("Name and number"),
     "institution": AccountThing("Set the bank", "Institution"),
     "reconcile": AccountThing("Correct the balance", "Balance"),
     "property": AccountThing("Edit property details", "Property details"),
@@ -310,8 +321,11 @@ def account_actions(
 ) -> tuple[str, ...]:
     """What a UI may offer to do to an account, in menu order.
 
-    Rename, institution and reconcile always; property details and
-    valuation history only where there is a property to describe;
+    Rename, institution and reconcile always; what it is WORTH wherever
+    the worth is stated rather than derived - a house, a car, a pension
+    reserve - since the page already draws that history for any asset
+    and only a property could record one; property DETAILS only where
+    there is a property;
     positions only on a MANUAL investment account, since a connected
     one has its holdings rewritten by every sync; the lien link only on
     a debt; remove only for a manual account (a provider account belongs
@@ -320,7 +334,9 @@ def account_actions(
     """
     actions = ["rename", "institution", "reconcile"]
     if account_type == PROPERTY_ACCOUNT_TYPE:
-        actions.extend(("property", "valuations"))
+        actions.append("property")
+    if account_type in STATED_VALUE_ACCOUNT_TYPES:
+        actions.append("valuations")
     # Positions only where a provider does not keep them: a SnapTrade
     # account's holdings are rewritten on every sync, so a hand-typed row
     # would be overwritten by the next one and read as data loss.

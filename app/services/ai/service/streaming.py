@@ -133,8 +133,10 @@ class StreamingMixin(ChatMixin):
             # Kept, not just carried: the bytes ride this turn's model
             # call and the message remembers where the image was stored,
             # so reopening the conversation still shows it.
-            stored_text, stored_metadata = await prepare_turn(message, attachments, user_id)
-            conversation = self._setup_conversation(
+            stored_text, stored_metadata = await prepare_turn(
+                message, attachments, user_id
+            )
+            conversation = await self._setup_conversation(
                 stored_text,
                 conversation_id,
                 user_id,
@@ -157,7 +159,9 @@ class StreamingMixin(ChatMixin):
             is_default_agent = (
                 agent_config is None or agent_config.slug == DEFAULT_AGENT_SLUG
             )
-            usage_context = self._build_usage_context() if is_default_agent else None
+            usage_context = (
+                await self._build_usage_context() if is_default_agent else None
+            )
             catalog_context = (
                 self._build_catalog_context() if is_default_agent else None
             )
@@ -322,7 +326,7 @@ class StreamingMixin(ChatMixin):
             # Calculate cost for status line
             input_tokens = stream_usage.get("input_tokens", 0)
             output_tokens = stream_usage.get("output_tokens", 0)
-            cost = self.calculate_cost(input_tokens, output_tokens)
+            cost = await self.calculate_cost(input_tokens, output_tokens)
 
             # Calculate TPS (tokens per second) for performance metrics
             # This is especially useful for Ollama but works for all providers
@@ -358,8 +362,10 @@ class StreamingMixin(ChatMixin):
             ai_message.metadata.update(final_metadata)
 
             # Record usage tracking (PydanticAI provides streaming usage)
-            self._record_usage(
-                f"stream_chat:{agent_config.slug}", stream_usage, user_id
+            await self._record_usage(
+                f"stream_chat:{agent_config.slug}",
+                stream_usage,
+                user_id,
             )
 
             # Extractions recorded mid-run outlive the image AND the
@@ -369,8 +375,10 @@ class StreamingMixin(ChatMixin):
                 user_id, staged_readings, legacy=conversation.metadata.get("readings")
             )
             # Finalize conversation (update metadata and save)
-            self._finalize_conversation(
-                conversation, response_time_ms, is_streaming=True
+            await self._finalize_conversation(
+                conversation,
+                response_time_ms,
+                is_streaming=True,
             )
 
             # Yield final streaming message

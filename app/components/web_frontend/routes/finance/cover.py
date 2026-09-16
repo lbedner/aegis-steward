@@ -17,15 +17,15 @@ from starlette.responses import Response
 
 from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import mark_new, money
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import account_tabs, section
 from app.components.web_frontend.rendering import dialog, hx_dialog, render
 from app.components.web_frontend.routes.finance.accounts import (
     _filed_count,
     _header_context,
     _one_account,
-    account_tabs,
     balance,
 )
+from app.components.web_frontend.routes.finance.subjects import who_and_where
 from app.components.web_frontend.routes.finance.valuations import (
     VALUATION_COLUMNS,
     in_window,
@@ -143,6 +143,8 @@ async def cover(
             "value_ranges": windows,
             "days": days,
             "valuation_columns": list(VALUATION_COLUMNS),
+            **await who_and_where(service, selected, owner_user_id),
+            **await about_the_subject(service, selected),
         },
     )
     return remember(request, response, "valuations")
@@ -339,3 +341,49 @@ def payoff_terms(account: AccountResponse) -> list[dict[str, str]]:
             or liability.extra_payment_treatment == "unknown",
         },
     ]
+
+
+async def about_the_subject(service: FinanceService, account: Any) -> dict[str, Any]:
+    """What the app can say about whose money this is, and the cases it
+    is caught up in.
+
+    A pension account holds no transactions and never will - the money
+    lands in a bank account somewhere else - so what it is FOR is the
+    figure somebody has to put on a form and the case that asked for it.
+    Both live on the party, and neither was reachable from here.
+    """
+    from app.services.matters.facts import FactService, drawn, place_book
+    from app.services.matters.matters import MatterService
+
+    if account is None or not account.subject_id:
+        return {"about": [], "matters": []}
+    party_id = next(
+        (
+            subject.party_id
+            for subject in await service.list_subjects()
+            if subject.id == account.subject_id and subject.party_id
+        ),
+        None,
+    )
+    if party_id is None:
+        return {"about": [], "matters": []}
+    places = await place_book(service.db)
+    # About THIS account, not everything known about its owner: his
+    # incidental balance at a nursing home is not a fact about his
+    # pension, and a page that lists both is a page you stop reading.
+    facts = await FactService(service.db).find(account_id=account.id)
+    matters = MatterService(service.db)
+    cases = [
+        {"id": matter.id, "title": matter.title, "status": matter.status}
+        for matter in await matters.find(status="open")
+        for link, party in await matters.participants(matter.id)
+        if party.id == party_id and link.role == "subject"
+    ]
+    return {
+        "about": [drawn(fact, places) for fact in facts],
+        "matters": cases,
+        # Where a new one goes: the case if there is one, so a figure
+        # recorded here lands where the county is asking for it.
+        "fact_matter_id": cases[0]["id"] if cases else None,
+        "fact_party_id": party_id,
+    }

@@ -242,8 +242,11 @@ debt records what is owed (account.loan_terms).
 - `account.create` - payload {"name": str, "account_type": one of \
 checking/savings/cash/credit_card/loan/brokerage/crypto/property/\
 vehicle/other_asset/other_liability, optional "current_balance" \
-(POSITIVE cents - what is OWED on a debt, the way a statement says it) \
-and "institution"}: add an account the ledger cannot see. A lender with \
+(POSITIVE cents - what is OWED on a debt, the way a statement says it), \
+"institution", and "whose_party_id" (a parties() id when the account is \
+NOT ours: a parent's is held without being counted, and accounts() \
+answers about ours unless asked)}: add an account the ledger cannot \
+see. A lender with \
 no bank connection is invisible until someone says it exists, and until \
 it exists there is nothing for its balance, its rate or its payments to \
 attach to. Call accounts() FIRST and say what you found: the expensive \
@@ -252,6 +255,16 @@ another name, and only they can tell you that "GreenSky" and "Anthony & \
 Sylvan Pools" are the same loan. Propose the account, and propose its \
 terms in a SEPARATE card AFTER that one is approved - the account_id \
 does not exist until then, so do not guess one.
+- `fact.record` - payload {"subject_party_id": int (parties()), \
+"attribute": gross_income/net_income/account_balance/resource_value/\
+premium/other, "provenance": stated/document/ledger, optional "label" \
+(what the source calls it), "value_cents", "period" \
+(once/day/week/month/year - store the rate AS QUOTED; a portal quotes a \
+day and a form asks for a month), "as_of", "matter_id", "document_id", \
+"page", "source_party_id", "source_url", "source_note"}: record what \
+can be said about somebody's money. Two facts that disagree both stand \
+- a deposit is not GROSS income - so record what the source says and \
+say which source it was; never reconcile them yourself.
 - `account.loan_terms` - payload {"account_id": int, and any of \
 "outstanding_balance", "minimum_payment_amount", \
 "origination_principal" (POSITIVE cents, what is OWED, the way a \

@@ -121,3 +121,11 @@ def table_rows(markup: Markup, table: str = "table") -> list[dict[str, HtmlEleme
         dict(zip(headers, tr.getchildren(), strict=False))
         for tr in select(root, "tbody tr")
     ]
+
+
+def portfolio_row(markup: Markup, name: str) -> HtmlElement:
+    """The Accounts portfolio row for one account, by the name it shows."""
+    for cell in select(markup, "#portfolio [data-name]"):
+        if text(cell).strip() == name:
+            return cell.getparent().getparent().getparent()
+    raise AssertionError(f"no portfolio row named {name!r}")

@@ -14,7 +14,7 @@ CRUD paths that edit agent rows must call ``invalidate_agent_cache`` so
 the next request sees the change.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -234,7 +234,7 @@ def build_chat_agent(
     context_providers: Sequence[ContextProvider[Any]] = (),
     module_token_budget: int | None = None,
     tool_calls_limit: int | None = None,
-    recorder: Callable[..., float] = record_usage,
+    recorder: Callable[..., float | Awaitable[float]] = record_usage,
     capabilities: Sequence[Any] = (),
 ) -> ToolChatAgent[Any]:
     """Hydrate a ``ToolChatAgent`` from a resolved agent config.

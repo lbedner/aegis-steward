@@ -2,7 +2,7 @@
 {% from "components/macros/layout.html" import page_header %}
 {% from "components/macros/form.html" import primary_button, action %}
 {% from "components/macros/feedback.html" import empty_state %}
-{% from "components/macros/accounts.html" import group_heading, portfolio_row, account_url %}
+{% from "components/macros/accounts.html" import group_heading, portfolio_row, account_url, whose_bar %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
@@ -16,6 +16,8 @@
     {{ primary_button("Add account", attrs=hx_dialog(section.path ~ '/new')) }}
   </div>
 {% endcall %}
+
+{{ whose_bar(whose_options, whose, section.path, also_held) }}
 
 <div class="flex items-baseline justify-between gap-4 mb-6">
   <a href="{{ account_url(section.path) }}" {{ hx_page(account_url(section.path)) }}
@@ -31,7 +33,7 @@
   <section class="bg-aegis-card border border-aegis-border rounded-lg p-2" aria-labelledby="group-{{ loop.index }}">
     {{ group_heading(group, "px-4 pt-2 pb-1 micro-label text-aegis-muted") }}
     {% for row in group.accounts %}
-    {{ portfolio_row(section.path, row, statement_lines[row.account.id], account_icons.get(row.account.id)) }}
+    {{ portfolio_row(section.path, row, statement_lines[row.account.id], account_icons.get(row.account.id), arrived.get(row.account.id)) }}
     {% endfor %}
   </section>
   {% else %}

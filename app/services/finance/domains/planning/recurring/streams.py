@@ -46,7 +46,8 @@ _STREAM_FREQUENCIES = frozenset(CADENCE_KEYS) | {ONE_TIME_FREQUENCY}
 async def list_recurring(
     db: AsyncSession, *, owner_user_id: int | None = None
 ) -> list[FinanceRecurringStream]:
-    """Active recurring streams, soonest-due first."""
+    """Active recurring streams, soonest-due first - ours, per
+    ``active_streams``. A caller wanting somebody else's asks it."""
     return await queries.active_streams(db, owner_user_id=owner_user_id)
 
 

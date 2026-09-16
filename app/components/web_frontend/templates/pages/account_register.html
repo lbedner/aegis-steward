@@ -14,7 +14,7 @@
                          selected_balance if selected else total,
                          actions=actions if selected else (),
                          held_with=held_with, statement_line=statement_line,
-                         updated=updated) %}
+                         updated=updated, whose_name=whose_name) %}
     {{ action("Import", hx_dialog(section.path ~ "/import" ~ ("?account_id=" ~ selected.id if selected else ""))) }}
   {% endcall %}
 

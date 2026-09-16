@@ -1,0 +1,86 @@
+{# The sign-ins on one party, inside their dialog.
+
+   Every verb answers with this whole block (pattern 2), because adding,
+   editing and revealing all change what the list says.
+
+   A password is never in the listing. ``revealed`` carries the one that
+   was asked for, and the next swap takes it away again - a page that
+   renders every password to draw a list has put them in a cache, a log
+   and whatever screenshot gets taken of it. #}
+{% from "components/macros/form.html" import field, text_input, pick_or_add, primary_button, action, control %}
+{% from "components/macros/feedback.html" import error_banner %}
+<div id="sign-ins" class="border-t border-aegis-border/60 pt-4 space-y-3">
+  <h3 class="text-sm font-semibold text-aegis-text">Sign-ins</h3>
+  {{ error_banner(errors) }}
+  {% if signins %}
+  <ul class="divide-y divide-aegis-border/60">
+    {% for signin in signins %}
+    <li data-signin="{{ signin.id }}" class="py-2 flex items-start justify-between gap-3 text-sm">
+      <div class="min-w-0">
+        <p class="text-aegis-text" data-label>{{ signin.label }}</p>
+        <p class="micro-label text-aegis-muted mt-0.5">
+          {%- if signin.username %}<span data-username>{{ signin.username }}</span>{% endif -%}
+          {%- if signin.username and (signin.url or signin.site) %} · {% endif -%}
+          {%- if signin.url %}<a href="{{ signin.url }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-site>{{ signin.site or "the site" }}</a>
+          {%- elif signin.site %}<span data-place>{{ signin.site }}</span>{% endif -%}
+        </p>
+        {% if revealed.get(signin.id) %}
+        <p class="mt-1 px-2 py-1 rounded bg-aegis-bg border border-aegis-border font-mono text-xs text-aegis-text select-all" data-secret>{{ revealed[signin.id] }}</p>
+        {% endif %}
+        {% if signin.note %}<p class="text-xs text-aegis-muted mt-1">{{ signin.note }}</p>{% endif %}
+      </div>
+      <div class="shrink-0 flex items-center gap-2">
+        {% if signin.has_secret %}
+        {{ action("Show", 'hx-post="/settings/people/signins/' ~ signin.id ~ '/reveal" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+        {% endif %}
+        {{ action("Edit", 'hx-get="/settings/people/signins/' ~ signin.id ~ '/edit" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+        {{ action("Remove", 'hx-delete="/settings/people/signins/' ~ signin.id ~ '" hx-target="#sign-ins" hx-swap="outerHTML" hx-confirm="Remove ' ~ signin.label ~ '?"', tone="danger") }}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>No sign-ins yet.</p>
+  {% endif %}
+
+  {#- The other end of the same rows: whose logins get you into THIS
+      organization. A page that says "no sign-ins" while one points
+      straight at it is a page somebody will swear is empty. -#}
+  {% if visitors %}
+  <div data-visitors class="pt-2">
+    <h4 class="micro-label text-aegis-muted mb-1">Who signs in here</h4>
+    <ul class="divide-y divide-aegis-border/60">
+      {% for visitor in visitors %}
+      <li data-visitor="{{ visitor.id }}" class="py-2 text-sm text-aegis-text">
+        {{ visitor.whose }}
+        <span class="text-aegis-muted">· {{ visitor.label }}{% if visitor.username %} · {{ visitor.username }}{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if form is not none %}
+  {#- Its own form, not nested in the party's: a form inside a form is
+      not markup a browser accepts, and the two save different things. -#}
+  <div class="rounded-lg border border-aegis-border p-3 space-y-3" data-signin-form>
+    {% set post = "/settings/people/signins/" ~ form.id if form.id else "/settings/people/" ~ party_id ~ "/signins/new" %}
+    {% call field("What it gets you into") %}{{ text_input("label", form.label, placeholder="IBEW pension portal", required=True, autofocus=True) }}{% endcall %}
+    {#- Where it gets you in, picked from the address book: a portal
+        typed as free text is spelled three ways by the third sign-in. -#}
+    {% call field("Where") %}{{ pick_or_add("site_party_id", places, form.site_party_id, blank="Somewhere else", new_field="new_site", hint="or name the organization whose site it is") }}{% endcall %}
+    {% call field("The page itself") %}{{ text_input("url", form.url, placeholder="pensionportal.example.com/login") }}{% endcall %}
+    {% call field("Username") %}{{ text_input("username", form.username) }}{% endcall %}
+    {% call field("Password") %}
+    <input type="password" name="secret" autocomplete="new-password" placeholder="{{ "Leave blank to keep the one stored" if form.id else "" }}" class="{{ control("input") }} w-full">
+    {% endcall %}
+    {% call field("Note") %}{{ text_input("note", form.note) }}{% endcall %}
+    <div class="flex items-center gap-3">
+      {{ primary_button("Save", attrs='hx-post="' ~ post ~ '" hx-include="closest [data-signin-form]" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+      {{ action("Cancel", 'hx-get="/settings/people/' ~ party_id ~ '/signins" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+    </div>
+  </div>
+  {% else %}
+  {{ action("Add a sign-in", 'hx-get="/settings/people/' ~ party_id ~ '/signins/new" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+  {% endif %}
+</div>

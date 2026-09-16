@@ -149,6 +149,50 @@ def arrived(row: Any, batches: Mapping[int, datetime] | None = None) -> Any:
     return created
 
 
+async def arrivals_by_account(
+    db: Any, since: datetime | None, account_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    """Per account, the latest row that arrived after ``since`` - marked.
+
+    The portfolio's answer to "did the import land": the register marks
+    the rows, and this marks the accounts they landed in, by the same
+    rule and the same watermark. One query, bounded by the watermark
+    rather than the ledger - only rows newer than the last look can be
+    new, so those are the only ones fetched.
+    """
+    if since is None or not account_ids:
+        return {}
+    from sqlmodel import col, select
+
+    from app.services.finance.models import FinanceTransaction
+
+    floor = since.replace(tzinfo=None) if since.tzinfo else since
+    rows = (
+        await db.exec(
+            select(
+                FinanceTransaction.account_id,
+                FinanceTransaction.created_at,
+                FinanceTransaction.import_batch_id,
+            )
+            .where(col(FinanceTransaction.account_id).in_(account_ids))
+            .where(col(FinanceTransaction.deleted_at).is_(None))
+            .where(FinanceTransaction.created_at > floor)
+            .order_by(col(FinanceTransaction.created_at).desc())
+        )
+    ).all()
+    latest: dict[int, dict[str, Any]] = {}
+    for account_id, created_at, batch_id in rows:
+        latest.setdefault(
+            account_id, {"created_at": created_at, "import_batch_id": batch_id}
+        )
+    marked = await mark_new(db, list(latest.values()), since)
+    return {
+        account_id: row
+        for account_id, row in zip(latest, marked, strict=True)
+        if row.get("is_new")
+    }
+
+
 async def mark_new(
     db: Any, rows: list[dict[str, Any]], since: datetime | None
 ) -> list[dict[str, Any]]:

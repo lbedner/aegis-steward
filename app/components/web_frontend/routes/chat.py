@@ -364,10 +364,10 @@ def settled(
     }
 
 
-def _owned(conversation_id: str) -> Any:
+async def _owned(conversation_id: str) -> Any:
     """This surface's conversation, or a 404: another user's is as absent
     as a missing one."""
-    conversation = ai_service.get_conversation(conversation_id)
+    conversation = await ai_service.get_conversation(conversation_id)
     if (
         conversation is None
         or conversation.metadata.get("user_id") != STANDALONE_USER_ID
@@ -376,8 +376,8 @@ def _owned(conversation_id: str) -> Any:
     return conversation
 
 
-def _stored(conversation_id: str, message_id: str) -> Any:
-    conversation = _owned(conversation_id)
+async def _stored(conversation_id: str, message_id: str) -> Any:
+    conversation = await _owned(conversation_id)
     found = next((m for m in conversation.messages if m.id == message_id), None)
     if found is None:
         raise HTTPException(status_code=404)
@@ -515,9 +515,9 @@ async def picker(query: str, mode: str) -> dict[str, Any]:
     }
 
 
-def _conversations() -> list[Any]:
+async def _conversations() -> list[Any]:
     """This surface's conversations, newest first."""
-    return ai_service.list_conversations(STANDALONE_USER_ID, surface=SURFACE)
+    return await ai_service.list_conversations(STANDALONE_USER_ID, surface=SURFACE)
 
 
 async def _transcript(conversation: Any | None) -> dict[str, Any]:
@@ -534,7 +534,7 @@ async def surface_context() -> dict[str, Any]:
     """Everything the chat surface renders from, for the page and the
     drawer alike: it opens onto the most recent conversation, never
     blank unless there is none."""
-    latest = next(iter(_conversations()), None)
+    latest = next(iter(await _conversations()), None)
     return {
         "assistant": ASSISTANT_NAME,
         "path": SECTION.path,
@@ -607,7 +607,7 @@ async def history(request: Request) -> Response:
     return dialog(
         request,
         "partials/chat/history.html",
-        conversations=_conversations()[:HISTORY_LIMIT],
+        conversations=(await _conversations())[:HISTORY_LIMIT],
         path=SECTION.path,
     )
 
@@ -626,7 +626,7 @@ async def new_conversation(request: Request) -> Response:
 async def load_conversation(request: Request, conversation_id: str) -> Response:
     """The thread for a conversation picked from history, replacing the
     current one in place; the dialog closes on the way."""
-    conversation = _owned(conversation_id)
+    conversation = await _owned(conversation_id)
     response = templates.TemplateResponse(
         request=request,
         name="partials/chat/transcript.html",
@@ -696,9 +696,7 @@ async def stage_paste(text: Annotated[str, Form()] = "") -> Response:
 
     if not text.strip():
         return Response(status_code=422)
-    paste = await store_paste(
-        str(STANDALONE_USER_ID), text, title=title_of(text)
-    )
+    paste = await store_paste(str(STANDALONE_USER_ID), text, title=title_of(text))
     return JSONResponse({"marker": marker(paste), **paste_chip(paste)})
 
 
@@ -747,7 +745,7 @@ async def message(request: Request, conversation_id: str, message_id: str) -> Re
     """The settled bubble for a stored message, swapped over the streaming
     one once the turn completes (the message is persisted before the
     stream's final frame)."""
-    found = _stored(conversation_id, message_id)
+    found = await _stored(conversation_id, message_id)
     return templates.TemplateResponse(
         request=request,
         name="partials/chat/message.html",
@@ -928,7 +926,7 @@ async def run_detail(
 ) -> Response:
     """What one tool run actually did, in the one modal: the script (or
     the arguments), its output, and the calls it dispatched."""
-    entries = (_stored(conversation_id, message_id).metadata or {}).get(
+    entries = ((await _stored(conversation_id, message_id)).metadata or {}).get(
         "tool_trace"
     ) or []
     if not 0 <= index < len(entries):

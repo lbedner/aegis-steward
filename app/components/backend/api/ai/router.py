@@ -18,6 +18,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.components.backend.api.ai import conversations as conversation_routes
 from app.components.backend.api.ai import memory as memory_routes
 from app.core.chat_transcript import tool_label
 from app.core.config import settings
@@ -85,17 +86,6 @@ class ChatResponse(BaseModel):
     response_time_ms: float | None = None
 
 
-class ConversationSummary(BaseModel):
-    """Summary model for conversation listing."""
-
-    id: str
-    title: str | None
-    message_count: int
-    last_activity: str
-    provider: str
-    model: str
-
-
 class ModelUsageStats(BaseModel):
     """Usage statistics for a single model."""
 
@@ -161,7 +151,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # Get updated conversation for metadata
         conversation_id = response_message.metadata.get("conversation_id")
         conversation = (
-            ai_service.get_conversation(conversation_id) if conversation_id else None
+            await ai_service.get_conversation(conversation_id)
+            if conversation_id
+            else None
         )
         response_time = None
         if conversation and "last_response_time_ms" in conversation.metadata:
@@ -305,96 +297,6 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
     )
 
 
-@router.get("/conversations", response_model=list[ConversationSummary])
-async def list_conversations(
-    user_id: str = "api-user", surface: str | None = None, limit: int = 50
-) -> list[ConversationSummary]:
-    """
-    List conversations for a user, optionally scoped to one chat surface.
-
-    Args:
-        user_id: User identifier
-        surface: Originating surface to filter by (e.g. "finance")
-        limit: Maximum number of conversations to return
-
-    Returns:
-        List of conversation summaries
-    """
-    try:
-        conversations = ai_service.list_conversations(user_id, surface=surface)[:limit]
-
-        return [
-            ConversationSummary(
-                id=conv.id,
-                title=conv.title,
-                message_count=conv.get_message_count(),
-                last_activity=conv.updated_at.isoformat(),
-                provider=conv.provider.value,
-                model=conv.model,
-            )
-            for conv in conversations
-        ]
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to list conversations: {e}"
-        )
-
-
-@router.get("/conversations/{conversation_id}")
-async def get_conversation(
-    conversation_id: str, user_id: str = "api-user"
-) -> dict[str, Any]:
-    """
-    Get a specific conversation with full message history.
-
-    Args:
-        conversation_id: The conversation identifier
-        user_id: User identifier for access control
-
-    Returns:
-        Full conversation details with messages
-
-    Raises:
-        HTTPException: If conversation not found or access denied
-    """
-    try:
-        conversation = ai_service.get_conversation(conversation_id)
-
-        if not conversation:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-
-        # Check access (basic user matching)
-        if conversation.metadata.get("user_id") != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        return {
-            "id": conversation.id,
-            "title": conversation.title,
-            "provider": conversation.provider.value,
-            "model": conversation.model,
-            "created_at": conversation.created_at.isoformat(),
-            "updated_at": conversation.updated_at.isoformat(),
-            "message_count": conversation.get_message_count(),
-            "messages": [
-                {
-                    "id": msg.id,
-                    "role": msg.role.value,
-                    "content": msg.content,
-                    "timestamp": msg.timestamp.isoformat(),
-                    "metadata": msg.metadata,
-                }
-                for msg in conversation.messages
-            ],
-            "metadata": conversation.metadata,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get conversation: {e}")
-
-
 @router.get("/health")
 async def ai_health() -> dict[str, Any]:
     """
@@ -404,7 +306,7 @@ async def ai_health() -> dict[str, Any]:
     conversation count, and service availability.
     """
     try:
-        status = ai_service.get_service_status()
+        status = await ai_service.get_service_status()
         validation_errors = ai_service.validate_service()
 
         return {
@@ -476,7 +378,7 @@ async def get_usage_stats(
         Usage statistics including totals, model breakdown, and recent activity
     """
     try:
-        stats = ai_service.get_usage_stats(
+        stats = await ai_service.get_usage_stats(
             user_id=user_id,
             start_time=start_time,
             end_time=end_time,
@@ -563,3 +465,4 @@ async def update_registry_agent(
 
 # Memory modules and saved facts both live in their own module.
 router.include_router(memory_routes.router, tags=["ai: memory"])
+router.include_router(conversation_routes.router, tags=["ai: conversations"])

@@ -12,7 +12,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
 
 from app.components.web_frontend.rendering import templates
@@ -33,12 +33,35 @@ def sse_frame(event: str, html: str) -> str:
     return f"event: {event}\n{lines}\n"
 
 
+# What a follower is told about a job the app no longer has. Jobs run
+# IN the web process, so a restart takes the running ones with it - and
+# a 404 on the stream is invisible to the SSE extension: no frame ever
+# arrives, the spinner turns forever, and the reader is left believing
+# an import is still going. One terminal frame is the honest answer, and
+# it carries the retry marker so the file picker comes back.
+LOST = {
+    "id": "",
+    "name": "",
+    "label": None,
+    "status": "lost",
+    "error": (
+        "That run is gone - the app restarted while it was going. "
+        "Nothing was half-imported: a run that does not finish writes "
+        "nothing. Pick the file again."
+    ),
+    "result": None,
+}
+
+
 @router.get("/{job_id}/events", include_in_schema=False)
 async def job_events(request: Request, job_id: str) -> StreamingResponse:
     runner = get_job_runner()
     queue = await runner.subscribe_any(job_id)
     if queue is None:
-        raise HTTPException(status_code=404, detail="Unknown job.")
+        lost = sse_frame("status", render_snapshot(request, {**LOST, "id": job_id}))
+        return StreamingResponse(
+            iter([lost]), media_type="text/event-stream"
+        )
 
     async def stream() -> AsyncIterator[str]:
         try:

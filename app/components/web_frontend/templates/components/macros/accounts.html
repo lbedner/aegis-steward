@@ -6,7 +6,8 @@
    shape (routes/finance/accounts.grouped), so a change to how an
    account is grouped, totalled or linked lands in both at once.
 #}
-{% from "components/macros/layout.html" import dropdown, menu_item, avatar, badge, dot, TONE_TEXT %}
+{% from "components/macros/layout.html" import chip, dropdown, menu_item, avatar, badge, dot, TONE_TEXT %}
+{% from "components/macros/table.html" import new_dot %}
 
 {# Where an account opens. One answer, so a door added later opens the
    same way.
@@ -32,14 +33,21 @@
 
 {# The portfolio's row: the account, what it is worth, what it owes you
    next, and a door to it. #}
-{% macro portfolio_row(path, row, statement=None, icon_url=None) %}
+{% macro portfolio_row(path, row, statement=None, icon_url=None, arrived=None) %}
 <a href="{{ account_url(path, row.account) }}" {{ hx_page(account_url(path, row.account)) }}
    class="group flex items-baseline justify-between gap-4 px-4 py-2.5 rounded
           hover:bg-aegis-border/20 transition-colors">
   <span class="min-w-0 flex items-baseline gap-2.5">
     {{ account_mark(row.account, icon_url) }}
     <span class="min-w-0">
-    <span data-name class="block text-sm text-aegis-text truncate">{{ row.account.name }}</span>
+    <span class="flex items-center gap-1.5">
+      <span data-name class="block text-sm text-aegis-text truncate">{{ row.account.name }}</span>
+      {#- Rows arrived here since the register was last read. The same
+          dot and the same watermark as the register's rows, so the two
+          pages cannot disagree about what is new; a mark rather than a
+          door, because this row is already a link. -#}
+      {%- if arrived %}<span data-arrived class="shrink-0 inline-flex" title="New transactions since you last looked">{{ new_dot() }}<span class="sr-only">New transactions</span></span>{% endif %}
+    </span>
     {% if statement %}<span class="block text-xxs text-aegis-muted">{{ statement }}</span>{% endif %}
     </span>
   </span>
@@ -96,7 +104,7 @@
 
    ``{% call %}`` supplies anything extra for the right-hand side (the
    register's Import), which lands left of Manage. #}
-{% macro account_header(section, groups, total, selected, balance, actions=(), held_with=None, statement_line=None, updated=None) %}
+{% macro account_header(section, groups, total, selected, balance, actions=(), held_with=None, statement_line=None, updated=None, whose_name=None) %}
 <header class="flex flex-wrap items-start justify-between gap-4">
   <h1 class="sr-only">{{ selected.name if selected else "All accounts" }}</h1>
   <div class="min-w-0">
@@ -114,6 +122,11 @@
           currency is noise until something is not in it, and "Manual" is
           our word for a thing the reader knows as "not connected". -#}
       {%- set facts = [] -%}
+      {#- Whose money leads, because it changes what every other figure
+          on the page MEANS - a balance that is not ours is not part of
+          any total the reader has in their head. -#}
+      {%- if whose_name %}{% set _ = facts.append(whose_name ~ "'s") %}{% endif -%}
+      {%- if selected.reference %}{% set _ = facts.append(selected.reference) %}{% endif -%}
       {%- if not selected.connection_id %}{% set _ = facts.append("Not connected") %}{% endif -%}
       {%- if selected.currency and selected.currency|upper != "USD" %}{% set _ = facts.append(selected.currency|upper) %}{% endif -%}
       {{ facts|join(" · ") }}{% if facts and (held_with or statement_line) %} · {% endif %}
@@ -143,4 +156,32 @@
     {% endif %}
   </div>
 </header>
+{% endmacro %}
+
+
+{# Whose money the page is showing. Drawn only when the app holds
+   somebody else's - a control with one option is noise - and "Ours" is
+   where every page starts, so a total is a statement about our money
+   until somebody deliberately widens it. #}
+{% macro whose_bar(options, current, path, also_held=()) %}
+{% if options %}
+<nav data-whose class="flex items-center gap-2 mb-4" aria-label="Whose money">
+  {% for option in options %}
+  {% set url = path ~ "?whose=" ~ option.key %}
+  {{ chip(option.label, active=(option.key == current), href=url, hx=hx_page(url)) }}
+  {% endfor %}
+</nav>
+{% endif %}
+{#- What is being held out of the total, said out loud. Money held and
+    not counted is invisible by construction: approving an account for a
+    parent and finding the portfolio unchanged reads as nothing having
+    happened. -#}
+{% for held in also_held %}
+<p data-also-held class="text-xs text-aegis-muted mb-4">
+  Also holding
+  <a href="{{ path }}?whose={{ held.key }}" {{ hx_page(path ~ "?whose=" ~ held.key) }}
+     class="text-aegis-teal hover:underline">{{ held.name }}'s {{ held.one or (held.count ~ " account" ~ ("" if held.count == 1 else "s")) }}</a>,
+  not counted here.
+</p>
+{% endfor %}
 {% endmacro %}

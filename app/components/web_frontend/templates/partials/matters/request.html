@@ -1,0 +1,5 @@
+{# One request, after an item was marked (pattern 2). The context name
+   is not ``request``: that one is the HTTP request everywhere else a
+   template looks, and two meanings for one name is a bug waiting. #}
+{% from "components/macros/matters.html" import request_card %}
+{{ request_card(asked, path) }}
