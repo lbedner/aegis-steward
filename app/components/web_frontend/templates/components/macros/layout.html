@@ -58,7 +58,11 @@
     <path stroke-linecap="round" stroke-linejoin="round" d="{{ section.icon }}"/>
   </svg>
   <span class="rail-hide">{{ section.label }}</span>
-  {% if section.attention %}<span data-attention hx-get="{{ section.attention }}" hx-trigger="load, every 5m" hx-swap="innerHTML" class="inline-flex"></span>{% endif %}
+  {#- The mark sits inside a boosted link and htmx attributes INHERIT:
+      without its own target and push-url the dot would be swapped into
+      the page and the fetch written into the address bar. -#}
+  {% if section.attention %}<span data-attention hx-get="{{ section.attention }}" hx-trigger="load, every 5m"
+        hx-target="this" hx-swap="innerHTML" hx-push-url="false" class="inline-flex"></span>{% endif %}
 </a>
 {% endmacro %}
 

@@ -1116,6 +1116,9 @@ class TestOverdueIsRed:
         nav = one(client.get("/matters").text, "[data-attention]")
         assert nav.get("hx-get") == "/matters/attention"
         assert "load" in (nav.get("hx-trigger") or "")
+        # Inside a boosted link, so it must override what it would inherit.
+        assert nav.get("hx-target") == "this"
+        assert nav.get("hx-push-url") == "false"
         none(client.get("/matters/attention").text, "[data-dot]")
         self._late(client, "MA-LATE-3")
         mark = one(client.get("/matters/attention").text, "[data-dot]")
