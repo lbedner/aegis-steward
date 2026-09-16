@@ -165,6 +165,20 @@ class RequestService:
             ).all()
         )
 
+    async def from_party(self, party_id: int) -> list[Request]:
+        """The letters this party sent: every request they are the
+        requester of, newest deadline first."""
+        return list(
+            (
+                await self.db.exec(
+                    select(Request)
+                    .where(Request.requester_party_id == party_id)
+                    .where(col(Request.deleted_at).is_(None))
+                    .order_by(col(Request.due_on).desc())
+                )
+            ).all()
+        )
+
     async def for_matter(self, matter_id: int) -> list[Request]:
         return list(
             (

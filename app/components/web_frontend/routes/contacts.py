@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import PAPER_COLUMNS, papers_on
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
@@ -27,7 +28,7 @@ from app.components.web_frontend.rendering import (
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import web_address
-from app.services.matters.models import PARTY_KINDS
+from app.services.matters.models import PARTY_KINDS, party_tag
 from app.services.matters.service import PartyService
 
 SECTION = section("contacts")
@@ -35,7 +36,7 @@ router = APIRouter(prefix=SECTION.path)
 
 PARTY_COLUMNS = (
     {"key": "sort_name", "label": "Filed under"},
-    {"key": "name", "label": "Name", "kind": "open"},
+    {"key": "name", "label": "Name", "kind": "page"},
     {"key": "kind", "label": "Kind"},
     {"key": "reach", "label": "How to reach them"},
 )
@@ -71,6 +72,8 @@ def _row(party: Any) -> dict[str, Any]:
         "name": {
             "label": party.name,
             "url": f"{SECTION.path}/{party.id}",
+            # A page, not a dialog: a contact is worked - logged into,
+            # written to, read off - and that does not fit a modal.
         },
         "kind": party.kind.title(),
         "reach": _reach(party.contact),
@@ -125,7 +128,7 @@ async def new_party(request: Request) -> Response:
     return _form(request, errors=[], name="", kind="person")
 
 
-@router.get("/{party_id:int}", include_in_schema=False)
+@router.get("/{party_id:int}/edit", include_in_schema=False)
 async def edit_party(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         party = await PartyService(db).get(party_id)
@@ -208,7 +211,7 @@ async def save_party(
             )
         await db.commit()
         saved = party.name
-    return dialog_done(where_from(request, f"{SECTION.path}/people"), f"Saved {saved}")
+    return dialog_done(where_from(request, SECTION.path), f"Saved {saved}")
 
 
 @router.delete("/{party_id:int}", include_in_schema=False)
@@ -217,4 +220,154 @@ async def remove_party(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         await PartyService(db).remove(party_id)
         await db.commit()
-    return dialog_done(where_from(request, f"{SECTION.path}/people"), "Removed")
+    return dialog_done(where_from(request, SECTION.path), "Removed")
+
+
+@router.get("/{party_id:int}", include_in_schema=False)
+async def contact(
+    request: Request,
+    party_id: int,
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """One contact: everything that points at them, gathered.
+
+    Almost none of this is new data. Facts name them as source or
+    subject, matters carry them as participants, requests name them as
+    requester, an account is held with them - the page is where those
+    are read together. The one thing that is theirs alone is the paper
+    filed against them, and that is the shelf at the bottom.
+    """
+    from app.services.finance.domains.ledger.queries.accounts import (
+        EVERYONE,
+        accounts_page,
+    )
+    from app.services.finance.domains.ledger.subjects import institution_of, subject_of
+    from app.services.matters.facts import FactService, drawn, place_book
+    from app.services.matters.matters import MatterService
+    from app.services.matters.requests import RequestService
+
+    async with get_async_session() as db:
+        party = await PartyService(db).get(party_id)
+        if party is None:
+            raise HTTPException(status_code=404)
+        places = await place_book(db)
+        facts = FactService(db)
+        says = [drawn(f, places) for f in await facts.find(source_party_id=party_id)]
+        about = [drawn(f, places) for f in await facts.find(subject_party_id=party_id)]
+        cases = [
+            {"id": m.id, "title": m.title, "status": m.status, "role": role}
+            for m, role in await MatterService(db).for_party(party_id)
+        ]
+        letters = await RequestService(db).from_party(party_id)
+        subject = await subject_of(db, party_id)
+        institution = await institution_of(db, party_id)
+        held: list[Any] = []
+        if subject is not None:
+            held, _ = await accounts_page(
+                db,
+                owner_user_id=owner_user_id,
+                include_hidden=False,
+                page=1,
+                page_size=200,
+                subject_id=subject.id,
+            )
+        elif institution is not None:
+            everyone, _ = await accounts_page(
+                db,
+                owner_user_id=owner_user_id,
+                include_hidden=False,
+                page=1,
+                page_size=500,
+                subject_id=EVERYONE,
+            )
+            held = [a for a in everyone if a.institution_id == institution.id]
+        papers = await papers_on(
+            db, party_tag(party_id), f"{SECTION.path}/{party_id}/documents"
+        )
+        return render(
+            request,
+            "pages/contact.html",
+            {
+                "section": SECTION,
+                "path": SECTION.path,
+                "party": party,
+                "reach": [
+                    (label, (party.contact or {}).get(key))
+                    for key, label in CONTACT_FIELDS
+                    if (party.contact or {}).get(key)
+                ],
+                "cases": cases,
+                "letters": letters,
+                "says": says,
+                "about": about,
+                "held": held,
+                "papers": papers,
+                "paper_columns": list(PAPER_COLUMNS),
+            },
+        )
+
+
+@router.get("/{party_id:int}/documents/new", include_in_schema=False)
+async def new_paper(request: Request, party_id: int) -> Response:
+    from app.components.web_frontend.routes.requests import ACCEPTS
+
+    async with get_async_session() as db:
+        party = await PartyService(db).get(party_id)
+    if party is None:
+        raise HTTPException(status_code=404)
+    return dialog(
+        request,
+        "partials/matters/paper.html",
+        post=f"{SECTION.path}/{party_id}/documents/new",
+        accepts=ACCEPTS,
+        blurb=f"Filed with {party.name}: theirs, whatever matter later needs it.",
+        errors=[],
+    )
+
+
+@router.post("/{party_id:int}/documents/new", include_in_schema=False)
+async def add_paper(
+    request: Request,
+    party_id: int,
+    file: Annotated[UploadFile | None, File()] = None,
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Paper that is theirs - a statement, a benefit letter - filed
+    against the contact so the next matter finds it on the shelf."""
+    from app.services.documents.service import DocumentService
+
+    async with get_async_session() as db:
+        if await PartyService(db).get(party_id) is None:
+            raise HTTPException(status_code=404)
+        if file is None or not file.filename:
+            raise HTTPException(status_code=400, detail="Pick a file.")
+        documents = DocumentService(db)
+        try:
+            document = await documents.ingest(
+                await file.read(),
+                title=file.filename,
+                media_type=file.content_type,
+                owner_user_id=owner_user_id,
+                source="upload",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await documents.tag(document.id, party_tag(party_id))
+        await db.commit()
+    return dialog_done(f"{SECTION.path}/{party_id}", f"Filed {document.title}")
+
+
+@router.get("/{party_id:int}/documents/{document_id:int}", include_in_schema=False)
+async def paper(request: Request, party_id: int, document_id: int) -> Response:
+    """One of their documents: the original beside what was read."""
+    from app.components.web_frontend.documents import document_dialog
+    from app.services.documents.service import DocumentService
+
+    async with get_async_session() as db:
+        documents = DocumentService(db)
+        found = await documents.get(document_id)
+        if found is None or party_tag(party_id) not in await documents.tags_for(
+            document_id
+        ):
+            raise HTTPException(status_code=404)
+        return await document_dialog(request, db, found, f"/documents/{document_id}")

@@ -546,7 +546,9 @@ def test_a_fact_links_the_site_it_was_read_off(client: TestClient) -> None:
     _party(client, "Url Subject", "person")
     people = client.get("/contacts?q=Url Subject").text
     subject = (
-        select(people, "#contacts tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
+        select(people, "#contacts tbody [data-open]")[-1]
+        .get("hx-get")
+        .rsplit("/", 1)[-1]
     )
 
     client.post(
@@ -574,7 +576,9 @@ def test_a_link_that_is_not_a_link_is_refused(client: TestClient) -> None:
     _party(client, "Url Subject Two", "person")
     people = client.get("/contacts?q=Url Subject Two").text
     subject = (
-        select(people, "#contacts tbody [data-open]")[-1].get("hx-get").rsplit("/", 1)[-1]
+        select(people, "#contacts tbody [data-open]")[-1]
+        .get("hx-get")
+        .rsplit("/", 1)[-1]
     )
 
     answer = client.post(
@@ -841,7 +845,10 @@ class TestTheStepsOfARequest:
         drawn = client.get(page).text
         assert one(drawn, "#matter-requests [data-letter]") is not None
         # The caption is the title, not the row it came from.
-        assert text(one(drawn, "#matter-requests [data-letter-title]")).strip() == "request.pdf"
+        assert (
+            text(one(drawn, "#matter-requests [data-letter-title]")).strip()
+            == "request.pdf"
+        )
 
     def test_an_ask_needs_a_sentence(self, client: TestClient) -> None:
         _page, request_id = self._request(client, "MA-STEP-4")
@@ -1156,3 +1163,28 @@ class TestFilesCanBeDropped:
         assert table["kinds"]["pdf"]["label"] == "PDF"
         one(zone, "[data-chosen] template[x-for]")
         one(zone, "[data-chosen] button[aria-label=Remove]")
+
+
+class TestAContactSeesItsCases:
+    """From the other side: a participant's page names the case and the
+    role. Here rather than with the contact tests because the matters
+    list's empty-state test must see no matters first."""
+
+    def test_the_cases_they_are_in_say_as_what(self, client: TestClient) -> None:
+        from tests.web.test_contacts import _contact
+
+        party_id = _contact(client, "Dutchess County DSS", "organization")
+        matter_page = _matter(client, "MA-CONTACT-1")
+        client.post(
+            matter_page + "/participants",
+            data={
+                "party_id": str(party_id),
+                "new_name": "",
+                "role": "agency",
+                "note": "",
+            },
+        )
+        page = client.get(f"/contacts/{party_id}").text
+        case = one(page, "[data-cases] li")
+        assert "Medicaid renewal" in text(case)
+        assert text(one(case, "[data-role]")) == "Agency"

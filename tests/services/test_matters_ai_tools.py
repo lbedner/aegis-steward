@@ -374,3 +374,28 @@ async def test_paper_says_so_when_the_read_outlasts_the_wait(
 
 async def test_paper_names_a_missing_document() -> None:
     assert "error" in await ai_tools.paper(999_999)
+
+
+async def test_parties_hand_back_their_paper(async_db_session: AsyncSession) -> None:
+    """A place's statements are readable with paper(): the ids ride on
+    the party, so "what has NYSLRS sent us" is one call, not a hunt."""
+    from app.services.documents.service import DocumentService
+    from app.services.matters.models import party_tag
+
+    place = await PartyService(async_db_session).create(
+        name="NYSLRS", kind="organization", owner_user_id=None
+    )
+    documents = DocumentService(async_db_session)
+    statement = await documents.ingest(
+        b"%PDF-1.4 statement",
+        title="NYSLRS statement.pdf",
+        media_type="application/pdf",
+    )
+    await documents.tag(statement.id, party_tag(place.id))
+    await async_db_session.commit()
+
+    found = next(
+        p for p in (await ai_tools.parties())["parties"] if p["id"] == place.id
+    )
+
+    assert found["document_ids"] == [statement.id]

@@ -79,6 +79,17 @@ WORDS: dict[str, str] = {
     "can_say": "What we can say",
     "paper": "Paper on this matter",
     "add_paper": "Add a document",
+    # A contact's own page.
+    "reach": "How to reach them",
+    "held_here": "Accounts held here",
+    "their_money": "Their accounts",
+    "matters_in": "Matters they are in",
+    "says": "What they say",
+    "about": "What we can say about them",
+    "letters_from": "Letters from them",
+    "their_paper": "Their paper",
+    "signins": "Sign-ins",
+    "edit_contact": "Edit",
 }
 
 

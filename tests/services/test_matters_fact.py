@@ -130,7 +130,7 @@ class TestAFact:
     async def test_a_document_fact_needs_the_document(
         self, async_db_session: AsyncSession
     ) -> None:
-        """"It says so in the letter" is not provenance if nobody can
+        """ "It says so in the letter" is not provenance if nobody can
         open the letter."""
         subject = await _james(async_db_session)
         with pytest.raises(ValueError, match="needs the document"):
@@ -179,9 +179,7 @@ class TestAFactAsAProposal:
         await record_fact_execute(async_db_session, payload, None)
         await async_db_session.commit()
 
-        [recorded] = await FactService(async_db_session).find(
-            subject_party_id=subject
-        )
+        [recorded] = await FactService(async_db_session).find(subject_party_id=subject)
         assert recorded.value_cents == 5000
         # Approving a card is approving what was READ, never a claim
         # that somebody opened the source and checked it.
@@ -199,3 +197,38 @@ class TestAFactAsAProposal:
             RecordFactPayload(
                 subject_party_id=1, attribute="vibes", provenance="stated"
             )
+
+
+class TestWhatAPlaceSays:
+    @pytest.mark.asyncio
+    async def test_facts_from_a_source_are_found_apart_from_facts_about_a_subject(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """NYSLRS says what it pays James; James has money said about
+        him. Two different questions of one table."""
+        subject = await _james(async_db_session)
+        place = await PartyService(async_db_session).create(
+            name="NYSLRS", kind="organization", owner_user_id=None
+        )
+        facts = FactService(async_db_session)
+        await facts.record(
+            subject_party_id=subject,
+            attribute="gross_income",
+            provenance="stated",
+            value_cents=1000,
+            period="day",
+            source_party_id=place.id,
+        )
+        await facts.record(
+            subject_party_id=subject,
+            attribute="account_balance",
+            provenance="stated",
+            value_cents=250000,
+        )
+        await async_db_session.commit()
+
+        says = await facts.find(source_party_id=place.id)
+        about = await facts.find(subject_party_id=subject)
+
+        assert [f.attribute for f in says] == ["gross_income"]
+        assert {f.attribute for f in about} == {"gross_income", "account_balance"}

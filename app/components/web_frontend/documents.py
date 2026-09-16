@@ -116,3 +116,38 @@ async def save_document(
         return [str(exc)]
     await db.commit()
     return []
+
+
+# The shelf: every document under one tag, shaped for the table. A
+# matter's paper and a contact's paper are the same shelf pointed at a
+# different tag, so the columns and the row are written once here.
+PAPER_COLUMNS = (
+    {"key": "title", "label": "Document", "kind": "open"},
+    {"key": "kind", "label": "Kind"},
+    {"key": "at", "label": "Dated"},
+    {"key": "pages", "label": "Pages"},
+)
+
+
+async def papers_on(db: AsyncSession, tag: str, open_base: str) -> list[dict[str, Any]]:
+    """The paper filed under ``tag``, each row opening at ``open_base/<id>``."""
+    from app.components.web_frontend.filters import short_date
+    from app.components.web_frontend.glyphs import file_badge
+    from app.services.documents.service import DocumentService
+
+    documents, _ = await DocumentService(db).list_documents(tag=tag)
+    return [
+        {
+            "title": {
+                "label": d.title,
+                "url": f"{open_base}/{d.id}",
+                "badge": file_badge(d.media_type, d.title),
+            },
+            "kind": d.kind,
+            "at": short_date(d.document_date or d.received_at),
+            "pages": d.page_count or "",
+            "import_batch_id": d.import_batch_id,
+            "created_at": d.created_at,
+        }
+        for d in documents
+    ]

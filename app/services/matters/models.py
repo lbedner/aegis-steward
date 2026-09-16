@@ -337,6 +337,16 @@ def matter_tag(matter_id: int) -> str:
     return f"matter:{matter_id}"
 
 
+def party_tag(party_id: int) -> str:
+    """The one label that files a document against a contact: a place's
+    statements and letters, kept with the place whatever matter later
+    needs them."""
+    return f"party:{party_id}"
+
+
+PARTY_TAG_PREFIX = "party:"
+
+
 # What a fact is a claim ABOUT. A slug, because the letter's own wording
 # is a label and two letters word the same question differently - the
 # slug is what a form field or a tool can be asked for by name.

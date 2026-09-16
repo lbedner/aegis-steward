@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import papers_on
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done
 from app.components.web_frontend.routes.requests import ACCEPTS
@@ -30,36 +31,11 @@ router = APIRouter(prefix=SECTION.path)
 # drawer, the award letter from three years ago - paper arrives before
 # anybody knows which ask it answers, and a shelf you cannot put a
 # document on is a shelf nobody uses.
-PAPER_COLUMNS = (
-    {"key": "title", "label": "Document", "kind": "open"},
-    {"key": "kind", "label": "Kind"},
-    {"key": "at", "label": "Dated"},
-    {"key": "pages", "label": "Pages"},
-)
-
-
 async def matter_papers(db: AsyncSession, matter_id: int) -> list[dict[str, Any]]:
     """The paper on this matter, shaped for the table."""
-    from app.components.web_frontend.filters import short_date
-    from app.components.web_frontend.glyphs import file_badge
-    from app.services.documents.service import DocumentService
-
-    documents, _ = await DocumentService(db).list_documents(tag=matter_tag(matter_id))
-    return [
-        {
-            "title": {
-                "label": d.title,
-                "url": f"{SECTION.path}/{matter_id}/documents/{d.id}",
-                "badge": file_badge(d.media_type, d.title),
-            },
-            "kind": d.kind,
-            "at": short_date(d.document_date or d.received_at),
-            "pages": d.page_count or "",
-            "import_batch_id": d.import_batch_id,
-            "created_at": d.created_at,
-        }
-        for d in documents
-    ]
+    return await papers_on(
+        db, matter_tag(matter_id), f"{SECTION.path}/{matter_id}/documents"
+    )
 
 
 @router.get("/{matter_id:int}/documents/new", include_in_schema=False)

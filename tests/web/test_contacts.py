@@ -6,7 +6,8 @@ ST-01's UI half. Both render paths, selectors not substrings, per the
 
 from fastapi.testclient import TestClient
 
-from tests.web.dom import none, one, select, text
+from app.services.matters.words import WORDS
+from tests.web.dom import card, none, one, select, text
 
 
 class TestThePeoplePage:
@@ -67,9 +68,9 @@ class TestThePeoplePage:
             },
         )
         page = client.get("/contacts", params={"q": "Quilliam"}).text
-        party = one(page, "#contacts tbody [data-open]")
-
-        form = client.get(party.get("hx-get")).text
+        # The row opens the contact's page; the form is reached from it.
+        row = one(page, "#contacts tbody [data-open]")
+        form = client.get(row.get("href") + "/edit").text
 
         filed = one(form, 'input[name="sort_name"]')
         assert filed.get("value") == "Testcase, Quilliam"
@@ -84,4 +85,88 @@ class TestThePeoplePage:
         # Nothing was written: a blank-named party would file under a
         # blank sort name, which is the top of the list.
         page = client.get("/contacts").text
-        assert not [cell for cell in select(page, "#contacts tbody td") if not text(cell)]
+        assert not [
+            cell for cell in select(page, "#contacts tbody td") if not text(cell)
+        ]
+
+
+def _contact(client: TestClient, name: str, kind: str) -> int:
+    """A party by the front door, and its id off the list."""
+    client.post(
+        "/contacts/new", data={"name": name, "kind": kind, "sort_name": "", "note": ""}
+    )
+    rows = select(
+        client.get("/contacts", params={"q": name}).text, "#contacts tbody tr"
+    )
+    row = next(r for r in rows if name in text(r))
+    return int(row.get("id").split("-")[-1])
+
+
+class TestAContactHasAPage:
+    """A contact is worked - logged into, written to, read off - so it
+    is a page, not a dialog, like a matter. The kind decides the order."""
+
+    def test_an_organization_is_a_place(self, client: TestClient) -> None:
+        party_id = _contact(
+            client, "New York State and Local Retirement System", "organization"
+        )
+        page = client.get(f"/contacts/{party_id}").text
+        section = one(page, "#contact")
+        assert section.get("data-kind") == "organization"
+        assert one(page, 'a[aria-current="page"]').get("href") == "/contacts"
+        # A place: how to reach it, its sign-ins and what it says are shown
+        # even while empty; its accounts are the ones held there.
+        one(page, "[data-back]")
+        card(page, WORDS["reach"])
+        one(page, f'[hx-get="/contacts/{party_id}/signins"]')
+        one(page, "[data-says]")
+        none(page, "[data-about]")
+        one(page, "#contact-paper")
+
+    def test_a_person_is_a_subject(self, client: TestClient) -> None:
+        party_id = _contact(client, "Quentin Testcase", "person")
+        page = client.get(f"/contacts/{party_id}").text
+        assert one(page, "#contact").get("data-kind") == "person"
+        one(page, "[data-about]")
+        none(page, "[data-says]")
+        none(page, f'[hx-get="/contacts/{party_id}/signins"]')
+
+    def test_fragment_has_no_shell(self, hx: TestClient, client: TestClient) -> None:
+        party_id = _contact(client, "Fragment Testcase", "person")
+        none(hx.get(f"/contacts/{party_id}").text, "html")
+
+    def test_the_edit_dialog_is_reached_from_the_page(self, client: TestClient) -> None:
+        party_id = _contact(client, "Edith Testcase", "person")
+        page = client.get(f"/contacts/{party_id}").text
+        opener = one(page, f'button[hx-get="/contacts/{party_id}/edit"]')
+        assert opener is not None
+        form = client.get(f"/contacts/{party_id}/edit").text
+        assert one(form, 'input[name="name"]').get("value") == "Edith Testcase"
+
+    def test_their_paper_is_filed_with_them(self, client: TestClient) -> None:
+        """A statement is the fund's, whatever matter later needs it: the
+        shelf on the contact, its own tag, and the same document dialog."""
+        from tests._pdf import pdf_bytes
+
+        party_id = _contact(client, "NYSLRS Paper Testcase", "organization")
+        page = client.get(f"/contacts/{party_id}").text
+        one(page, f'button[hx-get="/contacts/{party_id}/documents/new"]')
+
+        answer = client.post(
+            f"/contacts/{party_id}/documents/new",
+            files={
+                "file": (
+                    "statement.pdf",
+                    pdf_bytes(["Gross benefit $1,200.00"]),
+                    "application/pdf",
+                )
+            },
+        )
+        assert answer.status_code == 200
+
+        page = client.get(f"/contacts/{party_id}").text
+        row = one(page, "#contact-paper tbody tr")
+        assert "statement.pdf" in text(row)
+        opener = one(row, "[data-open]")
+        dialog = client.get(opener.get("hx-get")).text
+        one(dialog, "[data-original]")

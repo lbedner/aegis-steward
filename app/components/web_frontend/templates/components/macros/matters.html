@@ -215,7 +215,7 @@
 </li>
 {% endmacro %}
 
-{% macro facts_block(facts, path, matter_id) %}
+{% macro facts_block(facts, path, matter_id=None) %}
 <div id="matter-facts" class="flex flex-col gap-3">
   {% if facts %}
   <ul class="border-t border-aegis-border/60">
@@ -224,6 +224,6 @@
   {% else %}
   <p class="text-sm text-aegis-muted" data-empty>Nothing recorded yet.</p>
   {% endif %}
-  {{ action(word("add_fact"), hx_dialog(path ~ "/" ~ matter_id ~ "/facts/new")) }}
+  {% if matter_id %}{{ action(word("add_fact"), hx_dialog(path ~ "/" ~ matter_id ~ "/facts/new")) }}{% endif %}
 </div>
 {% endmacro %}

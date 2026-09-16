@@ -95,7 +95,21 @@ class MatterService:
             (await self.db.exec(query.order_by(col(Matter.opened_on).desc()))).all()
         )
 
-    async def set_status(self, matter_id: int, status: str, on: date | None = None) -> Matter | None:
+    async def for_party(self, party_id: int) -> list[tuple[Matter, str]]:
+        """The cases this party is in, and as what - newest first. One
+        query: the role is on the link, the case on the row."""
+        rows = await self.db.exec(
+            select(Matter, MatterParticipant.role)
+            .join(MatterParticipant, MatterParticipant.matter_id == Matter.id)
+            .where(MatterParticipant.party_id == party_id)
+            .where(col(Matter.deleted_at).is_(None))
+            .order_by(col(Matter.opened_on).desc())
+        )
+        return [(matter, role) for matter, role in rows.all()]
+
+    async def set_status(
+        self, matter_id: int, status: str, on: date | None = None
+    ) -> Matter | None:
         if status not in MATTER_STATUSES:
             raise ValueError(f"One of: {', '.join(MATTER_STATUSES)}.")
         matter = await self.get(matter_id)
@@ -126,7 +140,9 @@ class MatterService:
         await self.db.flush()
         return link
 
-    async def participants(self, matter_id: int) -> list[tuple[MatterParticipant, Party]]:
+    async def participants(
+        self, matter_id: int
+    ) -> list[tuple[MatterParticipant, Party]]:
         rows = (
             await self.db.exec(
                 select(MatterParticipant, Party)

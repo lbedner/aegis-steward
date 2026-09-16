@@ -31,7 +31,7 @@ from app.services.documents.service import DocumentService
 from app.services.finance.utils import current_date
 from app.services.matters.facts import FactService, monthly_cents
 from app.services.matters.matters import MatterService
-from app.services.matters.models import FACT_ATTRIBUTES
+from app.services.matters.models import FACT_ATTRIBUTES, PARTY_TAG_PREFIX, party_tag
 from app.services.matters.requests import RequestService, overdue, standing
 from app.services.matters.requests import titles as paper_titles
 from app.services.matters.service import PartyService
@@ -47,12 +47,17 @@ async def parties() -> dict[str, Any]:
     """The people and organizations the app knows about.
 
     Returns a dict with key 'parties': a list of entries carrying 'id',
-    'name', 'kind' ("person" or "organization"), 'sort_name' and
-    'contact'. The ids are what every other matter tool reports and what
-    a proposal's payload names - a party cannot be addressed by name.
+    'name', 'kind' ("person" or "organization"), 'sort_name', 'contact'
+    and 'document_ids' - the paper filed against them (a pension fund's
+    statements, an agency's letters), each readable with `paper`. The
+    ids are what every other matter tool reports and what a proposal's
+    payload names - a party cannot be addressed by name.
     """
+    from app.services.documents.queries import document_ids_by_tag_prefix
+
     async with get_async_session() as db:
         found = await PartyService(db).find()
+        paper = await document_ids_by_tag_prefix(db, PARTY_TAG_PREFIX)
     return {
         "parties": [
             {
@@ -62,6 +67,7 @@ async def parties() -> dict[str, Any]:
                 "sort_name": party.sort_name,
                 "contact": party.contact or {},
                 "note": party.note,
+                "document_ids": paper.get(party_tag(party.id), []),
             }
             for party in found
         ]

@@ -120,6 +120,7 @@ class FactService:
         self,
         *,
         subject_party_id: int | None = None,
+        source_party_id: int | None = None,
         matter_id: int | None = None,
         account_id: int | None = None,
         attribute: str | None = None,
@@ -135,6 +136,9 @@ class FactService:
         query = select(Fact).where(col(Fact.deleted_at).is_(None))
         if subject_party_id is not None:
             query = query.where(Fact.subject_party_id == subject_party_id)
+        if source_party_id is not None:
+            # What this place SAYS, as opposed to what is said about it.
+            query = query.where(Fact.source_party_id == source_party_id)
         if matter_id is not None:
             query = query.where(Fact.matter_id == matter_id)
         if account_id is not None:
@@ -268,7 +272,9 @@ async def place_book(db: AsyncSession) -> dict[int, dict[str, str]]:
     }
 
 
-def drawn(fact: Fact, places: dict[int, dict[str, str]] | None = None) -> dict[str, Any]:
+def drawn(
+    fact: Fact, places: dict[int, dict[str, str]] | None = None
+) -> dict[str, Any]:
     """One fact as a page or a tool says it."""
     place = (places or {}).get(fact.source_party_id or -1, {})
     return {

@@ -32,8 +32,3 @@
     {% endif %}
   </div>
 </form>
-{% if party %}
-{#- Outside the form: a form inside a form is not markup a browser
-    accepts, and these save different things. -#}
-<div class="mt-5" hx-get="/contacts/{{ party.id }}/signins" hx-trigger="load" hx-swap="outerHTML"></div>
-{% endif %}

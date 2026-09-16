@@ -1,0 +1,130 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import card, badge %}
+{% from "components/macros/form.html" import action %}
+{% from "components/macros/matters.html" import facts_block %}
+{% from "components/macros/table.html" import data_table %}
+
+{% block title %}{{ party.name }} - {{ project_name }}{% endblock %}
+
+{# One contact, and everything that points at them. An organization is
+   a PLACE - somewhere you log in, that writes to you, that holds an
+   account - so its page leads with how to reach it and what it holds.
+   A person is a SUBJECT, so theirs leads with the cases and the money.
+   Same page; the kind decides the order and what is hidden. #}
+{% set place = party.kind == "organization" %}
+{% block app_content %}
+<section id="contact" class="space-y-6" data-kind="{{ party.kind }}">
+  <header class="flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0">
+      <a href="{{ path }}" {{ hx_page(path) }} data-back
+         class="inline-flex items-center gap-1 text-xs text-aegis-muted hover:text-aegis-text transition-colors">
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+        {{ section.label }}
+      </a>
+      <h1 class="text-lg font-semibold text-aegis-text mt-1">{{ party.name }}</h1>
+      <p class="text-xs text-aegis-muted mt-1" data-meta>{{ party.kind|title }}{% if party.sort_name %} · filed under {{ party.sort_name }}{% endif %}</p>
+    </div>
+    {{ action(word("edit_contact"), hx_dialog(path ~ "/" ~ party.id ~ "/edit")) }}
+  </header>
+
+  {% call card(word("reach")) %}
+  {% if reach %}
+  <dl class="border-t border-aegis-border/60" data-reach>
+    {% for label, value in reach %}
+    <div class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
+      <dt class="text-aegis-muted shrink-0">{{ label }}</dt>
+      <dd class="text-aegis-text min-w-0 truncate text-right">
+        {%- if label == "Website" %}<a href="{{ value }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline">{{ value }}</a>{% else %}{{ value }}{% endif -%}
+      </dd>
+    </div>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>No address, phone or site yet.</p>
+  {% endif %}
+  {% if party.note %}<p class="mt-3 text-sm text-aegis-text whitespace-pre-line" data-note>{{ party.note }}</p>{% endif %}
+  {% endcall %}
+
+  {% if place %}
+  {% call card(word("signins")) %}
+  <div hx-get="{{ path }}/{{ party.id }}/signins" hx-trigger="load" hx-swap="outerHTML"></div>
+  {% endcall %}
+  {% endif %}
+
+  {% call card(word("held_here") if place else word("their_money")) %}
+  {% if held %}
+  <ul class="border-t border-aegis-border/60" data-held>
+    {% for account in held %}
+    <li class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
+      <a href="/accounts/{{ account.id }}" {{ hx_page("/accounts/" ~ account.id) }} class="text-aegis-text hover:text-aegis-teal min-w-0 truncate">{{ account.name }}</a>
+      <span class="text-aegis-muted shrink-0">{{ account.account_type|replace("_", " ") }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>None on the ledger.</p>
+  {% endif %}
+  {% endcall %}
+
+  {% call card(word("matters_in")) %}
+  {% if cases %}
+  <ul class="border-t border-aegis-border/60" data-cases>
+    {% for case in cases %}
+    <li class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
+      <a href="/matters/{{ case.id }}" {{ hx_page("/matters/" ~ case.id) }} class="text-aegis-text hover:text-aegis-teal min-w-0 truncate">{{ case.title }}</a>
+      <span class="flex items-center gap-3 shrink-0">
+        <span class="text-aegis-muted" data-role>{{ case.role|role_label }}</span>
+        {{ badge(case.status, "ok" if case.status == "open" else "muted") }}
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>In none yet.</p>
+  {% endif %}
+  {% endcall %}
+
+  {# Facts FROM them and facts ABOUT them are two different claims: a
+     pension fund says what it pays; a person has money said about them.
+     Both can be true of one contact, so both are shown, labelled. #}
+  {% if place or says %}
+  {% call card(word("says")) %}
+  <div data-says>{{ facts_block(says, "/matters") }}</div>
+  {% endcall %}
+  {% endif %}
+  {% if not place or about %}
+  {% call card(word("about")) %}
+  <div data-about>{{ facts_block(about, "/matters") }}</div>
+  {% endcall %}
+  {% endif %}
+
+  {% if place or letters %}
+  {% call card(word("letters_from")) %}
+  {% if letters %}
+  <ul class="border-t border-aegis-border/60" data-letters>
+    {% for letter in letters %}
+    <li class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
+      <a href="/matters/{{ letter.matter_id }}" {{ hx_page("/matters/" ~ letter.matter_id) }} class="text-aegis-text hover:text-aegis-teal">
+        {% if letter.received_on %}Received {{ letter.received_on|short_date }}{% else %}A request{% endif %}
+      </a>
+      <span class="text-aegis-muted shrink-0">{% if letter.due_on %}due {{ letter.due_on|short_date }} · {% endif %}{{ letter.status }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>Nothing from them yet.</p>
+  {% endif %}
+  {% endcall %}
+  {% endif %}
+
+  {# Theirs: statements, benefit letters, the annual notice - filed
+     against the contact, no matter required, so the next letter's ask
+     is answered from a shelf rather than a hunt. #}
+  {% call card(word("their_paper"), id="contact-paper") %}
+  {{ data_table(paper_columns, papers, empty="Nothing filed with them yet", path=path) }}
+  {{ action(word("add_paper"), hx_dialog(path ~ "/" ~ party.id ~ "/documents/new")) }}
+  {% endcall %}
+</section>
+{% endblock %}

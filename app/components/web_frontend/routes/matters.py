@@ -14,6 +14,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import PAPER_COLUMNS
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
@@ -23,10 +24,7 @@ from app.components.web_frontend.rendering import (
     where_from,
 )
 from app.components.web_frontend.routes.facts import facts_for
-from app.components.web_frontend.routes.matter_papers import (
-    PAPER_COLUMNS,
-    matter_papers,
-)
+from app.components.web_frontend.routes.matter_papers import matter_papers
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.matters import MatterService, summarised
