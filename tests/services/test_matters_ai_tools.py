@@ -88,10 +88,17 @@ async def test_requests_says_what_is_answered_and_what_is_missing(
     await service.attach(items[0].id, 99, "Power of attorney.pdf")
     await async_db_session.commit()
 
+    letter_id = await _on_file(async_db_session, pages=["REQUEST FOR INFORMATION"])
+    await service.cite(request_id, letter_id)
+    await async_db_session.commit()
+
     rows = (await ai_tools.requests(matter_id=matter_id))["requests"]
 
     assert len(rows) == 1
     assert rows[0]["overdue"] is True
+    # The letter behind the asks, by the id `paper` reads.
+    assert rows[0]["letter_document_id"] == letter_id
+    assert rows[0]["letter"] == "Bedner J Request.pdf"
     assert rows[0]["settled"] == 1
     answered = {item["asked"]: item["document_id"] for item in rows[0]["items"]}
     assert answered["A copy of the power of attorney"] == 99

@@ -32,17 +32,26 @@ async def start_extraction_in_process(
 async def start_extraction(
     document_id: int, *, owner_user_id: int | None, force: bool
 ) -> str:
-    """Record the job in the shared store, then hand it to the worker."""
+    """Record the job in the shared store, then hand it to the worker;
+    or return the job already reading this document."""
     import uuid
 
     from app.core.config import settings
     from app.core.log import logger
     from app.services.system.job_store import RedisJobStore
 
-    job_id = uuid.uuid4().hex
+    name = f"documents-extract:{document_id}"
     store = RedisJobStore.from_url(settings.REDIS_URL)
     try:
-        await store.create(job_id, f"documents-extract:{document_id}", "Queued...")
+        # One reading at a time per document. A second ask while the
+        # first is still on the worker (an agent calling twice in three
+        # seconds, a page refreshed) joins that job rather than starting
+        # another pass over the same scan.
+        for job in await store.list_jobs():
+            if job.name == name and job.status == "running" and not force:
+                return job.job_id
+        job_id = uuid.uuid4().hex
+        await store.create(job_id, name, "Queued...")
         try:
             await _enqueue(job_id, document_id, owner_user_id, force)
         except Exception as exc:

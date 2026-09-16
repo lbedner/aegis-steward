@@ -30,6 +30,7 @@ from app.services.matters.facts import FactService, monthly_cents
 from app.services.matters.matters import MatterService
 from app.services.matters.models import FACT_ATTRIBUTES
 from app.services.matters.requests import RequestService, overdue, standing
+from app.services.matters.requests import titles as paper_titles
 from app.services.matters.service import PartyService
 
 ATTRIBUTE_LABELS = dict(FACT_ATTRIBUTES)
@@ -144,11 +145,17 @@ async def requests(
                     continue
                 items = await service.items(one.id)
                 settled, total = standing(items)
+                letter = (await paper_titles(db, [one.document_id])).get(
+                    one.document_id or 0
+                )
                 rows.append(
                     {
                         "id": one.id,
                         "matter_id": one.matter_id,
                         "matter": titles.get(one.matter_id),
+                        # The letter the asks came from: read it with `paper`.
+                        "letter_document_id": one.document_id,
+                        "letter": letter["title"] if letter else None,
                         "received_on": _iso(one.received_on),
                         "due_on": _iso(one.due_on),
                         "status": one.status,
