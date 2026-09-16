@@ -47,7 +47,11 @@ async def signins_at(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
     names = {party.id: party.name for party in await PartyService(db).find()}
     book = await place_book(db)
     return [
-        {**drawn(one, book), "whose": names.get(one.party_id, "")}
+        {
+            **drawn(one, book),
+            "whose": names.get(one.party_id, ""),
+            "whose_id": one.party_id,
+        }
         for one in await SignInService(db).at_site(party_id)
     ]
 
