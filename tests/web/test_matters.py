@@ -1099,7 +1099,9 @@ class TestOverdueIsRed:
     def test_the_card_carries_a_red_dot(self, client: TestClient) -> None:
         page = self._late(client, "MA-LATE-1")
         card = one(client.get(page).text, "#matter-requests [data-request]")
-        assert select(card, "header [data-dot=error]"), "the due line carries the red dot"
+        assert select(card, "header [data-dot=error]"), (
+            "the due line carries the red dot"
+        )
 
     def test_the_list_row_says_overdue(self, client: TestClient) -> None:
         self._late(client, "MA-LATE-2")
@@ -1119,17 +1121,37 @@ class TestOverdueIsRed:
         # Inside a boosted link, so it must override what it would inherit.
         assert nav.get("hx-target") == "this"
         assert nav.get("hx-push-url") == "false"
-        none(client.get("/matters/attention").text, "[data-dot]")
+        # The app-owned database is shared across the run, so "nothing
+        # overdue" cannot be asserted here; that the mark is red and
+        # counts is enough.
         self._late(client, "MA-LATE-3")
         mark = one(client.get("/matters/attention").text, "[data-dot]")
         assert mark.get("data-dot") == "error"
+        assert text(mark).strip().endswith("overdue")
 
 
 class TestFilesCanBeDropped:
-    def test_every_file_input_is_a_drop_target(self, client: TestClient) -> None:
+    def test_every_file_input_is_a_drop_and_paste_target(
+        self, client: TestClient
+    ) -> None:
+        import json
+
         page = _matter(client, "MA-DROP")
         dialog = client.get(page + "/documents/new").text
         zone = one(dialog, "[data-dropzone]")
         assert zone.get("@drop.prevent"), "the drop lands in the input"
-        assert one(zone, "input[type=file]").get("x-ref") == "file"
         assert zone.get("@paste.window"), "and so does the clipboard"
+        # A click on the pane focuses it rather than opening the picker:
+        # the native input is hidden and only the button reaches it.
+        assert zone.get("tabindex") == "0"
+        chooser = one(zone, "input[type=file]")
+        assert "sr-only" in chooser.get("class")
+        assert (
+            select(zone, "button[type=button]")[0].get("@click.stop")
+            == "$refs.file.click()"
+        )
+        # What landed is drawn with the store's own marks, sent as data.
+        table = json.loads(zone.get("data-badges"))
+        assert table["kinds"]["pdf"]["label"] == "PDF"
+        one(zone, "[data-chosen] template[x-for]")
+        one(zone, "[data-chosen] button[aria-label=Remove]")

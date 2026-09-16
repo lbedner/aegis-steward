@@ -20,6 +20,7 @@ from app.components.web_frontend.glyphs import (
     account_glyph,
     category_glyph,
     file_badge,
+    file_badge_table,
 )
 from app.components.web_frontend.nav import NAV
 from app.core.config import settings
@@ -47,6 +48,7 @@ templates.env.globals["nav"] = NAV
 templates.env.globals["category_glyph"] = category_glyph
 templates.env.globals["account_glyph"] = account_glyph
 templates.env.globals["file_badge"] = file_badge
+templates.env.globals["file_badge_table"] = file_badge_table
 
 # The matters vocabulary: every string those pages say comes from one
 # module, so a status spelled in a template cannot drift from the same
