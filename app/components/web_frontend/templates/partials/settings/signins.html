@@ -9,8 +9,7 @@
    and whatever screenshot gets taken of it. #}
 {% from "components/macros/form.html" import field, text_input, pick_or_add, primary_button, action, control %}
 {% from "components/macros/feedback.html" import error_banner %}
-<div id="sign-ins" class="border-t border-aegis-border/60 pt-4 space-y-3">
-  <h3 class="text-sm font-semibold text-aegis-text">Sign-ins</h3>
+<div id="sign-ins" class="space-y-3">
   {{ error_banner(errors) }}
   {% if signins %}
   <ul class="divide-y divide-aegis-border/60">
@@ -39,8 +38,8 @@
     </li>
     {% endfor %}
   </ul>
-  {% else %}
-  <p class="text-sm text-aegis-muted" data-empty>No sign-ins yet.</p>
+  {% elif not visitors %}
+  <p class="text-sm text-aegis-muted" data-empty>{% if place %}Nobody signs in here yet.{% else %}No sign-ins yet.{% endif %}</p>
   {% endif %}
 
   {#- The other end of the same rows: whose logins get you into THIS

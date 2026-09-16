@@ -62,11 +62,15 @@ async def _block(
     status_code: int = 200,
 ) -> Response:
     book = await place_book(db)
+    party = await PartyService(db).get(party_id)
     return dialog(
         request,
         "partials/settings/signins.html",
         status_code,
         party_id=party_id,
+        # A place is signed IN TO; a person signs in. The block says the
+        # one that is true of this party, and its empty line matches.
+        place=party is not None and party.kind == "organization",
         signins=await signins_for(db, party_id),
         visitors=await signins_at(db, party_id),
         # Somewhere with a website is somewhere you can be sent; the
