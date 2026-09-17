@@ -148,7 +148,9 @@ text-aegis-text
      context: a dot positioned against the row element is not reliable,
      and a column of its own would make every ledger wider for a thing
      that is usually absent. #}
-  <td class="{{ 'relative ' if loop.first }}px-5 py-2 whitespace-nowrap {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{% if loop.first %}{{ new_mark(row) }}{% endif %}{{ _cell(row, col) }}</td>
+  {# A column marked ``wrap`` lets its text break: a name or a title in
+     a wide row folds rather than pushing the money off the card. #}
+  <td class="{{ 'relative ' if loop.first }}px-5 py-2 {{ 'whitespace-normal break-words' if col.wrap else 'whitespace-nowrap' }} {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{% if loop.first %}{{ new_mark(row) }}{% endif %}{{ _cell(row, col) }}</td>
   {% endfor %}
   {% if actions %}<td class="px-2 py-2 text-right">{{ actions(row) }}</td>{% endif %}
 </tr>

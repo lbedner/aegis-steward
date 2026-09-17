@@ -33,14 +33,14 @@ POLICY = "/{party_id:int}/policies/{policy_id:int}"
 
 CLAIM_COLUMNS = (
     {"key": "at", "label": "Visit"},
-    {"key": "who", "label": "For", "kind": "contact"},
-    {"key": "provider", "label": "Provider", "kind": "contact"},
-    {"key": "number", "label": "Claim"},
+    {"key": "who", "label": "For", "kind": "contact", "wrap": True},
+    {"key": "provider", "label": "Provider", "kind": "contact", "wrap": True},
+    {"key": "number", "label": "Claim", "wrap": True},
     {"key": "billed", "label": "Billed", "kind": "money", "align": "right"},
     {"key": "allowed", "label": "Allowed", "kind": "money", "align": "right"},
     {"key": "paid", "label": "Insurer paid", "kind": "money", "align": "right"},
     {"key": "owes", "label": "You owe", "kind": "money", "align": "right"},
-    {"key": "eob", "label": "EOB", "kind": "open"},
+    {"key": "eob", "label": "EOB", "kind": "open", "wrap": True},
     # The charge that paid the provider, or blank: the link between what
     # the EOB said and what the ledger shows leaving.
     {"key": "settled", "label": "Paid", "kind": "action"},
