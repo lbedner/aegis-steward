@@ -77,7 +77,13 @@
     if (replay) {
       const text = replay.closest('[data-role=user]').querySelector('[data-text]').textContent;
       const form = document.getElementById('chat-composer');
-      form.querySelector('textarea').value = text;
+      const box = form.querySelector('textarea');
+      box.value = text;
+      // Alpine owns this box through x-model and never sees a direct
+      // assignment, so without this its copy stays empty - and the
+      // clear on a successful send then writes nothing, leaving the
+      // replayed text sitting in the composer after it was sent.
+      box.dispatchEvent(new Event('input', { bubbles: true }));
       form.requestSubmit();
     }
     const copy = event.target.closest('[data-copy]');
