@@ -43,6 +43,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
     dialog,
+    or_404,
     render,
     templates,
     with_toast,
@@ -379,8 +380,7 @@ async def _owned(conversation_id: str) -> Any:
 async def _stored(conversation_id: str, message_id: str) -> Any:
     conversation = await _owned(conversation_id)
     found = next((m for m in conversation.messages if m.id == message_id), None)
-    if found is None:
-        raise HTTPException(status_code=404)
+    or_404(found)
     return found
 
 
@@ -709,8 +709,7 @@ async def paste(request: Request, paste_id: str) -> Response:
     from app.services.ai.domains.chat.pastes import read_paste
 
     found = await read_paste(str(STANDALONE_USER_ID), paste_id)
-    if found is None:
-        raise HTTPException(status_code=404)
+    or_404(found)
     return templates.TemplateResponse(
         request=request,
         name="partials/chat/paste.html",
@@ -729,8 +728,7 @@ async def attachment(key: str, type: str = "image/png") -> Response:
     if not type.startswith("image/"):
         raise HTTPException(status_code=404)
     data = await get_storage().get(key)
-    if data is None:
-        raise HTTPException(status_code=404)
+    or_404(data)
     return Response(
         content=data,
         media_type=type,
@@ -833,8 +831,7 @@ async def resolve_change_component(
     """The card re-renders from whatever the queue says afterwards, never
     an optimistic guess."""
     handler = {"approve": approve_change, "reject": reject_change}.get(verb)
-    if handler is None:
-        raise HTTPException(status_code=404)
+    or_404(handler)
     try:
         change = await handler(change_id, service=service, owner_user_id=owner_user_id)
     except HTTPException as refused:

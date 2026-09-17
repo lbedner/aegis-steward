@@ -9,15 +9,20 @@ number.
 
 from __future__ import annotations
 
-from datetime import date as date_type
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
+from app.components.web_frontend.filters import parse_date
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog, dialog_done, where_from
+from app.components.web_frontend.rendering import (
+    dialog,
+    dialog_done,
+    or_404,
+    where_from,
+)
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import FactService, drawn, place_book
@@ -184,7 +189,7 @@ async def record_fact(
                 value_cents=_cents(amount),
                 period=period,
                 text_value=text_value,
-                as_of=date_type.fromisoformat(as_of) if as_of else None,
+                as_of=parse_date(as_of),
                 provenance=provenance,
                 document_id=int(document_id) if document_id else None,
                 source_party_id=await party_or_new(
@@ -213,8 +218,7 @@ async def verify(request: Request, fact_id: int) -> Response:
     async with get_async_session() as db:
         facts = FactService(db)
         fact = await facts.get(fact_id)
-        if fact is None:
-            raise HTTPException(status_code=404)
+        or_404(fact)
         await facts.verify(fact_id, not fact.verified)
         await db.commit()
         matter_id = fact.matter_id
@@ -231,8 +235,7 @@ async def forget(request: Request, fact_id: int) -> Response:
     async with get_async_session() as db:
         facts = FactService(db)
         fact = await facts.get(fact_id)
-        if fact is None:
-            raise HTTPException(status_code=404)
+        or_404(fact)
         matter_id = fact.matter_id
         await facts.forget(fact_id)
         await db.commit()
@@ -335,7 +338,7 @@ async def record_account_fact(
                 value_cents=_cents(amount),
                 period=period,
                 text_value=text_value,
-                as_of=date_type.fromisoformat(as_of) if as_of else None,
+                as_of=parse_date(as_of),
                 provenance=provenance,
                 document_id=int(document_id) if document_id else None,
                 page=int(page) if page else None,

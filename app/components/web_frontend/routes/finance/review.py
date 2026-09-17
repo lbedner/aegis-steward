@@ -36,6 +36,7 @@ from app.components.web_frontend.rendering import (
     close_dialog,
     dialog,
     navigate,
+    or_404,
     render,
     templates,
     with_toast,
@@ -178,8 +179,7 @@ async def resolve_change(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     handler = {"approve": approve_change, "reject": reject_change}.get(verb)
-    if handler is None:
-        raise HTTPException(status_code=404)
+    or_404(handler)
     change = await handler(change_id, service=service, owner_user_id=owner_user_id)
     word = "Approved" if verb == "approve" else "Rejected"
     return await _resolved(

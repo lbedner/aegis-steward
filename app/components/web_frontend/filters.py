@@ -312,6 +312,12 @@ def positions_from_text(raw: str) -> tuple[list[dict[str, Any]], list[str]]:
     return rows, errors
 
 
+def parse_date(raw: str | None) -> date | None:
+    """A form's date field: ``YYYY-MM-DD`` or blank. Anything else raises
+    the same ValueError the services raise, for the same 422."""
+    return date.fromisoformat(raw) if raw else None
+
+
 def money_to_cents(raw: str | None) -> int | None:
     """``"$1,200.50"`` / ``"3,000"`` / ``" 12 "`` -> cents; blank -> 0;
     anything else -> ``None`` (the caller decides that is a 422)."""

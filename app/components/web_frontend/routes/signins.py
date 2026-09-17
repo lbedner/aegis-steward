@@ -19,7 +19,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog
+from app.components.web_frontend.rendering import dialog, or_404
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import place_book
@@ -112,8 +112,7 @@ async def edit_signin(request: Request, sign_in_id: int) -> Response:
     has put it in the page to save somebody one keystroke."""
     async with get_async_session() as db:
         sign_in = await SignInService(db).get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
+        or_404(sign_in)
         return await _block(request, db, sign_in.party_id, form=drawn(sign_in))
 
 
@@ -190,8 +189,7 @@ async def save_signin(
     async with get_async_session() as db:
         service = SignInService(db)
         sign_in = await service.get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
+        or_404(sign_in)
         try:
             await service.change(
                 sign_in_id,
@@ -225,8 +223,7 @@ async def reveal(request: Request, sign_in_id: int) -> Response:
     async with get_async_session() as db:
         service = SignInService(db)
         sign_in = await service.get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
+        or_404(sign_in)
         secret = await service.reveal(sign_in_id)
         return await _block(
             request,
@@ -241,8 +238,7 @@ async def forget(request: Request, sign_in_id: int) -> Response:
     async with get_async_session() as db:
         service = SignInService(db)
         sign_in = await service.get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
+        or_404(sign_in)
         party_id = sign_in.party_id
         await service.forget(sign_in_id)
         await db.commit()

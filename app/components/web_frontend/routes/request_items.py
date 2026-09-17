@@ -8,7 +8,6 @@ happens.
 
 from __future__ import annotations
 
-from datetime import date as date_type
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -19,8 +18,14 @@ from app.components.web_frontend.documents import (
     file_upload,
     save_document,
 )
+from app.components.web_frontend.filters import parse_date
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog, dialog_done, where_from
+from app.components.web_frontend.rendering import (
+    dialog,
+    dialog_done,
+    or_404,
+    where_from,
+)
 from app.components.web_frontend.routes.requests import (
     ACCEPTS,
     ITEM,
@@ -44,8 +49,7 @@ async def mark_item(request: Request, item_id: int, status: str) -> Response:
             item = await RequestService(db).mark(item_id, status)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if item is None:
-            raise HTTPException(status_code=404)
+        or_404(item)
         await db.commit()
         return await _card(request, db, item.request_id)
 
@@ -54,8 +58,7 @@ async def mark_item(request: Request, item_id: int, status: str) -> Response:
 async def edit_item(request: Request, item_id: int) -> Response:
     async with get_async_session() as db:
         item = await RequestService(db).item(item_id)
-        if item is None:
-            raise HTTPException(status_code=404)
+        or_404(item)
         return dialog(
             request,
             "partials/matters/item.html",
@@ -79,15 +82,14 @@ async def save_item(
     async with get_async_session() as db:
         requests = RequestService(db)
         item = await requests.item(item_id)
-        if item is None:
-            raise HTTPException(status_code=404)
+        or_404(item)
         try:
             await requests.amend(
                 item_id,
                 asked=asked,
                 kind=kind,
                 ask=ask,
-                as_of=date_type.fromisoformat(as_of) if as_of else None,
+                as_of=parse_date(as_of),
             )
         except ValueError as exc:
             return dialog(
@@ -122,8 +124,7 @@ async def attach_form(request: Request, item_id: int) -> Response:
 
     async with get_async_session() as db:
         item = await RequestService(db).item(item_id)
-        if item is None:
-            raise HTTPException(status_code=404)
+        or_404(item)
         filed, _ = await DocumentService(db).list_documents()
     return dialog(
         request,
@@ -163,18 +164,15 @@ async def attach(
     async with get_async_session() as db:
         requests = RequestService(db)
         item = await requests.item(item_id)
-        if item is None:
-            raise HTTPException(status_code=404)
+        or_404(item)
         found = await requests.get(item.request_id)
-        if found is None:
-            raise HTTPException(status_code=404)
+        or_404(found)
         documents = DocumentService(db)
         if file is not None and file.filename:
             document = await file_upload(db, file, owner_user_id=owner_user_id)
         elif document_id:
             document = await documents.get(int(document_id))
-            if document is None:
-                raise HTTPException(status_code=404)
+            or_404(document)
         else:
             raise HTTPException(status_code=400, detail="Pick a document or add one.")
         await documents.tag(document.id, matter_tag(found.matter_id))
@@ -191,8 +189,7 @@ async def detach(request: Request, item_id: int) -> Response:
     """Wrong paper: the item stands again."""
     async with get_async_session() as db:
         item = await RequestService(db).detach(item_id)
-        if item is None:
-            raise HTTPException(status_code=404)
+        or_404(item)
         await db.commit()
         return await _card(request, db, item.request_id)
 

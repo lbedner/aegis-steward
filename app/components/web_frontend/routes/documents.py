@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from starlette.responses import Response
 
 from app.components.web_frontend.documents import (
@@ -24,6 +24,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     render,
     where_from,
     with_toast,
@@ -104,8 +105,7 @@ async def _filed(db: Any, document_id: int) -> Any:
     from app.services.documents.service import DocumentService
 
     document = await DocumentService(db).get(document_id)
-    if document is None:
-        raise HTTPException(status_code=404)
+    or_404(document)
     return document
 
 

@@ -82,6 +82,10 @@ class PartyService:
             )
         return list((await self.db.exec(query.order_by(col(Party.sort_name)))).all())
 
+    async def options(self, kind: str | None = None) -> list[dict[str, Any]]:
+        """``{id, name}`` rows for a select, in filing order."""
+        return [{"id": p.id, "name": p.name} for p in await self.find(kind=kind)]
+
     async def names(self, ids: list[int] | None = None) -> dict[int, str]:
         """id -> name, for every party or for ``ids``: the one map every
         page and tool draws a party's name from."""

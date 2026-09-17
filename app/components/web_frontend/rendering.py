@@ -6,9 +6,9 @@ a full page inside the app shell and a bare fragment for htmx.
 """
 
 import json
-from typing import Any
+from typing import Any, TypeVar
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from starlette.responses import Response
@@ -72,6 +72,8 @@ templates.env.globals["assistant"] = assistant("finance-assistant")
 # The "everything" window, so a template can tell a default chip from a
 # chosen one without importing the module.
 templates.env.globals["all_days"] = ranges.ALL
+
+T = TypeVar("T")
 
 
 def hx_dialog(url: str, extra: str = "") -> Markup:
@@ -304,3 +306,11 @@ def dialog_done(path: str, toast: str) -> Response:
     response = Response(status_code=200)
     navigate(response, path)
     return close_dialog(with_toast(response, toast))
+
+
+def or_404(row: T | None) -> T:
+    """The row, or the one 404 every route raises when a URL names a
+    thing that is not there."""
+    if row is None:
+        raise HTTPException(status_code=404)
+    return row

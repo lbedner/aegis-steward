@@ -22,6 +22,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     render,
     where_from,
 )
@@ -234,8 +235,7 @@ async def contact(
 
     async with get_async_session() as db:
         party = await PartyService(db).get(party_id)
-        if party is None:
-            raise HTTPException(status_code=404)
+        or_404(party)
         places = await place_book(db)
         facts = FactService(db)
         says = [drawn(f, places) for f in await facts.find(source_party_id=party_id)]
@@ -299,8 +299,7 @@ async def new_paper(request: Request, party_id: int) -> Response:
 
     async with get_async_session() as db:
         party = await PartyService(db).get(party_id)
-    if party is None:
-        raise HTTPException(status_code=404)
+    or_404(party)
     return dialog(
         request,
         "partials/matters/paper.html",

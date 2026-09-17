@@ -44,6 +44,7 @@ from app.components.web_frontend.nav import settings_nav as nav_context  # noqa:
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     render,
     templates,
     with_toast,
@@ -359,8 +360,7 @@ async def remove_form(
 ) -> Response:
     listing = await list_connections(service=service, owner_user_id=owner_user_id)
     connection = next((c for c in listing.items if c.id == connection_id), None)
-    if connection is None:
-        raise HTTPException(status_code=404)
+    or_404(connection)
     return dialog(
         request,
         "partials/settings/disconnect.html",
@@ -586,8 +586,7 @@ async def run_detail(
     from app.services.finance.models.imports import FinanceImportBatch
 
     run = await service.db.get(FinanceImportBatch, run_id)
-    if run is None:
-        raise HTTPException(status_code=404)
+    or_404(run)
     detail = run.detail or {}
     took = None
     if run.finished_at and run.started_at:

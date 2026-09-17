@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi import HTTPException as _HTTPException
 from starlette.responses import Response
 
@@ -33,6 +33,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     where_from,
     with_toast,
 )
@@ -69,8 +70,7 @@ async def _account(
     service: FinanceService, account_id: int, owner_user_id: int | None
 ) -> FinanceAccount:
     account = await service.get_account(account_id, owner_user_id=owner_user_id)
-    if account is None:
-        raise HTTPException(status_code=404)
+    or_404(account)
     return account
 
 

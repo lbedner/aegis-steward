@@ -12,15 +12,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from markupsafe import Markup
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
 from app.components.web_frontend.documents import file_upload
-from app.components.web_frontend.filters import money_to_cents
+from app.components.web_frontend.filters import money_to_cents, parse_date
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog
+from app.components.web_frontend.rendering import dialog, or_404
 from app.core.db import get_async_session
 from app.core.formatting import iso_date, payee_label
 from app.services.finance.deps import get_owner_user_id
@@ -78,10 +78,6 @@ def _terms(raw: str) -> dict[str, str]:
         if sep and label.strip() and value.strip():
             terms[label.strip()] = value.strip()
     return terms
-
-
-def _date(raw: str) -> date | None:
-    return date.fromisoformat(raw) if raw else None
 
 
 async def _drawn(
@@ -240,8 +236,7 @@ async def _block(
     status_code: int = 200,
 ) -> Response:
     party = await PartyService(db).get(party_id)
-    if party is None:
-        raise HTTPException(status_code=404)
+    or_404(party)
     service = InsuranceService(db)
     place = party.kind == "organization"
     policies = (
@@ -249,7 +244,6 @@ async def _block(
         if place
         else await service.policies_covering(party_id)
     )
-    everyone = await PartyService(db).find()
     names = await PartyService(db).names()
     return dialog(
         request,
@@ -259,7 +253,7 @@ async def _block(
         party_id=party_id,
         place=place,
         policies=[await _drawn(db, party_id, p, names, place) for p in policies],
-        people=[{"id": p.id, "name": p.name} for p in everyone if p.kind == "person"],
+        people=await PartyService(db).options(kind="person"),
         kinds=POLICY_KINDS,
         statuses=CLAIM_STATUSES,
         claim_columns=list(CLAIM_COLUMNS),
@@ -321,8 +315,8 @@ async def add_policy(
                 policy_number=policy_number.strip() or None,
                 member_id=member_id.strip() or None,
                 group_id=group_id.strip() or None,
-                effective_on=_date(effective_on),
-                renews_on=_date(renews_on),
+                effective_on=parse_date(effective_on),
+                renews_on=parse_date(renews_on),
                 terms=_terms(terms),
                 note=note,
                 owner_user_id=owner_user_id,
