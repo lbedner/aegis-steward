@@ -113,6 +113,9 @@ class AccountResponse(BaseModel):
     institution_id: int | None = None
     connection_id: int | None = None
     reference: str | None = None
+    # The safe half of the account number: four digits a page may draw
+    # anywhere. The number itself is never on a response.
+    mask: str | None = None
     # Whose money this is, when it is not the household's own. Null is
     # ours, so every ledger that predates subjects reads unchanged.
     subject_id: int | None = None
@@ -142,6 +145,7 @@ class AccountResponse(BaseModel):
             institution_id=row.institution_id,
             connection_id=row.connection_id,
             reference=row.reference,
+            mask=row.mask,
             subject_id=row.subject_id,
             liability=(
                 LiabilitySummary.from_row(liability) if liability is not None else None

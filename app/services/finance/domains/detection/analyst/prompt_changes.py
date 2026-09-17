@@ -82,6 +82,15 @@ bare number cannot tell a sale from an asking price, and 'is_estimate' \
 separates a site's guess from a price somebody actually paid - which is \
 the difference between equity and hope. Only an ASSET has a value; a \
 debt records what is owed (account.loan_terms).
+- `account.institution` - payload {"account_id": int (accounts()), \
+"party_id": int (parties() - the BANK as an organization), optional \
+"routing_number"}: say which bank an account is held with. Name the \
+CONTACT, never the bank's name in text: the ledger's institutions and \
+the address book are two directories behind one question, and typing \
+the name again is how a website lands on one row and a logo on the \
+other. Propose contact.create for the bank first when parties() has no \
+row for it. The routing number is the BANK's - every account there \
+shares it - so send it here and never as an account's own number.
 - `account.create` - payload {"name": str, "account_type": one of \
 checking/savings/cash/credit_card/loan/brokerage/crypto/property/\
 vehicle/other_asset/other_liability, optional "current_balance" \

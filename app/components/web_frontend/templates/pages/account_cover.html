@@ -40,6 +40,7 @@
           {% if who.contact.phone %}<li data-phone>{{ who.contact.phone }}</li>{% endif %}
           {% if who.contact.email %}<li data-email>{{ who.contact.email }}</li>{% endif %}
           {% if who.contact.address %}<li data-address>{{ who.contact.address }}</li>{% endif %}
+          {% if who.routing %}<li data-routing>Routing {{ who.routing }}</li>{% endif %}
           {#- The way in, named but never opened here: the password is
               one deliberate click away, on the party. -#}
           {% for signin in who.signins %}
@@ -78,6 +79,15 @@
   {% endif %}
 
   {% if loan_terms %}{{ stats_strip(loan_terms) }}{% endif %}
+  {# Which account this is. The number is kept the way a password is,
+     so the page shows four digits and asks before it shows the rest. #}
+  {% if selected.mask %}
+  {% call card("Numbers") %}
+  <dl class="border-t border-aegis-border/60 divide-y divide-aegis-border/60">
+    {% with account = selected %}{% include "partials/accounts/number.html" %}{% endwith %}
+  </dl>
+  {% endcall %}
+  {% endif %}
   {# What the place is worth against what is secured on it. Derived from
      the confirmed lien links at read time, so it cannot disagree with
      the accounts it came from. #}

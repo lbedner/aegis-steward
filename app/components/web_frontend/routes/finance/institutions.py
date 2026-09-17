@@ -46,6 +46,7 @@ async def institution_form(
         "partials/accounts/institution.html",
         account=account,
         institutions=await _held_with_options(service, owner_user_id),
+        routing=await _routing_now(service, account.institution_id),
         current=_institution_current(
             account.institution_id
             or await service.last_institution_used(owner_user_id=owner_user_id)
@@ -55,6 +56,39 @@ async def institution_form(
         else await _suggested_bank(service, account.name, owner_user_id),
         errors=[],
     )
+
+
+async def _refused(
+    request: Request,
+    service: FinanceService,
+    account_id: int,
+    owner_user_id: int | None,
+    routing: str,
+) -> Response:
+    """The form back with what refused it: a routing number whose
+    checksum fails is usually a transposed pair, not a new bank."""
+    account = await _account(service, account_id, owner_user_id)
+    return dialog(
+        request,
+        "partials/accounts/institution.html",
+        status_code=422,
+        account=account,
+        institutions=await _held_with_options(service, owner_user_id),
+        routing=routing,
+        current=_institution_current(account.institution_id),
+        suggestion=None,
+        errors=["That is not a routing number; check for a transposed pair."],
+    )
+
+
+async def _routing_now(service: FinanceService, institution_id: int | None) -> str:
+    """The bank's routing number as the form should open on it."""
+    from app.services.finance.domains.ledger.queries.accounts import institution_by_id
+
+    if institution_id is None:
+        return ""
+    found = await institution_by_id(service.db, institution_id)
+    return (found.routing_number or "") if found else ""
 
 
 async def _suggested_bank(
@@ -123,6 +157,7 @@ async def institution_save(
     account_id: int,
     institution_id: Annotated[str, Form()] = "",
     new_name: Annotated[str, Form()] = "",
+    routing_number: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
@@ -151,6 +186,22 @@ async def institution_save(
     await service.set_account_institution(
         account_id, chosen, owner_user_id=owner_user_id
     )
+    # The routing number rides with the BANK, so it is written once here
+    # however many accounts point at it. A blank leaves it alone.
+    if chosen is not None and routing_number.strip():
+        from app.services.finance.domains.ledger.numbers import aba_ok
+        from app.services.finance.domains.ledger.queries.accounts import (
+            institution_by_id,
+        )
+
+        if not aba_ok(routing_number):
+            return await _refused(
+                request, service, account_id, owner_user_id, routing_number
+            )
+        bank = await institution_by_id(service.db, chosen)
+        if bank is not None:
+            bank.routing_number = routing_number.strip()
+            service.db.add(bank)
     await service.db.commit()
     named = (
         label

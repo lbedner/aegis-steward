@@ -61,6 +61,7 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "prompt_fingerprint": ("column", "agent", "prompt_fingerprint"),
     "insurance": ("table", "insurance_policy"),
     "claim_paid": ("column", "insurance_claim", "paid_transaction_id"),
+    "account_identity": ("column", "finance.finance_institution", "routing_number"),
     # insight_source, not project: the project table only exists in the
     # per-user shape, insight_source in both.
     "insights": ("table", "insight_source"),

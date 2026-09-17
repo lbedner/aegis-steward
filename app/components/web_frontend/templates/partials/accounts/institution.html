@@ -7,7 +7,7 @@
 
    ``current`` marks the one already set, and the picker disables it -
    choosing it again would write nothing. #}
-{% from "components/macros/form.html" import picker %}
+{% from "components/macros/form.html" import field, picker, text_input %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {% call dialog_title("Where " ~ account.name ~ " is held") %}
@@ -30,6 +30,9 @@
 {{ picker("institution-picker", "/accounts/" ~ account.id ~ "/institution",
           "institution_id", institutions, hint="Search or name a bank",
           create="new_name", current=current) }}
+{# The bank's own number, printed on every cheque. Here rather than on
+   the account because every account at this bank shares it. #}
+{% call field("Routing number") %}{{ text_input("routing_number", routing, placeholder="021000021") }}{% endcall %}
 {% if account.institution_id %}
 <form {{ hx_dialog_post('/accounts/' ~ account.id ~ '/institution') }} class="mt-3 text-right">
   <input type="hidden" name="institution_id" value="">

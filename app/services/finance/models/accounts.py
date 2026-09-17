@@ -103,6 +103,12 @@ class FinanceAccount(SQLModel, table=True):
     # for. ``mask`` is four digits of a card and answers nothing else.
     reference: str | None = Field(default=None, max_length=64)
     mask: str | None = Field(default=None, max_length=8)
+    # The account's own number, kept the way a sign-in's password is:
+    # with the bank's routing number beside it this is enough to pull a
+    # debit, so it is encrypted at rest, never rendered into a listing,
+    # and revealed into one row on request. ``mask`` is DERIVED from its
+    # last four on write, so the masked display never decrypts.
+    account_number_encrypted: str | None = Field(default=None)
     type: str | None = Field(default=None)
     subtype: str | None = Field(default=None)
     account_type: str = Field(max_length=24)

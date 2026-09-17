@@ -214,3 +214,12 @@ register(
         describe=insurance.claim_paid_describe,
     )
 )
+register(
+    ChangeExecutor(
+        change_type="account.institution",
+        title="Say which bank an account is held with",
+        payload_model=accounts.InstitutionPayload,
+        execute=accounts.institution_execute,
+        describe=accounts.institution_describe,
+    )
+)
