@@ -203,6 +203,17 @@ async def list_changes(
     return list((await db.exec(query)).all())
 
 
+async def approved_in_batch(db: AsyncSession, batch_id: str) -> list[Any]:
+    """The rows a batch approval actually landed, for telling whoever
+    asked for them. Counts came back from the approval; the rows are
+    what carry the ids she needs to propose the next thing."""
+    query = select(FinancePendingChange).where(
+        FinancePendingChange.batch_id == batch_id,
+        FinancePendingChange.status == "approved",
+    )
+    return list((await db.exec(query)).all())
+
+
 def _require_pending(row: FinancePendingChange | None) -> FinancePendingChange:
     if row is None:
         raise ValueError("pending change not found")

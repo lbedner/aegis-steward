@@ -12,6 +12,7 @@ from arq.jobs import deserialize_result
 import redis.asyncio as aioredis
 
 from app.components.worker.events import publish_event
+from app.components.worker.tasks.chat_tasks import announce_approval_task
 from app.components.worker.tasks.document_tasks import extract_document_task
 from app.components.worker.tasks.finance_tasks import finance_import_task
 from app.components.worker.tasks.simple_system_tasks import (
@@ -32,6 +33,7 @@ class WorkerSettings:
     functions = [
         system_health_check,
         cleanup_temp_files,
+        announce_approval_task,
         extract_document_task,
         finance_import_task,
     ]

@@ -14,6 +14,8 @@ from app.services.finance.deps import (
     get_owner_user_id,
 )
 from app.services.finance.domains import writes
+from app.services.finance.domains.writes.announce import announce
+from app.services.finance.domains.writes.queue import approved_in_batch
 from app.services.finance.models import FinancePendingChange
 from app.services.finance.schemas import (
     BatchResolveRequest,
@@ -137,6 +139,9 @@ async def propose_change(
         ) from None
     response = await _to_response(service, row)
     await service.db.commit()
+    # AFTER the commit, never before: she reads the message, calls
+    # parties(), and the row has to be there.
+    await announce([row])
     return response
 
 
@@ -238,6 +243,9 @@ async def approve_batch(
         batch_id, owner_user_id=owner_user_id, exclude_ids=body.exclude_ids
     )
     await service.db.commit()
+    # One message for the batch, after the commit: six filings are a
+    # sentence to her, not six turns.
+    await announce(await approved_in_batch(service.db, batch_id))
     return BatchResolveResponse(**summary)
 
 
