@@ -4,16 +4,12 @@
    is saved; "Add a line" puts another stated part above it. One line
    drawn one way: the rows on load and the one the button clones come
    from the same macro. #}
-{% from "components/macros/form.html" import text_input, primary_button, action, control %}
+{% from "components/macros/form.html" import money_input, text_input, primary_button, action, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {% macro line(part) %}
 <div class="grid grid-cols-[8rem_1fr_1fr] gap-2 items-end" data-line>
-  <div class="relative mt-1">
-    <span class="absolute inset-y-0 left-2.5 flex items-center text-sm text-aegis-muted" aria-hidden="true">$</span>
-    <input type="text" inputmode="decimal" name="amount" value="{{ part.amount }}" placeholder="0.00"
-           class="{{ control("input") }} w-full pl-6 tabular-nums read-only:text-aegis-muted">
-  </div>
+  {{ money_input("amount", part.amount) }}
   <select name="category_id" aria-label="Category" class="{{ control("select") }}">
     <option value="">Uncategorized</option>
     {% for c in categories %}<option value="{{ c.id }}" {% if part.category_id and c.id|string == part.category_id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
