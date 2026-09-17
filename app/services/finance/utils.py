@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal
 from functools import partial
 import re
 from typing import Any
 import unicodedata
 
+from app.core.clock import utcnow as clockutcnow
 from app.services.finance.constants import (
     CADENCE_KEYS,
     step_cadence,
@@ -72,7 +73,7 @@ FREQUENCY_STEPS: dict[str, Callable[[date], date]] = {
 
 def utcnow() -> datetime:
     """Naive-UTC timestamp (matches the models' convention)."""
-    return datetime.now(UTC).replace(tzinfo=None)
+    return clockutcnow()
 
 
 def current_date() -> date:

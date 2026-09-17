@@ -17,14 +17,13 @@ Conventions (see docs/plans/finance-service/finance-schema-canonical.md):
 - enums are ``String`` + ``CheckConstraint`` (portable across SQLite/Postgres),
   never native enums; provider taxonomies that grow are plain ``str`` columns;
 - partial-unique indexes declare BOTH ``sqlite_where`` and ``postgresql_where``;
-- timestamps are naive UTC via ``_utcnow``;
+- timestamps are naive UTC via ``app.core.clock.utcnow``;
 - on Postgres every finance table lives in a dedicated ``finance`` schema
   (``_SCHEMA``); SQLite has no schemas so ``_SCHEMA`` is None (default DB).
   Tests run on SQLite and attach an in-memory ``finance`` database per the
   conftest schema-attach, so schema-qualified models still create_all cleanly.
 """
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -49,11 +48,6 @@ def _bigint(name: str, *, nullable: bool = True, default: Any = None) -> Any:
     (cents), never floats.
     """
     return Field(default=default, sa_column=Column(name, BigInteger, nullable=nullable))
-
-
-def _utcnow() -> datetime:
-    """UTC timestamp stored as naive datetime for SQLite/Postgres portability."""
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 # Ciphertext columns on FinanceConnection: encrypted in the service layer,

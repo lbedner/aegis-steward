@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.formatting import format_date
+from app.core.formatting import format_date, payee_label
 from app.services.finance.domains.detection.insights.formatting import format_usd
 from app.services.finance.domains.ledger import transactions
 from app.services.finance.schemas import ChangeDisplayRow
@@ -76,7 +76,7 @@ def candidate_row(txn: Any) -> dict[str, Any]:
     return {
         "id": txn.id,
         "date": txn.date_.isoformat(),
-        "payee": txn.merchant_name or txn.name,
+        "payee": payee_label(None, txn.merchant_name, txn.name),
         "amount": txn.amount,
         "account_id": txn.account_id,
     }

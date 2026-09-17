@@ -14,6 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
 from app.services.insurance.service import InsuranceService
 from app.services.matters.service import PartyService
+from tests._session import opens
 
 
 async def _insured(db: AsyncSession) -> tuple[int, int, int]:
@@ -276,16 +277,10 @@ class TestIllianaReadsPolicies:
     async def test_the_tool_lists_policies_with_their_claims(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from contextlib import asynccontextmanager
-
         from app.services.ai.domains.chat.tools import registered_tool_names
         from app.services.insurance import ai_tools
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+        monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
         insurer, marisa, _ = await _insured(async_db_session)
         service = InsuranceService(async_db_session)
         policy = await service.create_policy(

@@ -7,12 +7,13 @@ a matter is a case: they are read together and changed apart, and the
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any
 
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
 from app.services.matters.models import (
     DOCUMENT_PARTY_ROLES,
     MATTER_STATUSES,
@@ -22,10 +23,6 @@ from app.services.matters.models import (
     MatterParticipant,
     Party,
 )
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class MatterService:
@@ -117,7 +114,7 @@ class MatterService:
             return None
         matter.status = status
         matter.closed_on = on if status == "closed" else None
-        matter.updated_at = _utcnow()
+        matter.updated_at = utcnow()
         self.db.add(matter)
         await self.db.flush()
         return matter

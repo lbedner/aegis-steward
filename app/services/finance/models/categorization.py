@@ -17,10 +17,10 @@ from sqlalchemy import (
 )
 from sqlmodel import Field, SQLModel
 
+from app.core.clock import utcnow
 from app.services.finance.models.base import (
     _FK,
     _SCHEMA,
-    _utcnow,
 )
 
 # ---------------------------------------------------------------------------
@@ -87,8 +87,8 @@ class FinanceCategory(SQLModel, table=True):
     metadata_: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("metadata", JSON)
     )
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceCategoryAlias(SQLModel, table=True):
@@ -116,7 +116,7 @@ class FinanceCategoryAlias(SQLModel, table=True):
     alias_text: str
     normalized_alias: str
     source: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceMerchant(SQLModel, table=True):
@@ -184,8 +184,8 @@ class FinanceMerchant(SQLModel, table=True):
     )
     service_type: str | None = Field(default=None)
     deleted_at: datetime | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceMerchantAlias(SQLModel, table=True):
@@ -233,8 +233,8 @@ class FinanceMerchantAlias(SQLModel, table=True):
     normalized_alias: str
     is_ambiguous: bool = Field(default=False)
     source: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceTag(SQLModel, table=True):
@@ -264,8 +264,8 @@ class FinanceTag(SQLModel, table=True):
     normalized_name: str = Field(max_length=64)
     color: str | None = Field(default=None, max_length=16)
     deleted_at: datetime | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceTransactionTag(SQLModel, table=True):
@@ -286,7 +286,7 @@ class FinanceTransactionTag(SQLModel, table=True):
     split_id: int | None = Field(
         default=None, foreign_key=f"{_FK}finance_transaction_split.id"
     )
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceRule(SQLModel, table=True):
@@ -322,5 +322,5 @@ class FinanceRule(SQLModel, table=True):
     metadata_: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("metadata", JSON)
     )
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)

@@ -4,7 +4,6 @@ Each tool opens its own session in production; tests point that at the
 transactional test session so seeded rows are visible and rolled back.
 """
 
-from contextlib import asynccontextmanager
 from datetime import timedelta
 
 import pytest
@@ -18,6 +17,7 @@ from app.services.matters.facts import FactService
 from app.services.matters.matters import MatterService
 from app.services.matters.requests import RequestService
 from app.services.matters.service import PartyService
+from tests._session import opens
 
 EXPECTED_TOOLS = {"parties", "matters", "requests", "facts"}
 
@@ -26,11 +26,7 @@ EXPECTED_TOOLS = {"parties", "matters", "requests", "facts"}
 def _tools_use_test_session(
     async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    @asynccontextmanager
-    async def test_session():
-        yield async_db_session
-
-    monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+    monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
 
 
 async def _renewal(db: AsyncSession) -> tuple[int, int]:
@@ -163,17 +159,11 @@ class TestWhoseMoneyThroughIlliana:
     async def test_the_default_answer_is_our_money(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from contextlib import asynccontextmanager
-
         import app.services.finance.ai_account_tools as account_tools
         import app.services.finance.ai_tools as finance_tools
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(finance_tools, "get_async_session", test_session)
-        monkeypatch.setattr(account_tools, "get_async_session", test_session)
+        monkeypatch.setattr(finance_tools, "get_async_session", opens(async_db_session))
+        monkeypatch.setattr(account_tools, "get_async_session", opens(async_db_session))
         _party_id, subject_id = await self._their_account(
             async_db_session, "Tool Whose One"
         )
@@ -226,7 +216,6 @@ class TestWhoseMoneyThroughIlliana:
         """Asked what it knew about a pension, she answered "nothing
         linked" while the account itself named a subject, an institution
         and a member id - none of which the tool reported."""
-        from contextlib import asynccontextmanager
 
         import app.services.finance.ai_account_tools as account_tools
         from app.services.finance.domains.ledger.accounts import create_manual_account
@@ -236,11 +225,7 @@ class TestWhoseMoneyThroughIlliana:
             subject_for_party,
         )
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(account_tools, "get_async_session", test_session)
+        monkeypatch.setattr(account_tools, "get_async_session", opens(async_db_session))
         parties = PartyService(async_db_session)
         person = await parties.create(name="Linked Subject", kind="person")
         fund = await parties.create(name="Linked Pension Fund", kind="organization")

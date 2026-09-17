@@ -7,17 +7,13 @@ those live with the pointers.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
 from app.services.matters.models import PARTY_KINDS, Party, sort_name_for
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class PartyService:
@@ -116,7 +112,7 @@ class PartyService:
                 setattr(party, field, value or None if field == "note" else value)
         if "contact" in changes:
             party.contact = changes["contact"] or None
-        party.updated_at = _utcnow()
+        party.updated_at = utcnow()
         self.db.add(party)
         await self.db.flush()
         return party
@@ -127,7 +123,7 @@ class PartyService:
         party = await self.get(party_id)
         if party is None:
             return False
-        party.deleted_at = _utcnow()
+        party.deleted_at = utcnow()
         self.db.add(party)
         await self.db.flush()
         return True

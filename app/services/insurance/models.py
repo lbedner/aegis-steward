@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import JSON, CheckConstraint, Column, Index
 from sqlmodel import Field, SQLModel
 
+from app.core.clock import utcnow
 from app.core.schema import one_of
 
 POLICY_KINDS = ("dental", "health", "vision", "auto", "home", "life", "other")
 
 # What an insurer has said about a claim, as the EOB says it.
 CLAIM_STATUSES = ("submitted", "processed", "denied", "appealed", "paid")
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class InsurancePolicy(SQLModel, table=True):
@@ -62,8 +59,8 @@ class InsurancePolicy(SQLModel, table=True):
     terms: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     note: str | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)
 
 
@@ -110,6 +107,6 @@ class InsuranceClaim(SQLModel, table=True):
     paid_transaction_id: int | None = Field(default=None)
     note: str | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)

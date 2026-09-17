@@ -21,7 +21,7 @@ from app.components.web_frontend.filters import money_to_cents
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog
 from app.core.db import get_async_session
-from app.core.formatting import iso_date
+from app.core.formatting import iso_date, payee_label
 from app.services.finance.deps import get_owner_user_id
 from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
 from app.services.insurance.service import InsuranceService
@@ -221,7 +221,7 @@ async def _candidates(
     return [
         {
             "id": t.id,
-            "name": f"{_iso(t.date_)} · {t.merchant_name or t.name or ''} · "
+            "name": f"{_iso(t.date_)} · {payee_label(None, t.merchant_name, t.name)} · "
             f"{money(abs(t.amount), 'USD')} · {named.get(t.account_id, '')}",
         }
         for t in rows

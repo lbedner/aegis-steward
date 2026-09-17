@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any
 
 from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
 from app.services.insurance.models import (
     CLAIM_STATUSES,
     POLICY_KINDS,
     InsuranceClaim,
     InsurancePolicy,
 )
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class InsuranceService:
@@ -212,7 +209,7 @@ class InsuranceService:
         if txn is None:
             raise ValueError(f"Transaction {transaction_id} not found.")
         claim.paid_transaction_id = transaction_id
-        claim.updated_at = _utcnow()
+        claim.updated_at = utcnow()
         self.db.add(claim)
         await self.db.flush()
         return claim

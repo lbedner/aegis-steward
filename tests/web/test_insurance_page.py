@@ -14,6 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.matters.words import WORDS
 from tests._pdf import pdf_bytes
+from tests._session import opens
 from tests.web.dom import none, one, select, text
 from tests.web.test_contacts import _contact
 
@@ -156,17 +157,11 @@ class TestIllianaSeesPolicyIds:
     async def test_the_parties_tool_hands_back_policy_ids(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from contextlib import asynccontextmanager
-
         from app.services.insurance.service import InsuranceService
         from app.services.matters import ai_tools
         from app.services.matters.service import PartyService
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+        monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
         insurer = await PartyService(async_db_session).create(
             name="Tool Dental", kind="organization"
         )

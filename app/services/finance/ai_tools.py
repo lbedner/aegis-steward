@@ -21,6 +21,7 @@ from datetime import date
 from typing import Any
 
 from app.core.db import get_async_session
+from app.core.formatting import payee_label
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.finance.constants import UNCATEGORIZED_CATEGORY_NAMES
 from app.services.finance.domains.investments import queries as investment_queries
@@ -124,7 +125,7 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
                 # then the provider's merchant string, then the raw
                 # descriptor. A renamed payee that only lived in the
                 # curation layer was invisible to the assistant.
-                "payee": curated_name or txn.merchant_name or txn.name,
+                "payee": payee_label(curated_name, txn.merchant_name, txn.name),
                 "amount_cents": txn.amount,
                 "category": category_names.get(txn.category_id),
                 "category_id": txn.category_id,
