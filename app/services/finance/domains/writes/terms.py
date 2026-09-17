@@ -35,6 +35,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.web_frontend.filters import money_to_cents
 from app.core.formatting import format_date
+from app.core.schema import known
 from app.services.finance.domains.detection.insights.formatting import (
     format_apr,
     format_usd,
@@ -162,12 +163,7 @@ class ValuationPayload(BaseModel):
     points: list[ValuationPoint] = Field(min_length=1)
     source: str = "manual"
 
-    @field_validator("source")
-    @classmethod
-    def _known_source(cls, value: str) -> str:
-        if value not in VALUATION_SOURCES:
-            raise ValueError(f"One of: {', '.join(VALUATION_SOURCES)}.")
-        return value
+    _known_source = field_validator("source")(known(VALUATION_SOURCES))
 
     @model_validator(mode="after")
     def _one_per_date(self) -> ValuationPayload:
@@ -264,19 +260,11 @@ class LoanTermsPayload(BaseModel):
     # fields it has no answer for is the normal case - a validator that
     # refuses one turns an approvable card into "payload no longer
     # valid" at read time, long after the card was written.
-    @field_validator("prepayment_penalty")
-    @classmethod
-    def _known_penalty(cls, value: str | None) -> str | None:
-        if value is not None and value not in PREPAYMENT:
-            raise ValueError(f"One of: {', '.join(PREPAYMENT)}.")
-        return value
+    _known_prepayment_penalty = field_validator("prepayment_penalty")(known(PREPAYMENT))
 
-    @field_validator("extra_payment_treatment")
-    @classmethod
-    def _known_treatment(cls, value: str | None) -> str | None:
-        if value is not None and value not in EXTRA_PAYMENT:
-            raise ValueError(f"One of: {', '.join(EXTRA_PAYMENT)}.")
-        return value
+    _known_extra_payment_treatment = field_validator("extra_payment_treatment")(
+        known(EXTRA_PAYMENT)
+    )
 
     @model_validator(mode="after")
     def _something_to_set(self) -> LoanTermsPayload:

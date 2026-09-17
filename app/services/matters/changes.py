@@ -20,6 +20,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.schema import known
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.matters.facts import ATTRIBUTE_KEYS, LABELS, monthly_cents
 from app.services.matters.models import (
@@ -58,26 +59,11 @@ class RecordFactPayload(BaseModel):
     source_note: str | None = None
     note: str | None = None
 
-    @field_validator("attribute")
-    @classmethod
-    def _known_attribute(cls, value: str) -> str:
-        if value not in ATTRIBUTE_KEYS:
-            raise ValueError(f"One of: {', '.join(ATTRIBUTE_KEYS)}.")
-        return value
+    _known_attribute = field_validator("attribute")(known(ATTRIBUTE_KEYS))
 
-    @field_validator("period")
-    @classmethod
-    def _known_period(cls, value: str) -> str:
-        if value not in FACT_PERIODS:
-            raise ValueError(f"One of: {', '.join(FACT_PERIODS)}.")
-        return value
+    _known_period = field_validator("period")(known(FACT_PERIODS))
 
-    @field_validator("provenance")
-    @classmethod
-    def _known_provenance(cls, value: str) -> str:
-        if value not in FACT_PROVENANCE:
-            raise ValueError(f"One of: {', '.join(FACT_PROVENANCE)}.")
-        return value
+    _known_provenance = field_validator("provenance")(known(FACT_PROVENANCE))
 
 
 async def record_fact_execute(
@@ -337,12 +323,7 @@ class CreateContactPayload(BaseModel):
     website: str | None = None
     note: str | None = None
 
-    @field_validator("kind")
-    @classmethod
-    def _known_kind(cls, value: str) -> str:
-        if value not in PARTY_KINDS:
-            raise ValueError(f"One of: {', '.join(PARTY_KINDS)}.")
-        return value
+    _known_kind = field_validator("kind")(known(PARTY_KINDS))
 
     @field_validator("name")
     @classmethod

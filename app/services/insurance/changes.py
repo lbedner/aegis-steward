@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.schema import known
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
 from app.services.matters.service import PartyService
@@ -38,12 +39,7 @@ class PolicyCreatePayload(BaseModel):
     terms: dict[str, str] = Field(default_factory=dict)
     note: str | None = None
 
-    @field_validator("kind")
-    @classmethod
-    def _known_kind(cls, value: str) -> str:
-        if value not in POLICY_KINDS:
-            raise ValueError(f"One of: {', '.join(POLICY_KINDS)}.")
-        return value
+    _known_kind = field_validator("kind")(known(POLICY_KINDS))
 
 
 class ClaimRecordPayload(BaseModel):
@@ -66,12 +62,7 @@ class ClaimRecordPayload(BaseModel):
     document_id: int | None = None
     note: str | None = None
 
-    @field_validator("status")
-    @classmethod
-    def _known_status(cls, value: str) -> str:
-        if value not in CLAIM_STATUSES:
-            raise ValueError(f"One of: {', '.join(CLAIM_STATUSES)}.")
-        return value
+    _known_status = field_validator("status")(known(CLAIM_STATUSES))
 
     @model_validator(mode="after")
     def _one_document(self) -> ClaimRecordPayload:

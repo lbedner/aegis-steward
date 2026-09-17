@@ -10,6 +10,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.insurance.models import (
     CLAIM_STATUSES,
     POLICY_KINDS,
@@ -39,8 +40,7 @@ class InsuranceService:
         note: str | None = None,
         owner_user_id: int | None = None,
     ) -> InsurancePolicy:
-        if kind not in POLICY_KINDS:
-            raise ValueError(f"One of: {', '.join(POLICY_KINDS)}.")
+        require_one_of(kind, POLICY_KINDS)
         policy = InsurancePolicy(
             owner_user_id=owner_user_id,
             insurer_party_id=insurer_party_id,
@@ -109,8 +109,7 @@ class InsuranceService:
         note: str | None = None,
         owner_user_id: int | None = None,
     ) -> InsuranceClaim:
-        if status not in CLAIM_STATUSES:
-            raise ValueError(f"One of: {', '.join(CLAIM_STATUSES)}.")
+        require_one_of(status, CLAIM_STATUSES)
         if await self.get_policy(policy_id) is None:
             raise ValueError(f"No policy with id {policy_id}")
         claim = InsuranceClaim(

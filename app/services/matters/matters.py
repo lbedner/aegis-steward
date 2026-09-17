@@ -14,6 +14,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import (
     DOCUMENT_PARTY_ROLES,
     MATTER_STATUSES,
@@ -107,8 +108,7 @@ class MatterService:
     async def set_status(
         self, matter_id: int, status: str, on: date | None = None
     ) -> Matter | None:
-        if status not in MATTER_STATUSES:
-            raise ValueError(f"One of: {', '.join(MATTER_STATUSES)}.")
+        require_one_of(status, MATTER_STATUSES)
         matter = await self.get(matter_id)
         if matter is None:
             return None
@@ -128,8 +128,7 @@ class MatterService:
         roles is normal - a representative who is also the subject's son
         - so only (matter, party, role) is unique.
         """
-        if role not in PARTICIPANT_ROLES:
-            raise ValueError(f"One of: {', '.join(PARTICIPANT_ROLES)}.")
+        require_one_of(role, PARTICIPANT_ROLES)
         link = MatterParticipant(
             matter_id=matter_id, party_id=party_id, role=role, note=note
         )
@@ -154,8 +153,7 @@ class MatterService:
         self, document_id: int, party_id: int, role: str
     ) -> DocumentParty:
         """Who wrote this document, or whom it is about."""
-        if role not in DOCUMENT_PARTY_ROLES:
-            raise ValueError(f"One of: {', '.join(DOCUMENT_PARTY_ROLES)}.")
+        require_one_of(role, DOCUMENT_PARTY_ROLES)
         link = DocumentParty(document_id=document_id, party_id=party_id, role=role)
         self.db.add(link)
         await self.db.flush()

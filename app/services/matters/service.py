@@ -13,6 +13,7 @@ from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import PARTY_KINDS, Party, sort_name_for
 
 
@@ -39,8 +40,7 @@ class PartyService:
         named = " ".join((name or "").split())
         if not named:
             raise ValueError("A party needs a name.")
-        if kind not in PARTY_KINDS:
-            raise ValueError(f"One of: {', '.join(PARTY_KINDS)}.")
+        require_one_of(kind, PARTY_KINDS)
         party = Party(
             owner_user_id=owner_user_id,
             kind=kind,

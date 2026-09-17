@@ -20,6 +20,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import (
     FACT_ATTRIBUTES,
     FACT_PERIODS,
@@ -74,12 +75,9 @@ class FactService:
         date with nothing in between says only that somebody opened a
         form.
         """
-        if attribute not in ATTRIBUTE_KEYS:
-            raise ValueError(f"One of: {', '.join(ATTRIBUTE_KEYS)}.")
-        if period not in FACT_PERIODS:
-            raise ValueError(f"One of: {', '.join(FACT_PERIODS)}.")
-        if provenance not in FACT_PROVENANCE:
-            raise ValueError(f"One of: {', '.join(FACT_PROVENANCE)}.")
+        require_one_of(attribute, ATTRIBUTE_KEYS)
+        require_one_of(period, FACT_PERIODS)
+        require_one_of(provenance, FACT_PROVENANCE)
         written = (text_value or "").strip() or None
         if value_cents is None and written is None:
             raise ValueError("Give the fact a figure, or say it in words.")

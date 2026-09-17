@@ -17,6 +17,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import (
     ITEM_KINDS,
     ITEM_STATUSES,
@@ -234,8 +235,7 @@ class RequestService:
         request reads satisfied when every item does, and never because
         somebody said so while an item still stands.
         """
-        if status not in ITEM_STATUSES:
-            raise ValueError(f"One of: {', '.join(ITEM_STATUSES)}.")
+        require_one_of(status, ITEM_STATUSES)
         item = await self.db.get(RequestItem, item_id)
         if item is None:
             return None
