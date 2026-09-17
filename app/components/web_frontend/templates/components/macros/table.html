@@ -77,7 +77,7 @@
 </a>
 {%- elif col.kind == "links" -%}
 {# Several places at once, each a door: where a document is filed. #}
-{{ doors(value) }}
+{{ doors(value, show=2) }}
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}

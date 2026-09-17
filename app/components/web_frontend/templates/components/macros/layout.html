@@ -320,9 +320,18 @@
 <a href="/contacts/{{ party_id }}" {{ hx_page("/contacts/" ~ party_id) }} class="text-aegis-teal hover:underline transition-colors" data-contact="{{ party_id }}">{{ name }}</a>
 {%- endmacro %}
 
-{# Several places, each a door, read as a list: "Filed under NYSLRS, Renewal". #}
-{% macro doors(places) -%}
-{% for place in places %}<a href="{{ place.url }}" {{ hx_page(place.url) }} class="text-aegis-teal hover:underline transition-colors">{{ place.label }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+{# Several places, each a door, read as a list: "Filed under NYSLRS, Renewal".
+   With ``show`` the list stops there and the rest sits behind "+N more"
+   until asked: a cell is a glance, and a document filed in six places
+   must not push the table off the page. #}
+{% macro doors(places, show=None) -%}
+{% set folded = show is not none and places|length > show %}
+<span {% if folded %}x-data="{ all: false }"{% endif %} class="inline-flex flex-wrap items-baseline gap-x-1">
+{%- for place in places -%}
+<span {% if folded and loop.index > show %}x-show="all" x-cloak{% endif %}><a href="{{ place.url }}" {{ hx_page(place.url) }} class="text-aegis-teal hover:underline transition-colors">{{ place.label }}</a>{% if not loop.last %}, {% endif %}</span>
+{%- endfor -%}
+{%- if folded %}<button type="button" x-show="!all" @click="all = true" class="text-xs text-aegis-muted hover:text-aegis-text whitespace-nowrap" data-more>+{{ places|length - show }} more</button>{% endif -%}
+</span>
 {%- endmacro %}
 
 {% macro badge(label, tone=None) %}

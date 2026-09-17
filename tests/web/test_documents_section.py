@@ -239,3 +239,27 @@ class TestFilingItSomewhere:
             client.get(f"/documents/{document_id}").text,
             f'[data-filed] a[href="/contacts/{party_id}"]',
         )
+
+
+class TestManyPlacesFold:
+    def test_a_cell_shows_two_and_folds_the_rest(self, client: TestClient) -> None:
+        from tests.web.test_contacts import _contact
+
+        ids = [_contact(client, f"Fold Testcase {n}", "person") for n in range(4)]
+        document_id = _file(client, "fold.pdf")
+        client.post(
+            f"/documents/{document_id}",
+            data={
+                "title": "fold.pdf",
+                "kind": "other",
+                "document_date": "",
+                "note": "",
+                "place_sent": "1",
+                "place": [f"party:{i}" for i in ids],
+            },
+        )
+        shelf = client.get("/documents", params={"q": "fold.pdf"}).text
+        row = one(shelf, f"tr#document-{document_id}")
+        assert len(select(row, "a[href^='/contacts/']")) == 4
+        assert text(one(row, "[data-more]")) == "+2 more"
+        assert len(select(row, "[x-show='all']")) == 2
