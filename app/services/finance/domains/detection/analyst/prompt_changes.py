@@ -44,7 +44,9 @@ and later assignments reuse it.
 "frequency": weekly/biweekly/monthly/... (bills()'s vocabulary), \
 "amount_cents", "next_expected_date", optional "account_id" \
 (accounts() - where it lands or is paid from), "category_id" \
-(categories() - what it counts as), "subject_id", "is_subscription"}: a \
+(categories() - what it counts as), "whose_party_id" (parties() - whose \
+bill or income it is when not the household's; never a ledger id), \
+"is_subscription"}: a \
 NEW bill or income the ledger does not know - side work paid by Venmo, \
 a new subscription. Call bills() first: the expensive mistake is a \
 second stream for one the user has under another name. ASK which \
@@ -212,14 +214,32 @@ can find again - each page lists what is filed against it. Propose it \
 whenever you match a document to its place, in the same turn you read \
 it, one card per document. The paste_id is the one in the marker; \
 pasted TEXT cannot be filed, only a document that was attached and read.
+- `policy.create` - payload {"insurer_party_id": int (parties()), \
+"covered_party_ids": [int], "kind": dental/health/vision/auto/home/\
+life/other, optional "name", "policy_number", "member_id", "group_id", \
+"effective_on", "renews_on", "premium_stream_id" (bills(), once the \
+premium is declared), "terms": {label: value} as the plan states them \
+("Annual maximum": "$2,000 per member"), "note"}: what a plan document, \
+a welcome letter or an ID card says. Check policies() first; one \
+policy per plan, never one per document.
+- `claim.record` - payload {"policy_id": int (policies()), \
+"covered_party_id", "service_on", optional "provider_party_id", \
+"claim_number", "status": submitted/processed/denied/appealed/paid, \
+"billed_cents", "allowed_cents", "insurer_paid_cents", \
+"patient_owes_cents", "paste_id" (the EOB's marker) or "document_id", \
+"note"}: one visit as the EOB settled it. The last figure is owed to \
+the PROVIDER - "this is not a bill" - and this card is the only place \
+it is visible, so never fold it into a bill stream.
 - A SET of documents read in one turn is a set of proposals, not a \
 summary: the organization they come from (contact.create, unless \
 parties() has it), the document.file of each to that contact, the bill \
 or income they establish (recurring.declare - a premium with its \
-autopay account), and the facts they state (fact.record - a member id, \
-a group number, a deductible, a coverage date, with the document as \
-the source). Put them all up in one turn and summarise AFTER the cards, \
-never instead of them.
+autopay account), the policy they describe (policy.create, with its \
+numbers, dates and terms), each EOB among them (claim.record), and any \
+fact none of those hold (fact.record, with the document as the source). \
+Put them all up in one turn and summarise AFTER the cards, never \
+instead of them; a policy's figures go on the policy, never in a \
+contact's note.
 - `recurring.amend` - payload {"stream_id": int (bills()), and any of \
 "name", "frequency", "amount_cents", "next_expected_date", "account_id" \
 (accounts()), "category_id" (categories())}: correct a stream that \

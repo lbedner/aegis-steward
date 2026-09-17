@@ -242,7 +242,13 @@ async def approve(
     # Resolution freezes the record; only pending cards track the world.
     display = _freeze(await executor.describe(db, model, row.owner_user_id))
     try:
-        result = await executor.execute(db, model, row.owner_user_id)
+        # A savepoint, because a failure at FLUSH - a foreign key the
+        # payload got wrong - poisons the session, and then the error
+        # could not be written to the row: the card said nothing and the
+        # API said 500. The savepoint rolls back to a session that can
+        # still record what went wrong.
+        async with db.begin_nested():
+            result = await executor.execute(db, model, row.owner_user_id)
     except Exception as e:
         # The row stays PENDING: the error is audit, the decision is
         # still the user's (reject it, or fix the world and re-approve).

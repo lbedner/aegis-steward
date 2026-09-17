@@ -77,17 +77,21 @@ class InsuranceService:
         )
         return list((await self.db.exec(query)).all())
 
-    async def policies_covering(self, party_id: int) -> list[InsurancePolicy]:
-        """What covers this person. The covered list is JSON, so this
-        scans live policies; a household has a handful."""
+    async def policies_covering_any(self) -> list[InsurancePolicy]:
+        """Every live policy, newest effective first."""
         query = (
             select(InsurancePolicy)
             .where(col(InsurancePolicy.deleted_at).is_(None))
             .order_by(col(InsurancePolicy.effective_on).desc(), col(InsurancePolicy.id))
         )
+        return list((await self.db.exec(query)).all())
+
+    async def policies_covering(self, party_id: int) -> list[InsurancePolicy]:
+        """What covers this person. The covered list is JSON, so this
+        scans live policies; a household has a handful."""
         return [
             p
-            for p in (await self.db.exec(query)).all()
+            for p in await self.policies_covering_any()
             if party_id in (p.covered_party_ids or [])
         ]
 

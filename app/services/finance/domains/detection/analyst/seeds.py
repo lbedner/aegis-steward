@@ -41,6 +41,7 @@ from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_CHAT_AGENT_SLUG,
     SNAPSHOT_MODULE_SLUG,
 )
+import app.services.insurance.ai_tools  # noqa: F401
 import app.services.matters.ai_tools  # noqa: F401
 
 SNAPSHOT_TOKEN_ESTIMATE = 1_200
@@ -190,6 +191,8 @@ FINANCE_CHAT_TOOL_NAMES = (
     # The paper itself, by the id the three above hand back: the letter
     # behind a request, read to the person who asked what it says.
     "paper",
+    # Policies and the claims on them, with the ids claim.record names.
+    "policies",
 )
 
 

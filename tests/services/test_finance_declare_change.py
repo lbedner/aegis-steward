@@ -153,3 +153,52 @@ async def test_a_declared_stream_can_be_sent_to_its_account_later(
     stream = await finance.get_recurring(made["stream_id"], None)
     assert stream.account_id == checking.id
     assert (stream.frequency, stream.expected_amount) == ("weekly", 9000)
+
+
+async def test_whose_it_is_is_a_contact_not_a_ledger_id(
+    async_db_session: AsyncSession,
+) -> None:
+    """Illiana sent Marisa's contact id where a ledger subject id went,
+    and the approval died on a foreign key. The payload names a CONTACT,
+    the way account.create does, and the subject is found or made."""
+    from app.services.finance.domains.ledger.subjects import subject_of
+    from app.services.matters.service import PartyService
+
+    marisa = await PartyService(async_db_session).create(
+        name="Marisa Testcase", kind="person"
+    )
+    payload = DeclarePayload(
+        name="Delta Dental premium",
+        direction="outflow",
+        frequency="monthly",
+        amount_cents=11626,
+        next_expected_date=date(2026, 10, 1),
+        whose_party_id=int(marisa.id),
+    )
+    said = {
+        r.label: r.value
+        for r in await declare_describe(async_db_session, payload, None)
+    }
+    assert said["Whose"] == "Marisa Testcase"
+
+    made = await declare_execute(async_db_session, payload, None)
+    await async_db_session.commit()
+    stream = await FinanceService(async_db_session).get_recurring(
+        made["stream_id"], None
+    )
+    subject = await subject_of(async_db_session, int(marisa.id))
+    assert subject is not None and stream.subject_id == subject.id
+
+
+def test_a_ledger_subject_id_is_not_a_field() -> None:
+    with pytest.raises(ValidationError):
+        DeclarePayload.model_validate(
+            {
+                "name": "x",
+                "direction": "outflow",
+                "frequency": "monthly",
+                "amount_cents": 1,
+                "next_expected_date": "2026-10-01",
+                "subject_id": 6,
+            }
+        )
