@@ -42,6 +42,7 @@ from app.components.web_frontend.routes.finance.valuations import (
     valuation_row,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.ledger.numbers import set_number
 from app.services.finance.domains.ledger.properties import (
     PROPERTY_KINDS,
     VALUATION_SOURCES,
@@ -74,6 +75,22 @@ async def _account(
     return account
 
 
+def _naming(
+    request: Request, account: Any, name: str, reference: str, refused: str = ""
+) -> Response:
+    """The naming dialog, opened or refused. One home, because the two
+    differ only by what went wrong."""
+    return dialog(
+        request,
+        "partials/accounts/rename.html",
+        422 if refused else 200,
+        account=account,
+        name=name,
+        reference=reference,
+        errors=[refused] if refused else [],
+    )
+
+
 @router.get("/{account_id:int}/rename", include_in_schema=False)
 async def rename_form(
     request: Request,
@@ -82,14 +99,7 @@ async def rename_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _account(service, account_id, owner_user_id)
-    return dialog(
-        request,
-        "partials/accounts/rename.html",
-        account=account,
-        name=account.name,
-        reference=account.reference or "",
-        errors=[],
-    )
+    return _naming(request, account, account.name, account.reference or "")
 
 
 @router.post("/{account_id:int}/rename", include_in_schema=False)
@@ -98,27 +108,22 @@ async def rename(
     account_id: int,
     name: Annotated[str, Form()] = "",
     reference: Annotated[str, Form()] = "",
+    account_number: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _account(service, account_id, owner_user_id)
     label = name.strip()
     if not label:
-        return dialog(
-            request,
-            "partials/accounts/rename.html",
-            422,
-            account=account,
-            name=name,
-            reference=reference,
-            errors=["Give the account a name."],
-        )
+        return _naming(request, account, name, reference, "Give the account a name.")
     await update_account(
         account_id,
         AccountUpdate(name=label, reference=reference.strip()),
         service=service,
         owner_user_id=owner_user_id,
     )
+    # Blank leaves the stored number alone; it derives the mask.
+    await set_number(service.db, account_id, account_number)
     await service.db.commit()
     return dialog_done(
         where_from(request, f"{SECTION.path}/{account_id}"), f"Renamed to {label}"

@@ -1,10 +1,22 @@
 {% from "components/macros/form.html" import field, text_input, primary_button %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
-{{ dialog_title("Name and number", "What you call it, and the number the institution prints - a member id, a policy number.") }}
+{{ dialog_title("Name and number", "What you call it, and the numbers it is known by.") }}
 <form {{ hx_dialog_post('/accounts/' ~ (account.id) ~ '/rename') }} class="space-y-4">
   {{ error_banner(errors) }}
   {% call field("Account name") %}{{ text_input("name", name, required=True, autofocus=True) }}{% endcall %}
+  {# Two different numbers, and the difference decides how each is kept.
+     The reference is what you read aloud on the phone - a member id, a
+     policy number - so it is plain and it renders on the page. The
+     account number moves money, so it is encrypted and only its last
+     four are ever drawn. #}
   {% call field("Their reference") %}{{ text_input("reference", reference, placeholder="R10932601") }}{% endcall %}
+  {% call field("Account number" ~ (" · ends " ~ account.mask if account.mask else "")) %}
+  {# Never pre-filled: a form that renders a secret to save one
+     keystroke has put it in the page, the cache and the screenshot.
+     Blank leaves the stored one alone, for the same reason a blank
+     password box does. #}
+  {{ text_input("account_number", "", placeholder="Leave blank to keep the one stored" if account.mask else "The number on your cheques") }}
+  {% endcall %}
   {{ primary_button("Save", type="submit") }}
 </form>

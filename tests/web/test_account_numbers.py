@@ -92,3 +92,59 @@ class TestTheBankSNumber:
         page = client.get(f"/accounts/{account_id}/overview").text
 
         assert "021000021" in text(one(page, "[data-routing]"))
+
+
+class TestPuttingTheNumberIn:
+    """Storage, a reveal and a masked row all shipped with no way to
+    enter a number: the Numbers card only draws once a mask exists, and
+    nothing could make one. It goes where the number already lives -
+    Manage, Name and number."""
+
+    @pytest.mark.asyncio
+    async def test_the_form_offers_a_field_and_never_the_stored_number(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        account_id = await _account_with_a_number(async_db_session)
+
+        form = client.get(f"/accounts/{account_id}/rename").text
+
+        one(form, 'input[name="account_number"]')
+        # Never pre-filled. A form that renders a secret to save one
+        # keystroke has put it in the page, the cache and the screenshot.
+        assert NUMBER not in form
+        assert one(form, 'input[name="account_number"]').get("value") in (None, "")
+
+    @pytest.mark.asyncio
+    async def test_saving_one_stores_it_and_derives_the_mask(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.ledger.numbers import reveal_number
+        from app.services.finance.service import FinanceService
+
+        account = await seed_account(FinanceService(async_db_session), name="Fresh")
+        await async_db_session.commit()
+
+        saved = client.post(
+            f"/accounts/{account.id}/rename",
+            data={"name": "Fresh", "reference": "", "account_number": "1234567894419"},
+        )
+        assert saved.status_code == 200
+
+        page = client.get(f"/accounts/{account.id}/overview").text
+        assert "4419" in text(one(page, "[data-number]"))
+        assert await reveal_number(async_db_session, int(account.id)) == "1234567894419"
+
+    @pytest.mark.asyncio
+    async def test_a_blank_leaves_the_stored_number_alone(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.ledger.numbers import reveal_number
+
+        account_id = await _account_with_a_number(async_db_session)
+
+        client.post(
+            f"/accounts/{account_id}/rename",
+            data={"name": "Renamed only", "reference": "", "account_number": ""},
+        )
+
+        assert await reveal_number(async_db_session, account_id) == NUMBER
