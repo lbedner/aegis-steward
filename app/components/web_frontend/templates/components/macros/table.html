@@ -32,7 +32,7 @@
    card; off where the CALLER already bleeds and a second ``-mx-5`` would
    pull the table a further 1.25rem off the left of the page. #}
 {% from "components/macros/feedback.html" import empty_state %}
-{% from "components/macros/form.html" import control %}
+{% from "components/macros/form.html" import control, action %}
 {% from "components/macros/layout.html" import avatar, badge, contact_link, doors, file_mark, mark %}
 
 {% macro _cell(row, col) -%}
@@ -75,6 +75,11 @@
   {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
   <span>{{ value.label }}</span>
 </a>
+{%- elif col.kind == "action" -%}
+{# A cell that is either a fact or the verb that supplies it: a claim's
+   Paid cell shows the charge, or the button to pick one. ``value`` is
+   text, or ``{label, hx}`` for the verb. #}
+{%- if value is mapping %}{{ action(value.label, value.hx) }}{% else %}{{ value }}{% endif -%}
 {%- elif col.kind == "links" -%}
 {# Several places at once, each a door: where a document is filed. #}
 {{ doors(value, show=2) }}

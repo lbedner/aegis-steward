@@ -13,6 +13,7 @@ from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from markupsafe import Markup
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
@@ -35,7 +36,6 @@ CLAIM_COLUMNS = (
     {"key": "who", "label": "For", "kind": "contact"},
     {"key": "provider", "label": "Provider", "kind": "contact"},
     {"key": "number", "label": "Claim"},
-    {"key": "status", "label": "Status"},
     {"key": "billed", "label": "Billed", "kind": "money", "align": "right"},
     {"key": "allowed", "label": "Allowed", "kind": "money", "align": "right"},
     {"key": "paid", "label": "Insurer paid", "kind": "money", "align": "right"},
@@ -43,7 +43,7 @@ CLAIM_COLUMNS = (
     {"key": "eob", "label": "EOB", "kind": "open"},
     # The charge that paid the provider, or blank: the link between what
     # the EOB said and what the ledger shows leaving.
-    {"key": "settled", "label": "Paid"},
+    {"key": "settled", "label": "Paid", "kind": "action"},
 )
 
 # The numbers a policy carries, drawn as rows in this order.
@@ -114,10 +114,17 @@ async def _drawn(
             {
                 "id": c.id,
                 "at": _iso(c.service_on),
-                "settled": paid.get(c.paid_transaction_id, ""),
-                "paid_post": f"{SECTION.path}/{party_id}/policies/{policy.id}/claims/{c.id}/paid"
-                if owner and c.paid_transaction_id is None
-                else None,
+                # The charge that paid it, or the verb that picks one.
+                "settled": paid.get(c.paid_transaction_id, "")
+                if c.paid_transaction_id or not owner
+                else {
+                    "label": "Mark paid",
+                    "hx": Markup(
+                        f'hx-get="{SECTION.path}/{party_id}/policies/{policy.id}'
+                        f'/claims/{c.id}/paid" hx-target="#policies" '
+                        'hx-swap="outerHTML" data-mark-paid'
+                    ),
+                },
                 "who": {
                     "id": c.covered_party_id,
                     "label": names.get(c.covered_party_id, ""),
@@ -128,8 +135,9 @@ async def _drawn(
                 }
                 if c.provider_party_id
                 else None,
-                "number": c.claim_number or "",
-                "status": c.status,
+                # The status rides with the number only when it is news.
+                "number": (c.claim_number or "")
+                + (f" · {c.status}" if c.status != "processed" else ""),
                 "billed": c.billed_cents,
                 "allowed": c.allowed_cents,
                 "paid": c.insurer_paid_cents,

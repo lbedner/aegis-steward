@@ -35,9 +35,7 @@
       {% if policy.note %}<p class="text-sm text-aegis-text whitespace-pre-line">{{ policy.note }}</p>{% endif %}
       {# Claims: what each EOB said, and what the lot of them say you owe providers. #}
       <div class="space-y-2" data-claims>
-        {% call(row) data_table(claim_columns, policy.claims, empty="No claims recorded", scroll=True, row_id="claim") %}
-        {% if row.paid_post %}{{ action("Mark paid", 'hx-get="' ~ row.paid_post ~ '" hx-target="#policies" hx-swap="outerHTML" data-mark-paid') }}{% endif %}
-        {% endcall %}
+        {{ data_table(claim_columns, policy.claims, empty="No claims recorded", scroll=True, row_id="claim") }}
         {% if paid_form and policy.claims|selectattr("id", "equalto", paid_form.claim_id)|list %}
         {# Which charge paid it: the same shortlist Illiana reads. #}
         <form hx-post="{{ path }}/{{ party_id }}/policies/{{ policy.id }}/claims/{{ paid_form.claim_id }}/paid" hx-target="#policies" hx-swap="outerHTML" class="space-y-3 rounded-md border border-aegis-border p-3" data-paid-form>
