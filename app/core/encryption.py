@@ -161,6 +161,30 @@ def encrypt_secret(plaintext: str, *, context: str | None = None) -> str:
     return _V2_PREFIX + base64.urlsafe_b64encode(nonce + ct).decode("ascii")
 
 
+def decrypt_with(
+    ciphertext: str, *, key_material: bytes, context: str | None = None
+) -> str:
+    """Decrypt a v2 ciphertext with key material that is NOT the current
+    one. The only way to re-key: decryption uses exactly one key, so a
+    rotation has to read with the old and write with the new while both
+    are known. Nothing else should reach for this.
+    """
+    if not ciphertext.startswith(_V2_PREFIX):
+        raise InvalidToken("only v2 ciphertexts carry an explicit key")
+    try:
+        blob = base64.urlsafe_b64decode(ciphertext[len(_V2_PREFIX) :].encode("ascii"))
+    except (ValueError, binascii.Error) as e:
+        raise InvalidToken("malformed v2 ciphertext") from e
+    if len(blob) < _NONCE_LEN + 16:
+        raise InvalidToken("v2 ciphertext too short")
+    cipher = AESGCM(hashlib.sha256(key_material).digest())
+    aad = context.encode("utf-8") if context else b""
+    try:
+        return cipher.decrypt(blob[:_NONCE_LEN], blob[_NONCE_LEN:], aad).decode("utf-8")
+    except Exception as e:
+        raise InvalidToken(str(e)) from e
+
+
 def decrypt_secret(ciphertext: str, *, context: str | None = None) -> str:
     """Decrypt a ciphertext produced by ``encrypt_secret`` (any version).
 
