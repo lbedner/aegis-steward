@@ -28,7 +28,9 @@
      a claims fax - labelled, because a number nobody labelled is a
      number whose meaning is lost. #}
   {% call field("Anything else they print") %}
-  {{ line_rows("line_label", "line_value", lines, label_hint="Español", value_hint="1-877-312-4273") }}
+  {# A hint, never a plausible VALUE: a placeholder that reads like a
+     real entry reads as a saved row somebody forgot to fill in. #}
+  {{ line_rows("line_label", "line_value", lines, label_hint="Fax, Spanish line, case worker", value_hint="Number, address or link") }}
   {% endcall %}
   {% call field("Note") %}{{ textarea("note", party.note if party else note, rows=3) }}{% endcall %}
   <div class="flex items-center gap-3">
