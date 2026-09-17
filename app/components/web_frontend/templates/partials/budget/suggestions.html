@@ -21,8 +21,8 @@
         <p class="text-xxs text-aegis-muted">{{ pick.months_seen }} of 6 months{% if pick.unusual_months %} · {{ pick.unusual_months }} stood out{% else %} · every month alike{% endif %}</p>
       </div>
       <span class="tabular-nums text-aegis-text">{{ pick.suggested_amount|money }}/mo</span>
-      {{ action("Use", 'hx-post="' ~ path ~ '/suggestions/' ~ pick.category_id ~ '/accept" hx-target="#suggestions" hx-swap="outerHTML"', tone="primary", vals={"amount": pick.suggested_amount|cents_to_input}) }}
-      {{ action("Dismiss", 'hx-post="' ~ path ~ '/suggestions/' ~ pick.category_id ~ '/dismiss" hx-target="#suggestions" hx-swap="outerHTML"') }}
+      {{ action("Use", hx_swap(path ~ "/suggestions/" ~ pick.category_id ~ "/accept", "#suggestions", "post"), tone="primary", vals={"amount": pick.suggested_amount|cents_to_input}) }}
+      {{ action("Dismiss", hx_swap(path ~ "/suggestions/" ~ pick.category_id ~ "/dismiss", "#suggestions", "post")) }}
     </li>
     {% endfor %}
   </ul>
@@ -36,7 +36,7 @@
       {% for d in suggestions.dismissed %}
       <li class="flex items-center justify-between gap-3">
         <span>{{ d.category_name or "Uncategorized" }}</span>
-        <button type="button" hx-post="{{ path }}/suggestions/{{ d.category_id }}/restore" hx-target="#suggestions" hx-swap="outerHTML" class="text-aegis-teal hover:text-aegis-text">Restore</button>
+        <button type="button" {{ hx_swap(path ~ "/suggestions/" ~ d.category_id ~ "/restore", "#suggestions", "post") }} class="text-aegis-teal hover:text-aegis-text">Restore</button>
       </li>
       {% endfor %}
     </ul>
