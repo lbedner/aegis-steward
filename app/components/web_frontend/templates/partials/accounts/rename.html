@@ -16,7 +16,7 @@
      keystroke has put it in the page, the cache and the screenshot.
      Blank leaves the stored one alone, for the same reason a blank
      password box does. #}
-  {{ text_input("account_number", "", placeholder="Leave blank to keep the one stored" if account.mask else "The number on your cheques") }}
+  {{ text_input("account_number", "", placeholder="Leave blank to keep the one stored" if account.mask else "") }}
   {% endcall %}
   {{ primary_button("Save", type="submit") }}
 </form>
