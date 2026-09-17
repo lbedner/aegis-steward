@@ -34,8 +34,16 @@ POLICY = "/{party_id:int}/policies/{policy_id:int}"
 CLAIM_COLUMNS = (
     {"key": "at", "label": "Visit"},
     {"key": "who", "label": "For", "kind": "contact", "wrap": True},
-    {"key": "provider", "label": "Provider", "kind": "contact", "wrap": True},
-    {"key": "number", "label": "Claim", "wrap": True},
+    # Provider and claim number step aside on a narrow screen: the money
+    # and the EOB are what a glance is for.
+    {
+        "key": "provider",
+        "label": "Provider",
+        "kind": "contact",
+        "wrap": True,
+        "hide_below": "xl",
+    },
+    {"key": "number", "label": "Claim", "wrap": True, "hide_below": "xl"},
     {"key": "billed", "label": "Billed", "kind": "money", "align": "right"},
     {"key": "allowed", "label": "Allowed", "kind": "money", "align": "right"},
     {"key": "paid", "label": "Insurer paid", "kind": "money", "align": "right"},
@@ -79,6 +87,7 @@ async def _drawn(
 ) -> dict[str, Any]:
     """One policy as the page draws it. ``owner`` says the page is the
     insurer's, where claims are recorded; a person's page reads only."""
+    from app.components.web_frontend.glyphs import file_badge
     from app.services.finance.domains.planning.recurring import streams
     from app.services.matters.requests import titles
 
@@ -142,8 +151,15 @@ async def _drawn(
                 "allowed": c.allowed_cents,
                 "paid": c.insurer_paid_cents,
                 "owes": c.patient_owes_cents,
+                # The column says EOB; the cell is the file's mark and a
+                # short word, because a filename is one unbreakable string
+                # that pushes the rest of the row off the card.
                 "eob": {
-                    "label": eobs.get(c.document_id, {}).get("title", "EOB"),
+                    "label": "Open",
+                    "badge": file_badge(
+                        eobs.get(c.document_id, {}).get("media_type"),
+                        eobs.get(c.document_id, {}).get("title", ""),
+                    ),
                     "url": f"{SECTION.path}/{policy.insurer_party_id}/documents/{c.document_id}",
                 }
                 if c.document_id

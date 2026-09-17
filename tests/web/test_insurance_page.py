@@ -129,6 +129,7 @@ class TestAClaimOnThePage:
         assert one(row, f'a[data-contact="{dentist}"]') is not None
         door = one(row, "[data-open]")
         assert door.get("hx-get").startswith(f"/contacts/{insurer}/documents/")
+        assert "ClaimStatement" not in text(door)
         assert text(one(card, "[data-owes]")) == "$146.00"
         # And the EOB is on the insurer's paper.
         page = client.get(f"/contacts/{insurer}").text
