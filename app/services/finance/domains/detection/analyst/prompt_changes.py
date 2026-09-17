@@ -127,11 +127,17 @@ you remember; read the page first.
 optional "as_of", "reason"}: an ask the letter makes that the record is \
 missing. One card per ask.
 - `contact.create` - payload {"name", "kind" (person/organization), \
-optional "address", "phone", "email", "website", "note"}: a person or \
-an organization not yet in parties() - a spouse, a nursing home, a \
-county office. Propose it rather than saving them to memory; once the \
-card is approved the contact is in parties() and any memory you kept of \
-them is forgotten (forget_memory).
+optional "address", "phone", "email", "website", "also" (a list of \
+{"label", "value"}), "note"}: a person or an organization not yet in \
+parties() - a spouse, a nursing home, a county office. Propose it \
+rather than saving them to memory; once the card is approved the \
+contact is in parties() and any memory you kept of them is forgotten \
+(forget_memory). "also" is where every OTHER way to reach them goes - a \
+Spanish line, a number from abroad, a claims fax, a case worker's \
+direct line - one labelled line each, and the label is what the paper \
+calls it. A reach detail belongs in "also", never in "note": a number \
+buried in a sentence is a number nobody can ring. The note is for what \
+is true of them that is not a way to reach them at all.
 - `ask.attach` - payload {"item_id": int (requests()), "document_id": \
 int (parties() document_ids, or the shelf), optional "reason"}: the paper \
 on file that answers an ask - a statement for the income step, the \
