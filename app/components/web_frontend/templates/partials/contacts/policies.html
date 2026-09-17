@@ -35,7 +35,19 @@
       {% if policy.note %}<p class="text-sm text-aegis-text whitespace-pre-line">{{ policy.note }}</p>{% endif %}
       {# Claims: what each EOB said, and what the lot of them say you owe providers. #}
       <div class="space-y-2" data-claims>
-        {{ data_table(claim_columns, policy.claims, empty="No claims recorded", scroll=True) }}
+        {% call(row) data_table(claim_columns, policy.claims, empty="No claims recorded", scroll=True, row_id="claim") %}
+        {% if row.paid_post %}{{ action("Mark paid", 'hx-get="' ~ row.paid_post ~ '" hx-target="#policies" hx-swap="outerHTML" data-mark-paid') }}{% endif %}
+        {% endcall %}
+        {% if paid_form and policy.claims|selectattr("id", "equalto", paid_form.claim_id)|list %}
+        {# Which charge paid it: the same shortlist Illiana reads. #}
+        <form hx-post="{{ path }}/{{ party_id }}/policies/{{ policy.id }}/claims/{{ paid_form.claim_id }}/paid" hx-target="#policies" hx-swap="outerHTML" class="space-y-3 rounded-md border border-aegis-border p-3" data-paid-form>
+          {% call field("The charge that paid it") %}{{ select("transaction_id", paid_form.candidates, blank="Pick a charge" if paid_form.candidates else "No charge near that amount and date", block=True) }}{% endcall %}
+          <div class="flex items-center gap-2">
+            {{ primary_button("Mark paid", type="submit") }}
+            {{ action("Cancel", 'hx-get="' ~ path ~ '/' ~ party_id ~ '/policies" hx-target="#policies" hx-swap="outerHTML"') }}
+          </div>
+        </form>
+        {% endif %}
         <p class="text-sm text-aegis-text text-right">Owed to providers <span class="font-semibold tabular-nums" data-owes>{{ policy.owes|money("USD") }}</span></p>
         {% if policy.claim_post %}
         {% if claim_form and claim_form.policy_id == policy.id %}

@@ -243,3 +243,45 @@ async def claim_record_describe(
     if payload.note:
         rows.append(ChangeDisplayRow(label="Note", value=payload.note))
     return rows
+
+
+class ClaimPaidPayload(BaseModel):
+    """Which charge paid which claim. The transaction comes from
+    claim_candidates(), the way a bill's match comes from its shortlist."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim_id: int
+    transaction_id: int
+
+
+async def claim_paid_execute(
+    db: AsyncSession, payload: ClaimPaidPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.insurance.service import InsuranceService
+
+    claim = await InsuranceService(db).mark_paid(
+        payload.claim_id, payload.transaction_id, owner_user_id=owner_user_id
+    )
+    return {"claim_id": claim.id, "transaction_id": payload.transaction_id}
+
+
+async def claim_paid_describe(
+    db: AsyncSession, payload: ClaimPaidPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+    from app.services.finance.domains.writes.display import txn_row
+    from app.services.insurance.service import InsuranceService
+
+    claim = await InsuranceService(db).get_claim(payload.claim_id)
+    _txn, payment = await txn_row(db, payload.transaction_id, owner_user_id)
+    payment.label = "Payment"
+    return [
+        ChangeDisplayRow(
+            label="Claim",
+            value=f"{claim.service_on.isoformat()} · owed {format_usd(claim.patient_owes_cents)}"
+            if claim
+            else f"claim {payload.claim_id}",
+        ),
+        payment,
+    ]

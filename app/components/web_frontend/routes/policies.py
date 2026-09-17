@@ -41,6 +41,9 @@ CLAIM_COLUMNS = (
     {"key": "paid", "label": "Insurer paid", "kind": "money", "align": "right"},
     {"key": "owes", "label": "You owe", "kind": "money", "align": "right"},
     {"key": "eob", "label": "EOB", "kind": "open"},
+    # The charge that paid the provider, or blank: the link between what
+    # the EOB said and what the ledger shows leaving.
+    {"key": "settled", "label": "Paid"},
 )
 
 # The numbers a policy carries, drawn as rows in this order.
@@ -82,6 +85,7 @@ async def _drawn(
     service = InsuranceService(db)
     claims = await service.claims_of(int(policy.id))
     eobs = await titles(db, [c.document_id for c in claims])
+    paid = await _payments(db, [c.paid_transaction_id for c in claims])
     premium = None
     if policy.premium_stream_id is not None:
         stream = await streams.get_recurring(db, policy.premium_stream_id, None)
@@ -108,7 +112,12 @@ async def _drawn(
         "owes": await service.patient_owes_total(int(policy.id)),
         "claims": [
             {
+                "id": c.id,
                 "at": _iso(c.service_on),
+                "settled": paid.get(c.paid_transaction_id, ""),
+                "paid_post": f"{SECTION.path}/{party_id}/policies/{policy.id}/claims/{c.id}/paid"
+                if owner and c.paid_transaction_id is None
+                else None,
                 "who": {
                     "id": c.covered_party_id,
                     "label": names.get(c.covered_party_id, ""),
@@ -140,12 +149,73 @@ async def _drawn(
     }
 
 
+async def _payments(db: AsyncSession, ids: list[int | None]) -> dict[int, str]:
+    """The paying charges as one line each - date and account - in ONE
+    query per kind, never one per claim."""
+    from sqlmodel import col, select
+
+    from app.services.finance.models import FinanceAccount, FinanceTransaction
+
+    wanted = [i for i in ids if i]
+    if not wanted:
+        return {}
+    rows = (
+        await db.exec(
+            select(FinanceTransaction).where(col(FinanceTransaction.id).in_(wanted))
+        )
+    ).all()
+    accounts = (
+        await db.exec(
+            select(FinanceAccount).where(
+                col(FinanceAccount.id).in_({t.account_id for t in rows})
+            )
+        )
+    ).all()
+    named = {int(a.id): a.name for a in accounts}
+    return {int(t.id): f"{_iso(t.date_)} · {named.get(t.account_id, '')}" for t in rows}
+
+
+async def _candidates(
+    db: AsyncSession, claim_id: int, owner_user_id: int | None
+) -> list[dict[str, Any]]:
+    """The picker's options: the same shortlist Illiana reads."""
+    from sqlmodel import col, select
+
+    from app.components.web_frontend.filters import money
+    from app.services.finance.models import FinanceAccount
+
+    rows = await InsuranceService(db).claim_candidates(
+        claim_id, owner_user_id=owner_user_id
+    )
+    accounts = (
+        (
+            await db.exec(
+                select(FinanceAccount).where(
+                    col(FinanceAccount.id).in_({t.account_id for t in rows})
+                )
+            )
+        ).all()
+        if rows
+        else []
+    )
+    named = {int(a.id): a.name for a in accounts}
+    return [
+        {
+            "id": t.id,
+            "name": f"{_iso(t.date_)} · {t.merchant_name or t.name or ''} · "
+            f"{money(abs(t.amount), 'USD')} · {named.get(t.account_id, '')}",
+        }
+        for t in rows
+    ]
+
+
 async def _block(
     request: Request,
     db: AsyncSession,
     party_id: int,
     form: dict[str, Any] | None = None,
     claim_form: dict[str, Any] | None = None,
+    paid_form: dict[str, Any] | None = None,
     errors: list[str] | None = None,
     status_code: int = 200,
 ) -> Response:
@@ -175,6 +245,7 @@ async def _block(
         claim_columns=list(CLAIM_COLUMNS),
         form=form,
         claim_form=claim_form,
+        paid_form=paid_form,
         errors=errors or [],
     )
 
@@ -342,6 +413,61 @@ async def record_claim(
                 db,
                 party_id,
                 claim_form=form,
+                errors=[str(exc)],
+                status_code=422,
+            )
+        await db.commit()
+        return await _block(request, db, party_id)
+
+
+CLAIM = POLICY + "/claims/{claim_id:int}"
+
+
+@router.get(CLAIM + "/paid", include_in_schema=False)
+async def pick_payment(
+    request: Request,
+    party_id: int,
+    policy_id: int,
+    claim_id: int,
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    async with get_async_session() as db:
+        return await _block(
+            request,
+            db,
+            party_id,
+            paid_form={
+                "claim_id": claim_id,
+                "candidates": await _candidates(db, claim_id, owner_user_id),
+            },
+        )
+
+
+@router.post(CLAIM + "/paid", include_in_schema=False)
+async def mark_paid(
+    request: Request,
+    party_id: int,
+    policy_id: int,
+    claim_id: int,
+    transaction_id: Annotated[str, Form()] = "",
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    async with get_async_session() as db:
+        try:
+            if not transaction_id.isdigit():
+                raise ValueError("Pick the charge that paid it.")
+            await InsuranceService(db).mark_paid(
+                claim_id, int(transaction_id), owner_user_id=owner_user_id
+            )
+        except ValueError as exc:
+            return await _block(
+                request,
+                db,
+                party_id,
+                paid_form={
+                    "claim_id": claim_id,
+                    "candidates": await _candidates(db, claim_id, owner_user_id),
+                },
                 errors=[str(exc)],
                 status_code=422,
             )

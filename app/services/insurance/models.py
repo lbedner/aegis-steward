@@ -89,6 +89,7 @@ class InsuranceClaim(SQLModel, table=True):
         Index("ix_insurance_claim_covered", "covered_party_id"),
         Index("ix_insurance_claim_provider", "provider_party_id"),
         Index("ix_insurance_claim_document", "document_id"),
+        Index("ix_insurance_claim_paid", "paid_transaction_id"),
         Index("ix_insurance_claim_deleted", "deleted_at"),
     )
 
@@ -107,6 +108,10 @@ class InsuranceClaim(SQLModel, table=True):
     patient_owes_cents: int = Field(default=0)
     # The EOB, on the shelf.
     document_id: int | None = Field(default=None)
+    # The charge on the ledger that paid the provider. Set, the claim
+    # leaves "owed to providers"; the EOB said what was owed and the
+    # ledger shows it leaving, and this is the link between them.
+    paid_transaction_id: int | None = Field(default=None)
     note: str | None = Field(default=None)
 
     created_at: datetime = Field(default_factory=_utcnow)

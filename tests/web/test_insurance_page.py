@@ -6,6 +6,8 @@ a table with what is owed to providers totalled, and the two forms that
 add to it - both on the page you are already looking at.
 """
 
+from datetime import date
+
 from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -180,3 +182,54 @@ class TestIllianaSeesPolicyIds:
         assert told[insurer.id]["policy_ids"] == [policy.id]
         assert told[person.id]["covered_by_policy_ids"] == [policy.id]
         assert WORDS["policies"]
+
+
+class TestMarkingAClaimPaid:
+    @pytest.mark.asyncio
+    async def test_the_row_offers_the_charges_and_the_total_drops(
+        self, client: TestClient
+    ) -> None:
+        from app.services.finance.service import FinanceService
+        from tests.services._finance_factories import seed_account, seed_txn
+
+        insurer = _contact(client, "Paid Dental", "organization")
+        marisa = _contact(client, "Paid Marisa", "person")
+        policy = _policy(client, insurer, [marisa])
+        client.post(
+            f"/contacts/{insurer}/policies/{policy}/claims/new",
+            data={
+                "covered_party_id": str(marisa),
+                "service_on": "2026-08-12",
+                "patient_owes": "146.00",
+            },
+        )
+        # The page reads the app's own session, not the test's transaction,
+        # so the charge is seeded where the page will look.
+        from app.core.db import get_async_session
+
+        async with get_async_session() as db:
+            finance = FinanceService(db)
+            amex = await seed_account(finance, name="AMEX Paid Testcase")
+            charge = await seed_txn(
+                finance, int(amex.id), -14600, date(2026, 8, 12), name="Endodontics"
+            )
+            await db.commit()
+
+        block = client.get(f"/contacts/{insurer}/policies").text
+        row = one(block, f'[data-policy="{policy}"] tbody tr')
+        claim_id = int(row.get("id").split("-")[-1])
+        opener = one(row, "[data-mark-paid]")
+        picker = client.get(opener.get("hx-get")).text
+        chooser = one(picker, 'form[data-paid-form] select[name="transaction_id"]')
+        assert str(charge.id) in [o.get("value") for o in select(chooser, "option")]
+
+        answer = client.post(
+            f"/contacts/{insurer}/policies/{policy}/claims/{claim_id}/paid",
+            data={"transaction_id": str(charge.id)},
+        )
+        assert answer.status_code == 200, answer.text
+        card = one(answer.text, f'[data-policy="{policy}"]')
+        cells = [text(td) for td in select(one(card, "tbody tr"), "td")]
+        assert any("AMEX Paid Testcase" in c for c in cells)
+        assert text(one(card, "[data-owes]")) == "$0.00"
+        none(card, "[data-mark-paid]")

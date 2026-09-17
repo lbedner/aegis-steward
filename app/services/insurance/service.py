@@ -148,10 +148,71 @@ class InsuranceService:
         return list((await self.db.exec(query)).all())
 
     async def patient_owes_total(self, policy_id: int) -> int:
-        """What the EOBs on this policy say is owed to providers, in cents."""
+        """What the EOBs on this policy say is still owed to providers,
+        in cents: claims with no paying charge linked."""
         query = (
             select(func.coalesce(func.sum(InsuranceClaim.patient_owes_cents), 0))
             .where(col(InsuranceClaim.policy_id) == policy_id)
+            .where(col(InsuranceClaim.paid_transaction_id).is_(None))
             .where(col(InsuranceClaim.deleted_at).is_(None))
         )
         return int((await self.db.exec(query)).one())
+
+    async def get_claim(self, claim_id: int) -> InsuranceClaim | None:
+        claim = await self.db.get(InsuranceClaim, claim_id)
+        return None if claim is None or claim.deleted_at else claim
+
+    async def claim_candidates(
+        self, claim_id: int, *, owner_user_id: int | None
+    ) -> list[Any]:
+        """The charges that could have paid this claim: outflows within
+        a month of the visit whose amount is within a tenth of what the
+        EOB said was owed. The same shape as a bill's match shortlist,
+        so the picker and Illiana read one list."""
+        from datetime import timedelta
+
+        from app.services.finance.models import FinanceTransaction
+
+        claim = await self.get_claim(claim_id)
+        if claim is None or not claim.patient_owes_cents:
+            return []
+        owed = claim.patient_owes_cents
+        band = max(owed // 10, 100)
+        query = (
+            select(FinanceTransaction)
+            .where(col(FinanceTransaction.amount) < 0)
+            .where(
+                col(FinanceTransaction.amount).between(-(owed + band), -(owed - band))
+            )
+            .where(
+                col(FinanceTransaction.date_).between(
+                    claim.service_on - timedelta(days=7),
+                    claim.service_on + timedelta(days=45),
+                )
+            )
+            .order_by(col(FinanceTransaction.date_).desc())
+        )
+        if owner_user_id is not None:
+            query = query.where(col(FinanceTransaction.owner_user_id) == owner_user_id)
+        return list((await self.db.exec(query)).all())
+
+    async def mark_paid(
+        self, claim_id: int, transaction_id: int, *, owner_user_id: int | None
+    ) -> InsuranceClaim:
+        from app.services.finance.domains.ledger.queries.transactions import (
+            transaction_by_id,
+        )
+
+        claim = await self.get_claim(claim_id)
+        if claim is None:
+            raise ValueError(f"No claim with id {claim_id}")
+        txn = await transaction_by_id(
+            self.db, transaction_id, owner_user_id=owner_user_id
+        )
+        if txn is None:
+            raise ValueError(f"Transaction {transaction_id} not found.")
+        claim.paid_transaction_id = transaction_id
+        claim.updated_at = _utcnow()
+        self.db.add(claim)
+        await self.db.flush()
+        return claim

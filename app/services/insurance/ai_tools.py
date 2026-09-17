@@ -64,6 +64,7 @@ async def policies() -> dict[str, Any]:
                             "insurer_paid_cents": c.insurer_paid_cents,
                             "patient_owes_cents": c.patient_owes_cents,
                             "document_id": c.document_id,
+                            "paid_transaction_id": c.paid_transaction_id,
                         }
                         for c in claims
                     ],
@@ -72,6 +73,34 @@ async def policies() -> dict[str, Any]:
     return {"policies": rows}
 
 
+async def claim_candidates(claim_id: int) -> dict[str, Any]:
+    """The charges that could have paid this claim: outflows within a
+    month of the visit whose amount is within a tenth of what the EOB
+    said was owed. Each candidate's 'id' is what a claim.paid proposal's
+    'transaction_id' takes. Propose a payment ONLY from this list."""
+    async with get_async_session() as db:
+        rows = await InsuranceService(db).claim_candidates(claim_id, owner_user_id=None)
+    return {
+        "claim_id": claim_id,
+        "candidates": [
+            {
+                "id": t.id,
+                "date": t.date_.isoformat(),
+                "payee": t.merchant_name or t.name,
+                "amount": t.amount,
+                "account_id": t.account_id,
+            }
+            for t in rows
+        ],
+    }
+
+
+register_tool(
+    "claim_candidates",
+    claim_candidates,
+    description="The charges that could have paid a claim, with ids",
+    replace=True,
+)
 register_tool(
     "policies",
     policies,
