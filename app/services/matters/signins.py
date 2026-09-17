@@ -18,19 +18,15 @@ deliberate rather than an oversight to be corrected later.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
 from app.core.encryption import decrypt_secret, encrypt_secret
 from app.services.matters.facts import web_address
 from app.services.matters.models import SignIn
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _context(sign_in_id: int) -> str:
@@ -143,7 +139,7 @@ class SignInService:
             sign_in.secret_encrypted = encrypt_secret(
                 secret, context=_context(sign_in_id)
             )
-        sign_in.updated_at = _utcnow()
+        sign_in.updated_at = utcnow()
         self.db.add(sign_in)
         await self.db.flush()
         return sign_in
@@ -164,7 +160,7 @@ class SignInService:
         sign_in = await self.get(sign_in_id)
         if sign_in is None:
             return False
-        sign_in.deleted_at = _utcnow()
+        sign_in.deleted_at = utcnow()
         self.db.add(sign_in)
         await self.db.flush()
         return True

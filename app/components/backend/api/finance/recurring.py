@@ -25,6 +25,9 @@ from app.services.finance.domains.detection.insights.commitments import (
     commitment_rollup,
     stream_staleness,
 )
+from app.services.finance.domains.ledger.queries.accounts import (
+    account_names as named_accounts,
+)
 from app.services.finance.models import FinanceRecurringStream, FinanceTransaction
 from app.services.finance.schemas import (
     ProjectionResponse,
@@ -103,10 +106,7 @@ async def hydrate_streams(
     payee_names = await service.merchant_names(
         {s.merchant_id for s in streams if s.merchant_id is not None}
     )
-    accounts, _ = await service.list_accounts(
-        owner_user_id=owner_user_id, page_size=500
-    )
-    account_names = {a.id: a.name for a in accounts}
+    account_names = await named_accounts(service.db, [s.account_id for s in streams])
     icons = await payee_icons(
         service.db,
         [(s.merchant_id, payee_names.get(s.merchant_id) or s.name) for s in streams],

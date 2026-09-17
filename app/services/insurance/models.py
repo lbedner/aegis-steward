@@ -2,26 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import JSON, CheckConstraint, Column, Index
 from sqlmodel import Field, SQLModel
 
+from app.core.clock import utcnow
+from app.core.schema import one_of
+
 POLICY_KINDS = ("dental", "health", "vision", "auto", "home", "life", "other")
 
 # What an insurer has said about a claim, as the EOB says it.
 CLAIM_STATUSES = ("submitted", "processed", "denied", "appealed", "paid")
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _one_of(column: str, values: tuple[str, ...]) -> str:
-    """A CHECK clause spelled from the tuple, so the constraint cannot
-    drift from the values the app writes."""
-    return f"{column} IN ({', '.join(f'{v!r}' for v in values)})"
 
 
 class InsurancePolicy(SQLModel, table=True):
@@ -38,7 +31,7 @@ class InsurancePolicy(SQLModel, table=True):
 
     __tablename__ = "insurance_policy"
     __table_args__ = (
-        CheckConstraint(_one_of("kind", POLICY_KINDS), name="ck_insurance_policy_kind"),
+        CheckConstraint(one_of("kind", POLICY_KINDS), name="ck_insurance_policy_kind"),
         Index("ix_insurance_policy_owner", "owner_user_id"),
         Index("ix_insurance_policy_insurer", "insurer_party_id"),
         Index("ix_insurance_policy_stream", "premium_stream_id"),
@@ -66,8 +59,8 @@ class InsurancePolicy(SQLModel, table=True):
     terms: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     note: str | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)
 
 
@@ -83,12 +76,13 @@ class InsuranceClaim(SQLModel, table=True):
     __tablename__ = "insurance_claim"
     __table_args__ = (
         CheckConstraint(
-            _one_of("status", CLAIM_STATUSES), name="ck_insurance_claim_status"
+            one_of("status", CLAIM_STATUSES), name="ck_insurance_claim_status"
         ),
         Index("ix_insurance_claim_policy", "policy_id"),
         Index("ix_insurance_claim_covered", "covered_party_id"),
         Index("ix_insurance_claim_provider", "provider_party_id"),
         Index("ix_insurance_claim_document", "document_id"),
+        Index("ix_insurance_claim_paid", "paid_transaction_id"),
         Index("ix_insurance_claim_deleted", "deleted_at"),
     )
 
@@ -107,8 +101,12 @@ class InsuranceClaim(SQLModel, table=True):
     patient_owes_cents: int = Field(default=0)
     # The EOB, on the shelf.
     document_id: int | None = Field(default=None)
+    # The charge on the ledger that paid the provider. Set, the claim
+    # leaves "owed to providers"; the EOB said what was owed and the
+    # ledger shows it leaving, and this is the link between them.
+    paid_transaction_id: int | None = Field(default=None)
     note: str | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)

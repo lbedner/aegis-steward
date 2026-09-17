@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from starlette.responses import Response
 
 from app.components.backend.api.finance.accounts import list_accounts
@@ -24,6 +24,7 @@ from app.components.web_frontend.nav import account_tabs, section
 from app.components.web_frontend.rendering import (
     close_dialog,
     navigate,
+    or_404,
     render,
     templates,
     with_toast,
@@ -150,8 +151,7 @@ async def _one_account(
     whose = str(found.subject_id) if found and found.subject_id else None
     accounts, context = await _accounts(service, owner_user_id, whose)
     selected = next((a for a in accounts if a.id == account_id), None)
-    if selected is None:
-        raise HTTPException(status_code=404)
+    or_404(selected)
     return accounts, selected, context
 
 

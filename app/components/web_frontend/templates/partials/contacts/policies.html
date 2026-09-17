@@ -35,11 +35,21 @@
       {% if policy.note %}<p class="text-sm text-aegis-text whitespace-pre-line">{{ policy.note }}</p>{% endif %}
       {# Claims: what each EOB said, and what the lot of them say you owe providers. #}
       <div class="space-y-2" data-claims>
-        {{ data_table(claim_columns, policy.claims, empty="No claims recorded", scroll=True) }}
+        {{ data_table(claim_columns, policy.claims, empty="No claims recorded", scroll=True, row_id="claim") }}
+        {% if paid_form and policy.claims|selectattr("id", "equalto", paid_form.claim_id)|list %}
+        {# Which charge paid it: the same shortlist Illiana reads. #}
+        <form {{ hx_swap(path ~ "/" ~ party_id ~ "/policies/" ~ policy.id ~ "/claims/" ~ paid_form.claim_id ~ "/paid", "#policies", "post") }} class="space-y-3 rounded-md border border-aegis-border p-3" data-paid-form>
+          {% call field("The charge that paid it") %}{{ select("transaction_id", paid_form.candidates, blank="Pick a charge" if paid_form.candidates else "No charge near that amount and date", block=True) }}{% endcall %}
+          <div class="flex items-center gap-2">
+            {{ primary_button("Mark paid", type="submit") }}
+            {{ action("Cancel", hx_swap(path ~ "/" ~ party_id ~ "/policies", "#policies")) }}
+          </div>
+        </form>
+        {% endif %}
         <p class="text-sm text-aegis-text text-right">Owed to providers <span class="font-semibold tabular-nums" data-owes>{{ policy.owes|money("USD") }}</span></p>
         {% if policy.claim_post %}
         {% if claim_form and claim_form.policy_id == policy.id %}
-        <form hx-post="{{ policy.claim_post }}" hx-target="#policies" hx-swap="outerHTML" hx-encoding="multipart/form-data" class="space-y-3 rounded-md border border-aegis-border p-3" data-claim-form>
+        <form {{ hx_swap(policy.claim_post, "#policies", "post") }} hx-encoding="multipart/form-data" class="space-y-3 rounded-md border border-aegis-border p-3" data-claim-form>
           <div class="grid gap-3 sm:grid-cols-2">
             {% call field("For") %}{{ select("covered_party_id", policy.covered, claim_form.covered_party_id, blank="Who was seen", block=True) }}{% endcall %}
             {% call field("Visit") %}{{ date_input("service_on", claim_form.service_on, block=True) }}{% endcall %}
@@ -57,11 +67,11 @@
           {% call field("Note") %}{{ textarea("note", claim_form.note, rows=2) }}{% endcall %}
           <div class="flex items-center gap-2">
             {{ primary_button("Record the claim", type="submit") }}
-            {{ action("Cancel", 'hx-get="' ~ path ~ '/' ~ party_id ~ '/policies" hx-target="#policies" hx-swap="outerHTML"') }}
+            {{ action("Cancel", hx_swap(path ~ "/" ~ party_id ~ "/policies", "#policies")) }}
           </div>
         </form>
         {% else %}
-        {{ action(word("record_claim"), 'hx-get="' ~ policy.claim_post ~ '" hx-target="#policies" hx-swap="outerHTML"') }}
+        {{ action(word("record_claim"), hx_swap(policy.claim_post, "#policies")) }}
         {% endif %}
         {% endif %}
       </div>
@@ -74,7 +84,7 @@
 
   {% if place %}
   {% if form is not none %}
-  <form hx-post="{{ path }}/{{ party_id }}/policies/new" hx-target="#policies" hx-swap="outerHTML" class="space-y-3 rounded-md border border-aegis-border p-3" data-policy-form>
+  <form {{ hx_swap(path ~ "/" ~ party_id ~ "/policies/new", "#policies", "post") }} class="space-y-3 rounded-md border border-aegis-border p-3" data-policy-form>
     <div class="grid gap-3 sm:grid-cols-2">
       {% call field("Kind") %}{{ select("kind", kinds|as_options, form.kind or "dental", blank=None, block=True) }}{% endcall %}
       {% call field("Plan") %}{{ text_input("name", form.name, placeholder="What the insurer calls it") }}{% endcall %}
@@ -89,11 +99,11 @@
     {% call field("Note") %}{{ textarea("note", form.note, rows=2) }}{% endcall %}
     <div class="flex items-center gap-2">
       {{ primary_button("Add the policy", type="submit") }}
-      {{ action("Cancel", 'hx-get="' ~ path ~ '/' ~ party_id ~ '/policies" hx-target="#policies" hx-swap="outerHTML"') }}
+      {{ action("Cancel", hx_swap(path ~ "/" ~ party_id ~ "/policies", "#policies")) }}
     </div>
   </form>
   {% else %}
-  {{ action(word("add_policy"), 'hx-get="' ~ path ~ '/' ~ party_id ~ '/policies/new" hx-target="#policies" hx-swap="outerHTML"') }}
+  {{ action(word("add_policy"), hx_swap(path ~ "/" ~ party_id ~ "/policies/new", "#policies")) }}
   {% endif %}
   {% endif %}
 </div>

@@ -18,7 +18,7 @@
       <p class="text-sm text-aegis-text">{{ badge(insight.title, tone) }}</p>
       {% if insight.body %}<p class="mt-1 text-xs text-aegis-muted">{{ insight.body }}</p>{% endif %}
     </div>
-    {{ action("Dismiss", 'hx-post="/review/insights/' ~ insight.id ~ '/dismiss" hx-target="#insight-' ~ insight.id ~ '" hx-swap="outerHTML"') }}
+    {{ action("Dismiss", hx_swap("/review/insights/" ~ insight.id ~ "/dismiss", "#insight-" ~ insight.id, "post")) }}
   </li>
   {% endfor %}
 </ul>

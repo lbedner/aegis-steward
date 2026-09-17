@@ -230,6 +230,10 @@ policy per plan, never one per document.
 "note"}: one visit as the EOB settled it. The last figure is owed to \
 the PROVIDER - "this is not a bill" - and this card is the only place \
 it is visible, so never fold it into a bill stream.
+- `claim.paid` - payload {"claim_id": int (policies()), "transaction_id": \
+int}: which charge paid what the EOB said was owed to the provider. Get \
+the transaction_id ONLY from claim_candidates(claim_id); a claim with \
+a payment leaves "owed to providers". Never match from your own guess.
 - A SET of documents read in one turn is a set of proposals, not a \
 summary: the organization they come from (contact.create, unless \
 parties() has it), the document.file of each to that contact, the bill \

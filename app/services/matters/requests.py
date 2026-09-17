@@ -16,6 +16,8 @@ from typing import Any
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import (
     ITEM_KINDS,
     ITEM_STATUSES,
@@ -29,10 +31,6 @@ from app.services.matters.models import (
 # and both close an item without it ever being answered - which is why
 # neither can be inferred and both have to be recorded.
 SETTLED = ("satisfied", "not_applicable", "waived")
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class RequestService:
@@ -223,7 +221,7 @@ class RequestService:
             item.ask = ask.strip() or None
         if as_of is not None:
             item.as_of = as_of
-        item.updated_at = _utcnow()
+        item.updated_at = utcnow()
         self.db.add(item)
         await self.db.flush()
         return item
@@ -237,14 +235,13 @@ class RequestService:
         request reads satisfied when every item does, and never because
         somebody said so while an item still stands.
         """
-        if status not in ITEM_STATUSES:
-            raise ValueError(f"One of: {', '.join(ITEM_STATUSES)}.")
+        require_one_of(status, ITEM_STATUSES)
         item = await self.db.get(RequestItem, item_id)
         if item is None:
             return None
         item.status = status
         item.resolution = (resolution or "").strip() or None
-        item.updated_at = _utcnow()
+        item.updated_at = utcnow()
         self.db.add(item)
         await self.db.flush()
         await self._settle(item.request_id)
@@ -291,7 +288,7 @@ class RequestService:
         if request is None:
             return None
         request.document_id = document_id
-        request.updated_at = _utcnow()
+        request.updated_at = utcnow()
         self.db.add(request)
         await self.db.flush()
         return request
@@ -303,7 +300,7 @@ class RequestService:
         if request is None:
             return None
         request.status = "waived"
-        request.updated_at = _utcnow()
+        request.updated_at = utcnow()
         self.db.add(request)
         await self.db.flush()
         return request
@@ -316,7 +313,7 @@ class RequestService:
         settled, total = standing(items)
         done = bool(items) and settled == total
         request.status = "satisfied" if done else "open"
-        request.updated_at = _utcnow()
+        request.updated_at = utcnow()
         self.db.add(request)
         await self.db.flush()
 

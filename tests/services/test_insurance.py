@@ -14,6 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
 from app.services.insurance.service import InsuranceService
 from app.services.matters.service import PartyService
+from tests._session import opens
 
 
 async def _insured(db: AsyncSession) -> tuple[int, int, int]:
@@ -276,16 +277,10 @@ class TestIllianaReadsPolicies:
     async def test_the_tool_lists_policies_with_their_claims(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from contextlib import asynccontextmanager
-
         from app.services.ai.domains.chat.tools import registered_tool_names
         from app.services.insurance import ai_tools
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+        monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
         insurer, marisa, _ = await _insured(async_db_session)
         service = InsuranceService(async_db_session)
         policy = await service.create_policy(
@@ -314,3 +309,99 @@ class TestIllianaReadsPolicies:
         assert "policy.create" in FINANCE_CHAT_SYSTEM_PROMPT
         assert "claim.record" in FINANCE_CHAT_SYSTEM_PROMPT
         assert "never in a contact's note" in FINANCE_CHAT_SYSTEM_PROMPT
+
+
+class TestAClaimIsPaid:
+    """The EOB says what is owed; the ledger shows it leaving. Linking
+    the two is what turns "owed to providers" into a number that goes
+    down when you pay."""
+
+    async def _claim(self, db: AsyncSession) -> tuple[int, int]:
+        insurer, marisa, _ = await _insured(db)
+        service = InsuranceService(db)
+        policy = await service.create_policy(
+            insurer_party_id=insurer, covered_party_ids=[marisa], kind="dental"
+        )
+        claim = await service.record_claim(
+            policy_id=int(policy.id),
+            covered_party_id=marisa,
+            service_on=date(2026, 8, 12),
+            patient_owes_cents=14600,
+        )
+        await db.commit()
+        return int(policy.id), int(claim.id)
+
+    @pytest.mark.asyncio
+    async def test_candidates_are_charges_near_the_amount_and_the_visit(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.service import FinanceService
+        from tests.services._finance_factories import seed_account, seed_txn
+
+        policy_id, claim_id = await self._claim(async_db_session)
+        finance = FinanceService(async_db_session)
+        amex = await seed_account(finance, name="AMEX")
+        hit = await seed_txn(
+            finance, int(amex.id), -14600, date(2026, 8, 12), name="Endodontics"
+        )
+        await seed_txn(finance, int(amex.id), -14600, date(2026, 3, 1), name="Long ago")
+        await seed_txn(
+            finance, int(amex.id), -9900, date(2026, 8, 12), name="Wrong amount"
+        )
+        await seed_txn(finance, int(amex.id), 14600, date(2026, 8, 12), name="A refund")
+        await async_db_session.commit()
+
+        service = InsuranceService(async_db_session)
+        found = await service.claim_candidates(claim_id, owner_user_id=1)
+        assert [t.id for t in found] == [hit.id]
+
+    @pytest.mark.asyncio
+    async def test_marking_paid_takes_it_off_the_total(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.service import FinanceService
+        from app.services.insurance.changes import (
+            ClaimPaidPayload,
+            claim_paid_describe,
+            claim_paid_execute,
+        )
+        from tests.services._finance_factories import seed_account, seed_txn
+
+        policy_id, claim_id = await self._claim(async_db_session)
+        finance = FinanceService(async_db_session)
+        amex = await seed_account(finance, name="AMEX")
+        charge = await seed_txn(
+            finance, int(amex.id), -14600, date(2026, 8, 12), name="Endodontics"
+        )
+        await async_db_session.commit()
+        service = InsuranceService(async_db_session)
+        assert await service.patient_owes_total(policy_id) == 14600
+
+        payload = ClaimPaidPayload(claim_id=claim_id, transaction_id=int(charge.id))
+        said = {
+            r.label: r.value
+            for r in await claim_paid_describe(async_db_session, payload, 1)
+        }
+        assert said["Claim"].startswith("2026-08-12")
+        assert "$146.00" in said["Claim"]
+        assert "Endodontics" in said["Payment"]
+
+        await claim_paid_execute(async_db_session, payload, 1)
+        await async_db_session.commit()
+        claim = (await service.claims_of(policy_id))[0]
+        assert claim.paid_transaction_id == charge.id
+        assert await service.patient_owes_total(policy_id) == 0
+
+    @pytest.mark.asyncio
+    async def test_a_transaction_nobody_has_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.insurance.changes import ClaimPaidPayload, claim_paid_execute
+
+        _policy_id, claim_id = await self._claim(async_db_session)
+        with pytest.raises(ValueError, match="ransaction"):
+            await claim_paid_execute(
+                async_db_session,
+                ClaimPaidPayload(claim_id=claim_id, transaction_id=999_999),
+                1,
+            )

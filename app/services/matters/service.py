@@ -7,17 +7,14 @@ those live with the pointers.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import PARTY_KINDS, Party, sort_name_for
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class PartyService:
@@ -43,8 +40,7 @@ class PartyService:
         named = " ".join((name or "").split())
         if not named:
             raise ValueError("A party needs a name.")
-        if kind not in PARTY_KINDS:
-            raise ValueError(f"One of: {', '.join(PARTY_KINDS)}.")
+        require_one_of(kind, PARTY_KINDS)
         party = Party(
             owner_user_id=owner_user_id,
             kind=kind,
@@ -86,6 +82,21 @@ class PartyService:
             )
         return list((await self.db.exec(query.order_by(col(Party.sort_name)))).all())
 
+    async def options(self, kind: str | None = None) -> list[dict[str, Any]]:
+        """``{id, name}`` rows for a select, in filing order."""
+        return [{"id": p.id, "name": p.name} for p in await self.find(kind=kind)]
+
+    async def names(self, ids: list[int] | None = None) -> dict[int, str]:
+        """id -> name, for every party or for ``ids``: the one map every
+        page and tool draws a party's name from."""
+        query = select(Party).where(col(Party.deleted_at).is_(None))
+        if ids is not None:
+            wanted = [i for i in ids if i]
+            if not wanted:
+                return {}
+            query = query.where(col(Party.id).in_(wanted))
+        return {int(p.id): p.name for p in (await self.db.exec(query)).all()}
+
     async def update(self, party_id: int, changes: dict[str, Any]) -> Party | None:
         """Rename, refile, or correct how to reach them.
 
@@ -105,7 +116,7 @@ class PartyService:
                 setattr(party, field, value or None if field == "note" else value)
         if "contact" in changes:
             party.contact = changes["contact"] or None
-        party.updated_at = _utcnow()
+        party.updated_at = utcnow()
         self.db.add(party)
         await self.db.flush()
         return party
@@ -116,7 +127,7 @@ class PartyService:
         party = await self.get(party_id)
         if party is None:
             return False
-        party.deleted_at = _utcnow()
+        party.deleted_at = utcnow()
         self.db.add(party)
         await self.db.flush()
         return True

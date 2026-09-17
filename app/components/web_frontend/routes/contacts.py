@@ -17,11 +17,12 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from starlette.responses import Response
 
-from app.components.web_frontend.documents import PAPER_COLUMNS, papers_on
+from app.components.web_frontend.documents import PAPER_COLUMNS, file_upload, papers_on
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     render,
     where_from,
 )
@@ -234,8 +235,7 @@ async def contact(
 
     async with get_async_session() as db:
         party = await PartyService(db).get(party_id)
-        if party is None:
-            raise HTTPException(status_code=404)
+        or_404(party)
         places = await place_book(db)
         facts = FactService(db)
         says = [drawn(f, places) for f in await facts.find(source_party_id=party_id)]
@@ -299,8 +299,7 @@ async def new_paper(request: Request, party_id: int) -> Response:
 
     async with get_async_session() as db:
         party = await PartyService(db).get(party_id)
-    if party is None:
-        raise HTTPException(status_code=404)
+    or_404(party)
     return dialog(
         request,
         "partials/matters/paper.html",
@@ -320,25 +319,13 @@ async def add_paper(
 ) -> Response:
     """Paper that is theirs - a statement, a benefit letter - filed
     against the contact so the next matter finds it on the shelf."""
-    from app.services.documents.service import DocumentService
 
     async with get_async_session() as db:
         if await PartyService(db).get(party_id) is None:
             raise HTTPException(status_code=404)
-        if file is None or not file.filename:
-            raise HTTPException(status_code=400, detail="Pick a file.")
-        documents = DocumentService(db)
-        try:
-            document = await documents.ingest(
-                await file.read(),
-                title=file.filename,
-                media_type=file.content_type,
-                owner_user_id=owner_user_id,
-                source="upload",
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        await documents.tag(document.id, party_tag(party_id))
+        document = await file_upload(
+            db, file, owner_user_id=owner_user_id, tags=(party_tag(party_id),)
+        )
         await db.commit()
     return dialog_done(f"{SECTION.path}/{party_id}", f"Filed {document.title}")
 

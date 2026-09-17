@@ -12,13 +12,15 @@ agency last year, which is the one thing you may later have to defend.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import (
     FACT_ATTRIBUTES,
     FACT_PERIODS,
@@ -39,10 +41,6 @@ PER_MONTH: dict[str, Decimal] = {
     "month": Decimal(1),
     "year": Decimal(1) / 12,
 }
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class FactService:
@@ -77,12 +75,9 @@ class FactService:
         date with nothing in between says only that somebody opened a
         form.
         """
-        if attribute not in ATTRIBUTE_KEYS:
-            raise ValueError(f"One of: {', '.join(ATTRIBUTE_KEYS)}.")
-        if period not in FACT_PERIODS:
-            raise ValueError(f"One of: {', '.join(FACT_PERIODS)}.")
-        if provenance not in FACT_PROVENANCE:
-            raise ValueError(f"One of: {', '.join(FACT_PROVENANCE)}.")
+        require_one_of(attribute, ATTRIBUTE_KEYS)
+        require_one_of(period, FACT_PERIODS)
+        require_one_of(provenance, FACT_PROVENANCE)
         written = (text_value or "").strip() or None
         if value_cents is None and written is None:
             raise ValueError("Give the fact a figure, or say it in words.")
@@ -185,7 +180,7 @@ class FactService:
         carried.update(fields)
         fresh = await self.record(**carried)
         old.superseded_by_id = fresh.id
-        old.updated_at = _utcnow()
+        old.updated_at = utcnow()
         self.db.add(old)
         await self.db.flush()
         return fresh
@@ -197,7 +192,7 @@ class FactService:
         if fact is None:
             return None
         fact.verified = verified
-        fact.updated_at = _utcnow()
+        fact.updated_at = utcnow()
         self.db.add(fact)
         await self.db.flush()
         return fact
@@ -206,7 +201,7 @@ class FactService:
         fact = await self.get(fact_id)
         if fact is None:
             return False
-        fact.deleted_at = _utcnow()
+        fact.deleted_at = utcnow()
         self.db.add(fact)
         await self.db.flush()
         return True

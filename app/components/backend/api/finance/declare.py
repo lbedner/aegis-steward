@@ -17,6 +17,7 @@ from app.services.finance.deps import (
     get_finance_service,
     get_owner_user_id,
 )
+from app.services.finance.domains.ledger.queries.accounts import account_names
 from app.services.finance.schemas import (
     DeclareRecurring,
     ImportPreviewEdit,
@@ -190,12 +191,7 @@ async def preview_declare_recurring(
         owner_user_id=owner_user_id,
         exclude_transaction_ids=body.exclude_transaction_ids,
     )
-    # (rows, total), and paginated - the default page_size would silently
-    # drop account names past the 50th.
-    account_rows, _ = await service.list_accounts(
-        owner_user_id=owner_user_id, include_hidden=True, page_size=500
-    )
-    accounts = {a.id: a.name for a in account_rows}
+    accounts = await account_names(service.db, [group.account_id for group in plan])
     items = [
         RecurringPlanEntry(
             key=group.key,

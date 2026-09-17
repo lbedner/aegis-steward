@@ -22,11 +22,14 @@ normalizer does by accident on a Tuesday.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import JSON, CheckConstraint, Column, Index
 from sqlmodel import Field, SQLModel
+
+from app.core.clock import utcnow
+from app.core.schema import one_of
 
 PARTY_KINDS = ("person", "organization")
 
@@ -45,15 +48,10 @@ CONTACT_FIELDS = (
 )
 
 
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
 def kind_check() -> str:
     """The CHECK clause for ``PARTY_KINDS``, spelled from the tuple so the
     constraint cannot drift from the values the app writes."""
-    allowed = ", ".join(f"'{kind}'" for kind in PARTY_KINDS)
-    return f"kind IN ({allowed})"
+    return one_of("kind", PARTY_KINDS)
 
 
 class Party(SQLModel, table=True):
@@ -88,8 +86,8 @@ class Party(SQLModel, table=True):
     contact: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     note: str | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     # Soft delete: a party is pointed at by matters and documents, and a
     # hard delete would take the meaning of those rows with it.
     deleted_at: datetime | None = Field(default=None)
@@ -132,8 +130,7 @@ DOCUMENT_PARTY_ROLES = ("sender", "subject", "about")
 
 
 def status_check() -> str:
-    allowed = ", ".join(f"'{s}'" for s in MATTER_STATUSES)
-    return f"status IN ({allowed})"
+    return one_of("status", MATTER_STATUSES)
 
 
 class Matter(SQLModel, table=True):
@@ -178,8 +175,8 @@ class Matter(SQLModel, table=True):
     closed_on: date | None = Field(default=None)
     note: str | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)
 
 
@@ -209,7 +206,7 @@ class MatterParticipant(SQLModel, table=True):
     party_id: int = Field()
     role: str = Field(max_length=32)
     note: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class DocumentParty(SQLModel, table=True):
@@ -236,7 +233,7 @@ class DocumentParty(SQLModel, table=True):
     document_id: int = Field()
     party_id: int = Field()
     role: str = Field(max_length=32)
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 # What a request is, taken together. NOT stored - ``overdue`` is a
@@ -291,8 +288,8 @@ class Request(SQLModel, table=True):
     status: str = Field(default="open", max_length=16)
     note: str | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)
 
 
@@ -336,8 +333,8 @@ class RequestItem(SQLModel, table=True):
     # the documents service says what a document MEANS is the consuming
     # application's business, so the reference points one way only.
     document_id: int | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 def matter_tag(matter_id: int) -> str:
@@ -450,8 +447,8 @@ class Fact(SQLModel, table=True):
     superseded_by_id: int | None = Field(default=None)
 
     note: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)
 
 
@@ -489,6 +486,6 @@ class SignIn(SQLModel, table=True):
     # nobody writes plaintext here by accident.
     secret_encrypted: str | None = Field(default=None)
     note: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)

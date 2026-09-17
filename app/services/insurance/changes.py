@@ -13,8 +13,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.schema import known
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
+from app.services.matters.service import PartyService
 
 
 class PolicyCreatePayload(BaseModel):
@@ -37,12 +39,7 @@ class PolicyCreatePayload(BaseModel):
     terms: dict[str, str] = Field(default_factory=dict)
     note: str | None = None
 
-    @field_validator("kind")
-    @classmethod
-    def _known_kind(cls, value: str) -> str:
-        if value not in POLICY_KINDS:
-            raise ValueError(f"One of: {', '.join(POLICY_KINDS)}.")
-        return value
+    _known_kind = field_validator("kind")(known(POLICY_KINDS))
 
 
 class ClaimRecordPayload(BaseModel):
@@ -65,29 +62,13 @@ class ClaimRecordPayload(BaseModel):
     document_id: int | None = None
     note: str | None = None
 
-    @field_validator("status")
-    @classmethod
-    def _known_status(cls, value: str) -> str:
-        if value not in CLAIM_STATUSES:
-            raise ValueError(f"One of: {', '.join(CLAIM_STATUSES)}.")
-        return value
+    _known_status = field_validator("status")(known(CLAIM_STATUSES))
 
     @model_validator(mode="after")
     def _one_document(self) -> ClaimRecordPayload:
         if self.paste_id is not None and self.document_id is not None:
             raise ValueError("Either paste_id or document_id, not both.")
         return self
-
-
-async def _names(db: AsyncSession, ids: list[int]) -> dict[int, str]:
-    from sqlmodel import col, select
-
-    from app.services.matters.models import Party
-
-    if not ids:
-        return {}
-    rows = (await db.exec(select(Party).where(col(Party.id).in_(ids)))).all()
-    return {int(p.id): p.name for p in rows}
 
 
 async def _eob(
@@ -132,7 +113,9 @@ async def policy_create_execute(
 async def policy_create_describe(
     db: AsyncSession, payload: PolicyCreatePayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    names = await _names(db, [payload.insurer_party_id, *payload.covered_party_ids])
+    names = await PartyService(db).names(
+        [payload.insurer_party_id, *payload.covered_party_ids]
+    )
     rows = [
         ChangeDisplayRow(
             label="Insurer", value=names.get(payload.insurer_party_id, "Unknown")
@@ -194,8 +177,7 @@ async def claim_record_describe(
     from app.services.insurance.service import InsuranceService
 
     policy = await InsuranceService(db).get_policy(payload.policy_id)
-    names = await _names(
-        db,
+    names = await PartyService(db).names(
         [
             i
             for i in (
@@ -243,3 +225,45 @@ async def claim_record_describe(
     if payload.note:
         rows.append(ChangeDisplayRow(label="Note", value=payload.note))
     return rows
+
+
+class ClaimPaidPayload(BaseModel):
+    """Which charge paid which claim. The transaction comes from
+    claim_candidates(), the way a bill's match comes from its shortlist."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim_id: int
+    transaction_id: int
+
+
+async def claim_paid_execute(
+    db: AsyncSession, payload: ClaimPaidPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.insurance.service import InsuranceService
+
+    claim = await InsuranceService(db).mark_paid(
+        payload.claim_id, payload.transaction_id, owner_user_id=owner_user_id
+    )
+    return {"claim_id": claim.id, "transaction_id": payload.transaction_id}
+
+
+async def claim_paid_describe(
+    db: AsyncSession, payload: ClaimPaidPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+    from app.services.finance.domains.writes.display import txn_row
+    from app.services.insurance.service import InsuranceService
+
+    claim = await InsuranceService(db).get_claim(payload.claim_id)
+    _txn, payment = await txn_row(db, payload.transaction_id, owner_user_id)
+    payment.label = "Payment"
+    return [
+        ChangeDisplayRow(
+            label="Claim",
+            value=f"{claim.service_on.isoformat()} · owed {format_usd(claim.patient_owes_cents)}"
+            if claim
+            else f"claim {payload.claim_id}",
+        ),
+        payment,
+    ]

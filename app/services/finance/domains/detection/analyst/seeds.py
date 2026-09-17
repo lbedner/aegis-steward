@@ -193,6 +193,7 @@ FINANCE_CHAT_TOOL_NAMES = (
     "paper",
     # Policies and the claims on them, with the ids claim.record names.
     "policies",
+    "claim_candidates",
 )
 
 

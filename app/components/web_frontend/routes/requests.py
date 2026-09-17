@@ -8,15 +8,21 @@ and a stack of paper, which is enough of a subject to own a file.
 
 from __future__ import annotations
 
-from datetime import date as date_type
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import file_upload
+from app.components.web_frontend.filters import parse_date
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog, dialog_done, where_from
+from app.components.web_frontend.rendering import (
+    dialog,
+    dialog_done,
+    or_404,
+    where_from,
+)
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.matters import MatterService
@@ -36,7 +42,7 @@ ACCEPTS = "application/pdf,image/png,image/jpeg,image/webp,image/heic,image/tiff
 
 
 async def _parties(db: AsyncSession) -> list[dict[str, Any]]:
-    return [{"id": p.id, "name": p.name} for p in await PartyService(db).find()]
+    return await PartyService(db).options()
 
 
 async def _matter_document(db: AsyncSession, matter_id: int, document_id: int) -> Any:
@@ -65,8 +71,7 @@ async def _card(request: Request, db: AsyncSession, request_id: int) -> Response
     contradicting itself.
     """
     found = await RequestService(db).get(request_id)
-    if found is None:
-        raise HTTPException(status_code=404)
+    or_404(found)
     return dialog(
         request,
         "partials/matters/request.html",
@@ -123,10 +128,8 @@ async def record_request(
                         kind="organization",
                         owner_user_id=owner_user_id,
                     ),
-                    received_on=(
-                        date_type.fromisoformat(received_on) if received_on else None
-                    ),
-                    due_on=date_type.fromisoformat(due_on) if due_on else None,
+                    received_on=(parse_date(received_on)),
+                    due_on=parse_date(due_on),
                     owner_user_id=owner_user_id,
                 )
             except ValueError as exc:
@@ -157,8 +160,7 @@ async def new_item(request: Request, request_id: int) -> Response:
     async with get_async_session() as db:
         service = RequestService(db)
         found = await service.get(request_id)
-        if found is None:
-            raise HTTPException(status_code=404)
+        or_404(found)
         return dialog(
             request,
             "partials/matters/item_new.html",
@@ -187,15 +189,14 @@ async def add_item(
     async with get_async_session() as db:
         service = RequestService(db)
         found = await service.get(request_id)
-        if found is None:
-            raise HTTPException(status_code=404)
+        or_404(found)
         try:
             await service.add_item(
                 request_id,
                 asked=asked,
                 kind=kind,
                 ask=ask,
-                as_of=date_type.fromisoformat(as_of) if as_of else None,
+                as_of=parse_date(as_of),
                 alternative_to=int(alternative_to) if alternative_to else None,
             )
         except ValueError as exc:
@@ -226,8 +227,7 @@ async def letter_form(request: Request, request_id: int) -> Response:
 
     async with get_async_session() as db:
         found = await RequestService(db).get(request_id)
-        if found is None:
-            raise HTTPException(status_code=404)
+        or_404(found)
         filed, _ = await DocumentService(db).list_documents(
             tag=matter_tag(found.matter_id)
         )
@@ -251,24 +251,19 @@ async def set_letter(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """Cite the letter: pick one already filed, or add it now."""
-    from app.services.documents.service import DocumentService
 
     async with get_async_session() as db:
         service = RequestService(db)
         found = await service.get(request_id)
-        if found is None:
-            raise HTTPException(status_code=404)
-        documents = DocumentService(db)
+        or_404(found)
         if file is not None and file.filename:
-            document = await documents.ingest(
-                await file.read(),
-                title=file.filename,
-                kind="letter",
-                media_type=file.content_type,
+            document = await file_upload(
+                db,
+                file,
                 owner_user_id=owner_user_id,
-                source="upload",
+                tags=(matter_tag(found.matter_id),),
+                kind="letter",
             )
-            await documents.tag(document.id, matter_tag(found.matter_id))
             chosen = document.id
         elif document_id:
             chosen = int(document_id)

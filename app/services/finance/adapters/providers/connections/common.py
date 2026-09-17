@@ -12,11 +12,12 @@ Deliberately free of any provider client, so ``plaid_sync`` and
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
 from app.services.finance.adapters.providers import queries
 from app.services.finance.constants import Provider
 from app.services.finance.models import FinanceConnection
@@ -70,7 +71,7 @@ def record_run(
             rows_updated=tally.get("updated", 0),
             detail=tally or None,
             started_at=started,
-            finished_at=_utcnow(),
+            finished_at=utcnow(),
         )
     )
 
@@ -109,11 +110,7 @@ def mark_healthy(connection: FinanceConnection) -> None:
     connection.needs_user_action = False
     connection.status_detail = None
     connection.last_error_code = None
-    connection.last_successful_sync_at = _utcnow()
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    connection.last_successful_sync_at = utcnow()
 
 
 def _to_cents(amount: float | None) -> int | None:

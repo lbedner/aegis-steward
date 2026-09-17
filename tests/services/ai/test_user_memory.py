@@ -24,6 +24,7 @@ from app.services.ai.domains.chat.user_memory import (
     update_user_fact,
 )
 from app.services.ai.models.agents import AgentUserMemory
+from tests._session import opens
 
 
 @pytest.fixture
@@ -324,15 +325,9 @@ class TestAFactThatChangesIsRewritten:
     async def test_update_rewrites_the_one_fact_it_names(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from contextlib import asynccontextmanager
-
         from app.services.ai.domains.chat import memory_tools, user_memory
 
-        @asynccontextmanager
-        async def test_session():  # noqa: ANN202
-            yield session
-
-        monkeypatch.setattr(user_memory, "get_async_session", test_session)
+        monkeypatch.setattr(user_memory, "get_async_session", opens(session))
         token = user_memory.current_user_id.set("u1")
         try:
             await save_user_fact(
@@ -384,15 +379,10 @@ class TestAMemoryWriteWaitsItsTurn:
         """The lock-upgrade failure is instant and used to end the turn with
         the fact unsaved; now it is retried where it happens."""
         import asyncio
-        from contextlib import asynccontextmanager
 
         from sqlalchemy.exc import OperationalError
 
         from app.services.ai.domains.chat import memory_tools, user_memory
-
-        @asynccontextmanager
-        async def test_session():  # noqa: ANN202
-            yield session
 
         real = user_memory.save_user_fact
         tries = {"n": 0}
@@ -408,7 +398,7 @@ class TestAMemoryWriteWaitsItsTurn:
         async def no_sleep(_s: float) -> None:
             return None
 
-        monkeypatch.setattr(user_memory, "get_async_session", test_session)
+        monkeypatch.setattr(user_memory, "get_async_session", opens(session))
         monkeypatch.setattr(user_memory, "save_user_fact", flaky)
         monkeypatch.setattr(asyncio, "sleep", no_sleep)
         token = user_memory.current_user_id.set("u1")

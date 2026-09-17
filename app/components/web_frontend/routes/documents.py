@@ -11,11 +11,12 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from starlette.responses import Response
 
 from app.components.web_frontend.documents import (
     document_dialog,
+    file_upload,
     filed_under,
     save_document,
 )
@@ -23,6 +24,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     render,
     where_from,
     with_toast,
@@ -103,8 +105,7 @@ async def _filed(db: Any, document_id: int) -> Any:
     from app.services.documents.service import DocumentService
 
     document = await DocumentService(db).get(document_id)
-    if document is None:
-        raise HTTPException(status_code=404)
+    or_404(document)
     return document
 
 
@@ -131,22 +132,9 @@ async def upload(
 ) -> Response:
     """File a document that belongs to nothing yet. Tagging it to a
     matter or an account is done from there."""
-    from app.services.documents.service import DocumentService
 
-    if file is None or not file.filename:
-        raise HTTPException(status_code=400, detail="Pick a file.")
     async with get_async_session() as db:
-        try:
-            document = await DocumentService(db).ingest(
-                await file.read(),
-                title=file.filename,
-                kind=kind,
-                media_type=file.content_type,
-                owner_user_id=owner_user_id,
-                source="upload",
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        document = await file_upload(db, file, owner_user_id=owner_user_id, kind=kind)
         await db.commit()
     return dialog_done(SECTION.path, f"Filed {document.title}")
 

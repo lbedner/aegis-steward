@@ -594,7 +594,7 @@ async def _split_dialog(
 ) -> Response:
     categories = (await list_category_options(service=service)).items
     blank = {"amount": "", "category_id": None, "memo": ""}
-    rows = parts or [blank, blank, blank]
+    rows = parts or [blank, blank]  # the page adds more; the last is the rest
     return templates.TemplateResponse(
         request=request,
         name="partials/transactions/split.html",

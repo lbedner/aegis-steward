@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
 from app.core.encryption import decrypt_secret, encrypt_secret
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections.common import (
@@ -29,7 +30,6 @@ from app.services.finance.adapters.providers.connections.common import (
     SyncResult,
     _recompute_net_worth,
     _to_cents,
-    _utcnow,
     get_connection,
     list_plaid_connections,
     mark_healthy,
@@ -202,7 +202,7 @@ async def _upsert_accounts(
         account.mask = mask
         account.current_balance = _to_cents(balances.get("current"))
         account.available_balance = _to_cents(balances.get("available"))
-        account.balance_as_of = _utcnow()
+        account.balance_as_of = utcnow()
         account.deleted_at = None
         db.add(account)
         await db.flush()
@@ -346,7 +346,7 @@ async def _apply_transactions(
 
     # Pending -> posted: link the posted row to its pre-auth via the self-FK
     # and tombstone the pre-auth so exactly one row stays visible.
-    now = _utcnow()
+    now = utcnow()
     for account_id, plaid_pending_id, posted in collapse:
         pending_row = lane1.get((account_id, plaid_pending_id))
         if (
@@ -435,7 +435,7 @@ async def _apply_liabilities(
             for apr in entry.get("aprs") or []
         ]
         detail.raw = entry
-        detail.updated_at = _utcnow()
+        detail.updated_at = utcnow()
         db.add(detail)
         written += 1
     await db.flush()
@@ -454,7 +454,7 @@ async def _remove_transactions(
     the account the removed[] entry names when Plaid provides it.
     """
     count = 0
-    now = _utcnow()
+    now = utcnow()
     for item in removed:
         conditions = [
             FinanceTransaction.source == Provider.PLAID,
@@ -637,7 +637,7 @@ async def _apply_holdings(
             owner_user_id=owner_user_id,
             account_id=account_id,
             security_id=security_id,
-            as_of_date=date.fromisoformat(as_of) if as_of else _utcnow().date(),
+            as_of_date=date.fromisoformat(as_of) if as_of else utcnow().date(),
             quantity_e8=round((holding.get("quantity") or 0) * 10**8),
             price=round(price * 100) if price is not None else None,
             cost_basis=round(cost * 100) if cost is not None else None,
@@ -698,7 +698,7 @@ async def sync_plaid_connection(
     inv_txns: list[dict[str, Any]] = []
     inv_securities: list[dict[str, Any]] = []
     try:
-        end = _utcnow().date()
+        end = utcnow().date()
         start = end - timedelta(days=_INVESTMENT_LOOKBACK_DAYS)
         offset = 0
         while True:
@@ -726,7 +726,7 @@ async def sync_plaid_connection(
         )
 
     cursor = connection.sync_cursor
-    connection.last_sync_attempt_at = _utcnow()
+    connection.last_sync_attempt_at = utcnow()
     # Collect every page first so within-day ordinals span the full set (they
     # must be stable for the LANE-2 re-link dedup to line up).
     collected: list[dict[str, Any]] = []
@@ -752,7 +752,7 @@ async def sync_plaid_connection(
         sync_cursor_before=cursor_before,
         status="processing",
         rows_total=len(collected) + len(removed),
-        started_at=_utcnow(),
+        started_at=utcnow(),
     )
     db.add(batch)
     await db.flush()
@@ -773,7 +773,7 @@ async def sync_plaid_connection(
     batch.rows_inserted = result.added
     batch.rows_updated = result.updated
     batch.status = "committed"
-    batch.finished_at = _utcnow()
+    batch.finished_at = utcnow()
     db.add(batch)
 
     # Liability detail (credit APR/statement/min-payment) — capability-gated
@@ -926,12 +926,12 @@ async def process_plaid_webhook(
             return "ignored"
         db.add(connection)
         event.status = "processed"
-        event.processed_at = _utcnow()
+        event.processed_at = utcnow()
         return "processed"
 
     result = await sync_plaid_connection(db, connection, client=client or PlaidClient())
     event.status = "processed"
-    event.processed_at = _utcnow()
+    event.processed_at = utcnow()
     await _recompute_net_worth(db, connection.owner_user_id, [result])
     return "synced"
 

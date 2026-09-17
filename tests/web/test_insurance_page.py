@@ -6,12 +6,15 @@ a table with what is owed to providers totalled, and the two forms that
 add to it - both on the page you are already looking at.
 """
 
+from datetime import date
+
 from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.matters.words import WORDS
 from tests._pdf import pdf_bytes
+from tests._session import opens
 from tests.web.dom import none, one, select, text
 from tests.web.test_contacts import _contact
 
@@ -127,6 +130,7 @@ class TestAClaimOnThePage:
         assert one(row, f'a[data-contact="{dentist}"]') is not None
         door = one(row, "[data-open]")
         assert door.get("hx-get").startswith(f"/contacts/{insurer}/documents/")
+        assert "ClaimStatement" not in text(door)
         assert text(one(card, "[data-owes]")) == "$146.00"
         # And the EOB is on the insurer's paper.
         page = client.get(f"/contacts/{insurer}").text
@@ -153,17 +157,11 @@ class TestIllianaSeesPolicyIds:
     async def test_the_parties_tool_hands_back_policy_ids(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from contextlib import asynccontextmanager
-
         from app.services.insurance.service import InsuranceService
         from app.services.matters import ai_tools
         from app.services.matters.service import PartyService
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+        monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
         insurer = await PartyService(async_db_session).create(
             name="Tool Dental", kind="organization"
         )
@@ -180,3 +178,54 @@ class TestIllianaSeesPolicyIds:
         assert told[insurer.id]["policy_ids"] == [policy.id]
         assert told[person.id]["covered_by_policy_ids"] == [policy.id]
         assert WORDS["policies"]
+
+
+class TestMarkingAClaimPaid:
+    @pytest.mark.asyncio
+    async def test_the_row_offers_the_charges_and_the_total_drops(
+        self, client: TestClient
+    ) -> None:
+        from app.services.finance.service import FinanceService
+        from tests.services._finance_factories import seed_account, seed_txn
+
+        insurer = _contact(client, "Paid Dental", "organization")
+        marisa = _contact(client, "Paid Marisa", "person")
+        policy = _policy(client, insurer, [marisa])
+        client.post(
+            f"/contacts/{insurer}/policies/{policy}/claims/new",
+            data={
+                "covered_party_id": str(marisa),
+                "service_on": "2026-08-12",
+                "patient_owes": "146.00",
+            },
+        )
+        # The page reads the app's own session, not the test's transaction,
+        # so the charge is seeded where the page will look.
+        from app.core.db import get_async_session
+
+        async with get_async_session() as db:
+            finance = FinanceService(db)
+            amex = await seed_account(finance, name="AMEX Paid Testcase")
+            charge = await seed_txn(
+                finance, int(amex.id), -14600, date(2026, 8, 12), name="Endodontics"
+            )
+            await db.commit()
+
+        block = client.get(f"/contacts/{insurer}/policies").text
+        row = one(block, f'[data-policy="{policy}"] tbody tr')
+        claim_id = int(row.get("id").split("-")[-1])
+        opener = one(row, "[data-mark-paid]")
+        picker = client.get(opener.get("hx-get")).text
+        chooser = one(picker, 'form[data-paid-form] select[name="transaction_id"]')
+        assert str(charge.id) in [o.get("value") for o in select(chooser, "option")]
+
+        answer = client.post(
+            f"/contacts/{insurer}/policies/{policy}/claims/{claim_id}/paid",
+            data={"transaction_id": str(charge.id)},
+        )
+        assert answer.status_code == 200, answer.text
+        card = one(answer.text, f'[data-policy="{policy}"]')
+        cells = [text(td) for td in select(one(card, "tbody tr"), "td")]
+        assert any("AMEX Paid Testcase" in c for c in cells)
+        assert text(one(card, "[data-owes]")) == "$0.00"
+        none(card, "[data-mark-paid]")

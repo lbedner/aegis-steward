@@ -10,7 +10,7 @@
    reader a figure that had reached the threshold beside a bar that had
    not. The number shown and the number judged are the same number. #}
 <li id="line-{{ line.id }}" class="flex items-start gap-3">
-  <form hx-post="/budget/lines" hx-target="#line-{{ line.id }}" hx-swap="outerHTML" hx-trigger="submit, change" class="flex-1 min-w-0">
+  <form {{ hx_swap("/budget/lines", "#line-" ~ line.id, "post") }} hx-trigger="submit, change" class="flex-1 min-w-0">
     <input type="hidden" name="category_id" value="{{ line.category_id or '' }}">
     <input type="hidden" name="payee_key" value="{{ line.payee_key or '' }}">
     <input type="hidden" name="payee_label" value="{{ line.payee_label or '' }}">
@@ -28,7 +28,7 @@
       <span class="w-28">{{ money_input("allocated_amount", line.allocated_amount|cents_to_input) }}</span>
     </div>
   </form>
-  <button type="button" hx-delete="/budget/lines/{{ line.id }}" hx-target="#line-{{ line.id }}" hx-swap="outerHTML"
+  <button type="button" {{ hx_swap("/budget/lines/" ~ line.id, "#line-" ~ line.id, "delete") }}
           hx-confirm="Remove this limit?" aria-label="Remove limit" class="mt-0.5 text-aegis-muted hover:text-error">×</button>
 </li>
 {% if strip_oob %}{% include "partials/budget/stats.html" %}{% endif %}

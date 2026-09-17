@@ -15,11 +15,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from starlette.responses import Response
 
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog, dialog_done
+from app.components.web_frontend.rendering import dialog, dialog_done, or_404
 from app.components.web_frontend.routes.finance.account_manage import _account
 from app.components.web_frontend.routes.finance.transactions import picker_options
 from app.services.finance.deps import get_finance_service, get_owner_user_id
@@ -179,8 +179,7 @@ async def _from_party(service: FinanceService, party_id: int) -> Any:
     from app.services.matters.service import PartyService
 
     party = await PartyService(service.db).get(party_id)
-    if party is None:
-        raise HTTPException(status_code=404)
+    or_404(party)
     return await institution_for_party(
         service.db,
         party_id,

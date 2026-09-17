@@ -27,6 +27,40 @@ def content_url(document_id: int) -> str:
     return f"{DOCUMENT_API}/{document_id}/content"
 
 
+async def file_upload(
+    db: AsyncSession,
+    file: Any,
+    *,
+    owner_user_id: int | None,
+    tags: tuple[str, ...] = (),
+    kind: str = "other",
+) -> Any:
+    """The one way a form's file lands on the shelf: read, ingested as an
+    upload, tagged where it belongs. No file is a 400 that says so; a
+    file the store refuses is a 400 that says why."""
+    from fastapi import HTTPException
+
+    from app.services.documents.service import DocumentService
+
+    if file is None or not file.filename:
+        raise HTTPException(status_code=400, detail="Pick a file.")
+    documents = DocumentService(db)
+    try:
+        document = await documents.ingest(
+            await file.read(),
+            title=file.filename,
+            kind=kind,
+            media_type=file.content_type,
+            owner_user_id=owner_user_id,
+            source="upload",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    for tag in tags:
+        await documents.tag(int(document.id), tag)
+    return document
+
+
 async def document_dialog(
     request: Request,
     db: AsyncSession,

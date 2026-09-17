@@ -17,11 +17,11 @@ from sqlalchemy import (
 )
 from sqlmodel import Field, SQLModel
 
+from app.core.clock import utcnow
 from app.services.finance.models.base import (
     _FK,
     _SCHEMA,
     _bigint,
-    _utcnow,
 )
 
 # ---------------------------------------------------------------------------
@@ -124,8 +124,8 @@ class FinanceAccount(SQLModel, table=True):
     metadata_: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("metadata", JSON)
     )
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceLiabilityDetail(SQLModel, table=True):
@@ -178,8 +178,8 @@ class FinanceLiabilityDetail(SQLModel, table=True):
         default="usd", foreign_key=f"{_FK}finance_currency.code", max_length=16
     )
     raw: dict[str, Any] = Field(default_factory=dict, sa_column=Column("raw", JSON))
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class FinanceBalanceSnapshot(SQLModel, table=True):
@@ -306,5 +306,5 @@ class FinanceValuation(SQLModel, table=True):
     # The run that brought this row, when one did (migration 012).
     # Null is a real answer: a position typed by hand arrived from nobody.
     import_batch_id: int | None = Field(default=None)
-    created_at: datetime = Field(default_factory=_utcnow)
-    updated_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)

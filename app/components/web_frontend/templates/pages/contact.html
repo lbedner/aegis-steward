@@ -49,7 +49,7 @@
 
   {% if place %}
   {% call card(word("signins")) %}
-  <div hx-get="{{ path }}/{{ party.id }}/signins" hx-trigger="load" hx-swap="outerHTML"></div>
+  <div {{ hx_lazy(path ~ "/" ~ party.id ~ "/signins") }}></div>
   {% endcall %}
   {% endif %}
 
@@ -57,7 +57,7 @@
      its numbers and terms, and its claims say what is owed to
      providers - money no bill stream will ever show. #}
   {% call card(word("policies") if place else word("covered_by"), id="contact-policies") %}
-  <div hx-get="{{ path }}/{{ party.id }}/policies" hx-trigger="load" hx-swap="outerHTML"></div>
+  <div {{ hx_lazy(path ~ "/" ~ party.id ~ "/policies") }}></div>
   {% endcall %}
 
   {% call card(word("held_here") if place else word("their_money")) %}

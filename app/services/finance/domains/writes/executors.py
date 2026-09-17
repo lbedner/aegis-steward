@@ -205,3 +205,12 @@ register(
         describe=insurance.claim_record_describe,
     )
 )
+register(
+    ChangeExecutor(
+        change_type="claim.paid",
+        title="Match a charge to a claim",
+        payload_model=insurance.ClaimPaidPayload,
+        execute=insurance.claim_paid_execute,
+        describe=insurance.claim_paid_describe,
+    )
+)
