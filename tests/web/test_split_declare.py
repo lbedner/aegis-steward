@@ -20,8 +20,11 @@ class TestSplit:
         dialog = hx.get(f"/transactions/{market}/split").text
         form = one(dialog, "form")
         assert form.get("hx-post") == f"/transactions/{market}/split"
-        assert len(select(form, 'input[name="amount"]')) >= 2
-        assert len(select(form, 'select[name="category_id"]')) >= 2
+        # Two lines to start, and the page knows the total so the last
+        # line can show what is left as the others are typed.
+        assert int(form.get("data-total")) > 0
+        assert len(select(form, "[data-lines] [data-line]")) == 2
+        one(form, "template [data-line]")
 
         response = client.post(
             f"/transactions/{market}/split",
