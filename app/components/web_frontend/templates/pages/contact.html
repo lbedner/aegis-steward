@@ -40,6 +40,12 @@
       </dd>
     </div>
     {% endfor %}
+    {% for label, value in lines %}
+    <div class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm" data-line>
+      <dt class="text-aegis-muted shrink-0">{{ label }}</dt>
+      <dd class="text-aegis-text min-w-0 truncate text-right">{{ value }}</dd>
+    </div>
+    {% endfor %}
   </dl>
   {% else %}
   <p class="text-sm text-aegis-muted" data-empty>No address, phone or site yet.</p>

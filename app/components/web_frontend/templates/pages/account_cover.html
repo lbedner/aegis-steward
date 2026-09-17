@@ -41,6 +41,7 @@
           {% if who.contact.email %}<li data-email>{{ who.contact.email }}</li>{% endif %}
           {% if who.contact.address %}<li data-address>{{ who.contact.address }}</li>{% endif %}
           {% if who.routing %}<li data-routing>Routing {{ who.routing }}</li>{% endif %}
+          {% for label, value in who.lines %}<li data-line>{{ label }} {{ value }}</li>{% endfor %}
           {#- The way in, named but never opened here: the password is
               one deliberate click away, on the party. -#}
           {% for signin in who.signins %}

@@ -139,6 +139,7 @@ async def who_and_where(
     Nothing at all when the account has neither: an empty card on every
     ordinary account teaches people to skip the space it sits in.
     """
+    from app.services.matters.reach import CONTACT_LINES, reach_lines
     from app.services.matters.service import PartyService
     from app.services.matters.signins import SignInService, drawn
 
@@ -179,8 +180,13 @@ async def who_and_where(
                 "party_id": party.id,
                 "name": party.name,
                 "contact": {
-                    key: value for key, value in (party.contact or {}).items() if value
+                    key: value
+                    for key, value in (party.contact or {}).items()
+                    if value and key != CONTACT_LINES
                 },
+                # Everything else they print, labelled: read the same
+                # way here as on the contact's own page.
+                "lines": reach_lines(party.contact),
                 # The way IN, named but never opened here: the password
                 # lives one deliberate click away, on the party.
                 "signins": [drawn(one) for one in rows],

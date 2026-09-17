@@ -4,7 +4,7 @@
    files ("Bedner, James") and the guess has to be visible to be
    overruled. A rename does not refile - correcting a display name is
    not a statement about where the row belongs. #}
-{% from "components/macros/form.html" import field, text_input, select, textarea, primary_button, action, control %}
+{% from "components/macros/form.html" import field, text_input, select, textarea, primary_button, action, control, line_rows %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {% call dialog_title(party.name if party else "Add someone") %}
@@ -24,6 +24,12 @@
   {% for key, label in contact_fields %}
   {% call field(label) %}{{ text_input(key, (party.contact or {}).get(key, "") if party else "") }}{% endcall %}
   {% endfor %}
+  {# Everything else they print - a Spanish line, a number from abroad,
+     a claims fax - labelled, because a number nobody labelled is a
+     number whose meaning is lost. #}
+  {% call field("Anything else they print") %}
+  {{ line_rows("line_label", "line_value", lines, label_hint="Español", value_hint="1-877-312-4273") }}
+  {% endcall %}
   {% call field("Note") %}{{ textarea("note", party.note if party else note, rows=3) }}{% endcall %}
   <div class="flex items-center gap-3">
     {{ primary_button("Save", type="submit") }}
