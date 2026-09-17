@@ -32,9 +32,7 @@ def upgrade() -> None:
     op.add_column(
         "finance_institution", sa.Column("party_id", sa.Integer(), nullable=True)
     )
-    op.create_index(
-        "ix_finance_institution_party", "finance_institution", ["party_id"]
-    )
+    op.create_index("ix_finance_institution_party", "finance_institution", ["party_id"])
 
 
 def downgrade() -> None:
