@@ -160,3 +160,12 @@ register(
         describe=matters.attach_ask_describe,
     )
 )
+register(
+    ChangeExecutor(
+        change_type="contact.create",
+        title="Add a person or an organization",
+        payload_model=matters.CreateContactPayload,
+        execute=matters.create_contact_execute,
+        describe=matters.create_contact_describe,
+    )
+)

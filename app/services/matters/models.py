@@ -30,6 +30,20 @@ from sqlmodel import Field, SQLModel
 
 PARTY_KINDS = ("person", "organization")
 
+# How to reach a party: the keys the ``contact`` JSON may carry, with
+# their labels. Declared here so the form, the list and Illiana's
+# contact.create all write the same shape. A county office has a fax
+# and a person a mobile, so the column stays JSON; the FORM does not.
+CONTACT_FIELDS = (
+    ("address", "Address"),
+    ("phone", "Phone"),
+    ("email", "Email"),
+    # The website is what makes an organization a PLACE: a pension fund
+    # is somewhere you log in, and a fact read off its portal wants to
+    # point at the org rather than repeat the address every time.
+    ("website", "Website"),
+)
+
 
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)

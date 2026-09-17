@@ -302,3 +302,44 @@ class TestThePaperThatAnswersAnAsk:
                 AttachAskPayload(item_id=item.id, document_id=999999),
                 None,
             )
+
+
+class TestANewContact:
+    @pytest.mark.asyncio
+    async def test_a_person_is_created_with_how_to_reach_them(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.changes import (
+            CreateContactPayload,
+            create_contact_describe,
+            create_contact_execute,
+        )
+        from app.services.matters.service import PartyService
+
+        payload = CreateContactPayload(
+            name="Spouse Testcase",
+            address="3 Somewhere Cir, Poughkeepsie, NY 12601",
+            note="Wife of the subject",
+        )
+        said = {
+            r.label: r.value
+            for r in await create_contact_describe(async_db_session, payload, None)
+        }
+        assert said["Contact"] == "Spouse Testcase"
+        assert said["Address"].startswith("3 Somewhere")
+        assert "Phone" not in said
+
+        made = await create_contact_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+        party = await PartyService(async_db_session).get(made["party_id"])
+        assert party.kind == "person"
+        assert party.contact == {"address": "3 Somewhere Cir, Poughkeepsie, NY 12601"}
+        assert party.note == "Wife of the subject"
+
+    def test_a_kind_nobody_defined_is_refused(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.changes import CreateContactPayload
+
+        with pytest.raises(ValidationError):
+            CreateContactPayload(name="X", kind="agency")

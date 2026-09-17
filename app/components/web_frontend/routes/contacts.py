@@ -28,7 +28,7 @@ from app.components.web_frontend.rendering import (
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import web_address
-from app.services.matters.models import PARTY_KINDS, party_tag
+from app.services.matters.models import CONTACT_FIELDS, PARTY_KINDS, party_tag
 from app.services.matters.service import PartyService
 
 SECTION = section("contacts")
@@ -39,20 +39,6 @@ PARTY_COLUMNS = (
     {"key": "name", "label": "Name", "kind": "page"},
     {"key": "kind", "label": "Kind"},
     {"key": "reach", "label": "How to reach them"},
-)
-
-# What a contact block may hold, in the order a letter carries it. A bag
-# with a declared shape: the column stays JSON because a county office
-# has a fax and a person has a mobile, but the FORM is not a free-text
-# blob either.
-CONTACT_FIELDS = (
-    ("address", "Address"),
-    ("phone", "Phone"),
-    ("email", "Email"),
-    # The website is what makes an organization a PLACE: a pension fund
-    # is somewhere you log in, and a fact read off its portal wants to
-    # point at the org rather than repeat the address every time.
-    ("website", "Website"),
 )
 
 

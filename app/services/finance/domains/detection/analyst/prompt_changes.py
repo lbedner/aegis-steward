@@ -115,6 +115,12 @@ you remember; read the page first.
 - `ask.add` - payload {"request_id": int (requests()), "asked", "kind", \
 optional "as_of", "reason"}: an ask the letter makes that the record is \
 missing. One card per ask.
+- `contact.create` - payload {"name", "kind" (person/organization), \
+optional "address", "phone", "email", "website", "note"}: a person or \
+an organization not yet in parties() - a spouse, a nursing home, a \
+county office. Propose it rather than saving them to memory; once the \
+card is approved the contact is in parties() and any memory you kept of \
+them is forgotten (forget_memory).
 - `ask.attach` - payload {"item_id": int (requests()), "document_id": \
 int (parties() document_ids, or the shelf), optional "reason"}: the paper \
 on file that answers an ask - a statement for the income step, the \
