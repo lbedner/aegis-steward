@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import file_upload
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done, where_from
 from app.core.db import get_async_session
@@ -251,24 +252,20 @@ async def set_letter(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """Cite the letter: pick one already filed, or add it now."""
-    from app.services.documents.service import DocumentService
 
     async with get_async_session() as db:
         service = RequestService(db)
         found = await service.get(request_id)
         if found is None:
             raise HTTPException(status_code=404)
-        documents = DocumentService(db)
         if file is not None and file.filename:
-            document = await documents.ingest(
-                await file.read(),
-                title=file.filename,
-                kind="letter",
-                media_type=file.content_type,
+            document = await file_upload(
+                db,
+                file,
                 owner_user_id=owner_user_id,
-                source="upload",
+                tags=(matter_tag(found.matter_id),),
+                kind="letter",
             )
-            await documents.tag(document.id, matter_tag(found.matter_id))
             chosen = document.id
         elif document_id:
             chosen = int(document_id)

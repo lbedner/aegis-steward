@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
-from app.components.web_frontend.documents import papers_on
+from app.components.web_frontend.documents import file_upload, papers_on
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done
 from app.components.web_frontend.routes.requests import ACCEPTS
@@ -64,24 +64,12 @@ async def add_paper(
     Which ask it satisfies is a separate act, made from the item - and
     often not known at the moment somebody finds the paper.
     """
-    from app.services.documents.service import DocumentService
 
     async with get_async_session() as db:
         if await MatterService(db).get(matter_id) is None:
             raise HTTPException(status_code=404)
-        if file is None or not file.filename:
-            raise HTTPException(status_code=400, detail="Pick a file.")
-        documents = DocumentService(db)
-        try:
-            document = await documents.ingest(
-                await file.read(),
-                title=file.filename,
-                media_type=file.content_type,
-                owner_user_id=owner_user_id,
-                source="upload",
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        await documents.tag(document.id, matter_tag(matter_id))
+        document = await file_upload(
+            db, file, owner_user_id=owner_user_id, tags=(matter_tag(matter_id),)
+        )
         await db.commit()
     return dialog_done(f"{SECTION.path}/{matter_id}", f"Filed {document.title}")

@@ -14,7 +14,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from starlette.responses import Response
 
-from app.components.web_frontend.documents import document_dialog, save_document
+from app.components.web_frontend.documents import (
+    document_dialog,
+    file_upload,
+    save_document,
+)
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done, where_from
 from app.components.web_frontend.routes.requests import (
@@ -166,17 +170,7 @@ async def attach(
             raise HTTPException(status_code=404)
         documents = DocumentService(db)
         if file is not None and file.filename:
-            data = await file.read()
-            try:
-                document = await documents.ingest(
-                    data,
-                    title=file.filename,
-                    media_type=file.content_type,
-                    owner_user_id=owner_user_id,
-                    source="upload",
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            document = await file_upload(db, file, owner_user_id=owner_user_id)
         elif document_id:
             document = await documents.get(int(document_id))
             if document is None:

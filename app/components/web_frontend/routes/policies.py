@@ -17,6 +17,7 @@ from markupsafe import Markup
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import file_upload
 from app.components.web_frontend.filters import money_to_cents
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog
@@ -360,7 +361,6 @@ async def record_claim(
 ) -> Response:
     """The EOB is filed with the insurer as it is recorded: the claim
     says what it settled, the tag is how the paper stays findable."""
-    from app.services.documents.service import DocumentService
 
     form = {
         "policy_id": policy_id,
@@ -398,15 +398,9 @@ async def record_claim(
             )
         document_id = None
         if file is not None and file.filename:
-            documents = DocumentService(db)
-            document = await documents.ingest(
-                await file.read(),
-                title=file.filename,
-                media_type=file.content_type,
-                owner_user_id=owner_user_id,
-                source="upload",
+            document = await file_upload(
+                db, file, owner_user_id=owner_user_id, tags=(party_tag(party_id),)
             )
-            await documents.tag(int(document.id), party_tag(party_id))
             document_id = int(document.id)
         try:
             await InsuranceService(db).record_claim(
