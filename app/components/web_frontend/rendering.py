@@ -158,6 +158,30 @@ def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
 
 
 templates.env.globals["hx_replace"] = hx_replace
+
+
+def hx_swap(url: str, target: str, verb: str = "get") -> Markup:
+    """The attributes for "this block answers with itself" (pattern 2 on
+    a block): a verb on ``url`` whose response is the whole ``target``,
+    swapped in place. Sign-ins, policies, the budget's suggestions - a
+    block every verb re-renders. No pushed URL and no select: the
+    response IS the block."""
+    return Markup(
+        f'hx-{verb}="{escape(url)}" hx-target="{escape(target)}" hx-swap="outerHTML"'
+    )
+
+
+templates.env.globals["hx_swap"] = hx_swap
+
+
+def hx_lazy(url: str) -> Markup:
+    """The attributes for a card that fetches its body once the page is
+    up: a placeholder that asks for ``url`` on load and is replaced by
+    the answer."""
+    return Markup(f'hx-get="{escape(url)}" hx-trigger="load" hx-swap="outerHTML"')
+
+
+templates.env.globals["hx_lazy"] = hx_lazy
 templates.env.globals["hx_page"] = hx_page
 templates.env.globals["hx_filter"] = hx_filter
 templates.env.globals["hx_dialog"] = hx_dialog

@@ -20,7 +20,7 @@ from starlette.responses import Response
 from app.components.web_frontend.documents import file_upload
 from app.components.web_frontend.filters import money_to_cents, parse_date
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog, or_404
+from app.components.web_frontend.rendering import dialog, hx_swap, or_404
 from app.core.db import get_async_session
 from app.core.formatting import iso_date, payee_label
 from app.services.finance.deps import get_owner_user_id
@@ -126,11 +126,11 @@ async def _drawn(
                 if c.paid_transaction_id or not owner
                 else {
                     "label": "Mark paid",
-                    "hx": Markup(
-                        f'hx-get="{SECTION.path}/{party_id}/policies/{policy.id}'
-                        f'/claims/{c.id}/paid" hx-target="#policies" '
-                        'hx-swap="outerHTML" data-mark-paid'
-                    ),
+                    "hx": hx_swap(
+                        f"{SECTION.path}/{party_id}/policies/{policy.id}/claims/{c.id}/paid",
+                        "#policies",
+                    )
+                    + Markup(" data-mark-paid"),
                 },
                 "who": {
                     "id": c.covered_party_id,

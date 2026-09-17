@@ -31,10 +31,10 @@
       </div>
       <div class="shrink-0 flex items-center gap-2">
         {% if signin.has_secret %}
-        {{ action("Show", 'hx-post="/contacts/signins/' ~ signin.id ~ '/reveal" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+        {{ action("Show", hx_swap("/contacts/signins/" ~ signin.id ~ "/reveal", "#sign-ins", "post")) }}
         {% endif %}
-        {{ action("Edit", 'hx-get="/contacts/signins/' ~ signin.id ~ '/edit" hx-target="#sign-ins" hx-swap="outerHTML"') }}
-        {{ action("Remove", 'hx-delete="/contacts/signins/' ~ signin.id ~ '" hx-target="#sign-ins" hx-swap="outerHTML" hx-confirm="Remove ' ~ signin.label ~ '?"', tone="danger") }}
+        {{ action("Edit", hx_swap("/contacts/signins/" ~ signin.id ~ "/edit", "#sign-ins")) }}
+        {{ action("Remove", hx_swap("/contacts/signins/" ~ signin.id, "#sign-ins", "delete") ~ ' hx-confirm="Remove ' ~ signin.label ~ '?"', tone="danger") }}
       </div>
     </li>
     {% endfor %}
@@ -75,11 +75,11 @@
     {% endcall %}
     {% call field("Note") %}{{ text_input("note", form.note) }}{% endcall %}
     <div class="flex items-center gap-3">
-      {{ primary_button("Save", attrs='hx-post="' ~ post ~ '" hx-include="closest [data-signin-form]" hx-target="#sign-ins" hx-swap="outerHTML"') }}
-      {{ action("Cancel", 'hx-get="/contacts/' ~ party_id ~ '/signins" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+      {{ primary_button("Save", attrs=hx_swap(post, "#sign-ins", "post") ~ ' hx-include="closest [data-signin-form]"') }}
+      {{ action("Cancel", hx_swap("/contacts/" ~ party_id ~ "/signins", "#sign-ins")) }}
     </div>
   </div>
   {% else %}
-  {{ action("Add a sign-in", 'hx-get="/contacts/' ~ party_id ~ '/signins/new" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+  {{ action("Add a sign-in", hx_swap("/contacts/" ~ party_id ~ "/signins/new", "#sign-ins")) }}
   {% endif %}
 </div>
