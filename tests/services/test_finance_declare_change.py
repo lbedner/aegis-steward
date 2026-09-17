@@ -113,3 +113,43 @@ async def test_the_account_and_category_ride_the_card_and_the_stream(
     await async_db_session.commit()
     stream = await svc.get_recurring(result["stream_id"], None)
     assert (stream.account_id, stream.category_id) == (account.id, category.id)
+
+
+async def test_a_declared_stream_can_be_sent_to_its_account_later(
+    async_db_session: AsyncSession,
+) -> None:
+    """ "Can you make it go into the chase checking account" had no
+    change type: the stream stood without an account and Illiana kept a
+    memory instead. recurring.amend sets what is given, nothing else."""
+    from app.services.finance.domains.writes.structure import (
+        AmendPayload,
+        amend_describe,
+        amend_execute,
+    )
+    from tests.services._finance_factories import seed_account
+
+    finance = FinanceService(async_db_session)
+    checking = await seed_account(finance, name="TOTAL CHECKING")
+    made = await declare_execute(
+        async_db_session,
+        DeclarePayload(
+            name="Marisa side work",
+            direction="inflow",
+            frequency="weekly",
+            amount_cents=9000,
+            next_expected_date=date(2026, 9, 22),
+        ),
+        None,
+    )
+    payload = AmendPayload(stream_id=made["stream_id"], account_id=int(checking.id))
+
+    said = {
+        r.label: r.value for r in await amend_describe(async_db_session, payload, None)
+    }
+    assert said == {"Stream": "Marisa side work", "Account": "TOTAL CHECKING"}
+
+    await amend_execute(async_db_session, payload, None)
+    await async_db_session.commit()
+    stream = await finance.get_recurring(made["stream_id"], None)
+    assert stream.account_id == checking.id
+    assert (stream.frequency, stream.expected_amount) == ("weekly", 9000)

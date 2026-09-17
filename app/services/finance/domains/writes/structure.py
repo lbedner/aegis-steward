@@ -239,20 +239,107 @@ async def declare_describe(
             label="Starting", value=payload.next_expected_date.isoformat()
         ),
     ]
-    if payload.account_id is not None:
-        from app.services.finance.domains.ledger.queries.accounts import account_by_id
+    rows.extend(
+        await _named_places(db, payload.account_id, payload.category_id, owner_user_id)
+    )
+    return rows
 
-        account = await account_by_id(
-            db, payload.account_id, owner_user_id=owner_user_id
-        )
+
+async def _named_places(
+    db: AsyncSession,
+    account_id: int | None,
+    category_id: int | None,
+    owner_user_id: int | None,
+) -> list[ChangeDisplayRow]:
+    """The account and category rows a stream card shows, by name."""
+    from app.services.finance.domains.ledger.queries.accounts import account_by_id
+    from app.services.finance.models import FinanceCategory
+
+    rows: list[ChangeDisplayRow] = []
+    if account_id is not None:
+        account = await account_by_id(db, account_id, owner_user_id=owner_user_id)
         rows.append(
             ChangeDisplayRow(label="Account", value=account.name if account else "-")
         )
-    if payload.category_id is not None:
-        from app.services.finance.models import FinanceCategory
-
-        category = await db.get(FinanceCategory, payload.category_id)
+    if category_id is not None:
+        category = await db.get(FinanceCategory, category_id)
         rows.append(
             ChangeDisplayRow(label="Category", value=category.name if category else "-")
         )
+    return rows
+
+
+class AmendPayload(BaseModel):
+    """A declared stream's facts, corrected: where it lands, what it
+    counts as, its rhythm, its amount. Only what is given changes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stream_id: int
+    name: str | None = Field(default=None, max_length=120)
+    frequency: str | None = None
+    amount_cents: int | None = Field(default=None, gt=0)
+    next_expected_date: date | None = None
+    account_id: int | None = None
+    category_id: int | None = None
+
+    @field_validator("frequency")
+    @classmethod
+    def _known_frequency(cls, value: str | None) -> str | None:
+        from app.services.finance.constants import BILL_FREQUENCY_OPTIONS
+
+        if value is not None and value not in BILL_FREQUENCY_OPTIONS:
+            raise ValueError(
+                f"frequency must be one of {', '.join(BILL_FREQUENCY_OPTIONS)}"
+            )
+        return value
+
+
+async def amend_execute(
+    db: AsyncSession, payload: AmendPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.finance.domains.planning.recurring import streams
+
+    stream = await streams.update_recurring(
+        db,
+        payload.stream_id,
+        owner_user_id=owner_user_id,
+        name=payload.name,
+        frequency=payload.frequency,
+        expected_amount=payload.amount_cents,
+        next_expected_date=payload.next_expected_date,
+        category_id=payload.category_id,
+        account_id=payload.account_id,
+    )
+    if stream is None:
+        raise ValueError(f"No stream with id {payload.stream_id}")
+    await db.flush()
+    return {"stream_id": stream.id, "name": stream.name}
+
+
+async def amend_describe(
+    db: AsyncSession, payload: AmendPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.finance.constants import frequency_label
+    from app.services.finance.domains.planning.recurring import streams
+
+    stream = await streams.get_recurring(db, payload.stream_id, owner_user_id)
+    rows = [ChangeDisplayRow(label="Stream", value=stream.name if stream else "-")]
+    if payload.name:
+        rows.append(ChangeDisplayRow(label="Rename to", value=payload.name))
+    if payload.frequency:
+        rows.append(
+            ChangeDisplayRow(label="Every", value=frequency_label(payload.frequency))
+        )
+    if payload.amount_cents is not None:
+        rows.append(
+            ChangeDisplayRow(label="Amount", value=format_usd(payload.amount_cents))
+        )
+    if payload.next_expected_date:
+        rows.append(
+            ChangeDisplayRow(label="Next", value=payload.next_expected_date.isoformat())
+        )
+    rows.extend(
+        await _named_places(db, payload.account_id, payload.category_id, owner_user_id)
+    )
     return rows

@@ -8,7 +8,13 @@ debt costs); importing this module arms the whole surface.
 
 from __future__ import annotations
 
-from app.services.finance.domains.writes import accounts, curation, structure, terms
+from app.services.finance.domains.writes import (
+    accounts,
+    curation,
+    filing,
+    structure,
+    terms,
+)
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
 from app.services.matters import changes as matters
 
@@ -60,10 +66,10 @@ register(
 register(
     ChangeExecutor(
         change_type="document.file",
-        title="File a document against an account",
-        payload_model=terms.FileDocumentPayload,
-        execute=terms.file_document_execute,
-        describe=terms.file_document_describe,
+        title="File a document where it belongs",
+        payload_model=filing.FileDocumentPayload,
+        execute=filing.file_document_execute,
+        describe=filing.file_document_describe,
     )
 )
 register(
@@ -167,5 +173,14 @@ register(
         payload_model=matters.CreateContactPayload,
         execute=matters.create_contact_execute,
         describe=matters.create_contact_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="recurring.amend",
+        title="Correct a bill or an income",
+        payload_model=structure.AmendPayload,
+        execute=structure.amend_execute,
+        describe=structure.amend_describe,
     )
 )
