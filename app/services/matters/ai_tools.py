@@ -47,17 +47,21 @@ async def parties() -> dict[str, Any]:
     """The people and organizations the app knows about.
 
     Returns a dict with key 'parties': a list of entries carrying 'id',
-    'name', 'kind' ("person" or "organization"), 'sort_name', 'contact'
-    and 'document_ids' - the paper filed against them (a pension fund's
-    statements, an agency's letters), each readable with `paper`. The
+    'name', 'kind' ("person" or "organization"), 'sort_name', 'contact',
+    'document_ids' - the paper filed against them (a pension fund's
+    statements, an agency's letters), each readable with `paper` - and
+    'policy_ids' (what an insurer wrote) / 'covered_by_policy_ids' (what
+    covers a person), each readable with `policies`. The
     ids are what every other matter tool reports and what a proposal's
     payload names - a party cannot be addressed by name.
     """
     from app.services.documents.queries import document_ids_by_tag_prefix
+    from app.services.insurance.service import InsuranceService
 
     async with get_async_session() as db:
         found = await PartyService(db).find()
         paper = await document_ids_by_tag_prefix(db, PARTY_TAG_PREFIX)
+        policies = await InsuranceService(db).policies_covering_any()
     return {
         "parties": [
             {
@@ -68,6 +72,13 @@ async def parties() -> dict[str, Any]:
                 "contact": party.contact or {},
                 "note": party.note,
                 "document_ids": paper.get(party_tag(party.id), []),
+                # What they wrote and what covers them: policies() has the rest.
+                "policy_ids": [
+                    p.id for p in policies if p.insurer_party_id == party.id
+                ],
+                "covered_by_policy_ids": [
+                    p.id for p in policies if party.id in (p.covered_party_ids or [])
+                ],
             }
             for party in found
         ]
