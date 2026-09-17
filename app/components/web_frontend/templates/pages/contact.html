@@ -53,6 +53,13 @@
   {% endcall %}
   {% endif %}
 
+  {# What they wrote, or what covers them: a policy is a record with
+     its numbers and terms, and its claims say what is owed to
+     providers - money no bill stream will ever show. #}
+  {% call card(word("policies") if place else word("covered_by"), id="contact-policies") %}
+  <div hx-get="{{ path }}/{{ party.id }}/policies" hx-trigger="load" hx-swap="outerHTML"></div>
+  {% endcall %}
+
   {% call card(word("held_here") if place else word("their_money")) %}
   {% if held %}
   <ul class="border-t border-aegis-border/60" data-held>

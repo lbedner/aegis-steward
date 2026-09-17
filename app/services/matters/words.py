@@ -90,6 +90,10 @@ WORDS: dict[str, str] = {
     "their_paper": "Their paper",
     "their_paper_is": "Statements, notices and letters that are theirs, filed here whatever matter later needs them",
     "signins": "Sign-ins",
+    "policies": "Policies",
+    "covered_by": "Covered by",
+    "add_policy": "Add a policy",
+    "record_claim": "Record a claim",
     "edit_contact": "Edit",
 }
 
