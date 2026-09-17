@@ -235,6 +235,37 @@ class TestProposeApproveReject:
         assert row.result.get("error")
 
     @pytest.mark.asyncio
+    async def test_a_failure_at_flush_is_recorded_too(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """A foreign key that fails at FLUSH poisons the session; the
+        error still has to land on the row, and the session has to be
+        usable afterwards. 2026-09-16: a premium declared against a
+        contact id where a subject id belonged died as a 500 with no
+        card message, twice."""
+        row = await svc.propose_change(
+            "recurring.declare",
+            {
+                "name": "Delta Dental premium",
+                "direction": "outflow",
+                "frequency": "monthly",
+                "amount_cents": 11626,
+                "next_expected_date": "2026-10-01",
+                "account_id": 999_999,
+            },
+            owner_user_id=1,
+        )
+
+        with pytest.raises(Exception):
+            await svc.approve_change(row.id, owner_user_id=1)
+
+        await async_db_session.refresh(row)
+        assert row.status == "pending"
+        assert "FOREIGN KEY" in row.result["error"]
+        # And the session still works: the next read is not a rollback error.
+        assert (await svc.get_pending_change(row.id, owner_user_id=1)) is not None
+
+    @pytest.mark.asyncio
     async def test_pending_changes_list_newest_first(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:

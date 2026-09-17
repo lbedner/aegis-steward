@@ -174,7 +174,12 @@ class DeclarePayload(BaseModel):
     # Stated ABOUT THE STREAM and stopping there, the way the Bills page
     # sets it: its transactions keep their own categories.
     category_id: int | None = None
-    subject_id: int | None = None
+    # Whose bill or income it is, when not the household's: a CONTACT,
+    # the way account.create takes it. The ledger subject is found or
+    # made from the contact; an agent never sees subject ids, and the
+    # one time it guessed, it sent a contact id and the approval died
+    # on a foreign key.
+    whose_party_id: int | None = None
     is_subscription: bool = False
 
     @field_validator("direction")
@@ -201,6 +206,9 @@ async def declare_execute(
 ) -> dict[str, Any]:
     from app.services.finance.domains.planning.recurring import streams
 
+    subject_id = None
+    if payload.whose_party_id is not None:
+        subject_id = (await _whose(db, payload.whose_party_id, owner_user_id)).id
     stream = await streams.create_recurring_stream(
         db,
         owner_user_id=owner_user_id,
@@ -211,13 +219,26 @@ async def declare_execute(
         next_expected_date=payload.next_expected_date,
         account_id=payload.account_id,
         is_subscription=payload.is_subscription,
-        subject_id=payload.subject_id,
+        subject_id=subject_id,
     )
     if payload.category_id is not None:
         stream.category_id = payload.category_id
         db.add(stream)
     await db.flush()
     return {"stream_id": stream.id, "name": stream.name}
+
+
+async def _whose(db: AsyncSession, party_id: int, owner_user_id: int | None) -> Any:
+    """The ledger subject for a contact, found or made."""
+    from app.services.finance.domains.ledger.subjects import subject_for_party
+    from app.services.matters.service import PartyService
+
+    party = await PartyService(db).get(party_id)
+    if party is None:
+        raise ValueError(f"No contact with id {party_id}")
+    return await subject_for_party(
+        db, party_id, name=party.name, owner_user_id=owner_user_id
+    )
 
 
 async def declare_describe(
@@ -242,6 +263,13 @@ async def declare_describe(
     rows.extend(
         await _named_places(db, payload.account_id, payload.category_id, owner_user_id)
     )
+    if payload.whose_party_id is not None:
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(db).get(payload.whose_party_id)
+        rows.append(
+            ChangeDisplayRow(label="Whose", value=party.name if party else "Unknown")
+        )
     return rows
 
 

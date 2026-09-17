@@ -44,7 +44,9 @@ and later assignments reuse it.
 "frequency": weekly/biweekly/monthly/... (bills()'s vocabulary), \
 "amount_cents", "next_expected_date", optional "account_id" \
 (accounts() - where it lands or is paid from), "category_id" \
-(categories() - what it counts as), "subject_id", "is_subscription"}: a \
+(categories() - what it counts as), "whose_party_id" (parties() - whose \
+bill or income it is when not the household's; never a ledger id), \
+"is_subscription"}: a \
 NEW bill or income the ledger does not know - side work paid by Venmo, \
 a new subscription. Call bills() first: the expensive mistake is a \
 second stream for one the user has under another name. ASK which \
