@@ -17,10 +17,10 @@ matter adds change types, not tools.
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from app.core.db import get_async_session
+from app.core.formatting import iso_date
 from app.services.ai.domains.chat.pastes import document_text
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.documents.domains.extraction.dispatch import (
@@ -37,10 +37,6 @@ from app.services.matters.requests import titles as paper_titles
 from app.services.matters.service import PartyService
 
 ATTRIBUTE_LABELS = dict(FACT_ATTRIBUTES)
-
-
-def _iso(value: date | None) -> str | None:
-    return value.isoformat() if value else None
 
 
 async def parties() -> dict[str, Any]:
@@ -102,7 +98,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
         service = MatterService(db)
         requests = RequestService(db)
         found = await service.find(status=wanted)
-        names = {party.id: party.name for party in await PartyService(db).find()}
+        names = await PartyService(db).names()
         rows = []
         for matter in found:
             people = await service.participants(matter.id)
@@ -117,7 +113,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
                     "kind": matter.kind,
                     "reference": matter.reference,
                     "status": matter.status,
-                    "opened_on": _iso(matter.opened_on),
+                    "opened_on": iso_date(matter.opened_on),
                     "subject": names.get(matter.subject_party_id or -1),
                     "counterpart": names.get(matter.counterpart_party_id or -1),
                     "participants": [
@@ -127,7 +123,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
                     "requests": {
                         "open": len(standing_requests),
                         "total": len(asked),
-                        "next_due": _iso(min(due)) if due else None,
+                        "next_due": iso_date(min(due)) if due else None,
                         "overdue_count": sum(1 for one in asked if overdue(one, today)),
                     },
                 }
@@ -176,8 +172,8 @@ async def requests(
                         # The letter the asks came from: read it with `paper`.
                         "letter_document_id": one.document_id,
                         "letter": letter["title"] if letter else None,
-                        "received_on": _iso(one.received_on),
-                        "due_on": _iso(one.due_on),
+                        "received_on": iso_date(one.received_on),
+                        "due_on": iso_date(one.due_on),
                         "status": one.status,
                         "overdue": overdue(one, today),
                         "settled": settled,
@@ -189,7 +185,7 @@ async def requests(
                                 "ordinal": item.ordinal,
                                 "asked": item.asked,
                                 "ask": item.ask,
-                                "as_of": _iso(item.as_of),
+                                "as_of": iso_date(item.as_of),
                                 "status": item.status,
                                 "resolution": item.resolution,
                                 "document_id": item.document_id,
@@ -237,7 +233,7 @@ async def facts(
             account_id=account_id,
             attribute=attribute,
         )
-        names = {party.id: party.name for party in await PartyService(db).find()}
+        names = await PartyService(db).names()
     return {
         "facts": [
             {
@@ -253,7 +249,7 @@ async def facts(
                 "period": fact.period,
                 "monthly_cents": monthly_cents(fact.value_cents, fact.period),
                 "text_value": fact.text_value,
-                "as_of": _iso(fact.as_of),
+                "as_of": iso_date(fact.as_of),
                 "provenance": fact.provenance,
                 "document_id": fact.document_id,
                 "page": fact.page,
@@ -305,7 +301,7 @@ async def paper(document_id: int) -> dict[str, Any]:
         "kind": document.kind,
         "media_type": document.media_type,
         "page_count": document.page_count,
-        "dated": _iso(document.document_date),
+        "dated": iso_date(document.document_date),
         "read": bool(text),
         "reading": reading,
         "text": text or "",

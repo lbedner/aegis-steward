@@ -15,6 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
+from app.services.matters.service import PartyService
 
 
 class PolicyCreatePayload(BaseModel):
@@ -79,17 +80,6 @@ class ClaimRecordPayload(BaseModel):
         return self
 
 
-async def _names(db: AsyncSession, ids: list[int]) -> dict[int, str]:
-    from sqlmodel import col, select
-
-    from app.services.matters.models import Party
-
-    if not ids:
-        return {}
-    rows = (await db.exec(select(Party).where(col(Party.id).in_(ids)))).all()
-    return {int(p.id): p.name for p in rows}
-
-
 async def _eob(
     db: AsyncSession, payload: ClaimRecordPayload, owner_user_id: int | None
 ) -> tuple[int | None, str | None]:
@@ -132,7 +122,9 @@ async def policy_create_execute(
 async def policy_create_describe(
     db: AsyncSession, payload: PolicyCreatePayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    names = await _names(db, [payload.insurer_party_id, *payload.covered_party_ids])
+    names = await PartyService(db).names(
+        [payload.insurer_party_id, *payload.covered_party_ids]
+    )
     rows = [
         ChangeDisplayRow(
             label="Insurer", value=names.get(payload.insurer_party_id, "Unknown")
@@ -194,8 +186,7 @@ async def claim_record_describe(
     from app.services.insurance.service import InsuranceService
 
     policy = await InsuranceService(db).get_policy(payload.policy_id)
-    names = await _names(
-        db,
+    names = await PartyService(db).names(
         [
             i
             for i in (

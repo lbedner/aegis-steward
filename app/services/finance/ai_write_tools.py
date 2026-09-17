@@ -13,6 +13,7 @@ from typing import Any
 
 from app.core.db import get_async_session
 from app.services.ai.domains.chat.tools import register_tool
+from app.services.finance.domains.writes.display import candidate_row
 
 
 async def propose_many(
@@ -146,16 +147,7 @@ async def bill_candidates(stream_id: int) -> dict[str, Any]:
         rows = await recurring_match_candidates(session, stream_id, owner_user_id=None)
     return {
         "stream_id": stream_id,
-        "candidates": [
-            {
-                "id": t.id,
-                "date": t.date_.isoformat(),
-                "payee": t.merchant_name or t.name,
-                "amount": t.amount,
-                "account_id": t.account_id,
-            }
-            for t in rows
-        ],
+        "candidates": [candidate_row(t) for t in rows],
     }
 
 

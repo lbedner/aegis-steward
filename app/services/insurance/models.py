@@ -8,6 +8,8 @@ from typing import Any
 from sqlalchemy import JSON, CheckConstraint, Column, Index
 from sqlmodel import Field, SQLModel
 
+from app.core.schema import one_of
+
 POLICY_KINDS = ("dental", "health", "vision", "auto", "home", "life", "other")
 
 # What an insurer has said about a claim, as the EOB says it.
@@ -16,12 +18,6 @@ CLAIM_STATUSES = ("submitted", "processed", "denied", "appealed", "paid")
 
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
-
-
-def _one_of(column: str, values: tuple[str, ...]) -> str:
-    """A CHECK clause spelled from the tuple, so the constraint cannot
-    drift from the values the app writes."""
-    return f"{column} IN ({', '.join(f'{v!r}' for v in values)})"
 
 
 class InsurancePolicy(SQLModel, table=True):
@@ -38,7 +34,7 @@ class InsurancePolicy(SQLModel, table=True):
 
     __tablename__ = "insurance_policy"
     __table_args__ = (
-        CheckConstraint(_one_of("kind", POLICY_KINDS), name="ck_insurance_policy_kind"),
+        CheckConstraint(one_of("kind", POLICY_KINDS), name="ck_insurance_policy_kind"),
         Index("ix_insurance_policy_owner", "owner_user_id"),
         Index("ix_insurance_policy_insurer", "insurer_party_id"),
         Index("ix_insurance_policy_stream", "premium_stream_id"),
@@ -83,7 +79,7 @@ class InsuranceClaim(SQLModel, table=True):
     __tablename__ = "insurance_claim"
     __table_args__ = (
         CheckConstraint(
-            _one_of("status", CLAIM_STATUSES), name="ck_insurance_claim_status"
+            one_of("status", CLAIM_STATUSES), name="ck_insurance_claim_status"
         ),
         Index("ix_insurance_claim_policy", "policy_id"),
         Index("ix_insurance_claim_covered", "covered_party_id"),

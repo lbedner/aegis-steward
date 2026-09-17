@@ -84,7 +84,7 @@ async def page(
     """Every case, open ones first."""
     async with get_async_session() as db:
         matters = await MatterService(db).find(owner_user_id=owner_user_id)
-        names = {p.id: p.name for p in await PartyService(db).find()}
+        names = await PartyService(db).names()
         late = {r.matter_id for r in await RequestService(db).overdue()}
         return render(
             request,

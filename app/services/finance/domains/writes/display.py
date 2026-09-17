@@ -68,3 +68,15 @@ async def payee_of(db: AsyncSession, txn: Any) -> str:
         else None
     )
     return payee_label(named, txn.merchant_name, txn.name)
+
+
+def candidate_row(txn: Any) -> dict[str, Any]:
+    """A transaction as a match shortlist names it: the id a proposal
+    takes, and enough to recognise it. Bills and claims read one shape."""
+    return {
+        "id": txn.id,
+        "date": txn.date_.isoformat(),
+        "payee": txn.merchant_name or txn.name,
+        "amount": txn.amount,
+        "account_id": txn.account_id,
+    }

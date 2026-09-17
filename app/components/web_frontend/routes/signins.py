@@ -44,7 +44,7 @@ async def signins_at(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
     pointed straight at it, because the list only ever read one side of
     the link.
     """
-    names = {party.id: party.name for party in await PartyService(db).find()}
+    names = await PartyService(db).names()
     book = await place_book(db)
     return [
         {

@@ -71,6 +71,12 @@ def format_date(value: object) -> str:
     return f"{value.strftime('%b')} {value.day}, {value.year}"
 
 
+def iso_date(value: object) -> str | None:
+    """``YYYY-MM-DD`` for a date, None for none: what a tool returns and
+    a page's data attribute carries."""
+    return value.isoformat() if hasattr(value, "isoformat") else None
+
+
 def payee_label(merchant: object, merchant_name: object, name: object) -> str:
     """What a transaction is called: the payee someone named, then the one
     the source supplied, then the raw descriptor.

@@ -28,6 +28,8 @@ from typing import Any
 from sqlalchemy import JSON, CheckConstraint, Column, Index
 from sqlmodel import Field, SQLModel
 
+from app.core.schema import one_of
+
 PARTY_KINDS = ("person", "organization")
 
 # How to reach a party: the keys the ``contact`` JSON may carry, with
@@ -52,8 +54,7 @@ def _utcnow() -> datetime:
 def kind_check() -> str:
     """The CHECK clause for ``PARTY_KINDS``, spelled from the tuple so the
     constraint cannot drift from the values the app writes."""
-    allowed = ", ".join(f"'{kind}'" for kind in PARTY_KINDS)
-    return f"kind IN ({allowed})"
+    return one_of("kind", PARTY_KINDS)
 
 
 class Party(SQLModel, table=True):
@@ -132,8 +133,7 @@ DOCUMENT_PARTY_ROLES = ("sender", "subject", "about")
 
 
 def status_check() -> str:
-    allowed = ", ".join(f"'{s}'" for s in MATTER_STATUSES)
-    return f"status IN ({allowed})"
+    return one_of("status", MATTER_STATUSES)
 
 
 class Matter(SQLModel, table=True):

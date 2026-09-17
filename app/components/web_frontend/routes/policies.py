@@ -21,6 +21,7 @@ from app.components.web_frontend.filters import money_to_cents
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog
 from app.core.db import get_async_session
+from app.core.formatting import iso_date
 from app.services.finance.deps import get_owner_user_id
 from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
 from app.services.insurance.service import InsuranceService
@@ -65,7 +66,7 @@ POLICY_ROWS = (
 
 
 def _iso(value: date | None) -> str:
-    return value.isoformat() if value else ""
+    return iso_date(value) or ""
 
 
 def _terms(raw: str) -> dict[str, str]:
@@ -178,7 +179,8 @@ async def _payments(db: AsyncSession, ids: list[int | None]) -> dict[int, str]:
     query per kind, never one per claim."""
     from sqlmodel import col, select
 
-    from app.services.finance.models import FinanceAccount, FinanceTransaction
+    from app.services.finance.domains.ledger.queries.accounts import account_names
+    from app.services.finance.models import FinanceTransaction
 
     wanted = [i for i in ids if i]
     if not wanted:
@@ -188,14 +190,7 @@ async def _payments(db: AsyncSession, ids: list[int | None]) -> dict[int, str]:
             select(FinanceTransaction).where(col(FinanceTransaction.id).in_(wanted))
         )
     ).all()
-    accounts = (
-        await db.exec(
-            select(FinanceAccount).where(
-                col(FinanceAccount.id).in_({t.account_id for t in rows})
-            )
-        )
-    ).all()
-    named = {int(a.id): a.name for a in accounts}
+    named = await account_names(db, [t.account_id for t in rows])
     return {int(t.id): f"{_iso(t.date_)} · {named.get(t.account_id, '')}" for t in rows}
 
 
@@ -254,7 +249,7 @@ async def _block(
         else await service.policies_covering(party_id)
     )
     everyone = await PartyService(db).find()
-    names = {int(p.id): p.name for p in everyone}
+    names = await PartyService(db).names()
     return dialog(
         request,
         "partials/contacts/policies.html",

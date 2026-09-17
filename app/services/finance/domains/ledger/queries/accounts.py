@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import func
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import (
@@ -62,6 +62,18 @@ async def account_by_id(
 # only the pages that SHOW other people's accounts want.
 HOUSEHOLD = 0
 EVERYONE: int | None = None
+
+
+async def account_names(db: AsyncSession, ids: list[int | None]) -> dict[int, str]:
+    """id -> name for ``ids``, in one query: what a row that names an
+    account beside a figure draws from."""
+    wanted = [i for i in ids if i]
+    if not wanted:
+        return {}
+    rows = (
+        await db.exec(select(FinanceAccount).where(col(FinanceAccount.id).in_(wanted)))
+    ).all()
+    return {int(a.id): a.name for a in rows}
 
 
 async def accounts_page(
