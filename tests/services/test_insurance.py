@@ -147,3 +147,170 @@ class TestAClaim:
             await InsuranceService(async_db_session).record_claim(
                 policy_id=999999, covered_party_id=marisa, service_on=date(2026, 8, 12)
             )
+
+
+class TestThePlanProposesThePolicy:
+    @pytest.mark.asyncio
+    async def test_the_card_names_everyone_and_every_term(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.insurance.changes import (
+            PolicyCreatePayload,
+            policy_create_describe,
+            policy_create_execute,
+        )
+
+        insurer, marisa, leonard = await _insured(async_db_session)
+        payload = PolicyCreatePayload(
+            insurer_party_id=insurer,
+            covered_party_ids=[marisa, leonard],
+            kind="dental",
+            name="Delta Dental PPO Premium Plan",
+            group_id="18822-10007",
+            effective_on=date(2026, 8, 1),
+            terms={"Annual maximum": "$2,000 per member"},
+        )
+        said = {
+            r.label: r.value
+            for r in await policy_create_describe(async_db_session, payload, None)
+        }
+        assert said["Insurer"] == "Delta Dental of New York"
+        assert said["Covers"] == "Marisa Testcase, Leonard Testcase"
+        assert said["Group ID"] == "18822-10007"
+        assert said["Annual maximum"] == "$2,000 per member"
+
+        made = await policy_create_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+        policy = await InsuranceService(async_db_session).get_policy(made["policy_id"])
+        assert policy.covered_party_ids == [marisa, leonard]
+
+    @pytest.mark.asyncio
+    async def test_an_insurer_nobody_filed_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.insurance.changes import (
+            PolicyCreatePayload,
+            policy_create_execute,
+        )
+
+        with pytest.raises(ValueError, match="contact"):
+            await policy_create_execute(
+                async_db_session,
+                PolicyCreatePayload(
+                    insurer_party_id=999999, covered_party_ids=[1], kind="dental"
+                ),
+                None,
+            )
+
+
+class TestTheEobProposesTheClaim:
+    @pytest.mark.asyncio
+    async def test_the_card_shows_the_four_figures_and_the_eob_lands(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.ai.domains.chat.pastes import store_document
+        from app.services.documents.service import DocumentService
+        from app.services.insurance.changes import (
+            ClaimRecordPayload,
+            claim_record_describe,
+            claim_record_execute,
+        )
+
+        insurer, marisa, _ = await _insured(async_db_session)
+        service = InsuranceService(async_db_session)
+        policy = await service.create_policy(
+            insurer_party_id=insurer,
+            covered_party_ids=[marisa],
+            kind="dental",
+            name="Delta Dental PPO Premium Plan",
+        )
+        document = await DocumentService(async_db_session).ingest(
+            b"%PDF-1.4 eob", title="ClaimStatement.pdf"
+        )
+        paste = await store_document(
+            "0", int(document.id), "ClaimStatement.pdf", 11_049, async_db_session
+        )
+        payload = ClaimRecordPayload(
+            policy_id=int(policy.id),
+            covered_party_id=marisa,
+            service_on=date(2026, 8, 12),
+            claim_number="23548895152718",
+            billed_cents=60500,
+            allowed_cents=35600,
+            insurer_paid_cents=21000,
+            patient_owes_cents=14600,
+            paste_id=str(paste["id"]),
+        )
+        said = {
+            r.label: r.value
+            for r in await claim_record_describe(async_db_session, payload, None)
+        }
+        assert said["Policy"] == "Delta Dental PPO Premium Plan"
+        assert said["For"] == "Marisa Testcase"
+        assert said["You owe the provider"] == "$146.00"
+        assert said["EOB"] == "ClaimStatement.pdf"
+
+        made = await claim_record_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+        claim = (await service.claims_of(int(policy.id)))[0]
+        assert claim.id == made["claim_id"]
+        assert claim.document_id == document.id
+
+    def test_the_eob_is_one_thing(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.insurance.changes import ClaimRecordPayload
+
+        with pytest.raises(ValidationError):
+            ClaimRecordPayload(
+                policy_id=1,
+                covered_party_id=1,
+                service_on=date(2026, 8, 12),
+                paste_id="x",
+                document_id=2,
+            )
+
+
+class TestIllianaReadsPolicies:
+    @pytest.mark.asyncio
+    async def test_the_tool_lists_policies_with_their_claims(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from contextlib import asynccontextmanager
+
+        from app.services.ai.domains.chat.tools import registered_tool_names
+        from app.services.insurance import ai_tools
+
+        @asynccontextmanager
+        async def test_session():
+            yield async_db_session
+
+        monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+        insurer, marisa, _ = await _insured(async_db_session)
+        service = InsuranceService(async_db_session)
+        policy = await service.create_policy(
+            insurer_party_id=insurer, covered_party_ids=[marisa], kind="dental"
+        )
+        await service.record_claim(
+            policy_id=int(policy.id),
+            covered_party_id=marisa,
+            service_on=date(2026, 8, 12),
+            patient_owes_cents=14600,
+        )
+        await async_db_session.commit()
+
+        assert "policies" in registered_tool_names()
+        told = await ai_tools.policies()
+        mine = next(p for p in told["policies"] if p["id"] == policy.id)
+        assert mine["insurer"] == "Delta Dental of New York"
+        assert mine["patient_owes_cents"] == 14600
+        assert mine["claims"][0]["service_on"] == "2026-08-12"
+
+    def test_the_prompt_says_the_policy_holds_the_figures(self) -> None:
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "policy.create" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "claim.record" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "never in a contact's note" in FINANCE_CHAT_SYSTEM_PROMPT

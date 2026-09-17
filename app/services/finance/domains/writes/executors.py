@@ -16,6 +16,7 @@ from app.services.finance.domains.writes import (
     terms,
 )
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
+from app.services.insurance import changes as insurance
 from app.services.matters import changes as matters
 
 register(
@@ -182,5 +183,25 @@ register(
         payload_model=structure.AmendPayload,
         execute=structure.amend_execute,
         describe=structure.amend_describe,
+    )
+)
+
+# Insurance: the plan document proposes the policy, the EOB the claim.
+register(
+    ChangeExecutor(
+        change_type="policy.create",
+        title="Record an insurance policy",
+        payload_model=insurance.PolicyCreatePayload,
+        execute=insurance.policy_create_execute,
+        describe=insurance.policy_create_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="claim.record",
+        title="Record a claim as the insurer settled it",
+        payload_model=insurance.ClaimRecordPayload,
+        execute=insurance.claim_record_execute,
+        describe=insurance.claim_record_describe,
     )
 )
