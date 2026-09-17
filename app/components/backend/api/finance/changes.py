@@ -147,9 +147,6 @@ async def propose_change(
         ) from None
     response = await _to_response(service, row)
     await service.db.commit()
-    # AFTER the commit, never before: she reads the message, calls
-    # parties(), and the row has to be there.
-    await announce([row])
     return response
 
 
@@ -206,6 +203,9 @@ async def approve_change(
         ) from None
     response = await _to_response(service, row)
     await service.db.commit()
+    # AFTER the commit, never before: she reads the message, calls
+    # parties(), and the row has to be there.
+    await announce([row])
     return response
 
 

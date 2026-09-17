@@ -109,3 +109,70 @@ class TestWhoHearsAboutIt:
         await announce_approval([Row()], send=fake)
 
         assert "\n-" not in sent[0][1]
+
+
+class TestWhichDoorAnnounces:
+    """Wired to the wrong function once: the announce call landed in
+    ``propose_change``, so proposing told the conversation that had just
+    proposed, and approving - the only thing worth telling anybody about
+    - stayed silent."""
+
+    @pytest.mark.asyncio
+    async def test_approving_announces(
+        self, svc, async_db_session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.components.backend.api.finance import changes as endpoints
+        from tests.services._finance_factories import seed_account
+
+        told: list[list[object]] = []
+
+        async def fake(rows: list[object]) -> None:
+            told.append(rows)
+
+        monkeypatch.setattr(endpoints, "announce", fake)
+        account = await seed_account(svc, name="Announcing")
+        row = await svc.propose_change(
+            "account.valuation",
+            {
+                "account_id": int(account.id),
+                "source": "manual",
+                "points": [{"as_of_date": "2026-09-01", "value": 100}],
+            },
+            owner_user_id=1,
+        )
+        await async_db_session.commit()
+
+        await endpoints.approve_change(row.id, service=svc, owner_user_id=1)
+
+        assert [one.id for one in told[0]] == [row.id]
+
+    @pytest.mark.asyncio
+    async def test_proposing_announces_nothing(
+        self, svc, async_db_session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.components.backend.api.finance import changes as endpoints
+        from app.services.finance.schemas import ChangeProposal
+        from tests.services._finance_factories import seed_account
+
+        told: list[list[object]] = []
+
+        async def fake(rows: list[object]) -> None:
+            told.append(rows)
+
+        monkeypatch.setattr(endpoints, "announce", fake)
+        account = await seed_account(svc, name="Quiet")
+
+        await endpoints.propose_change(
+            ChangeProposal(
+                change_type="account.valuation",
+                payload={
+                    "account_id": int(account.id),
+                    "source": "manual",
+                    "points": [{"as_of_date": "2026-09-01", "value": 100}],
+                },
+            ),
+            service=svc,
+            owner_user_id=1,
+        )
+
+        assert told == []
