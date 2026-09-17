@@ -227,3 +227,12 @@ register(
         describe=reading.metadata_describe,
     )
 )
+register(
+    ChangeExecutor(
+        change_type="document.request",
+        title="What a letter asks for",
+        payload_model=reading.RequestPayload,
+        execute=reading.request_execute,
+        describe=reading.request_describe,
+    )
+)

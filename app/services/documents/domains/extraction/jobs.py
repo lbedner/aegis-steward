@@ -16,6 +16,7 @@ from app.core.log import logger
 from app.services.documents.domains.extraction.pages import extract_document
 from app.services.documents.domains.extraction.vision import vision_reader
 from app.services.documents.domains.reading import propose_reading
+from app.services.documents.domains.reading.letters import letter_reader
 
 # Sync on purpose: extract_document calls it between pages from inside its
 # own loop. A store that writes asynchronously schedules the write.
@@ -48,7 +49,12 @@ async def run_extraction(
         # the pages just read are the valuable thing and a reading that
         # falls over must not take them with it.
         try:
-            await propose_reading(session, document_id, owner_user_id=owner_user_id)
+            await propose_reading(
+                session,
+                document_id,
+                owner_user_id=owner_user_id,
+                read_letter=await letter_reader(),
+            )
         except Exception:
             logger.exception("Reading %s proposed nothing", document_id)
         await session.commit()
