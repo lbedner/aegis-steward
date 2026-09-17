@@ -8,6 +8,7 @@ debt costs); importing this module arms the whole surface.
 
 from __future__ import annotations
 
+from app.services.documents.domains import reading
 from app.services.finance.domains.writes import (
     accounts,
     curation,
@@ -212,5 +213,17 @@ register(
         payload_model=insurance.ClaimPaidPayload,
         execute=insurance.claim_paid_execute,
         describe=insurance.claim_paid_describe,
+    )
+)
+
+# A document's own metadata is read off its pages and approved like any
+# other claim: extraction proposes, nothing extracted becomes truth.
+register(
+    ChangeExecutor(
+        change_type="document.metadata",
+        title="What a document says it is",
+        payload_model=reading.MetadataPayload,
+        execute=reading.metadata_execute,
+        describe=reading.metadata_describe,
     )
 )

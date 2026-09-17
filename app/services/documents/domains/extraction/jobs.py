@@ -12,8 +12,10 @@ from collections.abc import Callable
 from typing import Any
 
 from app.core.db import get_async_session
+from app.core.log import logger
 from app.services.documents.domains.extraction.pages import extract_document
 from app.services.documents.domains.extraction.vision import vision_reader
+from app.services.documents.domains.reading import propose_reading
 
 # Sync on purpose: extract_document calls it between pages from inside its
 # own loop. A store that writes asynchronously schedules the write.
@@ -41,6 +43,14 @@ async def run_extraction(
             force=force,
             progress=lambda page, total: report(progress_label(page, total)),
         )
+        # Extraction PROPOSES: what the document says about itself goes in
+        # front of somebody rather than into the record. Guarded, because
+        # the pages just read are the valuable thing and a reading that
+        # falls over must not take them with it.
+        try:
+            await propose_reading(session, document_id, owner_user_id=owner_user_id)
+        except Exception:
+            logger.exception("Reading %s proposed nothing", document_id)
         await session.commit()
     return result.as_dict()
 
