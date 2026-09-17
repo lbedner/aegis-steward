@@ -29,9 +29,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "finance_subject", sa.Column("party_id", sa.Integer(), nullable=True)
-    )
+    op.add_column("finance_subject", sa.Column("party_id", sa.Integer(), nullable=True))
     op.create_index("ix_finance_subject_party", "finance_subject", ["party_id"])
 
 

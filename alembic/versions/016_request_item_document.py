@@ -26,9 +26,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "request_item", sa.Column("document_id", sa.Integer(), nullable=True)
-    )
+    op.add_column("request_item", sa.Column("document_id", sa.Integer(), nullable=True))
     op.create_index("ix_request_item_document", "request_item", ["document_id"])
 
 
