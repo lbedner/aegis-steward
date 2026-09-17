@@ -34,7 +34,7 @@
         {{ action("Show", hx_swap("/contacts/signins/" ~ signin.id ~ "/reveal", "#sign-ins", "post")) }}
         {% endif %}
         {{ action("Edit", hx_swap("/contacts/signins/" ~ signin.id ~ "/edit", "#sign-ins")) }}
-        {{ action("Remove", hx_swap("/contacts/signins/" ~ signin.id, "#sign-ins", "delete") ~ ' hx-confirm="Remove ' ~ signin.label ~ '?"', tone="danger") }}
+        {{ action("Remove", hx_swap("/contacts/signins/" ~ signin.id, "#sign-ins", "delete") ~ (' hx-confirm="Remove ' ~ (signin.label|e) ~ '?"')|safe, tone="danger") }}
       </div>
     </li>
     {% endfor %}
@@ -75,7 +75,7 @@
     {% endcall %}
     {% call field("Note") %}{{ text_input("note", form.note) }}{% endcall %}
     <div class="flex items-center gap-3">
-      {{ primary_button("Save", attrs=hx_swap(post, "#sign-ins", "post") ~ ' hx-include="closest [data-signin-form]"') }}
+      {{ primary_button("Save", attrs=hx_swap(post, "#sign-ins", "post") ~ (' hx-include="closest [data-signin-form]"'|safe)) }}
       {{ action("Cancel", hx_swap("/contacts/" ~ party_id ~ "/signins", "#sign-ins")) }}
     </div>
   </div>

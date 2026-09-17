@@ -10,7 +10,7 @@
 {% call page_header(section.label, ("about " ~ monthly_cost|money ~ "/month in recurring bills") if monthly_cost else None) %}
   <div class="flex items-center gap-2">
     {% if review_ids %}{{ action("Review (" ~ review_ids|length ~ ")", hx_dialog(path ~ '/review'), tone="warn") }}{% endif %}
-    {{ action("Rescan", hx_swap(path ~ "/rescan", "#streams", "post") ~ ' hx-include="#stream-filters"') }}
+    {{ action("Rescan", hx_swap(path ~ "/rescan", "#streams", "post") ~ (' hx-include="#stream-filters"'|safe)) }}
     {{ primary_button("Add bill or income", attrs=hx_dialog(path ~ '/new')) }}
   </div>
 {% endcall %}
