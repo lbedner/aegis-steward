@@ -3,7 +3,7 @@
 {% from "components/macros/table.html" import data_table %}
 {% from "components/macros/form.html" import action, search_input %}
 
-{% block title %}People - {{ project_name }}{% endblock %}
+{% block title %}Contacts - {{ project_name }}{% endblock %}
 
 {# The address book everything else points at: the subject of a case, the
    agency that wrote to you, the facility holding an account. People and
@@ -12,15 +12,14 @@
 
    No roles here. What a party IS to a matter belongs to the matter. #}
 {% block app_content %}
-{{ page_header("People", "Everyone a matter, a document or an account can name") }}
-{% include "components/sub_nav.html" %}
-{% call card(id="people") %}
+{{ page_header("Contacts", "Everyone a matter, a document or an account can name") }}
+{% call card(id="contacts") %}
 <div class="flex flex-wrap items-center justify-between gap-3">
-  {{ search_input("q", q, placeholder="Search people",
-                  attrs='hx-get="' ~ path ~ '/people" hx-target="#app-content"'
+  {{ search_input("q", q, placeholder="Search contacts",
+                  attrs='hx-get="' ~ path ~ '" hx-target="#app-content"'
                         ' hx-select="#app-content" hx-swap="innerHTML"'
                         ' hx-trigger="keyup changed delay:150ms, search"') }}
-  {{ action("Add someone", hx_dialog(path ~ "/people/new")) }}
+  {{ action("Add someone", hx_dialog(path ~ "/new")) }}
 </div>
 {{ data_table(columns, rows, empty="Nobody yet", row_id="party") }}
 {% endcall %}

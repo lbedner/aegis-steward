@@ -32,8 +32,12 @@
    card; off where the CALLER already bleeds and a second ``-mx-5`` would
    pull the table a further 1.25rem off the left of the page. #}
 {% from "components/macros/feedback.html" import empty_state %}
-{% from "components/macros/form.html" import control %}
-{% from "components/macros/layout.html" import avatar, badge, file_mark, mark %}
+{% from "components/macros/form.html" import control, action %}
+{# A column that steps aside on a narrow screen: ``hide_below`` names
+   the breakpoint it returns at. Looked up, never built - Tailwind only
+   ships the classes it can read. #}
+{% set HIDE_BELOW = {"md": "hidden md:table-cell", "lg": "hidden lg:table-cell", "xl": "hidden xl:table-cell"} %}
+{% from "components/macros/layout.html" import avatar, badge, contact_link, doors, file_mark, mark %}
 
 {% macro _cell(row, col) -%}
 {%- set value = row[col.key] -%}
@@ -61,6 +65,11 @@
   {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
   <span>{{ value.label }}</span>
 </button>
+{%- elif col.kind == "contact" -%}
+{# A contact named in a cell: the one link everywhere a party is drawn,
+   and not the row's door - a row may be a matter whose door is its
+   title while the county named beside it is a door of its own. #}
+{%- if value %}{{ contact_link(value.id, value.label) }}{% endif -%}
 {%- elif col.kind == "page" -%}
 {# A cell that GOES somewhere. The same door, drawn the same way, but
    for a row that is a place rather than a record you glance at: a
@@ -70,6 +79,14 @@
   {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
   <span>{{ value.label }}</span>
 </a>
+{%- elif col.kind == "action" -%}
+{# A cell that is either a fact or the verb that supplies it: a claim's
+   Paid cell shows the charge, or the button to pick one. ``value`` is
+   text, or ``{label, hx}`` for the verb. #}
+{%- if value is mapping %}{{ action(value.label, value.hx) }}{% else %}{{ value }}{% endif -%}
+{%- elif col.kind == "links" -%}
+{# Several places at once, each a door: where a document is filed. #}
+{{ doors(value, show=2) }}
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}
@@ -135,7 +152,9 @@ text-aegis-text
      context: a dot positioned against the row element is not reliable,
      and a column of its own would make every ledger wider for a thing
      that is usually absent. #}
-  <td class="{{ 'relative ' if loop.first }}px-5 py-2 whitespace-nowrap {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{% if loop.first %}{{ new_mark(row) }}{% endif %}{{ _cell(row, col) }}</td>
+  {# A column marked ``wrap`` lets its text break: a name or a title in
+     a wide row folds rather than pushing the money off the card. #}
+  <td class="{{ 'relative ' if loop.first }}px-5 py-2 {{ HIDE_BELOW.get(col.hide_below, '') }} {{ 'whitespace-normal break-words' if col.wrap else 'whitespace-nowrap' }} {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{% if loop.first %}{{ new_mark(row) }}{% endif %}{{ _cell(row, col) }}</td>
   {% endfor %}
   {% if actions %}<td class="px-2 py-2 text-right">{{ actions(row) }}</td>{% endif %}
 </tr>
@@ -171,12 +190,12 @@ text-aegis-text
            it swaps the rows only - whatever is above stays put. #}
         {% set sort_url = path ~ "?" ~ sort.sorted_by(col.key) %}
         <th scope="col" aria-sort="{{ 'ascending' if sort.sort == col.key and sort.sort_dir == 'asc' else ('descending' if sort.sort == col.key else 'none') }}"
-            class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">
+            class="px-5 py-2 font-medium {{ HIDE_BELOW.get(col.hide_below, '') }} {{ 'text-right' if col.align == 'right' else 'text-left' }}">
           <a href="{{ sort_url }}" {{ hx_replace(sort_url, target) }}
              class="inline-flex items-center gap-1 hover:text-aegis-text transition-colors">{{ col.label }}<span class="text-xxs">{{ sort.arrow(col.key) }}</span></a>
         </th>
         {% else %}
-        <th scope="col" class="px-5 py-2 font-medium {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.label }}</th>
+        <th scope="col" class="px-5 py-2 font-medium {{ HIDE_BELOW.get(col.hide_below, '') }} {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.label }}</th>
         {% endif %}
         {% endfor %}
         {% if caller is defined or row %}<th scope="col"{% if row %} class="px-2 py-2"{% endif %}><span class="sr-only">Actions</span></th>{% endif %}

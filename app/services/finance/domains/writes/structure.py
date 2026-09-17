@@ -4,9 +4,10 @@ The hub module ``executors`` registers these."""
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection.insights.formatting import format_usd
@@ -146,4 +147,227 @@ async def split_describe(
                     value=f"{format_usd(remainder)} · the rest",
                 )
             )
+    return rows
+
+
+# --- Declaring a stream ---------------------------------------------------
+#
+# The one act Illiana could not do: "call it $90 a week and be done with
+# it". She could match a payment to a bill that exists; she could not
+# say a new one exists. Same act as the Bills page's "declare recurring",
+# proposed as a card and approved like every other write.
+
+DIRECTIONS = ("inflow", "outflow")
+
+
+class DeclarePayload(BaseModel):
+    """A new recurring stream: income or a bill, its rhythm and amount."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    direction: str
+    frequency: str
+    amount_cents: int = Field(gt=0)
+    next_expected_date: date
+    account_id: int | None = None
+    # Stated ABOUT THE STREAM and stopping there, the way the Bills page
+    # sets it: its transactions keep their own categories.
+    category_id: int | None = None
+    # Whose bill or income it is, when not the household's: a CONTACT,
+    # the way account.create takes it. The ledger subject is found or
+    # made from the contact; an agent never sees subject ids, and the
+    # one time it guessed, it sent a contact id and the approval died
+    # on a foreign key.
+    whose_party_id: int | None = None
+    is_subscription: bool = False
+
+    @field_validator("direction")
+    @classmethod
+    def _known_direction(cls, value: str) -> str:
+        if value not in DIRECTIONS:
+            raise ValueError(f"direction must be one of {', '.join(DIRECTIONS)}")
+        return value
+
+    @field_validator("frequency")
+    @classmethod
+    def _known_frequency(cls, value: str) -> str:
+        from app.services.finance.constants import BILL_FREQUENCY_OPTIONS
+
+        if value not in BILL_FREQUENCY_OPTIONS:
+            raise ValueError(
+                f"frequency must be one of {', '.join(BILL_FREQUENCY_OPTIONS)}"
+            )
+        return value
+
+
+async def declare_execute(
+    db: AsyncSession, payload: DeclarePayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.finance.domains.planning.recurring import streams
+
+    subject_id = None
+    if payload.whose_party_id is not None:
+        subject_id = (await _whose(db, payload.whose_party_id, owner_user_id)).id
+    stream = await streams.create_recurring_stream(
+        db,
+        owner_user_id=owner_user_id,
+        name=payload.name,
+        direction=payload.direction,
+        frequency=payload.frequency,
+        expected_amount=payload.amount_cents,
+        next_expected_date=payload.next_expected_date,
+        account_id=payload.account_id,
+        is_subscription=payload.is_subscription,
+        subject_id=subject_id,
+    )
+    if payload.category_id is not None:
+        stream.category_id = payload.category_id
+        db.add(stream)
+    await db.flush()
+    return {"stream_id": stream.id, "name": stream.name}
+
+
+async def _whose(db: AsyncSession, party_id: int, owner_user_id: int | None) -> Any:
+    """The ledger subject for a contact, found or made."""
+    from app.services.finance.domains.ledger.subjects import subject_for_party
+    from app.services.matters.service import PartyService
+
+    party = await PartyService(db).get(party_id)
+    if party is None:
+        raise ValueError(f"No contact with id {party_id}")
+    return await subject_for_party(
+        db, party_id, name=party.name, owner_user_id=owner_user_id
+    )
+
+
+async def declare_describe(
+    db: AsyncSession, payload: DeclarePayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    """The card: what, which way, how often, how much, from when."""
+    from app.services.finance.constants import frequency_label
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+
+    rows = [
+        ChangeDisplayRow(label="Stream", value=payload.name),
+        ChangeDisplayRow(
+            label="Direction",
+            value="Income" if payload.direction == "inflow" else "Bill",
+        ),
+        ChangeDisplayRow(label="Every", value=frequency_label(payload.frequency)),
+        ChangeDisplayRow(label="Amount", value=format_usd(payload.amount_cents)),
+        ChangeDisplayRow(
+            label="Starting", value=payload.next_expected_date.isoformat()
+        ),
+    ]
+    rows.extend(
+        await _named_places(db, payload.account_id, payload.category_id, owner_user_id)
+    )
+    if payload.whose_party_id is not None:
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(db).get(payload.whose_party_id)
+        rows.append(
+            ChangeDisplayRow(label="Whose", value=party.name if party else "Unknown")
+        )
+    return rows
+
+
+async def _named_places(
+    db: AsyncSession,
+    account_id: int | None,
+    category_id: int | None,
+    owner_user_id: int | None,
+) -> list[ChangeDisplayRow]:
+    """The account and category rows a stream card shows, by name."""
+    from app.services.finance.domains.ledger.queries.accounts import account_by_id
+    from app.services.finance.models import FinanceCategory
+
+    rows: list[ChangeDisplayRow] = []
+    if account_id is not None:
+        account = await account_by_id(db, account_id, owner_user_id=owner_user_id)
+        rows.append(
+            ChangeDisplayRow(label="Account", value=account.name if account else "-")
+        )
+    if category_id is not None:
+        category = await db.get(FinanceCategory, category_id)
+        rows.append(
+            ChangeDisplayRow(label="Category", value=category.name if category else "-")
+        )
+    return rows
+
+
+class AmendPayload(BaseModel):
+    """A declared stream's facts, corrected: where it lands, what it
+    counts as, its rhythm, its amount. Only what is given changes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stream_id: int
+    name: str | None = Field(default=None, max_length=120)
+    frequency: str | None = None
+    amount_cents: int | None = Field(default=None, gt=0)
+    next_expected_date: date | None = None
+    account_id: int | None = None
+    category_id: int | None = None
+
+    @field_validator("frequency")
+    @classmethod
+    def _known_frequency(cls, value: str | None) -> str | None:
+        from app.services.finance.constants import BILL_FREQUENCY_OPTIONS
+
+        if value is not None and value not in BILL_FREQUENCY_OPTIONS:
+            raise ValueError(
+                f"frequency must be one of {', '.join(BILL_FREQUENCY_OPTIONS)}"
+            )
+        return value
+
+
+async def amend_execute(
+    db: AsyncSession, payload: AmendPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.finance.domains.planning.recurring import streams
+
+    stream = await streams.update_recurring(
+        db,
+        payload.stream_id,
+        owner_user_id=owner_user_id,
+        name=payload.name,
+        frequency=payload.frequency,
+        expected_amount=payload.amount_cents,
+        next_expected_date=payload.next_expected_date,
+        category_id=payload.category_id,
+        account_id=payload.account_id,
+    )
+    if stream is None:
+        raise ValueError(f"No stream with id {payload.stream_id}")
+    await db.flush()
+    return {"stream_id": stream.id, "name": stream.name}
+
+
+async def amend_describe(
+    db: AsyncSession, payload: AmendPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.finance.constants import frequency_label
+    from app.services.finance.domains.planning.recurring import streams
+
+    stream = await streams.get_recurring(db, payload.stream_id, owner_user_id)
+    rows = [ChangeDisplayRow(label="Stream", value=stream.name if stream else "-")]
+    if payload.name:
+        rows.append(ChangeDisplayRow(label="Rename to", value=payload.name))
+    if payload.frequency:
+        rows.append(
+            ChangeDisplayRow(label="Every", value=frequency_label(payload.frequency))
+        )
+    if payload.amount_cents is not None:
+        rows.append(
+            ChangeDisplayRow(label="Amount", value=format_usd(payload.amount_cents))
+        )
+    if payload.next_expected_date:
+        rows.append(
+            ChangeDisplayRow(label="Next", value=payload.next_expected_date.isoformat())
+        )
+    rows.extend(
+        await _named_places(db, payload.account_id, payload.category_id, owner_user_id)
+    )
     return rows

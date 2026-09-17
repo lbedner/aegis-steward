@@ -148,9 +148,62 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 {# The one file control. Browsers will not be told what the button looks
    like, so the styling is all on ``file:`` - written once here rather
    than pasted wherever something takes a file. #}
+{# A file input that is also a drop target and a paste target. One
+   macro, so every place a file can be chosen is a place it can be
+   dragged or pasted. The native input is hidden and reached by ONE
+   button, so a click on the pane focuses it (the border turns to the
+   accent: this is where a paste lands) instead of opening the picker.
+   The files land in the input itself and a ``change`` event lets
+   whatever was listening keep listening; what landed is drawn as the
+   document it will be, with the store's own type mark, and an x that
+   empties the input. The mark table comes from the server, so the badge
+   a file gets before upload is the one it gets after. #}
 {% macro file_input(name, accept="", required=False) %}
-<input type="file" name="{{ name }}" {% if accept %}accept="{{ accept }}"{% endif %} {% if required %}required{% endif %}
-       class="mt-1 block w-full text-sm text-aegis-muted file:mr-3 file:px-3 file:py-1.5 file:rounded file:border file:border-aegis-border file:bg-aegis-bg file:text-aegis-text file:text-xs">
+<div data-dropzone tabindex="0" data-badges='{{ file_badge_table()|tojson }}'
+     x-data="{
+       over: false, files: [], badges: JSON.parse($el.dataset.badges),
+       take(list) {
+         const dt = new DataTransfer();
+         [...list].forEach(f => dt.items.add(f));
+         $refs.file.files = dt.files;
+         this.files = [...dt.files];
+         $refs.file.dispatchEvent(new Event('change', { bubbles: true }));
+       },
+       clear() { $refs.file.value = ''; this.files = []; },
+       badge(f) {
+         const type = (f.type || '').toLowerCase();
+         let key = this.badges.media[type];
+         if (!key && type.startsWith('image/')) key = type.split('/')[1];
+         if (!key && f.name.includes('.')) key = f.name.split('.').pop().toLowerCase();
+         return this.badges.kinds[key] || this.badges.unknown;
+       },
+     }"
+     @dragover.prevent="over = true" @dragleave.prevent="over = false"
+     @drop.prevent="over = false; take($event.dataTransfer.files)"
+     @paste.window="if ($event.clipboardData?.files?.length) { $event.preventDefault(); take($event.clipboardData.files) }"
+     :class="over ? 'border-aegis-teal bg-aegis-teal/5' : 'border-aegis-border'"
+     class="mt-1 rounded-md border border-dashed p-3 transition-colors focus:outline-none focus:border-aegis-teal focus-within:border-aegis-teal">
+  <input type="file" name="{{ name }}" x-ref="file" class="sr-only" tabindex="-1"
+         {% if accept %}accept="{{ accept }}"{% endif %} {% if required %}required{% endif %}
+         @change="files = [...$event.target.files]">
+  <div class="flex flex-wrap items-center gap-3">
+    <button type="button" @click.stop="$refs.file.click()" class="{{ button_classes('default', 'xs') }}">Choose a file</button>
+    <span class="micro-label text-aegis-muted">or drop or paste it here</span>
+  </div>
+  <ul x-show="files.length" x-cloak class="mt-3 flex flex-col gap-2" data-chosen>
+    <template x-for="f in files" :key="f.name + f.size">
+      <li class="flex items-center gap-3 min-w-0 text-sm text-aegis-text">
+        <span :data-file="badge(f).label" :title="badge(f).label"
+              class="inline-flex shrink-0 w-8 h-8 rounded-full bg-aegis-border/60 items-center justify-center overflow-hidden">
+          <img :src="badge(f).icon" alt="" width="20" height="20" class="w-5 h-5 object-contain">
+        </span>
+        <span class="truncate" x-text="f.name"></span>
+        <span class="text-xxs text-aegis-muted tabular-nums" x-text="(f.size / 1024).toFixed(0) + ' KB'"></span>
+        <button type="button" @click.stop="clear()" class="ml-auto text-aegis-muted hover:text-aegis-text" aria-label="Remove">×</button>
+      </li>
+    </template>
+  </ul>
+</div>
 {% endmacro %}
 
 {# Pick one of many, or name a new one.
@@ -277,11 +330,13 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 <button type="button" {{ attrs|safe }} {% if vals is not none %}hx-vals='{{ vals|tojson }}'{% endif %} class="{{ button_classes(tone, "xs") }} whitespace-nowrap">{{ label }}</button>
 {% endmacro %}
 
-{% macro money_input(name, value=None, placeholder="0.00") %}
+{# ``extra`` rides along for the one input a script drives (the split's
+   remainder line, made read-only by the page). #}
+{% macro money_input(name, value=None, placeholder="0.00", extra="") %}
 <div class="relative mt-1">
   <span class="absolute inset-y-0 left-2.5 flex items-center text-sm text-aegis-muted" aria-hidden="true">$</span>
-  <input type="text" inputmode="decimal" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
-         class="{{ control("input") }} w-full pl-6 tabular-nums">
+  <input type="text" inputmode="decimal" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}" {{ extra|safe }}
+         class="{{ control("input") }} w-full pl-6 tabular-nums read-only:text-aegis-muted">
 </div>
 {% endmacro %}
 
@@ -309,4 +364,37 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
   {%- endif %}
 {% endcall %}
 {% endfor %}
+{% endmacro %}
+
+{# Several answers from a known list, drawn as chips. Click into it and
+   every place there is drops down; pick one and it becomes a chip with
+   its taker; the chips travel with the form as hidden ``name`` inputs.
+   ``chosen`` and ``options`` are ``{id, name}``. The ``<name>_sent``
+   marker says the field was on the form, so a save without any chip
+   means "none", never "the browser dropped it". #}
+{% macro chip_select(name, options, chosen=(), hint="Add a place") %}
+<div data-chips="{{ name }}" data-options='{{ options|tojson }}' data-chosen='{{ chosen|tojson }}'
+     x-data="{
+       open: false, query: '',
+       options: JSON.parse($el.dataset.options), chosen: JSON.parse($el.dataset.chosen),
+       get needle() { return this.query.trim().toLowerCase() },
+       get free() { return this.options.filter(o => !this.chosen.some(c => c.id === o.id) && (!this.needle || o.name.toLowerCase().includes(this.needle))) },
+       pick(o) { this.chosen.push(o); this.query = ''; this.open = false },
+       drop(o) { this.chosen = this.chosen.filter(c => c.id !== o.id) },
+     }" @click.outside="open = false" class="relative mt-1">
+  <input type="hidden" name="{{ name }}_sent" value="1">
+  <template x-for="c in chosen" :key="c.id"><input type="hidden" name="{{ name }}" :value="c.id"></template>
+  <div class="{{ control("input") }} flex flex-wrap items-center gap-1.5 h-auto min-h-[2.5rem] py-1.5 cursor-text" @click="open = true; $refs.query.focus()">
+    <template x-for="c in chosen" :key="c.id">
+      <span class="chip inline-flex items-center gap-1"><span x-text="c.name"></span><button type="button" @click.stop="drop(c)" class="text-aegis-muted hover:text-aegis-text leading-none" :aria-label="'Take off ' + c.name">×</button></span>
+    </template>
+    <input x-ref="query" x-model="query" @focus="open = true" @keydown.escape="open = false"
+           type="text" placeholder="{{ hint }}" aria-label="{{ hint }}" class="flex-1 min-w-[8rem] bg-transparent border-0 p-0 text-sm focus:outline-none focus:ring-0">
+  </div>
+  <ul x-show="open && free.length" x-cloak class="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto rounded-md border border-aegis-border bg-aegis-card shadow-lg divide-y divide-aegis-border/60">
+    <template x-for="o in free" :key="o.id">
+      <li><button type="button" @click="pick(o)" class="w-full px-3 py-2 text-left text-sm text-aegis-text hover:bg-aegis-border/20 transition-colors" x-text="o.name"></button></li>
+    </template>
+  </ul>
+</div>
 {% endmacro %}

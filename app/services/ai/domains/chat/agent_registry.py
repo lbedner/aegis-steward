@@ -5,6 +5,7 @@ Writes invalidate the agent loader's warm cache so the next chat request
 sees the change.
 """
 
+from hashlib import sha256
 from typing import Any
 
 from sqlalchemy.orm import selectinload
@@ -47,6 +48,29 @@ EDITABLE_FIELDS = frozenset(
 _NON_NULLABLE_FIELDS = frozenset(
     {"name", "temperature", "max_tokens", "system_prompt", "is_active", "code_mode"}
 )
+
+
+def prompt_fingerprint(prompt: str) -> str:
+    """The app's mark on a prompt it wrote. Compared, never displayed."""
+    return sha256(prompt.encode()).hexdigest()
+
+
+def stamped(definition: dict[str, Any]) -> dict[str, Any]:
+    """An agent definition carrying the fingerprint of its own prompt, so
+    a row seeded from it can later tell whether a person rewrote it."""
+    return {
+        **definition,
+        "prompt_fingerprint": prompt_fingerprint(definition["system_prompt"]),
+    }
+
+
+def edited_by_hand(agent: Agent) -> bool:
+    """Whether the prompt on the row is no longer the one the app wrote.
+    Unknown (no fingerprint) reads as False: nothing to protect."""
+    return (
+        agent.prompt_fingerprint is not None
+        and prompt_fingerprint(agent.system_prompt) != agent.prompt_fingerprint
+    )
 
 
 def _validate_changes(changes: dict[str, Any]) -> None:

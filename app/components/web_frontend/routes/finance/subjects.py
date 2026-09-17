@@ -86,9 +86,7 @@ async def chips(service: FinanceService, current: str | None) -> dict[str, Any]:
     chosen = current if current in (OURS, ALL) else (current or OURS)
     held = []
     for subject in subjects:
-        rows, total = await service.list_accounts(
-            page_size=1, subject_id=subject.id
-        )
+        rows, total = await service.list_accounts(page_size=1, subject_id=subject.id)
         if total:
             held.append(
                 {
@@ -101,10 +99,7 @@ async def chips(service: FinanceService, current: str | None) -> dict[str, Any]:
     return {
         "whose_options": [
             {"key": OURS, "label": "Ours"},
-            *[
-                {"key": str(subject.id), "label": subject.name}
-                for subject in subjects
-            ],
+            *[{"key": str(subject.id), "label": subject.name} for subject in subjects],
             {"key": ALL, "label": "Everyone"},
         ],
         "whose": chosen,
@@ -159,7 +154,10 @@ async def who_and_where(
         for bank in await service.list_institutions(owner_user_id=owner_user_id):
             if bank.id == account.institution_id:
                 held_party_id = bank.party_id
-    for role, party_id in (("Whose money", subject_party_id), ("Held with", held_party_id)):
+    for role, party_id in (
+        ("Whose money", subject_party_id),
+        ("Held with", held_party_id),
+    ):
         if not party_id:
             continue
         party = await parties.get(party_id)
@@ -179,9 +177,7 @@ async def who_and_where(
                 "party_id": party.id,
                 "name": party.name,
                 "contact": {
-                    key: value
-                    for key, value in (party.contact or {}).items()
-                    if value
+                    key: value for key, value in (party.contact or {}).items() if value
                 },
                 # The way IN, named but never opened here: the password
                 # lives one deliberate click away, on the party.

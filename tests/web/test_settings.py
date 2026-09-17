@@ -46,9 +46,7 @@ class TestNav:
         assert nav(page) == [label for _key, label, _suffix in TABS]
         current = one(page, '#settings-nav a[aria-current="page"]')
         assert text(current) == "Connections"
-        for path in (
-            f"/settings{suffix}" for _key, _label, suffix in TABS if suffix
-        ):
+        for path in (f"/settings{suffix}" for _key, _label, suffix in TABS if suffix):
             marked = one(client.get(path).text, '#settings-nav a[aria-current="page"]')
             assert marked.get("href") == path
 

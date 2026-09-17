@@ -20,6 +20,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
 from app.core.encryption import decrypt_secret, encrypt_secret
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections import snaptrade_mapping
@@ -28,7 +29,6 @@ from app.services.finance.adapters.providers.connections.common import (
     SyncResult,
     _recompute_net_worth,
     _to_cents,
-    _utcnow,
     finished,
     list_provider_connections,
 )
@@ -297,7 +297,7 @@ async def _upsert_snaptrade_accounts(
         account.name = name
         account.mask = mask
         account.current_balance = _to_cents(total.get("amount"))
-        account.balance_as_of = _utcnow()
+        account.balance_as_of = utcnow()
         account.deleted_at = None
         db.add(account)
         await db.flush()
@@ -337,7 +337,7 @@ async def _apply_snaptrade_positions(
             owner_user_id=owner_user_id,
             account_id=account_id,
             security_id=security.id,
-            as_of_date=_utcnow().date(),
+            as_of_date=utcnow().date(),
             quantity_e8=round(units * 10**8),
             price=price_cents,
             cost_basis=(
@@ -432,11 +432,11 @@ async def sync_snaptrade_connection(
     re-opens from there (minus a small overlap) and the activity-id dedup
     absorbs the overlap, mirroring the Plaid investments lane.
     """
-    _started = _utcnow()
+    _started = utcnow()
     client = client or SnapTradeClient()
     service = FinanceService(db)
     result = SyncResult(connection_id=connection.id)
-    connection.last_sync_attempt_at = _utcnow()
+    connection.last_sync_attempt_at = utcnow()
     if not connection.access_token_encrypted or not connection.provider_item_id:
         return result
     user_id = "" if client.is_personal else _snaptrade_user_id(connection.owner_user_id)
@@ -453,7 +453,7 @@ async def sync_snaptrade_connection(
     account_map = await _upsert_snaptrade_accounts(db, service, connection, accounts)
     result.accounts = len(account_map)
 
-    today = _utcnow().date()
+    today = utcnow().date()
     last_pull = (
         date.fromisoformat(connection.sync_cursor) if connection.sync_cursor else None
     )

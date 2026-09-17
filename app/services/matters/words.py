@@ -35,6 +35,16 @@ ITEM_STATUS_LABELS: dict[str, str] = {
     "waived": "Waived",
 }
 
+# The verb that PUTS an ask in a state: generic, one word where it can
+# be. The state itself is named above; "Complete" is what you do, and
+# "Satisfied" is what it then reads as.
+ITEM_VERBS: dict[str, str] = {
+    "satisfied": "Complete",
+    "not_applicable": "Not applicable",
+    "waived": "Waived",
+    "needed": "Reopen",
+}
+
 REQUEST_STATUS_LABELS: dict[str, str] = {
     "open": "open",
     "satisfied": "satisfied",
@@ -50,6 +60,12 @@ WORDS: dict[str, str] = {
     # One demand inside a request.
     "ask": "ask",
     "add_ask": "Add an ask",
+    # The verbs on one ask.
+    "edit": "Edit",
+    "attach": "Attach a document",
+    "replace": "Replace the document",
+    "remove": "Remove the document",
+    "mark_as": "Mark as",
     # One letter's demands, and the deadline that came with them.
     "request": "request",
     "add_request": "Record a request",
@@ -63,6 +79,22 @@ WORDS: dict[str, str] = {
     "can_say": "What we can say",
     "paper": "Paper on this matter",
     "add_paper": "Add a document",
+    # A contact's own page.
+    "reach": "How to reach them",
+    "held_here": "Accounts held here",
+    "their_money": "Their accounts",
+    "matters_in": "Matters they are in",
+    "says": "What they say",
+    "about": "What we can say about them",
+    "letters_from": "Letters from them",
+    "their_paper": "Their paper",
+    "their_paper_is": "Statements, notices and letters that are theirs, filed here whatever matter later needs them",
+    "signins": "Sign-ins",
+    "policies": "Policies",
+    "covered_by": "Covered by",
+    "add_policy": "Add a policy",
+    "record_claim": "Record a claim",
+    "edit_contact": "Edit",
 }
 
 
@@ -78,3 +110,13 @@ def role_label(role: str) -> str:
 
 def item_status(status: str) -> str:
     return ITEM_STATUS_LABELS.get(status, status.replace("_", " ").title())
+
+
+def item_kind(kind: str) -> str:
+    from app.services.matters.models import ITEM_KINDS
+
+    return dict(ITEM_KINDS).get(kind, kind.replace("_", " ").title())
+
+
+def item_verb(status: str) -> str:
+    return ITEM_VERBS.get(status, item_status(status))

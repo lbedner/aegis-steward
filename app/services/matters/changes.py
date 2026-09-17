@@ -20,9 +20,16 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.schema import known
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.matters.facts import ATTRIBUTE_KEYS, LABELS, monthly_cents
-from app.services.matters.models import FACT_PERIODS, FACT_PROVENANCE
+from app.services.matters.models import (
+    CONTACT_FIELDS,
+    FACT_PERIODS,
+    FACT_PROVENANCE,
+    ITEM_KINDS,
+    PARTY_KINDS,
+)
 
 
 class RecordFactPayload(BaseModel):
@@ -52,26 +59,11 @@ class RecordFactPayload(BaseModel):
     source_note: str | None = None
     note: str | None = None
 
-    @field_validator("attribute")
-    @classmethod
-    def _known_attribute(cls, value: str) -> str:
-        if value not in ATTRIBUTE_KEYS:
-            raise ValueError(f"One of: {', '.join(ATTRIBUTE_KEYS)}.")
-        return value
+    _known_attribute = field_validator("attribute")(known(ATTRIBUTE_KEYS))
 
-    @field_validator("period")
-    @classmethod
-    def _known_period(cls, value: str) -> str:
-        if value not in FACT_PERIODS:
-            raise ValueError(f"One of: {', '.join(FACT_PERIODS)}.")
-        return value
+    _known_period = field_validator("period")(known(FACT_PERIODS))
 
-    @field_validator("provenance")
-    @classmethod
-    def _known_provenance(cls, value: str) -> str:
-        if value not in FACT_PROVENANCE:
-            raise ValueError(f"One of: {', '.join(FACT_PROVENANCE)}.")
-        return value
+    _known_provenance = field_validator("provenance")(known(FACT_PROVENANCE))
 
 
 async def record_fact_execute(
@@ -143,4 +135,239 @@ async def record_fact_describe(
     if payload.source_note:
         source = f"{source} · {payload.source_note}"
     rows.append(ChangeDisplayRow(label="How it is known", value=source))
+    return rows
+
+
+# --- Asks: what a letter obliges you to produce -------------------------
+#
+# Illiana reads the letter (``paper``) and the asks (``requests``) and can
+# see when they disagree - "the letter says July 1 and NYSLRS; the ask
+# says August 1 and IBEW". Without a change type she can only say so.
+# These let her propose the correction, and the person approves it the
+# way every other write is approved.
+
+ITEM_KIND_KEYS = tuple(key for key, _label in ITEM_KINDS)
+
+
+def known_item_kind(value: str | None) -> str | None:
+    """The one rule for what an ask's ``kind`` may be, for every payload
+    that carries one."""
+    if value is not None and value not in ITEM_KIND_KEYS:
+        raise ValueError(f"kind must be one of {', '.join(ITEM_KIND_KEYS)}")
+    return value
+
+
+class AmendAskPayload(BaseModel):
+    """Correct an ask: its wording, the kind of work, or the date it is
+    asked as of. Only what is given changes; the rest stands."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int
+    asked: str | None = None
+    kind: str | None = None
+    as_of: date | None = None
+    reason: str | None = None
+
+    _kind_is_known = field_validator("kind")(known_item_kind)
+
+
+class AddAskPayload(BaseModel):
+    """A new ask on a request - one the letter makes and the record
+    does not yet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: int
+    asked: str
+    kind: str = "document"
+    as_of: date | None = None
+    reason: str | None = None
+
+    _kind_is_known = field_validator("kind")(known_item_kind)
+
+
+async def amend_ask_execute(
+    db: AsyncSession, payload: AmendAskPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.requests import RequestService
+
+    item = await RequestService(db).amend(
+        payload.item_id, asked=payload.asked, kind=payload.kind, as_of=payload.as_of
+    )
+    if item is None:
+        raise ValueError(f"No ask with id {payload.item_id}")
+    await db.flush()
+    return {"item_id": item.id, "asked": item.asked}
+
+
+async def amend_ask_describe(
+    db: AsyncSession, payload: AmendAskPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    """The card: what it says now, what it would say, and why."""
+    from app.services.matters.requests import RequestService
+    from app.services.matters.words import item_kind
+
+    item = await RequestService(db).item(payload.item_id)
+    rows = [ChangeDisplayRow(label="Ask", value=item.asked if item else "Unknown")]
+    if payload.asked is not None:
+        rows.append(ChangeDisplayRow(label="Would read", value=payload.asked))
+    if payload.kind is not None:
+        rows.append(ChangeDisplayRow(label="Kind", value=item_kind(payload.kind)))
+    if payload.as_of is not None:
+        rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))
+    if payload.reason:
+        rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
+    return rows
+
+
+async def add_ask_execute(
+    db: AsyncSession, payload: AddAskPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.requests import RequestService
+
+    item = await RequestService(db).add_item(
+        payload.request_id, asked=payload.asked, kind=payload.kind, as_of=payload.as_of
+    )
+    await db.flush()
+    return {"item_id": item.id, "asked": item.asked}
+
+
+async def add_ask_describe(
+    db: AsyncSession, payload: AddAskPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.matters.requests import RequestService
+    from app.services.matters.words import item_kind
+
+    request = await RequestService(db).get(payload.request_id)
+    rows = [
+        ChangeDisplayRow(
+            label="On the request",
+            value=f"due {request.due_on.isoformat()}"
+            if request and request.due_on
+            else "-",
+        ),
+        ChangeDisplayRow(label="Ask", value=payload.asked),
+        ChangeDisplayRow(label="Kind", value=item_kind(payload.kind)),
+    ]
+    if payload.as_of is not None:
+        rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))
+    if payload.reason:
+        rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
+    return rows
+
+
+class AttachAskPayload(BaseModel):
+    """The paper on the shelf that answers an ask. Attaching IS the
+    answer, as it is from the matter page; the document is filed on the
+    matter as well, so the case's paper stays findable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int
+    document_id: int
+    reason: str | None = None
+
+
+async def attach_ask_execute(
+    db: AsyncSession, payload: AttachAskPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.documents.service import DocumentService
+    from app.services.matters.models import matter_tag
+    from app.services.matters.requests import RequestService
+
+    requests = RequestService(db)
+    item = await requests.item(payload.item_id)
+    if item is None:
+        raise ValueError(f"No ask with id {payload.item_id}")
+    request = await requests.get(item.request_id)
+    documents = DocumentService(db)
+    document = await documents.get(payload.document_id)
+    if document is None or request is None:
+        raise ValueError(f"No document with id {payload.document_id}")
+    await documents.tag(document.id, matter_tag(request.matter_id))
+    await requests.attach(item.id, document.id, document.title)
+    await db.flush()
+    return {"item_id": item.id, "document_id": document.id}
+
+
+async def attach_ask_describe(
+    db: AsyncSession, payload: AttachAskPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.documents.service import DocumentService
+    from app.services.matters.requests import RequestService
+
+    item = await RequestService(db).item(payload.item_id)
+    document = await DocumentService(db).get(payload.document_id)
+    rows = [
+        ChangeDisplayRow(label="Ask", value=item.asked if item else "-"),
+        ChangeDisplayRow(label="Document", value=document.title if document else "-"),
+    ]
+    if payload.reason:
+        rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
+    return rows
+
+
+class CreateContactPayload(BaseModel):
+    """A person or an organization named for the first time, with how
+    to reach them. Never deduplicated by name: two "Bedner"s are two
+    people until somebody says otherwise."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: str = "person"
+    address: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
+    note: str | None = None
+
+    _known_kind = field_validator("kind")(known(PARTY_KINDS))
+
+    @field_validator("name")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("A contact needs a name.")
+        return value
+
+    def reach(self) -> dict[str, str]:
+        return {
+            key: value.strip()
+            for key, _label in CONTACT_FIELDS
+            if (value := getattr(self, key)) and value.strip()
+        }
+
+
+async def create_contact_execute(
+    db: AsyncSession, payload: CreateContactPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.service import PartyService
+
+    party = await PartyService(db).create(
+        name=payload.name,
+        kind=payload.kind,
+        owner_user_id=owner_user_id,
+        contact=payload.reach(),
+        note=payload.note,
+    )
+    await db.flush()
+    return {"party_id": party.id, "name": party.name}
+
+
+async def create_contact_describe(
+    db: AsyncSession, payload: CreateContactPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    rows = [
+        ChangeDisplayRow(label="Contact", value=payload.name),
+        ChangeDisplayRow(label="Kind", value=payload.kind),
+    ]
+    labels = dict(CONTACT_FIELDS)
+    rows.extend(
+        ChangeDisplayRow(label=labels[key], value=value)
+        for key, value in payload.reach().items()
+    )
+    if payload.note:
+        rows.append(ChangeDisplayRow(label="Note", value=payload.note))
     return rows

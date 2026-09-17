@@ -6,9 +6,9 @@ a full page inside the app shell and a bare fragment for htmx.
 """
 
 import json
-from typing import Any
+from typing import Any, TypeVar
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from starlette.responses import Response
@@ -20,6 +20,7 @@ from app.components.web_frontend.glyphs import (
     account_glyph,
     category_glyph,
     file_badge,
+    file_badge_table,
 )
 from app.components.web_frontend.nav import NAV
 from app.core.config import settings
@@ -47,12 +48,14 @@ templates.env.globals["nav"] = NAV
 templates.env.globals["category_glyph"] = category_glyph
 templates.env.globals["account_glyph"] = account_glyph
 templates.env.globals["file_badge"] = file_badge
+templates.env.globals["file_badge_table"] = file_badge_table
 
 # The matters vocabulary: every string those pages say comes from one
 # module, so a status spelled in a template cannot drift from the same
 # status spelled in another.
 from app.services.matters.words import (  # noqa: E402
     item_status,
+    item_verb,
     role_label,
     word,
 )
@@ -60,6 +63,7 @@ from app.services.matters.words import (  # noqa: E402
 templates.env.globals["word"] = word
 templates.env.filters["role_label"] = role_label
 templates.env.filters["item_status"] = item_status
+templates.env.filters["item_verb"] = item_verb
 templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.
@@ -68,6 +72,8 @@ templates.env.globals["assistant"] = assistant("finance-assistant")
 # The "everything" window, so a template can tell a default chip from a
 # chosen one without importing the module.
 templates.env.globals["all_days"] = ranges.ALL
+
+T = TypeVar("T")
 
 
 def hx_dialog(url: str, extra: str = "") -> Markup:
@@ -106,10 +112,16 @@ def hx_filter(url: str, target: str) -> Markup:
     never swapped. Swapping it takes the caret and the focus with it, and
     the next keystroke lands nowhere. No pushed URL either — a dialog's
     search is not a place you navigate back to.
+
+    ``hx-disinherit`` because htmx hands these attributes down to every
+    element inside the form, and an opener placed beside the search box
+    borrowed the ``hx-select``: the dialog's answer was narrowed to an
+    element it does not contain and the modal opened empty.
     """
     return Markup(
         f'hx-get="{escape(url)}" hx-target="{escape(target)}" '
-        f'hx-select="{escape(target)}" hx-swap="outerHTML"'
+        f'hx-select="{escape(target)}" hx-swap="outerHTML" '
+        'hx-disinherit="hx-get hx-target hx-select hx-swap"'
     )
 
 
@@ -146,6 +158,30 @@ def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
 
 
 templates.env.globals["hx_replace"] = hx_replace
+
+
+def hx_swap(url: str, target: str, verb: str = "get") -> Markup:
+    """The attributes for "this block answers with itself" (pattern 2 on
+    a block): a verb on ``url`` whose response is the whole ``target``,
+    swapped in place. Sign-ins, policies, the budget's suggestions - a
+    block every verb re-renders. No pushed URL and no select: the
+    response IS the block."""
+    return Markup(
+        f'hx-{verb}="{escape(url)}" hx-target="{escape(target)}" hx-swap="outerHTML"'
+    )
+
+
+templates.env.globals["hx_swap"] = hx_swap
+
+
+def hx_lazy(url: str) -> Markup:
+    """The attributes for a card that fetches its body once the page is
+    up: a placeholder that asks for ``url`` on load and is replaced by
+    the answer."""
+    return Markup(f'hx-get="{escape(url)}" hx-trigger="load" hx-swap="outerHTML"')
+
+
+templates.env.globals["hx_lazy"] = hx_lazy
 templates.env.globals["hx_page"] = hx_page
 templates.env.globals["hx_filter"] = hx_filter
 templates.env.globals["hx_dialog"] = hx_dialog
@@ -294,3 +330,11 @@ def dialog_done(path: str, toast: str) -> Response:
     response = Response(status_code=200)
     navigate(response, path)
     return close_dialog(with_toast(response, toast))
+
+
+def or_404(row: T | None) -> T:
+    """The row, or the one 404 every route raises when a URL names a
+    thing that is not there."""
+    if row is None:
+        raise HTTPException(status_code=404)
+    return row

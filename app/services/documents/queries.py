@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import func
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.documents.models import Document, DocumentPage, DocumentTag, utcnow
@@ -200,3 +200,23 @@ async def page_for(
             )
         )
     ).first()
+
+
+async def document_ids_by_tag_prefix(
+    db: AsyncSession, prefix: str
+) -> dict[str, list[int]]:
+    """Every live document under each label starting with ``prefix``, in
+    one query - the contacts tool asks for all parties' paper at once."""
+    rows = (
+        await db.exec(
+            select(DocumentTag.label, DocumentTag.document_id)
+            .join(Document, Document.id == DocumentTag.document_id)
+            .where(col(DocumentTag.label).startswith(prefix))
+            .where(col(Document.deleted_at).is_(None))
+            .order_by(col(DocumentTag.document_id).desc())
+        )
+    ).all()
+    grouped: dict[str, list[int]] = {}
+    for label, document_id in rows:
+        grouped.setdefault(str(label), []).append(int(document_id))
+    return grouped

@@ -39,6 +39,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     render,
     templates,
     with_toast,
@@ -308,8 +309,7 @@ async def line_transactions(
         ),
         None,
     )
-    if line is None:
-        raise HTTPException(status_code=404)
+    or_404(line)
     return dialog(
         request,
         "partials/transactions_dialog.html",

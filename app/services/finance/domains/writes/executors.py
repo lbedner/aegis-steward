@@ -8,8 +8,15 @@ debt costs); importing this module arms the whole surface.
 
 from __future__ import annotations
 
-from app.services.finance.domains.writes import accounts, curation, structure, terms
+from app.services.finance.domains.writes import (
+    accounts,
+    curation,
+    filing,
+    structure,
+    terms,
+)
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
+from app.services.insurance import changes as insurance
 from app.services.matters import changes as matters
 
 register(
@@ -60,10 +67,10 @@ register(
 register(
     ChangeExecutor(
         change_type="document.file",
-        title="File a document against an account",
-        payload_model=terms.FileDocumentPayload,
-        execute=terms.file_document_execute,
-        describe=terms.file_document_describe,
+        title="File a document where it belongs",
+        payload_model=filing.FileDocumentPayload,
+        execute=filing.file_document_execute,
+        describe=filing.file_document_describe,
     )
 )
 register(
@@ -82,6 +89,15 @@ register(
         payload_model=structure.MatchPayload,
         execute=structure.match_execute,
         describe=structure.match_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="recurring.declare",
+        title="Declare a bill or an income",
+        payload_model=structure.DeclarePayload,
+        execute=structure.declare_execute,
+        describe=structure.declare_describe,
     )
 )
 register(
@@ -122,5 +138,79 @@ register(
         payload_model=matters.RecordFactPayload,
         execute=matters.record_fact_execute,
         describe=matters.record_fact_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="ask.amend",
+        title="Correct an ask",
+        payload_model=matters.AmendAskPayload,
+        execute=matters.amend_ask_execute,
+        describe=matters.amend_ask_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="ask.add",
+        title="Add an ask the letter makes",
+        payload_model=matters.AddAskPayload,
+        execute=matters.add_ask_execute,
+        describe=matters.add_ask_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="ask.attach",
+        title="Attach the paper that answers an ask",
+        payload_model=matters.AttachAskPayload,
+        execute=matters.attach_ask_execute,
+        describe=matters.attach_ask_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="contact.create",
+        title="Add a person or an organization",
+        payload_model=matters.CreateContactPayload,
+        execute=matters.create_contact_execute,
+        describe=matters.create_contact_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="recurring.amend",
+        title="Correct a bill or an income",
+        payload_model=structure.AmendPayload,
+        execute=structure.amend_execute,
+        describe=structure.amend_describe,
+    )
+)
+
+# Insurance: the plan document proposes the policy, the EOB the claim.
+register(
+    ChangeExecutor(
+        change_type="policy.create",
+        title="Record an insurance policy",
+        payload_model=insurance.PolicyCreatePayload,
+        execute=insurance.policy_create_execute,
+        describe=insurance.policy_create_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="claim.record",
+        title="Record a claim as the insurer settled it",
+        payload_model=insurance.ClaimRecordPayload,
+        execute=insurance.claim_record_execute,
+        describe=insurance.claim_record_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="claim.paid",
+        title="Match a charge to a claim",
+        payload_model=insurance.ClaimPaidPayload,
+        execute=insurance.claim_paid_execute,
+        describe=insurance.claim_paid_describe,
     )
 )

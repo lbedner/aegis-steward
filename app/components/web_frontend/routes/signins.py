@@ -19,17 +19,17 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog
+from app.components.web_frontend.rendering import dialog, or_404
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import place_book
 from app.services.matters.service import PartyService, party_or_new
 from app.services.matters.signins import SignInService, drawn
 
-SECTION = section("settings")
+SECTION = section("contacts")
 router = APIRouter(prefix=SECTION.path)
 
-SIGN_IN = "/people/signins/{sign_in_id:int}"
+SIGN_IN = "/signins/{sign_in_id:int}"
 
 
 async def signins_for(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
@@ -44,10 +44,14 @@ async def signins_at(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
     pointed straight at it, because the list only ever read one side of
     the link.
     """
-    names = {party.id: party.name for party in await PartyService(db).find()}
+    names = await PartyService(db).names()
     book = await place_book(db)
     return [
-        {**drawn(one, book), "whose": names.get(one.party_id, "")}
+        {
+            **drawn(one, book),
+            "whose": names.get(one.party_id, ""),
+            "whose_id": one.party_id,
+        }
         for one in await SignInService(db).at_site(party_id)
     ]
 
@@ -62,11 +66,15 @@ async def _block(
     status_code: int = 200,
 ) -> Response:
     book = await place_book(db)
+    party = await PartyService(db).get(party_id)
     return dialog(
         request,
         "partials/settings/signins.html",
         status_code,
         party_id=party_id,
+        # A place is signed IN TO; a person signs in. The block says the
+        # one that is true of this party, and its empty line matches.
+        place=party is not None and party.kind == "organization",
         signins=await signins_for(db, party_id),
         visitors=await signins_at(db, party_id),
         # Somewhere with a website is somewhere you can be sent; the
@@ -82,7 +90,7 @@ async def _block(
     )
 
 
-@router.get("/people/{party_id:int}/signins", include_in_schema=False)
+@router.get("/{party_id:int}/signins", include_in_schema=False)
 async def listing(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         if await PartyService(db).get(party_id) is None:
@@ -90,7 +98,7 @@ async def listing(request: Request, party_id: int) -> Response:
         return await _block(request, db, party_id)
 
 
-@router.get("/people/{party_id:int}/signins/new", include_in_schema=False)
+@router.get("/{party_id:int}/signins/new", include_in_schema=False)
 async def new_signin(request: Request, party_id: int) -> Response:
     async with get_async_session() as db:
         if await PartyService(db).get(party_id) is None:
@@ -104,14 +112,11 @@ async def edit_signin(request: Request, sign_in_id: int) -> Response:
     has put it in the page to save somebody one keystroke."""
     async with get_async_session() as db:
         sign_in = await SignInService(db).get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
-        return await _block(
-            request, db, sign_in.party_id, form=drawn(sign_in)
-        )
+        or_404(sign_in)
+        return await _block(request, db, sign_in.party_id, form=drawn(sign_in))
 
 
-@router.post("/people/{party_id:int}/signins/new", include_in_schema=False)
+@router.post("/{party_id:int}/signins/new", include_in_schema=False)
 async def add_signin(
     request: Request,
     party_id: int,
@@ -184,8 +189,7 @@ async def save_signin(
     async with get_async_session() as db:
         service = SignInService(db)
         sign_in = await service.get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
+        or_404(sign_in)
         try:
             await service.change(
                 sign_in_id,
@@ -219,8 +223,7 @@ async def reveal(request: Request, sign_in_id: int) -> Response:
     async with get_async_session() as db:
         service = SignInService(db)
         sign_in = await service.get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
+        or_404(sign_in)
         secret = await service.reveal(sign_in_id)
         return await _block(
             request,
@@ -235,8 +238,7 @@ async def forget(request: Request, sign_in_id: int) -> Response:
     async with get_async_session() as db:
         service = SignInService(db)
         sign_in = await service.get(sign_in_id)
-        if sign_in is None:
-            raise HTTPException(status_code=404)
+        or_404(sign_in)
         party_id = sign_in.party_id
         await service.forget(sign_in_id)
         await db.commit()

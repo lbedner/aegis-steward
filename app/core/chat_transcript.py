@@ -46,7 +46,7 @@ _ATTACHMENT_MARKER = re.compile(r"\n\n\[attached \d+ images?: [^\]\n]*\]$")
 
 # The service's stored marker for a lifted paste - the format written by
 # ``services/ai/domains/chat/pastes.marker``.
-_PASTE_MARKER = re.compile(r'\[pasted text #[0-9a-f]+[^\]]*\]')
+_PASTE_MARKER = re.compile(r"\[pasted text #[0-9a-f]+[^\]]*\]")
 
 
 def strip_paste_markers(text: str) -> str:

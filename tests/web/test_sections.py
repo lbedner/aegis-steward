@@ -24,6 +24,8 @@ class TestNav:
             "budget",
             "review",
             "matters",
+            "contacts",
+            "documents",
             "chat",
             "settings",
         ]

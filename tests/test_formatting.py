@@ -151,6 +151,9 @@ class TestTheDisplayNameSettings:
     def test_an_explicit_name_wins(self):
         from app.core.config import Settings
 
-        assert Settings(
-            PROJECT_NAME="aegis-steward", PROJECT_DISPLAY_NAME="Steward"
-        ).PROJECT_DISPLAY_NAME == "Steward"
+        assert (
+            Settings(
+                PROJECT_NAME="aegis-steward", PROJECT_DISPLAY_NAME="Steward"
+            ).PROJECT_DISPLAY_NAME
+            == "Steward"
+        )

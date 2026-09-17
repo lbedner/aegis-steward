@@ -373,7 +373,7 @@ class TestFilingADocumentAgainstAnAccount:
     ) -> None:
         from app.services.documents.service import DocumentService
         from app.services.finance.constants import account_tag
-        from app.services.finance.domains.writes.terms import (
+        from app.services.finance.domains.writes.filing import (
             FileDocumentPayload,
             file_document_execute,
         )
@@ -390,15 +390,16 @@ class TestFilingADocumentAgainstAnAccount:
         # The paste is the handle the conversation holds; it points at
         # the document the marker named.
         paste = await store_document(
-            "0", int(document.id), "Amortization_Schedule.pdf", 19_105,
+            "0",
+            int(document.id),
+            "Amortization_Schedule.pdf",
+            19_105,
             async_db_session,
         )
 
         await file_document_execute(
             async_db_session,
-            FileDocumentPayload(
-                paste_id=str(paste["id"]), account_id=int(account.id)
-            ),
+            FileDocumentPayload(paste_id=str(paste["id"]), account_id=int(account.id)),
             None,
         )
         await async_db_session.commit()
@@ -413,7 +414,7 @@ class TestFilingADocumentAgainstAnAccount:
         """A wall of text is not evidence about an account; only a file
         that was attached and read is."""
         from app.services.ai.domains.chat.pastes import store_paste
-        from app.services.finance.domains.writes.terms import (
+        from app.services.finance.domains.writes.filing import (
             FileDocumentPayload,
             file_document_execute,
         )
@@ -439,7 +440,7 @@ class TestFilingADocumentAgainstAnAccount:
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         from app.services.ai.domains.chat.pastes import store_document
-        from app.services.finance.domains.writes.terms import (
+        from app.services.finance.domains.writes.filing import (
             FileDocumentPayload,
             file_document_describe,
         )
@@ -453,15 +454,13 @@ class TestFilingADocumentAgainstAnAccount:
 
         rows = await file_document_describe(
             async_db_session,
-            FileDocumentPayload(
-                paste_id=str(paste["id"]), account_id=int(account.id)
-            ),
+            FileDocumentPayload(paste_id=str(paste["id"]), account_id=int(account.id)),
             None,
         )
 
         assert {r.label: r.value for r in rows} == {
             "Document": "Amortization_Schedule.pdf",
-            "File against": "Citizens",
+            "File under": "Citizens",
         }
 
     def test_the_prompt_says_to_file_it_when_it_is_matched(self) -> None:
@@ -471,6 +470,72 @@ class TestFilingADocumentAgainstAnAccount:
 
         assert "document.file" in FINANCE_CHAT_SYSTEM_PROMPT
         assert "in the same turn you read it" in FINANCE_CHAT_SYSTEM_PROMPT
+
+
+class TestFilingADocumentWithAContactOrMatter:
+    """Six Delta Dental documents were read in one turn and could go
+    nowhere: document.file took an account and nothing else. An
+    insurer's paper is the insurer's."""
+
+    async def _paste(self, db: AsyncSession, title: str) -> str:
+        from app.services.ai.domains.chat.pastes import store_document
+        from app.services.documents.service import DocumentService
+
+        document = await DocumentService(db).ingest(
+            b"%PDF-1.4 " + title.encode(), title=title
+        )
+        paste = await store_document("0", int(document.id), title, 1_000, db)
+        return str(paste["id"])
+
+    @pytest.mark.asyncio
+    async def test_filed_with_a_contact_it_is_on_their_paper(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.service import DocumentService
+        from app.services.finance.domains.writes.filing import (
+            FileDocumentPayload,
+            file_document_describe,
+            file_document_execute,
+        )
+        from app.services.matters.models import party_tag
+        from app.services.matters.service import PartyService
+
+        insurer = await PartyService(async_db_session).create(
+            name="Delta Dental of New York", kind="organization"
+        )
+        paste_id = await self._paste(async_db_session, "ppo_policy_document.pdf")
+        payload = FileDocumentPayload(paste_id=paste_id, party_id=int(insurer.id))
+
+        said = {
+            r.label: r.value
+            for r in await file_document_describe(async_db_session, payload, None)
+        }
+        assert said["File under"] == "Delta Dental of New York"
+
+        await file_document_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+        filed, _ = await DocumentService(async_db_session).list_documents(
+            tag=party_tag(int(insurer.id))
+        )
+        assert [d.title for d in filed] == ["ppo_policy_document.pdf"]
+
+    def test_it_goes_to_exactly_one_place(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.finance.domains.writes.filing import FileDocumentPayload
+
+        with pytest.raises(ValidationError):
+            FileDocumentPayload(paste_id="x")
+        with pytest.raises(ValidationError):
+            FileDocumentPayload(paste_id="x", account_id=1, party_id=2)
+
+    def test_the_prompt_says_a_set_is_proposals(self) -> None:
+        from app.services.finance.domains.detection.analyst.prompts import (
+            FINANCE_CHAT_SYSTEM_PROMPT,
+        )
+
+        assert "party_id" in FINANCE_CHAT_SYSTEM_PROMPT
+        assert "never instead of them" in FINANCE_CHAT_SYSTEM_PROMPT
 
 
 class TestRecordingWhatAnAssetWasWorth:
@@ -597,10 +662,17 @@ class TestRecordingWhatAnAssetWasWorth:
             ValuationPayload(
                 account_id=int(house.id),
                 points=[
-                    {"as_of_date": date(2026, 8, 1), "value": 71_120_000,
-                     "note": "Zestimate", "is_estimate": True},
-                    {"as_of_date": date(2015, 11, 18), "value": 28_500_000,
-                     "note": "Sold"},
+                    {
+                        "as_of_date": date(2026, 8, 1),
+                        "value": 71_120_000,
+                        "note": "Zestimate",
+                        "is_estimate": True,
+                    },
+                    {
+                        "as_of_date": date(2015, 11, 18),
+                        "value": 28_500_000,
+                        "note": "Sold",
+                    },
                 ],
             ),
             1,

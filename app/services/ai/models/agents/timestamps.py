@@ -8,9 +8,11 @@ quietly, so an aware default can sit in a model looking fine until the first
 update comes through the API.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.core.clock import utcnow
 
 
 def utcnow_naive() -> datetime:
     """UTC timestamp stored as a naive datetime, for SQLite/Postgres parity."""
-    return datetime.now(UTC).replace(tzinfo=None)
+    return utcnow()

@@ -10,7 +10,7 @@ from tests.web.dom import none, one, select, text
 
 def _party(client: TestClient, name: str, kind: str) -> None:
     client.post(
-        "/settings/people/new",
+        "/contacts/new",
         data={"name": name, "kind": kind, "sort_name": "", "note": ""},
     )
 
@@ -32,10 +32,10 @@ class TestTheMattersPage:
         so opening a matter writes the links too."""
         _party(client, "James Bedner", "person")
         _party(client, "Dutchess County DSS", "organization")
-        people = client.get("/settings/people").text
+        people = client.get("/contacts").text
         ids = [
             el.get("hx-get").rsplit("/", 1)[-1]
-            for el in select(people, "#people tbody [data-open]")
+            for el in select(people, "#contacts tbody [data-open]")
         ]
 
         client.post(
@@ -174,7 +174,9 @@ class TestWhatWasAskedFor:
         )
         items = select(client.get(page).text, "#matter-requests [data-item]")
 
-        answer = client.post(f"/matters/requests/items/{items[0].get('data-item')}/mark/satisfied")
+        answer = client.post(
+            f"/matters/requests/items/{items[0].get('data-item')}/mark/satisfied"
+        )
 
         assert answer.status_code == 200
         none(answer.text, "html")
@@ -208,7 +210,9 @@ class TestWhatWasAskedFor:
         item = one(client.get(page).text, "#matter-requests [data-item]")
 
         client.post(f"/matters/requests/items/{item.get('data-item')}/mark/waived")
-        back = client.post(f"/matters/requests/items/{item.get('data-item')}/mark/needed")
+        back = client.post(
+            f"/matters/requests/items/{item.get('data-item')}/mark/needed"
+        )
 
         assert text(one(back.text, "[data-standing]")) == "0 of 1"
 
@@ -225,7 +229,9 @@ class TestWhatWasAskedFor:
         client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
         item = one(client.get(page).text, "#matter-requests [data-item]")
 
-        answer = client.post(f"/matters/requests/items/{item.get('data-item')}/mark/lost")
+        answer = client.post(
+            f"/matters/requests/items/{item.get('data-item')}/mark/lost"
+        )
 
         assert answer.status_code == 400
 
@@ -243,9 +249,7 @@ class TestThePaperThatAnswers:
         item = one(client.get(page).text, "#matter-requests [data-item]")
         return page, str(item.get("data-item"))
 
-    def test_adding_one_files_it_and_answers_the_item(
-        self, client: TestClient
-    ) -> None:
+    def test_adding_one_files_it_and_answers_the_item(self, client: TestClient) -> None:
         from tests._pdf import pdf_bytes
 
         page, item_id = self._item(client, "MA-DOC-1")
@@ -253,7 +257,9 @@ class TestThePaperThatAnswers:
 
         answer = client.post(
             base + "/attach",
-            files={"file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")},
+            files={
+                "file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")
+            },
         )
         assert answer.status_code == 200
 
@@ -272,7 +278,9 @@ class TestThePaperThatAnswers:
         page, item_id = self._item(client, "MA-DOC-2")
         client.post(
             f"/matters/requests/items/{item_id}/attach",
-            files={"file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")},
+            files={
+                "file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")
+            },
         )
         door = one(client.get(page).text, "#matter-requests [data-document]")
 
@@ -355,9 +363,9 @@ class TestWhatWeCanSay:
 
     def _party(self, client: TestClient, name: str) -> str:
         _party(client, name, "person")
-        people = client.get(f"/settings/people?q={name}").text
+        people = client.get(f"/contacts?q={name}").text
         return str(
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
@@ -392,9 +400,7 @@ class TestWhatWeCanSay:
         assert "$1,521.88" in text(one(row, "[data-monthly]"))
         assert "Read off the pension portal" in text(row)
 
-    def test_two_sources_can_disagree_and_both_stand(
-        self, client: TestClient
-    ) -> None:
+    def test_two_sources_can_disagree_and_both_stand(self, client: TestClient) -> None:
         page = _matter(client, "MA-FACT-2")
         subject = self._party(client, "Fact Subject Two")
         for amount, provenance in (("2075.00", "ledger"), ("2180.40", "stated")):
@@ -466,9 +472,9 @@ class TestSignIns:
 
     def _party(self, client: TestClient, name: str) -> str:
         _party(client, name, "person")
-        people = client.get(f"/settings/people?q={name}").text
+        people = client.get(f"/contacts?q={name}").text
         return str(
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
@@ -479,7 +485,7 @@ class TestSignIns:
         party_id = self._party(client, "Signin Subject One")
 
         added = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={
                 "label": "IBEW pension portal",
                 "url": "pensionportal.example.com",
@@ -497,30 +503,26 @@ class TestSignIns:
             "https://pensionportal.example.com"
         )
 
-        shown = client.post(
-            f"/settings/people/signins/{row.get('data-signin')}/reveal"
-        )
+        shown = client.post(f"/contacts/signins/{row.get('data-signin')}/reveal")
         assert text(one(shown.text, "[data-secret]")) == "correct-horse"
 
         # And it is gone again on the next draw.
-        again = client.get(f"/settings/people/{party_id}/signins")
+        again = client.get(f"/contacts/{party_id}/signins")
         assert select(again.text, "[data-secret]") == []
 
-    def test_editing_the_username_keeps_the_password(
-        self, client: TestClient
-    ) -> None:
+    def test_editing_the_username_keeps_the_password(self, client: TestClient) -> None:
         party_id = self._party(client, "Signin Subject Two")
         added = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={"label": "Portal", "username": "old", "secret": "keep-me"},
         )
         sign_in_id = one(added.text, "#sign-ins [data-signin]").get("data-signin")
 
         client.post(
-            f"/settings/people/signins/{sign_in_id}",
+            f"/contacts/signins/{sign_in_id}",
             data={"label": "Portal", "username": "new", "secret": ""},
         )
-        shown = client.post(f"/settings/people/signins/{sign_in_id}/reveal")
+        shown = client.post(f"/contacts/signins/{sign_in_id}/reveal")
 
         assert text(one(shown.text, "[data-username]")) == "new"
         assert text(one(shown.text, "[data-secret]")) == "keep-me"
@@ -529,7 +531,7 @@ class TestSignIns:
         party_id = self._party(client, "Signin Subject Three")
 
         answer = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={"label": " ", "secret": "x"},
         )
 
@@ -539,12 +541,12 @@ class TestSignIns:
 
 
 def test_a_fact_links_the_site_it_was_read_off(client: TestClient) -> None:
-    """"Read off the pension portal" is a note, not a way back."""
+    """ "Read off the pension portal" is a note, not a way back."""
     page = _matter(client, "MA-URL-1")
     _party(client, "Url Subject", "person")
-    people = client.get("/settings/people?q=Url Subject").text
+    people = client.get("/contacts?q=Url Subject").text
     subject = (
-        select(people, "#people tbody [data-open]")[-1]
+        select(people, "#contacts tbody [data-open]")[-1]
         .get("hx-get")
         .rsplit("/", 1)[-1]
     )
@@ -572,9 +574,9 @@ def test_a_link_that_is_not_a_link_is_refused(client: TestClient) -> None:
     href is a script the page runs."""
     page = _matter(client, "MA-URL-2")
     _party(client, "Url Subject Two", "person")
-    people = client.get("/settings/people?q=Url Subject Two").text
+    people = client.get("/contacts?q=Url Subject Two").text
     subject = (
-        select(people, "#people tbody [data-open]")[-1]
+        select(people, "#contacts tbody [data-open]")[-1]
         .get("hx-get")
         .rsplit("/", 1)[-1]
     )
@@ -599,7 +601,7 @@ class TestAPlace:
 
     def _org(self, client: TestClient, name: str, website: str) -> str:
         client.post(
-            "/settings/people/new",
+            "/contacts/new",
             data={
                 "name": name,
                 "kind": "organization",
@@ -608,22 +610,20 @@ class TestAPlace:
                 "note": "",
             },
         )
-        people = client.get(f"/settings/people?q={name}").text
+        people = client.get(f"/contacts?q={name}").text
         return str(
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
 
-    def test_a_fact_names_the_place_it_was_read_off(
-        self, client: TestClient
-    ) -> None:
+    def test_a_fact_names_the_place_it_was_read_off(self, client: TestClient) -> None:
         page = _matter(client, "MA-PLACE-1")
         place = self._org(client, "Place Pension Fund", "placepension.example.com")
         _party(client, "Place Subject One", "person")
-        people = client.get("/settings/people?q=Place Subject One").text
+        people = client.get("/contacts?q=Place Subject One").text
         subject = (
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
@@ -656,15 +656,15 @@ class TestAPlace:
     def test_a_sign_in_points_at_the_same_place(self, client: TestClient) -> None:
         place = self._org(client, "Place Portal Co", "placeportal.example.com")
         _party(client, "Place Subject Two", "person")
-        people = client.get("/settings/people?q=Place Subject Two").text
+        people = client.get("/contacts?q=Place Subject Two").text
         party_id = (
-            select(people, "#people tbody [data-open]")[-1]
+            select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
         )
 
         added = client.post(
-            f"/settings/people/{party_id}/signins/new",
+            f"/contacts/{party_id}/signins/new",
             data={"label": "Portal", "site_party_id": place, "username": "jb"},
         )
 
@@ -672,11 +672,9 @@ class TestAPlace:
         assert text(one(row, "[data-site]")) == "Place Portal Co"
         assert one(row, "[data-site]").get("href") == "https://placeportal.example.com"
 
-    def test_a_website_that_is_not_a_link_is_refused(
-        self, client: TestClient
-    ) -> None:
+    def test_a_website_that_is_not_a_link_is_refused(self, client: TestClient) -> None:
         answer = client.post(
-            "/settings/people/new",
+            "/contacts/new",
             data={
                 "name": "Bad Place Co",
                 "kind": "organization",
@@ -695,7 +693,7 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
     sign-ins yet" while a sign-in pointed straight at it, because the
     list only ever read one side of the link."""
     client.post(
-        "/settings/people/new",
+        "/contacts/new",
         data={
             "name": "Both Ends Fund",
             "kind": "organization",
@@ -705,14 +703,14 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
         },
     )
     _party(client, "Both Ends Owner", "person")
-    people = client.get("/settings/people?q=Both Ends").text
+    people = client.get("/contacts?q=Both Ends").text
     ids = {
         text(el): el.get("hx-get").rsplit("/", 1)[-1]
-        for el in select(people, "#people tbody [data-open]")
+        for el in select(people, "#contacts tbody [data-open]")
     }
 
     client.post(
-        f"/settings/people/{ids['Both Ends Owner']}/signins/new",
+        f"/contacts/{ids['Both Ends Owner']}/signins/new",
         data={
             "label": "Retirement Online",
             "site_party_id": ids["Both Ends Fund"],
@@ -720,7 +718,7 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
         },
     )
 
-    theirs = client.get(f"/settings/people/{ids['Both Ends Fund']}/signins").text
+    theirs = client.get(f"/contacts/{ids['Both Ends Fund']}/signins").text
     visitor = one(theirs, "[data-visitor]")
     assert "Both Ends Owner" in text(visitor)
     assert "Retirement Online" in text(visitor)
@@ -755,7 +753,9 @@ def test_a_mistyped_item_can_be_corrected(client: TestClient) -> None:
 def test_an_item_cannot_be_emptied(client: TestClient) -> None:
     page = _matter(client, "MA-EDIT-2")
     client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
-    item_id = one(client.get(page).text, "#matter-requests [data-item]").get("data-item")
+    item_id = one(client.get(page).text, "#matter-requests [data-item]").get(
+        "data-item"
+    )
 
     answer = client.post(
         f"/matters/requests/items/{item_id}/edit", data={"asked": "   "}
@@ -804,7 +804,7 @@ class TestTheStepsOfARequest:
         Three mandatory-looking rows describe a harder afternoon than
         the one you have."""
         page, request_id = self._request(client, "MA-STEP-2")
-        first = one(client.get(page).text, "#matter-requests [data-item]")
+        first = select(client.get(page).text, "#matter-requests [data-item]")[0]
 
         client.post(
             f"/matters/requests/{request_id}/items/new",
@@ -821,9 +821,7 @@ class TestTheStepsOfARequest:
         assert text(one(drawn, "[data-standing]")) == "0 of 1"
 
         # Either one closes it.
-        client.post(
-            f"/matters/requests/items/{first.get('data-item')}/mark/satisfied"
-        )
+        client.post(f"/matters/requests/items/{first.get('data-item')}/mark/satisfied")
         assert text(one(client.get(page).text, "[data-standing]")) == "1 of 1"
 
     def test_the_letter_sits_beside_the_asks_it_produced(
@@ -846,7 +844,11 @@ class TestTheStepsOfARequest:
 
         drawn = client.get(page).text
         assert one(drawn, "#matter-requests [data-letter]") is not None
-        assert "request.pdf" in text(one(drawn, "#matter-requests [data-request]"))
+        # The caption is the title, not the row it came from.
+        assert (
+            text(one(drawn, "#matter-requests [data-letter-title]")).strip()
+            == "request.pdf"
+        )
 
     def test_an_ask_needs_a_sentence(self, client: TestClient) -> None:
         _page, request_id = self._request(client, "MA-STEP-4")
@@ -930,7 +932,7 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
     # 6. And the figure the other step wants, with where it came from.
     _party(client, "Walk Subject", "person")
     subject = select(
-        client.get("/settings/people?q=Walk Subject").text, "#people tbody [data-open]"
+        client.get("/contacts?q=Walk Subject").text, "#contacts tbody [data-open]"
     )
     client.post(
         page + "/facts/new",
@@ -968,9 +970,7 @@ class TestNamingSomebodyWhereYouNeedThem:
     reader to another page mid-sentence, and they come back having lost
     the four fields they had typed."""
 
-    def test_a_participant_can_be_named_on_the_matter(
-        self, client: TestClient
-    ) -> None:
+    def test_a_participant_can_be_named_on_the_matter(self, client: TestClient) -> None:
         page = _matter(client, "MA-INLINE-1")
 
         client.post(
@@ -1002,8 +1002,8 @@ class TestNamingSomebodyWhereYouNeedThem:
         said = one(client.get(page).text, "#matter-facts [data-fact]")
         assert "$10.00" in text(said)
         # And the person exists afterwards, in the one address book.
-        people = client.get("/settings/people?q=Inline Subject").text
-        assert "Inline Subject" in text(one(people, "#people"))
+        people = client.get("/contacts?q=Inline Subject").text
+        assert "Inline Subject" in text(one(people, "#contacts"))
 
     def test_the_typed_name_wins_over_the_list(self, client: TestClient) -> None:
         """Somebody who types a name after picking from the list has
@@ -1012,8 +1012,8 @@ class TestNamingSomebodyWhereYouNeedThem:
         _party(client, "Inline Picked", "person")
         picked = (
             select(
-                client.get("/settings/people?q=Inline Picked").text,
-                "#people tbody [data-open]",
+                client.get("/contacts?q=Inline Picked").text,
+                "#contacts tbody [data-open]",
             )[-1]
             .get("hx-get")
             .rsplit("/", 1)[-1]
@@ -1028,7 +1028,9 @@ class TestNamingSomebodyWhereYouNeedThem:
             },
         )
 
-        named = {text(el) for el in select(client.get(page).text, "#matter [data-party]")}
+        named = {
+            text(el) for el in select(client.get(page).text, "#matter [data-party]")
+        }
         assert "Inline Typed" in named
         assert "Inline Picked" not in named
 
@@ -1061,3 +1063,149 @@ def test_every_dialog_on_a_matter_renders(client: TestClient) -> None:
         assert answer.status_code == 200, f"{url} -> {answer.status_code}"
         # A dialog body, never a whole page swapped into the modal.
         none(answer.text, "html")
+
+
+class TestTheVerbsOnAnAsk:
+    """Two rows: what you do to the ask, and what you mark it as. The
+    words come from one place, and they are the generic ones."""
+
+    def test_doing_and_marking_are_separate_rows(self, client: TestClient) -> None:
+        from app.services.matters.words import ITEM_VERBS, WORDS
+
+        page = _matter(client, "MA-VERBS")
+        client.post(
+            page + "/requests/new",
+            data={"asked": ASKED, "due_on": "2026-09-08", "received_on": ""},
+        )
+        first = select(client.get(page).text, "#matter-requests [data-item]")[0]
+        rows = select(first, "[data-verbs] > div")
+        assert len(rows) == 2
+        doing = [text(b) for b in rows[0].findall(".//button")]
+        marking = [text(b) for b in rows[1].findall(".//button")]
+        assert doing == [WORDS["attach"], WORDS["edit"]]
+        assert marking == [
+            ITEM_VERBS["satisfied"],
+            ITEM_VERBS["not_applicable"],
+            ITEM_VERBS["waived"],
+        ]
+        assert rows[1].get("aria-label") == WORDS["mark_as"]
+
+
+class TestOverdueIsRed:
+    """Late is not "warn". A deadline that has passed is the one thing on
+    the page that must not read as a caution: the card, the list and the
+    sidebar all say it in red, from one query."""
+
+    def _late(self, client: TestClient, reference: str) -> str:
+        page = _matter(client, reference)
+        client.post(
+            page + "/requests/new",
+            data={"asked": ASKED, "due_on": "2000-01-01", "received_on": ""},
+        )
+        return page
+
+    def test_the_card_carries_a_red_dot(self, client: TestClient) -> None:
+        page = self._late(client, "MA-LATE-1")
+        card = one(client.get(page).text, "#matter-requests [data-request]")
+        assert select(card, "header [data-dot=error]"), (
+            "the due line carries the red dot"
+        )
+
+    def test_the_list_row_says_overdue(self, client: TestClient) -> None:
+        self._late(client, "MA-LATE-2")
+        rows = select(client.get("/matters").text, "#matters tbody tr")
+        states = {
+            text(one(r, "[data-tone]")): one(r, "[data-tone]").get("data-tone")
+            for r in rows
+        }
+        assert states.get("overdue") == "error"
+
+    def test_the_sidebar_fetches_a_mark_that_is_red_only_when_late(
+        self, client: TestClient
+    ) -> None:
+        nav = one(client.get("/matters").text, "[data-attention]")
+        assert nav.get("hx-get") == "/matters/attention"
+        assert "load" in (nav.get("hx-trigger") or "")
+        # Inside a boosted link, so it must override what it would inherit.
+        assert nav.get("hx-target") == "this"
+        assert nav.get("hx-push-url") == "false"
+        # The app-owned database is shared across the run, so "nothing
+        # overdue" cannot be asserted here; that the mark is red and
+        # counts is enough.
+        self._late(client, "MA-LATE-3")
+        mark = one(client.get("/matters/attention").text, "[data-dot]")
+        assert mark.get("data-dot") == "error"
+        assert text(mark).strip().endswith("overdue")
+
+
+class TestFilesCanBeDropped:
+    def test_every_file_input_is_a_drop_and_paste_target(
+        self, client: TestClient
+    ) -> None:
+        import json
+
+        page = _matter(client, "MA-DROP")
+        dialog = client.get(page + "/documents/new").text
+        zone = one(dialog, "[data-dropzone]")
+        assert zone.get("@drop.prevent"), "the drop lands in the input"
+        assert zone.get("@paste.window"), "and so does the clipboard"
+        # A click on the pane focuses it rather than opening the picker:
+        # the native input is hidden and only the button reaches it.
+        assert zone.get("tabindex") == "0"
+        chooser = one(zone, "input[type=file]")
+        assert "sr-only" in chooser.get("class")
+        assert (
+            select(zone, "button[type=button]")[0].get("@click.stop")
+            == "$refs.file.click()"
+        )
+        # What landed is drawn with the store's own marks, sent as data.
+        table = json.loads(zone.get("data-badges"))
+        assert table["kinds"]["pdf"]["label"] == "PDF"
+        one(zone, "[data-chosen] template[x-for]")
+        one(zone, "[data-chosen] button[aria-label=Remove]")
+
+
+class TestAContactSeesItsCases:
+    """From the other side: a participant's page names the case and the
+    role. Here rather than with the contact tests because the matters
+    list's empty-state test must see no matters first."""
+
+    def test_the_cases_they_are_in_say_as_what(self, client: TestClient) -> None:
+        from tests.web.test_contacts import _contact
+
+        party_id = _contact(client, "Dutchess DSS (contact page)", "organization")
+        matter_page = _matter(client, "MA-CONTACT-1")
+        client.post(
+            matter_page + "/participants",
+            data={
+                "party_id": str(party_id),
+                "new_name": "",
+                "role": "agency",
+                "note": "",
+            },
+        )
+        page = client.get(f"/contacts/{party_id}").text
+        case = one(page, "[data-cases] li")
+        assert "Medicaid renewal" in text(case)
+        assert text(one(case, "[data-role]")) == "Agency"
+
+    def test_on_the_matter_its_participants_and_the_list(
+        self, client: TestClient
+    ) -> None:
+        from tests.web.test_contacts import _contact
+
+        party_id = _contact(client, "Door County DSS", "organization")
+        matter_page = _matter(client, "MA-DOOR-1")
+        client.post(
+            matter_page + "/participants",
+            data={
+                "party_id": str(party_id),
+                "new_name": "",
+                "role": "agency",
+                "note": "",
+            },
+        )
+        page = client.get(matter_page).text
+        door = one(page, f'#matter [data-party] a[data-contact="{party_id}"]')
+        assert door.get("href") == f"/contacts/{party_id}"
+        assert door.get("hx-get") == f"/contacts/{party_id}"

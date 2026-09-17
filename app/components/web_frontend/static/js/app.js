@@ -85,7 +85,7 @@ document.body.addEventListener('htmx:afterSwap', (event) => {
 // after the response's own swap has finished with #dialog-body.
 document.body.addEventListener('dialog:close', () => {
   const dialog = document.getElementById('dialog');
-  if (dialog && dialog.open) dialog.close();
+  if (dialog?.open) dialog.close();
 });
 
 // A select that names a <template> of options carries only what it needs

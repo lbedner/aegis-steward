@@ -11,12 +11,7 @@ from typing import Any
 
 from markupsafe import Markup
 
-from app.core.formatting import format_date_range
-
-# Symbols for the codes a household ledger actually sees; anything else
-# shows its code.
-_CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
-_ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
+from app.core.formatting import format_date_range, format_money
 
 
 def _utc_today() -> date:
@@ -29,27 +24,8 @@ def _utc_today() -> date:
 
 
 def money(cents: int | None, currency: str = "USD", whole: bool = False) -> str:
-    """Minor units -> ``-$1,234.56`` (the Flet register's ``_usd`` rule,
-    widened to honour the currency code).
-
-    ``whole`` rounds the cents away for somewhere they are noise rather
-    than precision - a month chip reading ``Nov $4,208`` where the
-    figure is a projection, not a statement. It is the only reason to
-    format money any other way, which is why it lives here instead of in
-    the f-string that wanted it.
-    """
-    code = (currency or "USD").upper()
-    if code in _ZERO_DECIMAL_CURRENCIES:
-        value, number = cents or 0, f"{abs(cents or 0):,}"
-    elif whole:
-        value = (cents or 0) / 100
-        number = f"{abs(round(value)):,}"
-    else:
-        value = (cents or 0) / 100
-        number = f"{abs(value):,.2f}"
-    sign = "-" if value < 0 else ""
-    symbol = _CURRENCY_SYMBOLS.get(code)
-    return f"{sign}{symbol}{number}" if symbol else f"{sign}{code} {number}"
+    """Minor units as money, the app's one rule (``format_money``)."""
+    return format_money(cents, currency, whole)
 
 
 def dollars(cents: int | None) -> float:
@@ -119,9 +95,6 @@ def pct(ratio: float | None, digits: int = 0) -> str:
 def cents_to_input(cents: int | None) -> str:
     """The inverse of ``money_to_cents`` for form values: ``350,000.00``."""
     return "" if cents is None else f"{cents / 100:,.2f}"
-
-
-
 
 
 def arrived(row: Any, batches: Mapping[int, datetime] | None = None) -> Any:
@@ -335,10 +308,14 @@ def positions_from_text(raw: str) -> tuple[list[dict[str, Any]], list[str]]:
             if price is None:
                 errors.append(f"{line.strip()} - {rest[0]!r} is not a price")
                 continue
-        rows.append(
-            {"ticker": ticker.upper(), "quantity": shares, "price": price}
-        )
+        rows.append({"ticker": ticker.upper(), "quantity": shares, "price": price})
     return rows, errors
+
+
+def parse_date(raw: str | None) -> date | None:
+    """A form's date field: ``YYYY-MM-DD`` or blank. Anything else raises
+    the same ValueError the services raise, for the same 422."""
+    return date.fromisoformat(raw) if raw else None
 
 
 def money_to_cents(raw: str | None) -> int | None:

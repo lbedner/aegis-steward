@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi import HTTPException as _HTTPException
 from starlette.responses import Response
 
@@ -33,6 +33,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     where_from,
     with_toast,
 )
@@ -69,8 +70,7 @@ async def _account(
     service: FinanceService, account_id: int, owner_user_id: int | None
 ) -> FinanceAccount:
     account = await service.get_account(account_id, owner_user_id=owner_user_id)
-    if account is None:
-        raise HTTPException(status_code=404)
+    or_404(account)
     return account
 
 
@@ -430,8 +430,7 @@ async def _terms_dialog(
     terms = shape_for(account.account_type)
     current = await _liability_detail(service, account.id)
     on_record = {
-        term.name: _as_input(term, getattr(current, term.name, None))
-        for term in terms
+        term.name: _as_input(term, getattr(current, term.name, None)) for term in terms
     }
     return dialog(
         request,
@@ -626,7 +625,9 @@ async def positions_save(
         )
     await service.db.commit()
     response = await _positions_dialog(request, service, owner_user_id, account, [])
-    return with_toast(response, f"Saved {len(rows)} position{'s' if len(rows) != 1 else ''}")
+    return with_toast(
+        response, f"Saved {len(rows)} position{'s' if len(rows) != 1 else ''}"
+    )
 
 
 # --- secured by --------------------------------------------------------------
@@ -721,4 +722,3 @@ async def secured_by_save(
     )
     await service.db.commit()
     return dialog_done(f"{SECTION.path}/{account_id}", "Lien link saved")
-

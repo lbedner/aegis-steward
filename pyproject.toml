@@ -40,6 +40,10 @@ dependencies = [
     "jinja2>=3.1.0",
     "alembic==1.16.5",
     "pypdfium2>=5.0,<6",
+    # Tesseract's wrapper and the image decoder it reads through; the
+    # binary is a system package (see the Dockerfile).
+    "pytesseract>=0.3.13",
+    "pillow>=11",
 
     "pydantic-ai-slim[openai]>=1.0.10",
     "pydantic-ai-harness[codemode]>=0.24.0",

@@ -1,0 +1,25 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import page_header, card %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/form.html" import action, search_input, select %}
+
+{% block title %}Documents - {{ project_name }}{% endblock %}
+
+{# Everything on file, wherever it was filed from. A letter lands on a
+   matter and a statement on an account; this is where they are all
+   findable at once, and where a document that belongs to nothing yet
+   still has somewhere to be. #}
+{% block app_content %}
+{{ page_header("Documents", "Everything on file, and what was read off it") }}
+{% call card(id="documents") %}
+<form {{ hx_filter(path, "#documents") }} hx-trigger="keyup changed delay:150ms from:input, change from:select, search"
+      class="flex flex-wrap items-center justify-between gap-3" data-filters>
+  <div class="flex flex-wrap items-center gap-3">
+    {{ search_input("q", q, placeholder="Search documents") }}
+    {{ select("kind", kinds|as_options, kind, blank="All kinds", label="Kind") }}
+  </div>
+  {{ action("Add a document", hx_dialog(path ~ "/new")) }}
+</form>
+{{ data_table(columns, rows, empty="Nothing on file yet", row_id="document") }}
+{% endcall %}
+{% endblock %}

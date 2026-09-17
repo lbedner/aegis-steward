@@ -13,7 +13,7 @@ table module MUST be added to the imports below or autogenerate will
 propose dropping its table.
 
 Column conventions, the ``finance`` Postgres schema, and the shared
-``_bigint`` / ``_utcnow`` helpers live in ``base``.
+``_bigint`` / ``utcnow`` helpers live in ``base``.
 """
 
 from app.services.finance.models.accounts import (

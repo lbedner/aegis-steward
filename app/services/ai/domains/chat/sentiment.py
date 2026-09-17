@@ -166,6 +166,11 @@ async def score_unscored_conversations(
 
     batch_limit = limit or settings.AI_SENTIMENT_BATCH_LIMIT
     batch = await _unscored_batch(session, batch_limit)
+    # End the read here. The batch's shared lock would otherwise be held
+    # through the first model call, and SQLite fails the read-then-write
+    # upgrade at once under another writer. Each verdict then opens its
+    # own short transaction after its model call, not before.
+    await session.commit()
     counts = {"scored": 0, "skipped": 0, "failed": 0}
     for conversation_id, transcript in batch:
         if transcript is None:

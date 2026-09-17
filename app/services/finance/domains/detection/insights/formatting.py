@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from app.core.formatting import format_money
 from app.services.finance.models import FinanceLiabilityDetail
 
 
 def format_usd(cents: int) -> str:
-    return f"${abs(cents) / 100:,.2f}"
+    """Dollars without a sign: a card says "Amount $146.00", never -$."""
+    return format_money(abs(cents), "USD")
 
 
 def format_apr(bps: int) -> str:

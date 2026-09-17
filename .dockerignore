@@ -69,3 +69,7 @@ docs/_build/
 .cache/
 .mypy_cache/
 .ruff_cache/
+# The database and stored files are mounted, never baked: an image that
+# carries a copy of app.db is an image a container can write into and lose.
+data/
+storage_data/

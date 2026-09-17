@@ -16,6 +16,8 @@ from typing import Any
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.clock import utcnow
+from app.core.schema import require_one_of
 from app.services.matters.models import (
     ITEM_KINDS,
     ITEM_STATUSES,
@@ -29,10 +31,6 @@ from app.services.matters.models import (
 # and both close an item without it ever being answered - which is why
 # neither can be inferred and both have to be recorded.
 SETTLED = ("satisfied", "not_applicable", "waived")
-
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class RequestService:
@@ -149,6 +147,36 @@ class RequestService:
             ).all()
         )
 
+    async def overdue(self, today: date | None = None) -> list[Request]:
+        """Every open request whose deadline has passed - the sidebar's
+        mark and the list's red rows read from this one query, so the
+        two cannot disagree about what is late."""
+        return list(
+            (
+                await self.db.exec(
+                    select(Request)
+                    .where(Request.status == "open")
+                    .where(col(Request.due_on) < (today or datetime.now(UTC).date()))
+                    .where(col(Request.deleted_at).is_(None))
+                    .order_by(col(Request.due_on))
+                )
+            ).all()
+        )
+
+    async def from_party(self, party_id: int) -> list[Request]:
+        """The letters this party sent: every request they are the
+        requester of, newest deadline first."""
+        return list(
+            (
+                await self.db.exec(
+                    select(Request)
+                    .where(Request.requester_party_id == party_id)
+                    .where(col(Request.deleted_at).is_(None))
+                    .order_by(col(Request.due_on).desc())
+                )
+            ).all()
+        )
+
     async def for_matter(self, matter_id: int) -> list[Request]:
         return list(
             (
@@ -193,7 +221,7 @@ class RequestService:
             item.ask = ask.strip() or None
         if as_of is not None:
             item.as_of = as_of
-        item.updated_at = _utcnow()
+        item.updated_at = utcnow()
         self.db.add(item)
         await self.db.flush()
         return item
@@ -207,14 +235,13 @@ class RequestService:
         request reads satisfied when every item does, and never because
         somebody said so while an item still stands.
         """
-        if status not in ITEM_STATUSES:
-            raise ValueError(f"One of: {', '.join(ITEM_STATUSES)}.")
+        require_one_of(status, ITEM_STATUSES)
         item = await self.db.get(RequestItem, item_id)
         if item is None:
             return None
         item.status = status
         item.resolution = (resolution or "").strip() or None
-        item.updated_at = _utcnow()
+        item.updated_at = utcnow()
         self.db.add(item)
         await self.db.flush()
         await self._settle(item.request_id)
@@ -261,7 +288,7 @@ class RequestService:
         if request is None:
             return None
         request.document_id = document_id
-        request.updated_at = _utcnow()
+        request.updated_at = utcnow()
         self.db.add(request)
         await self.db.flush()
         return request
@@ -273,7 +300,7 @@ class RequestService:
         if request is None:
             return None
         request.status = "waived"
-        request.updated_at = _utcnow()
+        request.updated_at = utcnow()
         self.db.add(request)
         await self.db.flush()
         return request
@@ -286,7 +313,7 @@ class RequestService:
         settled, total = standing(items)
         done = bool(items) and settled == total
         request.status = "satisfied" if done else "open"
-        request.updated_at = _utcnow()
+        request.updated_at = utcnow()
         self.db.add(request)
         await self.db.flush()
 
@@ -321,7 +348,9 @@ assert set(SETTLED) <= set(ITEM_STATUSES)
 assert "overdue" not in REQUEST_STATUSES, "overdue is derived, never stored"
 
 
-async def drawn(db: AsyncSession, request: Request, today: date | None = None) -> dict[str, Any]:
+async def drawn(
+    db: AsyncSession, request: Request, today: date | None = None
+) -> dict[str, Any]:
     """One request as a page draws it.
 
     The status and the lateness are computed HERE, once, so the template
@@ -343,7 +372,7 @@ async def drawn(db: AsyncSession, request: Request, today: date | None = None) -
         "due_on": request.due_on,
         "status": request.status,
         "overdue": late,
-        "tone": "warn" if late else ("ok" if request.status != "open" else "muted"),
+        "tone": "error" if late else ("ok" if request.status != "open" else "muted"),
         "settled": settled,
         "total": total,
         "note": request.note,
@@ -372,9 +401,7 @@ async def titles(
     wanted = [one for one in document_ids if one]
     if not wanted:
         return {}
-    rows = (
-        await db.exec(select(Document).where(col(Document.id).in_(wanted)))
-    ).all()
+    rows = (await db.exec(select(Document).where(col(Document.id).in_(wanted)))).all()
     return {
         row.id: {"id": row.id, "title": row.title, "media_type": row.media_type}
         for row in rows

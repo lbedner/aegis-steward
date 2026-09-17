@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from starlette.responses import Response
 
 from app.components.backend.api.finance.recurring import (
@@ -25,6 +25,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
     dialog,
+    or_404,
     with_toast,
 )
 from app.components.web_frontend.routes.finance.bills import (
@@ -147,8 +148,7 @@ async def match(
     attached = await service.attach_transaction_to_stream(
         transaction_id, stream_id, owner_user_id=owner_user_id
     )
-    if attached is None:
-        raise HTTPException(status_code=404)
+    or_404(attached)
     row_response = await _row_response(
         request, service, attached, owner_user_id, oob=True
     )
@@ -188,8 +188,7 @@ async def verb(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     handler = VERBS.get(verb)
-    if handler is None:
-        raise HTTPException(status_code=404)
+    or_404(handler)
     await _stream(service, stream_id, owner_user_id)
     await handler(stream_id, service=service, owner_user_id=owner_user_id)  # type: ignore[call-arg]
     stream = await _stream(service, stream_id, owner_user_id)

@@ -17,35 +17,47 @@ matter adds change types, not tools.
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from app.core.db import get_async_session
+from app.core.formatting import iso_date
+from app.services.ai.domains.chat.pastes import document_text
 from app.services.ai.domains.chat.tools import register_tool
+from app.services.documents.domains.extraction.dispatch import (
+    start_extraction,
+    wait_for_extraction,
+)
+from app.services.documents.service import DocumentService
 from app.services.finance.utils import current_date
 from app.services.matters.facts import FactService, monthly_cents
 from app.services.matters.matters import MatterService
-from app.services.matters.models import FACT_ATTRIBUTES
+from app.services.matters.models import FACT_ATTRIBUTES, PARTY_TAG_PREFIX, party_tag
 from app.services.matters.requests import RequestService, overdue, standing
+from app.services.matters.requests import titles as paper_titles
 from app.services.matters.service import PartyService
 
 ATTRIBUTE_LABELS = dict(FACT_ATTRIBUTES)
-
-
-def _iso(value: date | None) -> str | None:
-    return value.isoformat() if value else None
 
 
 async def parties() -> dict[str, Any]:
     """The people and organizations the app knows about.
 
     Returns a dict with key 'parties': a list of entries carrying 'id',
-    'name', 'kind' ("person" or "organization"), 'sort_name' and
-    'contact'. The ids are what every other matter tool reports and what
-    a proposal's payload names - a party cannot be addressed by name.
+    'name', 'kind' ("person" or "organization"), 'sort_name', 'contact',
+    'document_ids' - the paper filed against them (a pension fund's
+    statements, an agency's letters), each readable with `paper` - and
+    'policy_ids' (what an insurer wrote) / 'covered_by_policy_ids' (what
+    covers a person), each readable with `policies`. The
+    ids are what every other matter tool reports and what a proposal's
+    payload names - a party cannot be addressed by name.
     """
+    from app.services.documents.queries import document_ids_by_tag_prefix
+    from app.services.insurance.service import InsuranceService
+
     async with get_async_session() as db:
         found = await PartyService(db).find()
+        paper = await document_ids_by_tag_prefix(db, PARTY_TAG_PREFIX)
+        policies = await InsuranceService(db).policies_covering_any()
     return {
         "parties": [
             {
@@ -55,6 +67,14 @@ async def parties() -> dict[str, Any]:
                 "sort_name": party.sort_name,
                 "contact": party.contact or {},
                 "note": party.note,
+                "document_ids": paper.get(party_tag(party.id), []),
+                # What they wrote and what covers them: policies() has the rest.
+                "policy_ids": [
+                    p.id for p in policies if p.insurer_party_id == party.id
+                ],
+                "covered_by_policy_ids": [
+                    p.id for p in policies if party.id in (p.covered_party_ids or [])
+                ],
             }
             for party in found
         ]
@@ -78,7 +98,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
         service = MatterService(db)
         requests = RequestService(db)
         found = await service.find(status=wanted)
-        names = {party.id: party.name for party in await PartyService(db).find()}
+        names = await PartyService(db).names()
         rows = []
         for matter in found:
             people = await service.participants(matter.id)
@@ -93,7 +113,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
                     "kind": matter.kind,
                     "reference": matter.reference,
                     "status": matter.status,
-                    "opened_on": _iso(matter.opened_on),
+                    "opened_on": iso_date(matter.opened_on),
                     "subject": names.get(matter.subject_party_id or -1),
                     "counterpart": names.get(matter.counterpart_party_id or -1),
                     "participants": [
@@ -103,17 +123,17 @@ async def matters(status: str = "open") -> dict[str, Any]:
                     "requests": {
                         "open": len(standing_requests),
                         "total": len(asked),
-                        "next_due": _iso(min(due)) if due else None,
-                        "overdue_count": sum(
-                            1 for one in asked if overdue(one, today)
-                        ),
+                        "next_due": iso_date(min(due)) if due else None,
+                        "overdue_count": sum(1 for one in asked if overdue(one, today)),
                     },
                 }
             )
     return {"matters": rows}
 
 
-async def requests(matter_id: int | None = None, outstanding: bool = True) -> dict[str, Any]:
+async def requests(
+    matter_id: int | None = None, outstanding: bool = True
+) -> dict[str, Any]:
     """What has been asked for, by when, and what still stands.
 
     Args:
@@ -131,9 +151,7 @@ async def requests(matter_id: int | None = None, outstanding: bool = True) -> di
     today = current_date()
     async with get_async_session() as db:
         service = RequestService(db)
-        cases = await MatterService(db).find(
-            status=None if matter_id else "open"
-        )
+        cases = await MatterService(db).find(status=None if matter_id else "open")
         titles = {case.id: case.title for case in cases}
         wanted = [matter_id] if matter_id else list(titles)
         rows = []
@@ -143,13 +161,19 @@ async def requests(matter_id: int | None = None, outstanding: bool = True) -> di
                     continue
                 items = await service.items(one.id)
                 settled, total = standing(items)
+                letter = (await paper_titles(db, [one.document_id])).get(
+                    one.document_id or 0
+                )
                 rows.append(
                     {
                         "id": one.id,
                         "matter_id": one.matter_id,
                         "matter": titles.get(one.matter_id),
-                        "received_on": _iso(one.received_on),
-                        "due_on": _iso(one.due_on),
+                        # The letter the asks came from: read it with `paper`.
+                        "letter_document_id": one.document_id,
+                        "letter": letter["title"] if letter else None,
+                        "received_on": iso_date(one.received_on),
+                        "due_on": iso_date(one.due_on),
                         "status": one.status,
                         "overdue": overdue(one, today),
                         "settled": settled,
@@ -161,7 +185,7 @@ async def requests(matter_id: int | None = None, outstanding: bool = True) -> di
                                 "ordinal": item.ordinal,
                                 "asked": item.asked,
                                 "ask": item.ask,
-                                "as_of": _iso(item.as_of),
+                                "as_of": iso_date(item.as_of),
                                 "status": item.status,
                                 "resolution": item.resolution,
                                 "document_id": item.document_id,
@@ -209,7 +233,7 @@ async def facts(
             account_id=account_id,
             attribute=attribute,
         )
-        names = {party.id: party.name for party in await PartyService(db).find()}
+        names = await PartyService(db).names()
     return {
         "facts": [
             {
@@ -225,7 +249,7 @@ async def facts(
                 "period": fact.period,
                 "monthly_cents": monthly_cents(fact.value_cents, fact.period),
                 "text_value": fact.text_value,
-                "as_of": _iso(fact.as_of),
+                "as_of": iso_date(fact.as_of),
                 "provenance": fact.provenance,
                 "document_id": fact.document_id,
                 "page": fact.page,
@@ -236,6 +260,51 @@ async def facts(
             }
             for fact in found
         ]
+    }
+
+
+async def paper(document_id: int) -> dict[str, Any]:
+    """The text of one document on file, page by page - the letter a
+    request came from, a statement attached to an ask, a fact's source.
+    The ids come from `matters`, `requests` and `facts` ('document_id').
+
+    A document already read comes straight back. One never read is
+    handed to the worker to read (a scanned page with no text layer goes
+    to the vision model when one is configured) and this WAITS for it -
+    a few minutes for a long scan - then returns the text in the same
+    call. Only if the read outlasts the wait does this return with
+    'read' False and 'reading' set; then say it is still being read and
+    call again. An unreadable page is named in place, so a page that
+    said nothing is never mistaken for one nobody read.
+
+    Returns 'id', 'title', 'kind', 'media_type', 'page_count', 'dated',
+    'read', 'reading' (the job id, only while it is still on the worker)
+    and 'text' - the pages in order, each under a '--- page N ---'
+    heading.
+    """
+    async with get_async_session() as db:
+        document = await DocumentService(db).get(document_id)
+        if document is None:
+            return {"error": f"No document with id {document_id}"}
+        text = await document_text(document_id, db)
+    reading = None
+    if text is None:
+        job_id = await start_extraction(document_id, owner_user_id=None, force=False)
+        if await wait_for_extraction(job_id) == "running":
+            reading = job_id
+        else:
+            async with get_async_session() as db:
+                text = await document_text(document_id, db)
+    return {
+        "id": document.id,
+        "title": document.title,
+        "kind": document.kind,
+        "media_type": document.media_type,
+        "page_count": document.page_count,
+        "dated": iso_date(document.document_date),
+        "read": bool(text),
+        "reading": reading,
+        "text": text or "",
     }
 
 
@@ -261,5 +330,11 @@ register_tool(
     "facts",
     facts,
     description="What can be said about someone's money, with where it came from",
+    replace=True,
+)
+register_tool(
+    "paper",
+    paper,
+    description="The text of a document on file; queued for reading if it never was",
     replace=True,
 )

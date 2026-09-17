@@ -33,7 +33,7 @@ from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import mark_new
 from app.core.formatting import payee_label
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
-from app.services.finance.domains.ledger.queries.accounts import EVERYONE
+from app.services.finance.domains.ledger.queries.accounts import account_names
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import AccountResponse, TransactionResponse
 from app.services.finance.service import FinanceService
@@ -211,13 +211,9 @@ async def rows_context(
     for one row or fifty. ``suggestions`` (transaction id -> {category_id,
     category_name}) rides on the row as a preview nothing has written."""
     items = await hydrate_transactions(service, txns)
-    # Every account, not just ours: this is a lookup table for naming
-    # the account a row sits on, and a row on somebody else's account
-    # would otherwise render with no name at all.
-    accounts, _ = await service.list_accounts(
-        owner_user_id=owner_user_id, page=1, page_size=500, subject_id=EVERYONE
-    )
-    names = {a.id: a.name for a in accounts}
+    # By the rows' own account ids, so a row on somebody else's account
+    # is named too - a page of "ours" would leave it blank.
+    names = await account_names(service.db, [item.account_id for item in items])
     return {
         "rows": [
             {**_row(item, names), "suggestion": (suggestions or {}).get(item.id)}
@@ -284,33 +280,41 @@ async def register_context(
         # while the reader was looking straight at it.
         return {
             "kind": "investment",
-            "holdings": await mark_new(service.db, [
-                {
-                    "ticker": h.ticker,
-                    "name": h.name,
-                    "quantity": f"{h.quantity:g}",
-                    "price": None
-                    if h.price is None
-                    else round(h.price * 100 / 10**h.price_scale),
-                    "value": h.market_value,
-                    "import_batch_id": h.import_batch_id,
-                    "created_at": h.created_at,
-                }
-                for h in holdings.items
-            ], seen),
+            "holdings": await mark_new(
+                service.db,
+                [
+                    {
+                        "ticker": h.ticker,
+                        "name": h.name,
+                        "quantity": f"{h.quantity:g}",
+                        "price": None
+                        if h.price is None
+                        else round(h.price * 100 / 10**h.price_scale),
+                        "value": h.market_value,
+                        "import_batch_id": h.import_batch_id,
+                        "created_at": h.created_at,
+                    }
+                    for h in holdings.items
+                ],
+                seen,
+            ),
             "portfolio_value": holdings.portfolio_value,
-            "trades": await mark_new(service.db, [
-                {
-                    "date": t.trade_date,
-                    "type": t.type.replace("_", " ").title(),
-                    "ticker": tickers.get(t.security_id) or t.name,
-                    "quantity": None if t.quantity is None else f"{t.quantity:g}",
-                    "amount": t.amount,
-                    "import_batch_id": t.import_batch_id,
-                    "created_at": t.created_at,
-                }
-                for t in trades.items
-            ], seen),
+            "trades": await mark_new(
+                service.db,
+                [
+                    {
+                        "date": t.trade_date,
+                        "type": t.type.replace("_", " ").title(),
+                        "ticker": tickers.get(t.security_id) or t.name,
+                        "quantity": None if t.quantity is None else f"{t.quantity:g}",
+                        "amount": t.amount,
+                        "import_batch_id": t.import_batch_id,
+                        "created_at": t.created_at,
+                    }
+                    for t in trades.items
+                ],
+                seen,
+            ),
             "holding_columns": HOLDING_COLUMNS,
             "trade_columns": TRADE_COLUMNS,
         }

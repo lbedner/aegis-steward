@@ -475,7 +475,6 @@ def chat(
         False, "--verbose", "-v", help=lazy_t("ai.opt_verbose")
     ),
 ) -> None:
-
     from app.services.ai.service import AIService
 
     async def run_chat() -> None:

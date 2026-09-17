@@ -59,9 +59,7 @@ async def job_events(request: Request, job_id: str) -> StreamingResponse:
     queue = await runner.subscribe_any(job_id)
     if queue is None:
         lost = sse_frame("status", render_snapshot(request, {**LOST, "id": job_id}))
-        return StreamingResponse(
-            iter([lost]), media_type="text/event-stream"
-        )
+        return StreamingResponse(iter([lost]), media_type="text/event-stream")
 
     async def stream() -> AsyncIterator[str]:
         try:

@@ -8,24 +8,24 @@ answers hang.
 
 from __future__ import annotations
 
-from datetime import date as date_type
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import PAPER_COLUMNS
+from app.components.web_frontend.filters import parse_date
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
+    or_404,
     render,
+    templates,
     where_from,
 )
 from app.components.web_frontend.routes.facts import facts_for
-from app.components.web_frontend.routes.matter_papers import (
-    PAPER_COLUMNS,
-    matter_papers,
-)
+from app.components.web_frontend.routes.matter_papers import matter_papers
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.matters import MatterService, summarised
@@ -43,12 +43,12 @@ MATTER_COLUMNS = (
     {"key": "title", "label": "Matter", "kind": "page"},
     {"key": "kind", "label": "Kind"},
     {"key": "reference", "label": "Their reference"},
-    {"key": "who", "label": "With"},
+    {"key": "who", "label": "With", "kind": "contact"},
     {"key": "state", "label": "", "kind": "status"},
 )
 
 
-def _row(matter: Any, names: dict[int, str]) -> dict[str, Any]:
+def _row(matter: Any, names: dict[int, str], late: set[int]) -> dict[str, Any]:
     return {
         "id": matter.id,
         "title": {
@@ -57,11 +57,24 @@ def _row(matter: Any, names: dict[int, str]) -> dict[str, Any]:
         },
         "kind": (matter.kind or "").title(),
         "reference": matter.reference or "",
-        "who": names.get(matter.counterpart_party_id or -1, ""),
-        "state": {
-            "label": matter.status,
-            "tone": "ok" if matter.status == "open" else "muted",
-        },
+        "who": (
+            {
+                "id": matter.counterpart_party_id,
+                "label": names.get(matter.counterpart_party_id, ""),
+            }
+            if matter.counterpart_party_id
+            else ""
+        ),
+        # Overdue outranks open: a case with a missed deadline is the
+        # row the reader is looking for.
+        "state": (
+            {"label": "overdue", "tone": "error"}
+            if matter.id in late
+            else {
+                "label": matter.status,
+                "tone": "ok" if matter.status == "open" else "muted",
+            }
+        ),
     }
 
 
@@ -72,28 +85,43 @@ async def page(
     """Every case, open ones first."""
     async with get_async_session() as db:
         matters = await MatterService(db).find(owner_user_id=owner_user_id)
-        names = {p.id: p.name for p in await PartyService(db).find()}
+        names = await PartyService(db).names()
+        late = {r.matter_id for r in await RequestService(db).overdue()}
         return render(
             request,
             "pages/matters.html",
             {
                 "section": SECTION,
-                "rows": [_row(m, names) for m in matters],
+                "rows": [_row(m, names, late) for m in matters],
                 "columns": list(MATTER_COLUMNS),
                 "path": SECTION.path,
             },
         )
 
 
+@router.get("/attention", include_in_schema=False)
+async def attention(request: Request) -> Response:
+    """The sidebar's mark: a red dot while any request is overdue, nothing
+    otherwise. Fetched by the nav on load, so a page that never touches
+    matters still shows the deadline that passed."""
+    async with get_async_session() as db:
+        count = len(await RequestService(db).overdue())
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/matters/attention.html",
+        context={"count": count},
+    )
+
+
 @router.get("/new", include_in_schema=False)
 async def new_matter(request: Request) -> Response:
     async with get_async_session() as db:
-        parties = await PartyService(db).find()
+        parties = await PartyService(db).options()
     return dialog(
         request,
         "partials/matters/matter.html",
         matter=None,
-        parties=[{"id": p.id, "name": p.name} for p in parties],
+        parties=parties,
         roles=PARTICIPANT_ROLES,
         errors=[],
     )
@@ -142,16 +170,15 @@ async def create_matter(
                     owner_user_id=owner_user_id,
                 ),
                 owner_user_id=owner_user_id,
-                opened_on=date_type.fromisoformat(opened_on) if opened_on else None,
+                opened_on=parse_date(opened_on),
             )
         except ValueError as exc:
-            parties = await PartyService(db).find()
             return dialog(
                 request,
                 "partials/matters/matter.html",
                 422,
                 matter=None,
-                parties=[{"id": p.id, "name": p.name} for p in parties],
+                parties=await PartyService(db).options(),
                 roles=PARTICIPANT_ROLES,
                 errors=[str(exc)],
                 title=title,
@@ -177,8 +204,7 @@ async def matter(request: Request, matter_id: int) -> Response:
     """One case: who is in it, and under what."""
     async with get_async_session() as db:
         found = await MatterService(db).get(matter_id)
-        if found is None:
-            raise HTTPException(status_code=404)
+        or_404(found)
         drawn = await summarised(db, found)
         asked = [
             await drawn_request(db, one)
@@ -210,14 +236,13 @@ async def new_participant(request: Request, matter_id: int) -> Response:
     clicked in a test looks like.
     """
     async with get_async_session() as db:
-        if await MatterService(db).get(matter_id) is None:
-            raise HTTPException(status_code=404)
-        parties = await PartyService(db).find()
+        or_404(await MatterService(db).get(matter_id))
+        parties = await PartyService(db).options()
     return dialog(
         request,
         "partials/matters/participant.html",
         post=f"{SECTION.path}/{matter_id}/participants",
-        parties=[{"id": p.id, "name": p.name} for p in parties],
+        parties=parties,
         roles=PARTICIPANT_ROLES,
         errors=[],
     )
@@ -255,6 +280,4 @@ async def add_participant(
                 matter_id, whom, role, note=note.strip() or None
             )
             await db.commit()
-    return dialog_done(
-        where_from(request, f"{SECTION.path}/{matter_id}"), "Added"
-    )
+    return dialog_done(where_from(request, f"{SECTION.path}/{matter_id}"), "Added")

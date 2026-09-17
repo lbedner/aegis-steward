@@ -13,7 +13,7 @@
   <div class="flex items-center gap-2 text-xs">
     {% set base = path ~ "/goals/" ~ goal.account_id %}
     {{ action("Add money", hx_dialog(base ~ '/contribute'), tone="primary") }}
-    {{ action("Resume" if paused else "Pause", 'hx-post="' ~ base ~ '/pause" hx-target="#goal-' ~ goal.account_id ~ '" hx-swap="outerHTML"') }}
+    {{ action("Resume" if paused else "Pause", hx_swap(base ~ "/pause", "#goal-" ~ goal.account_id, "post")) }}
     {{ action("Edit", hx_dialog(base ~ '/edit')) }}
     <button type="button" {{ hx_dialog(base ~ "/remove") }} class="ml-auto text-aegis-muted hover:text-error" aria-label="Remove goal">×</button>
   </div>

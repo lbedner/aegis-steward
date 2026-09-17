@@ -20,6 +20,7 @@ from app.services.documents.domains.extraction.pages import (
     DocumentContentMissingError,
     DocumentNotFoundError,
     extract_document,
+    how_read,
 )
 from app.services.documents.domains.extraction.vision import vision_reader
 from app.services.documents.models import DocumentPage
@@ -39,6 +40,8 @@ class PageSummary(BaseModel):
     has_image: bool
     model: str | None
     detail: str | None
+    # The sentence a person reads: method, model, confidence, or why not.
+    how: str
 
     @classmethod
     def from_row(cls, row: DocumentPage) -> PageSummary:
@@ -49,6 +52,7 @@ class PageSummary(BaseModel):
             has_image=bool(row.image_key),
             model=row.model,
             detail=row.detail,
+            how=how_read(row),
         )
 
 

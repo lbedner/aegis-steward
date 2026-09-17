@@ -43,7 +43,9 @@ from app.services.finance.utils import current_date
 _UPCOMING_WINDOW_DAYS = 35
 
 
-async def _named(session: Any, rows: list[Any]) -> tuple[dict[int, str], dict[int, str]]:
+async def _named(
+    session: Any, rows: list[Any]
+) -> tuple[dict[int, str], dict[int, str]]:
     """Subject and institution names for a page of accounts, in two
     queries rather than two per row."""
     from app.services.finance.domains.ledger.institutions import list_institutions
@@ -116,9 +118,7 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             for account in account_rows
             if account.account_type == PROPERTY_ACCOUNT_TYPE
         }
-        streams = await recurring_queries.active_streams(
-            session, subject_id=EVERYONE
-        )
+        streams = await recurring_queries.active_streams(session, subject_id=EVERYONE)
 
     today = current_date()
     horizon = today + timedelta(days=_UPCOMING_WINDOW_DAYS)
@@ -291,8 +291,6 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             }
         out.append(entry)
     return {"accounts": out}
-
-
 
 
 register_tool(

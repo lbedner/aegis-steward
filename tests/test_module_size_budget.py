@@ -40,7 +40,7 @@ DECLARATION_PARTS = ("models", "schemas", "i18n", "seeds", "fixtures", "locales"
 
 # path -> line count when recorded. The refactoring backlog, largest first.
 BUDGET: dict[str, int] = {
-    "cli/ai.py": 2171,
+    "cli/ai.py": 2165,
     "components/frontend/dashboard/modals/modal_sections.py": 2093,
     "components/frontend/dashboard/modals/worker_modal.py": 1351,
     "i18n/locales/en.py": 1301,
@@ -53,7 +53,7 @@ BUDGET: dict[str, int] = {
     "i18n/locales/ko.py": 1246,
     "components/frontend/dashboard/modals/backend_modal.py": 1244,
     "i18n/locales/zh_hant.py": 1243,
-    "services/finance/adapters/importers/imports.py": 1231,
+    "services/finance/adapters/importers/imports.py": 1226,
     "components/frontend/dashboard/modals/ollama_modal.py": 1202,
     "components/frontend/controls/data_table.py": 1082,
     "components/frontend/main.py": 1047,
@@ -61,7 +61,7 @@ BUDGET: dict[str, int] = {
     "services/system/health.py": 988,
     "services/finance/seeds/demo_seed.py": 953,
     "services/finance/domains/detection/insights/rules.py": 944,
-    "components/web_frontend/routes/chat.py": 936,
+    "components/web_frontend/routes/chat.py": 931,
     "components/frontend/dashboard/modals/finance_modal/transactions_panel/panel.py": 899,
     "components/frontend/dashboard/modals/finance_modal/uncategorized_panel.py": 850,
     "components/web_frontend/routes/finance/account_manage.py": 724,
@@ -72,8 +72,8 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/routes/finance/transactions.py": 781,
     "components/frontend/dashboard/modals/llm_catalog_tab.py": 776,
     "services/ai/domains/llm/etl/llm_sync_service.py": 737,
-    "cli/finance.py": 720,
-    "components/web_frontend/routes/finance/settings.py": 712,
+    "cli/finance.py": 697,
+    "components/web_frontend/routes/finance/settings.py": 693,
     "components/frontend/dashboard/modals/finance_modal/overview_tab.py": 703,
     "services/load_test/worker/service.py": 679,
     "cli/health.py": 674,
@@ -107,7 +107,6 @@ BUDGET: dict[str, int] = {
     # grows by a line or two with every new type. Re-recorded when
     # account.create learned whose money an account holds; the file is
     # on the list to split - the vocabulary is its own document.
-    "services/finance/domains/detection/analyst/prompts.py": 529,
     "cli/llm.py": 512,
     "services/finance/domains/detection/transfers.py": 511,
     "services/finance/adapters/providers/connections/snaptrade_sync.py": 504,

@@ -286,7 +286,7 @@ class TestSnapTradeConnect:
     async def test_every_run_is_recorded_with_what_it_brought(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        """"It says it updated today - did it pull anything?" had no
+        """ "It says it updated today - did it pull anything?" had no
         answer: the tally was computed on every pass and thrown away, and
         ``job_execution`` records only that a job ran.
 

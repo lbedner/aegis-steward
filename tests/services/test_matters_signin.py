@@ -92,9 +92,7 @@ class TestASignIn:
         assert changed.username == "new"
 
     @pytest.mark.asyncio
-    async def test_a_sign_in_needs_a_name(
-        self, async_db_session: AsyncSession
-    ) -> None:
+    async def test_a_sign_in_needs_a_name(self, async_db_session: AsyncSession) -> None:
         party_id = await _party(async_db_session)
         with pytest.raises(ValueError, match="name"):
             await SignInService(async_db_session).add(party_id=party_id, label="  ")

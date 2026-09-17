@@ -38,6 +38,7 @@ from app.core.db import get_async_session
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.ai.domains.chat.user_memory import (
     load_user_readings,
+    own_write,
     store_user_readings,
 )
 
@@ -125,12 +126,17 @@ async def merge_staged_readings(
     """
     if not staged:
         return
-    async with get_async_session() as session:
+
+    async def write(session: Any) -> None:
         readings = await load_user_readings(session, user_id)
         if not readings and legacy:
             readings = list(legacy)
         readings.extend(staged)
         await store_user_readings(session, user_id, readings[-_MAX_READINGS_PER_USER:])
+
+    # The same row the memory tools write, in the same way: its own
+    # session, read then write, the upgrade retried under another writer.
+    await own_write(write)
 
 
 async def user_readings(user_id: str) -> list[dict[str, Any]]:

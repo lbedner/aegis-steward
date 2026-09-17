@@ -1,21 +1,49 @@
-{# Split one transaction into lines. State the parts you know; the
-   remainder line is filled by the service. #}
-{% from "components/macros/form.html" import money_input, text_input, primary_button, control %}
+{# Split one transaction into lines. Two to start: the part you know
+   and what is left. The last line's amount is the remainder, worked out
+   on the page as the others are typed, so the split adds up before it
+   is saved; "Add a line" puts another stated part above it. One line
+   drawn one way: the rows on load and the one the button clones come
+   from the same macro. #}
+{% from "components/macros/form.html" import money_input, text_input, primary_button, action, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
+{% macro line(part) %}
+<div class="grid grid-cols-[8rem_1fr_1fr] gap-2 items-end" data-line>
+  {{ money_input("amount", part.amount) }}
+  <select name="category_id" aria-label="Category" class="{{ control("select") }}">
+    <option value="">Uncategorized</option>
+    {% for c in categories %}<option value="{{ c.id }}" {% if part.category_id and c.id|string == part.category_id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+  </select>
+  {{ text_input("memo", part.memo, placeholder="memo") }}
+</div>
+{% endmacro %}
 {{ dialog_title('Split "' ~ txn.name ~ '"',
-                (txn.amount|money(txn.currency)) ~ " in total; anything left over becomes a remainder line.") }}
-<form {{ hx_dialog_post('/transactions/' ~ (txn.id) ~ '/split') }} class="space-y-3">
+                (txn.amount|money(txn.currency)) ~ " in total; the last line is whatever is left.") }}
+<form {{ hx_dialog_post('/transactions/' ~ (txn.id) ~ '/split') }} class="space-y-3"
+      data-total="{{ txn.amount|abs }}"
+      x-data="{
+        total: Number($el.dataset.total),
+        cents(text) { const n = Number(String(text || '').replace(/[$,]/g, '')); return Number.isFinite(n) ? Math.round(n * 100) : 0 },
+        amounts() { return [...$el.querySelectorAll('[data-line] input[name=amount]')] },
+        sync() {
+          const all = this.amounts(); const last = all.at(-1);
+          const stated = all.slice(0, -1).reduce((sum, el) => sum + this.cents(el.value), 0);
+          all.forEach(el => el.readOnly = el === last);
+          last.value = (Math.max(this.total - stated, 0) / 100).toFixed(2);
+          last.dataset.remainder = '';
+        },
+        add() {
+          const last = this.amounts().at(-1).closest('[data-line]');
+          last.before($refs.line.content.cloneNode(true)); this.sync();
+        },
+      }" x-init="sync()" @input="sync()">
   {{ error_banner(errors) }}
-  {% for part in parts %}
-  <div class="grid grid-cols-[8rem_1fr_1fr] gap-2 items-end">
-    {{ money_input("amount", part.amount) }}
-    <select name="category_id" aria-label="Category" class="{{ control("select") }}">
-      <option value="">Uncategorized</option>
-      {% for c in categories %}<option value="{{ c.id }}" {% if part.category_id and c.id|string == part.category_id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
-    </select>
-    {{ text_input("memo", part.memo, placeholder="memo") }}
+  <div data-lines>
+    {% for part in parts %}{{ line(part) }}{% endfor %}
   </div>
-  {% endfor %}
-  {{ primary_button("Split", type="submit") }}
+  <template x-ref="line">{{ line({"amount": "", "category_id": none, "memo": ""}) }}</template>
+  <div class="flex items-center gap-2">
+    {{ primary_button("Split", type="submit") }}
+    {{ action("Add a line", '@click="add()"') }}
+  </div>
 </form>

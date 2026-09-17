@@ -48,6 +48,7 @@ import app.services.finance.ai_tools  # noqa: F401
 
 # And the matter tools (parties, matters, requests, facts): the case
 # surface is read the same way, by name, in every process that chats.
+import app.services.insurance.ai_tools  # noqa: F401
 import app.services.matters.ai_tools  # noqa: F401
 
 

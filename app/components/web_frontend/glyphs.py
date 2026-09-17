@@ -9,6 +9,8 @@ Path data is Heroicons 24px outline (MIT), the same set nav.py draws.
 
 from __future__ import annotations
 
+from typing import Any
+
 # Heroicons 24px outline path data, by icon name.
 _PATHS: dict[str, str] = {
     # A page with a folded corner: what a stored FILE looks like, used
@@ -267,3 +269,20 @@ def file_badge(
         key = filename.rsplit(".", 1)[-1].lower()
     label, icon = _FILE_BADGES.get(key or "", _UNKNOWN_FILE)
     return {"label": label, "icon": f"{ICON_ROOT}/{icon}.svg"}
+
+
+def file_badge_table() -> dict[str, Any]:
+    """The same marks, for the browser: a file that has just been dropped
+    or pasted is drawn with the badge it will have once stored, so the
+    lookup rides to the page as data rather than being written twice."""
+    return {
+        "media": _BY_MEDIA_TYPE,
+        "kinds": {
+            key: {"label": label, "icon": f"{ICON_ROOT}/{icon}.svg"}
+            for key, (label, icon) in _FILE_BADGES.items()
+        },
+        "unknown": {
+            "label": _UNKNOWN_FILE[0],
+            "icon": f"{ICON_ROOT}/{_UNKNOWN_FILE[1]}.svg",
+        },
+    }

@@ -170,5 +170,3 @@ async def set_account_institution(
     db.add(account)
     await db.flush()
     return account
-
-

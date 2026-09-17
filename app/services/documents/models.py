@@ -17,6 +17,8 @@ from typing import Any
 from sqlalchemy import JSON, CheckConstraint, Column, Index
 from sqlmodel import Field, SQLModel
 
+from app.core.schema import one_of
+
 # What kind of paper this is. Coarse on purpose: a fixed taxonomy would
 # be the framework deciding what documents exist, which it should not.
 # Anything finer rides tags.
@@ -45,7 +47,7 @@ def kind_check() -> str:
     (SQLite cannot alter one in place; Postgres drops and re-adds it),
     but the migration is then the only place the change is written.
     """
-    return "kind IN (" + ", ".join(f"'{kind}'" for kind in DOCUMENT_KINDS) + ")"
+    return one_of("kind", DOCUMENT_KINDS)
 
 
 def utcnow() -> datetime:

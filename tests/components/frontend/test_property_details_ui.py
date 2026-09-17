@@ -213,7 +213,14 @@ class TestTheMenuAndItsHandlers:
 
         # What the dashboard implements. The rest are web-only dialogs -
         # named here so adding one is a decision, not a silent omission.
-        handled = {"rename", "reconcile", "property", "valuations", "secured_by", "remove"}
+        handled = {
+            "rename",
+            "reconcile",
+            "property",
+            "valuations",
+            "secured_by",
+            "remove",
+        }
         web_only = {"institution", "positions", "terms"}
 
         for account in (

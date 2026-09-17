@@ -12,13 +12,13 @@ from __future__ import annotations
 from functools import partial
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from starlette.responses import Response
 
 from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import mark_new, money
 from app.components.web_frontend.nav import account_tabs, section
-from app.components.web_frontend.rendering import dialog, hx_dialog, render
+from app.components.web_frontend.rendering import dialog, hx_dialog, or_404, render
 from app.components.web_frontend.routes.finance.accounts import (
     _filed_count,
     _header_context,
@@ -109,9 +109,7 @@ async def cover(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """The account's cover sheet: everything true about it, by kind."""
-    accounts, selected, context = await _one_account(
-        service, owner_user_id, account_id
-    )
+    accounts, selected, context = await _one_account(service, owner_user_id, account_id)
     filed = await _filed_count()(service, account_id)
     valuations = await valuation_history(service, selected, owner_user_id)
     # The window narrows the LINE and the rows under it together: a
@@ -137,9 +135,7 @@ async def cover(
             "payoff": payoff_terms(selected),
             "valuations": valuations,
             "valuation_chart": valuation_chart(valuations, selected),
-            "secured": await secured_strip(
-                service, selected, accounts, owner_user_id
-            ),
+            "secured": await secured_strip(service, selected, accounts, owner_user_id),
             "value_ranges": windows,
             "days": days,
             "valuation_columns": list(VALUATION_COLUMNS),
@@ -306,8 +302,7 @@ async def figure(
     accounts, selected, _ = await _one_account(service, owner_user_id, account_id)
     cells = await secured_strip(service, selected, accounts, owner_user_id)
     cell = next((c for c in cells if c["key"] == key), None)
-    if cell is None:
-        raise HTTPException(status_code=404)
+    or_404(cell)
     return dialog(request, "partials/accounts/figure.html", cell=cell)
 
 

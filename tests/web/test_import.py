@@ -367,9 +367,7 @@ class TestWhereTheImportRuns:
             async def aclose(self) -> None: ...
 
         monkeypatch.setattr(imports_job, "_enqueue", _enqueue)
-        monkeypatch.setattr(
-            imports_job, "RedisJobStore", None, raising=False
-        )
+        monkeypatch.setattr(imports_job, "RedisJobStore", None, raising=False)
         monkeypatch.setattr(
             "app.services.system.job_store.RedisJobStore.from_url",
             lambda url: _Store(),

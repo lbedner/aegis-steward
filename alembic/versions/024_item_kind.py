@@ -30,7 +30,9 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "request_item",
-        sa.Column("kind", sa.String(length=16), nullable=False, server_default="document"),
+        sa.Column(
+            "kind", sa.String(length=16), nullable=False, server_default="document"
+        ),
     )
     op.add_column(
         "request_item", sa.Column("option_group", sa.String(length=40), nullable=True)

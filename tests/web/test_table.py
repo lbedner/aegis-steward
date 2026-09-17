@@ -167,9 +167,7 @@ class TestWhatArrivedSinceYouLooked:
         page = client.get(f"/accounts/{ledger.checking}").text
         assert not select(page, "#register tbody .sr-only")
 
-    def test_the_visit_is_remembered(
-        self, client: TestClient, ledger: Ledger
-    ) -> None:
+    def test_the_visit_is_remembered(self, client: TestClient, ledger: Ledger) -> None:
         client.get(f"/accounts/{ledger.checking}")
         assert "seen_register" in client.cookies
 
@@ -207,7 +205,9 @@ class TestWhatArrivedSinceYouLooked:
 
         def request_with(cookie: str | None) -> Request:
             headers = [(b"cookie", cookie.encode())] if cookie else []
-            return Request({"type": "http", "headers": headers, "method": "GET", "path": "/"})
+            return Request(
+                {"type": "http", "headers": headers, "method": "GET", "path": "/"}
+            )
 
         # First visit: nothing seen before, so nothing is marked.
         response = remember(request_with(None), Response(), "register", first)

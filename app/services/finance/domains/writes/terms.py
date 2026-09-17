@@ -35,6 +35,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.web_frontend.filters import money_to_cents
 from app.core.formatting import format_date
+from app.core.schema import known
 from app.services.finance.domains.detection.insights.formatting import (
     format_apr,
     format_usd,
@@ -122,6 +123,7 @@ def shape_for(account_type: str) -> tuple[Term, ...]:
     """The terms this kind of account is asked for, in order."""
     return tuple(BY_NAME[name] for name in SHAPES.get(account_type, ()))
 
+
 # The sources a valuation row may claim, as the model's own constraint
 # allows. A price history pasted off a listing site is "zillow"; a
 # figure somebody states is "manual".
@@ -161,12 +163,7 @@ class ValuationPayload(BaseModel):
     points: list[ValuationPoint] = Field(min_length=1)
     source: str = "manual"
 
-    @field_validator("source")
-    @classmethod
-    def _known_source(cls, value: str) -> str:
-        if value not in VALUATION_SOURCES:
-            raise ValueError(f"One of: {', '.join(VALUATION_SOURCES)}.")
-        return value
+    _known_source = field_validator("source")(known(VALUATION_SOURCES))
 
     @model_validator(mode="after")
     def _one_per_date(self) -> ValuationPayload:
@@ -232,78 +229,6 @@ async def valuation_describe(
     return rows
 
 
-class FileDocumentPayload(BaseModel):
-    """Which document belongs to which account.
-
-    Takes the PASTE id, because that is what the conversation is holding:
-    an attached PDF is read once and stands in the message as
-    [pasted text #abc12345], and asking the agent for a document id it
-    was never shown is asking it to invent one.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    paste_id: str
-    account_id: int
-
-
-async def _filed(
-    db: AsyncSession, paste_id: str, owner_user_id: int | None
-) -> tuple[int, str] | None:
-    """The document a paste id names, as (id, title), or None."""
-    from app.services.ai.domains.chat.user_memory import load_user_pastes
-    from app.services.finance.domains.detection.analyst.shared import user_id_for
-
-    # The same mapping the agent's own deps use, not a second guess at
-    # what a finance owner is called on the chat side.
-    for paste in await load_user_pastes(user_id_for(owner_user_id), db):
-        if paste.get("id") == paste_id and paste.get("document_id"):
-            return int(paste["document_id"]), str(paste.get("title") or "document")
-    return None
-
-
-async def file_document_execute(
-    db: AsyncSession, payload: FileDocumentPayload, owner_user_id: int | None
-) -> dict[str, Any]:
-    from app.services.documents.service import DocumentService
-    from app.services.finance.constants import account_tag
-    from app.services.finance.domains.ledger.accounts import get_account
-
-    account = await get_account(db, payload.account_id, owner_user_id=owner_user_id)
-    if account is None:
-        raise ValueError(f"Account {payload.account_id} not found.")
-    found = await _filed(db, payload.paste_id, owner_user_id)
-    if found is None:
-        raise ValueError(
-            f"{payload.paste_id!r} is not an attached document. Only a file "
-            "that was attached and read can be filed against an account; "
-            "pasted text cannot."
-        )
-    document_id, _ = found
-    await DocumentService(db).tag(document_id, account_tag(payload.account_id))
-    await db.flush()
-    return {"document_id": document_id, "account_id": payload.account_id}
-
-
-async def file_document_describe(
-    db: AsyncSession, payload: FileDocumentPayload, owner_user_id: int | None
-) -> list[ChangeDisplayRow]:
-    from app.services.finance.domains.ledger.accounts import get_account
-
-    account = await get_account(db, payload.account_id, owner_user_id=owner_user_id)
-    found = await _filed(db, payload.paste_id, owner_user_id)
-    return [
-        ChangeDisplayRow(
-            label="Document",
-            value=found[1] if found else f"paste {payload.paste_id}",
-        ),
-        ChangeDisplayRow(
-            label="File against",
-            value=account.name if account else f"account {payload.account_id}",
-        ),
-    ]
-
-
 class LoanTermsPayload(BaseModel):
     """The terms of one loan, as the user states them.
 
@@ -335,19 +260,11 @@ class LoanTermsPayload(BaseModel):
     # fields it has no answer for is the normal case - a validator that
     # refuses one turns an approvable card into "payload no longer
     # valid" at read time, long after the card was written.
-    @field_validator("prepayment_penalty")
-    @classmethod
-    def _known_penalty(cls, value: str | None) -> str | None:
-        if value is not None and value not in PREPAYMENT:
-            raise ValueError(f"One of: {', '.join(PREPAYMENT)}.")
-        return value
+    _known_prepayment_penalty = field_validator("prepayment_penalty")(known(PREPAYMENT))
 
-    @field_validator("extra_payment_treatment")
-    @classmethod
-    def _known_treatment(cls, value: str | None) -> str | None:
-        if value is not None and value not in EXTRA_PAYMENT:
-            raise ValueError(f"One of: {', '.join(EXTRA_PAYMENT)}.")
-        return value
+    _known_extra_payment_treatment = field_validator("extra_payment_treatment")(
+        known(EXTRA_PAYMENT)
+    )
 
     @model_validator(mode="after")
     def _something_to_set(self) -> LoanTermsPayload:
@@ -418,9 +335,7 @@ def typed(term: Term, raw: str) -> tuple[Any, str | None]:
     return text, None
 
 
-async def _detail(
-    db: AsyncSession, account_id: int
-) -> FinanceLiabilityDetail | None:
+async def _detail(db: AsyncSession, account_id: int) -> FinanceLiabilityDetail | None:
     return (
         await db.exec(
             select(FinanceLiabilityDetail).where(
@@ -440,9 +355,7 @@ async def loan_terms_execute(
     if account is None:
         raise ValueError(f"Account {payload.account_id} not found.")
     if account.classification != "liability":
-        raise ValueError(
-            f"{account.name} is an asset; only a debt has loan terms."
-        )
+        raise ValueError(f"{account.name} is an asset; only a debt has loan terms.")
     detail = await _detail(db, payload.account_id)
     if detail is None:
         detail = FinanceLiabilityDetail(

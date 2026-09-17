@@ -1,5 +1,5 @@
 {% extends layout %}
-{% from "components/macros/layout.html" import page_header, card, badge %}
+{% from "components/macros/layout.html" import page_header, card, badge, contact_link %}
 {% from "components/macros/form.html" import action %}
 {% from "components/macros/matters.html" import facts_block, requests_block %}
 {% from "components/macros/table.html" import data_table %}
@@ -42,7 +42,7 @@
   <dl class="border-t border-aegis-border/60">
     {% for person in matter.participants %}
     <div class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
-      <dt class="text-aegis-text min-w-0 truncate" data-party>{{ person.party }}</dt>
+      <dt class="min-w-0 truncate" data-party>{{ contact_link(person.party_id, person.party) }}</dt>
       <dd class="text-aegis-muted shrink-0" data-role>{{ person.role|role_label }}</dd>
     </div>
     {% endfor %}

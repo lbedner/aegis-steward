@@ -9,8 +9,8 @@
    and whatever screenshot gets taken of it. #}
 {% from "components/macros/form.html" import field, text_input, pick_or_add, primary_button, action, control %}
 {% from "components/macros/feedback.html" import error_banner %}
-<div id="sign-ins" class="border-t border-aegis-border/60 pt-4 space-y-3">
-  <h3 class="text-sm font-semibold text-aegis-text">Sign-ins</h3>
+{% from "components/macros/layout.html" import contact_link %}
+<div id="sign-ins" class="space-y-3">
   {{ error_banner(errors) }}
   {% if signins %}
   <ul class="divide-y divide-aegis-border/60">
@@ -31,28 +31,27 @@
       </div>
       <div class="shrink-0 flex items-center gap-2">
         {% if signin.has_secret %}
-        {{ action("Show", 'hx-post="/settings/people/signins/' ~ signin.id ~ '/reveal" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+        {{ action("Show", hx_swap("/contacts/signins/" ~ signin.id ~ "/reveal", "#sign-ins", "post")) }}
         {% endif %}
-        {{ action("Edit", 'hx-get="/settings/people/signins/' ~ signin.id ~ '/edit" hx-target="#sign-ins" hx-swap="outerHTML"') }}
-        {{ action("Remove", 'hx-delete="/settings/people/signins/' ~ signin.id ~ '" hx-target="#sign-ins" hx-swap="outerHTML" hx-confirm="Remove ' ~ signin.label ~ '?"', tone="danger") }}
+        {{ action("Edit", hx_swap("/contacts/signins/" ~ signin.id ~ "/edit", "#sign-ins")) }}
+        {{ action("Remove", hx_swap("/contacts/signins/" ~ signin.id, "#sign-ins", "delete") ~ (' hx-confirm="Remove ' ~ (signin.label|e) ~ '?"')|safe, tone="danger") }}
       </div>
     </li>
     {% endfor %}
   </ul>
-  {% else %}
-  <p class="text-sm text-aegis-muted" data-empty>No sign-ins yet.</p>
+  {% elif not visitors %}
+  <p class="text-sm text-aegis-muted" data-empty>{% if place %}Nobody signs in here yet.{% else %}No sign-ins yet.{% endif %}</p>
   {% endif %}
 
   {#- The other end of the same rows: whose logins get you into THIS
-      organization. A page that says "no sign-ins" while one points
-      straight at it is a page somebody will swear is empty. -#}
+      organization. On a place's page that IS the list - no heading,
+      the page already says where you are. -#}
   {% if visitors %}
-  <div data-visitors class="pt-2">
-    <h4 class="micro-label text-aegis-muted mb-1">Who signs in here</h4>
+  <div data-visitors>
     <ul class="divide-y divide-aegis-border/60">
       {% for visitor in visitors %}
       <li data-visitor="{{ visitor.id }}" class="py-2 text-sm text-aegis-text">
-        {{ visitor.whose }}
+        {{ contact_link(visitor.whose_id, visitor.whose) }}
         <span class="text-aegis-muted">· {{ visitor.label }}{% if visitor.username %} · {{ visitor.username }}{% endif %}</span>
       </li>
       {% endfor %}
@@ -64,7 +63,7 @@
   {#- Its own form, not nested in the party's: a form inside a form is
       not markup a browser accepts, and the two save different things. -#}
   <div class="rounded-lg border border-aegis-border p-3 space-y-3" data-signin-form>
-    {% set post = "/settings/people/signins/" ~ form.id if form.id else "/settings/people/" ~ party_id ~ "/signins/new" %}
+    {% set post = "/contacts/signins/" ~ form.id if form.id else "/contacts/" ~ party_id ~ "/signins/new" %}
     {% call field("What it gets you into") %}{{ text_input("label", form.label, placeholder="IBEW pension portal", required=True, autofocus=True) }}{% endcall %}
     {#- Where it gets you in, picked from the address book: a portal
         typed as free text is spelled three ways by the third sign-in. -#}
@@ -76,11 +75,11 @@
     {% endcall %}
     {% call field("Note") %}{{ text_input("note", form.note) }}{% endcall %}
     <div class="flex items-center gap-3">
-      {{ primary_button("Save", attrs='hx-post="' ~ post ~ '" hx-include="closest [data-signin-form]" hx-target="#sign-ins" hx-swap="outerHTML"') }}
-      {{ action("Cancel", 'hx-get="/settings/people/' ~ party_id ~ '/signins" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+      {{ primary_button("Save", attrs=hx_swap(post, "#sign-ins", "post") ~ (' hx-include="closest [data-signin-form]"'|safe)) }}
+      {{ action("Cancel", hx_swap("/contacts/" ~ party_id ~ "/signins", "#sign-ins")) }}
     </div>
   </div>
   {% else %}
-  {{ action("Add a sign-in", 'hx-get="/settings/people/' ~ party_id ~ '/signins/new" hx-target="#sign-ins" hx-swap="outerHTML"') }}
+  {{ action("Add a sign-in", hx_swap("/contacts/" ~ party_id ~ "/signins/new", "#sign-ins")) }}
   {% endif %}
 </div>

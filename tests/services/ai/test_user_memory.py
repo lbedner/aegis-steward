@@ -8,6 +8,7 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.ai.domains.chat.memory_tools import save_memory
 from app.services.ai.domains.chat.tools import registered_tool_names
 import app.services.ai.domains.chat.user_memory as user_memory_module
 from app.services.ai.domains.chat.user_memory import (
@@ -19,11 +20,11 @@ from app.services.ai.domains.chat.user_memory import (
     list_user_facts,
     memory_user,
     replace_user_memory,
-    save_memory,
     save_user_fact,
     update_user_fact,
 )
 from app.services.ai.models.agents import AgentUserMemory
+from tests._session import opens
 
 
 @pytest.fixture
@@ -314,3 +315,97 @@ class TestSaveMemoryTool:
         assert "no user" in reply.lower()
         result = await session.exec(select(AgentUserMemory))
         assert result.first() is None
+
+
+class TestAFactThatChangesIsRewritten:
+    """Marisa's hours firmed up and the assistant saved a second fact
+    beside the first. update_memory rewrites the one; forget_memory drops
+    one a tool can now read."""
+
+    async def test_update_rewrites_the_one_fact_it_names(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.ai.domains.chat import memory_tools, user_memory
+
+        monkeypatch.setattr(user_memory, "get_async_session", opens(session))
+        token = user_memory.current_user_id.set("u1")
+        try:
+            await save_user_fact(
+                "u1",
+                "Marisa works irregular hours at $15/hour",
+                "finance",
+                session=session,
+            )
+            await save_user_fact(
+                "u1", "House valued at $711,200", "finance", session=session
+            )
+
+            said = await memory_tools.update_memory(
+                "irregular hours",
+                "Marisa works Tuesdays and Wednesdays, 3 hours each, at $15/hour",
+            )
+            assert said.startswith("Updated (finance)")
+            facts = [
+                f["fact"]
+                for f in await user_memory.list_user_facts("u1", session=session)
+            ]
+            assert facts == [
+                "Marisa works Tuesdays and Wednesdays, 3 hours each, at $15/hour",
+                "House valued at $711,200",
+            ]
+
+            assert (
+                await memory_tools.forget_memory("Tuesdays and Wednesdays")
+            ).startswith("Forgot:")
+            facts = [
+                f["fact"]
+                for f in await user_memory.list_user_facts("u1", session=session)
+            ]
+            assert facts == ["House valued at $711,200"]
+
+            # Two matches is a question back, not a guess.
+            await save_user_fact(
+                "u1", "House insured for $500,000", "finance", session=session
+            )
+            assert "No single saved fact" in await memory_tools.forget_memory("House")
+        finally:
+            user_memory.current_user_id.reset(token)
+
+
+class TestAMemoryWriteWaitsItsTurn:
+    async def test_a_locked_first_try_is_retried_not_lost(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The lock-upgrade failure is instant and used to end the turn with
+        the fact unsaved; now it is retried where it happens."""
+        import asyncio
+
+        from sqlalchemy.exc import OperationalError
+
+        from app.services.ai.domains.chat import memory_tools, user_memory
+
+        real = user_memory.save_user_fact
+        tries = {"n": 0}
+
+        async def flaky(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            tries["n"] += 1
+            if tries["n"] == 1:
+                raise OperationalError(
+                    "UPDATE agent_user_memory", {}, Exception("database is locked")
+                )
+            return await real(*args, **kwargs)
+
+        async def no_sleep(_s: float) -> None:
+            return None
+
+        monkeypatch.setattr(user_memory, "get_async_session", opens(session))
+        monkeypatch.setattr(user_memory, "save_user_fact", flaky)
+        monkeypatch.setattr(asyncio, "sleep", no_sleep)
+        token = user_memory.current_user_id.set("u1")
+        try:
+            said = await memory_tools.save_memory("Marisa is paid by Venmo", "finance")
+        finally:
+            user_memory.current_user_id.reset(token)
+
+        assert said.startswith("Saved (finance)")
+        assert tries["n"] == 2

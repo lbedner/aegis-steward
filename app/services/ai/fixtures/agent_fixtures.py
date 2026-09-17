@@ -16,6 +16,8 @@ from app.services.ai.domains.chat.agent_loader import (
     DEFAULT_AGENT_SLUG,
     default_agent_config,
 )
+from app.services.ai.domains.chat.agent_registry import stamped
+import app.services.ai.domains.chat.memory_tools  # noqa: F401
 
 # Importing the module registers the built-in memory tools. The registry
 # only holds tools whose module was imported, and seeding runs in
@@ -73,7 +75,7 @@ def load_agent_fixtures(session: Session) -> dict[str, int]:
         select(Agent).where(Agent.slug == definition["slug"])
     ).first()
     if existing is None:
-        session.add(Agent(**definition))
+        session.add(Agent(**stamped(definition)))
         session.commit()
         added = 1
         logger.info(f"Seeded default agent '{definition['slug']}'")

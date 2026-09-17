@@ -23,7 +23,7 @@ from app.services.finance.utils import utcnow
 
 
 def subject_filter(value: str | int | None) -> int | None:
-    """"ours", "all" or an id, as the listing filter.
+    """ "ours", "all" or an id, as the listing filter.
 
     One parser, because the question is asked from a URL, from a tool
     argument and from a form, and three readings of "all" is how one of
@@ -190,3 +190,23 @@ async def institution_for_party(
         party_id=party_id,
         **({"url": website} if website else {}),
     )
+
+
+async def subject_of(db: AsyncSession, party_id: int) -> FinanceSubject | None:
+    """The subject this party already is, or None. Read-only: a page
+    that looks at a contact must not make them a subject by looking."""
+    return (
+        await db.exec(select(FinanceSubject).where(FinanceSubject.party_id == party_id))
+    ).first()
+
+
+async def institution_of(db: AsyncSession, party_id: int) -> Any:
+    """The institution this party already is, or None. Read-only, for
+    the same reason as ``subject_of``."""
+    from app.services.finance.models import FinanceInstitution
+
+    return (
+        await db.exec(
+            select(FinanceInstitution).where(FinanceInstitution.party_id == party_id)
+        )
+    ).first()

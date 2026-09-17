@@ -31,9 +31,7 @@ _TABLES = ("finance_holding", "finance_valuation", "document")
 def upgrade() -> None:
     for table in _TABLES:
         op.add_column(table, sa.Column("import_batch_id", sa.Integer(), nullable=True))
-        op.create_index(
-            f"ix_{table}_batch", table, ["import_batch_id"], unique=False
-        )
+        op.create_index(f"ix_{table}_batch", table, ["import_batch_id"], unique=False)
 
 
 def downgrade() -> None:

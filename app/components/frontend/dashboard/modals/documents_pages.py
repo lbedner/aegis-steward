@@ -128,7 +128,7 @@ class PagesStrip(ft.Row):
             else SecondaryText("No image for this page")
         )
         dialog = StyledAlertDialog(
-            title=f"Page {number}",
+            title=f"Page {number} · {detail.get('how') or 'Not read'}",
             body=ft.Row(
                 [
                     ft.Container(image, width=460, height=600),

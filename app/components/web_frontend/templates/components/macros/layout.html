@@ -49,7 +49,8 @@
 {% macro nav_item(section, current_path) %}
 <a href="{{ section.path }}" {{ hx_page(section.path) }}
    @click="mobileOpen = false"
-   {% if section.path == current_path %}aria-current="page"{% endif %}
+   {%- set here = current_path|default("", true) -%}
+   {% if here == section.path or here.startswith(section.path ~ "/") %}aria-current="page"{% endif %}
    class="rail-row group flex items-center gap-3 px-3 py-2 text-sm rounded transition-colors whitespace-nowrap
           text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20
           aria-[current=page]:text-aegis-text aria-[current=page]:bg-aegis-teal/10">
@@ -58,6 +59,11 @@
     <path stroke-linecap="round" stroke-linejoin="round" d="{{ section.icon }}"/>
   </svg>
   <span class="rail-hide">{{ section.label }}</span>
+  {#- The mark sits inside a boosted link and htmx attributes INHERIT:
+      without its own target and push-url the dot would be swapped into
+      the page and the fetch written into the address bar. -#}
+  {% if section.attention %}<span data-attention hx-get="{{ section.attention }}" hx-trigger="load, every 5m"
+        hx-target="this" hx-swap="innerHTML" hx-push-url="false" class="inline-flex"></span>{% endif %}
 </a>
 {% endmacro %}
 
@@ -307,6 +313,27 @@
 {# A small status word with a dot: ``tone`` is ok, warn, error, muted or
    accent; no tone renders the label plain. One shape for every "state"
    cell and chip, so tests find them by role. #}
+{# A contact's name, as the door to their page. Every place a party is
+   named draws it through this, so a name is never plain text in one
+   card and a dialog in another. #}
+{% macro contact_link(party_id, name) -%}
+<a href="/contacts/{{ party_id }}" {{ hx_page("/contacts/" ~ party_id) }} class="text-aegis-teal hover:underline transition-colors" data-contact="{{ party_id }}">{{ name }}</a>
+{%- endmacro %}
+
+{# Several places, each a door, read as a list: "Filed under NYSLRS, Renewal".
+   With ``show`` the list stops there and the rest sits behind "+N more"
+   until asked: a cell is a glance, and a document filed in six places
+   must not push the table off the page. #}
+{% macro doors(places, show=None) -%}
+{% set folded = show is not none and places|length > show %}
+<span {% if folded %}x-data="{ all: false }"{% endif %} class="inline-flex flex-wrap items-baseline gap-x-1">
+{%- for place in places -%}
+<span {% if folded and loop.index > show %}x-show="all" x-cloak{% endif %}><a href="{{ place.url }}" {{ hx_page(place.url) }} class="text-aegis-teal hover:underline transition-colors">{{ place.label }}</a>{% if not loop.last %}, {% endif %}</span>
+{%- endfor -%}
+{%- if folded %}<button type="button" x-show="!all" @click="all = true" class="text-xs text-aegis-muted hover:text-aegis-text whitespace-nowrap" data-more>+{{ places|length - show }} more</button>{% endif -%}
+</span>
+{%- endmacro %}
+
 {% macro badge(label, tone=None) %}
 <span data-tone="{{ tone or '' }}" class="inline-flex items-center gap-1.5 whitespace-nowrap {{ TONE_TEXT.get(tone, 'text-aegis-text') }}">
   {% if tone %}{{ dot(tone) }}{% endif %}{{ label }}

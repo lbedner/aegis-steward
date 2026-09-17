@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
+from app.components.web_frontend.documents import file_upload, papers_on
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done
 from app.components.web_frontend.routes.requests import ACCEPTS
@@ -30,36 +31,11 @@ router = APIRouter(prefix=SECTION.path)
 # drawer, the award letter from three years ago - paper arrives before
 # anybody knows which ask it answers, and a shelf you cannot put a
 # document on is a shelf nobody uses.
-PAPER_COLUMNS = (
-    {"key": "title", "label": "Document", "kind": "open"},
-    {"key": "kind", "label": "Kind"},
-    {"key": "at", "label": "Dated"},
-    {"key": "pages", "label": "Pages"},
-)
-
-
 async def matter_papers(db: AsyncSession, matter_id: int) -> list[dict[str, Any]]:
     """The paper on this matter, shaped for the table."""
-    from app.components.web_frontend.filters import short_date
-    from app.components.web_frontend.glyphs import file_badge
-    from app.services.documents.service import DocumentService
-
-    documents, _ = await DocumentService(db).list_documents(tag=matter_tag(matter_id))
-    return [
-        {
-            "title": {
-                "label": d.title,
-                "url": f"{SECTION.path}/{matter_id}/documents/{d.id}",
-                "badge": file_badge(d.media_type, d.title),
-            },
-            "kind": d.kind,
-            "at": short_date(d.document_date or d.received_at),
-            "pages": d.page_count or "",
-            "import_batch_id": d.import_batch_id,
-            "created_at": d.created_at,
-        }
-        for d in documents
-    ]
+    return await papers_on(
+        db, matter_tag(matter_id), f"{SECTION.path}/{matter_id}/documents"
+    )
 
 
 @router.get("/{matter_id:int}/documents/new", include_in_schema=False)
@@ -88,24 +64,12 @@ async def add_paper(
     Which ask it satisfies is a separate act, made from the item - and
     often not known at the moment somebody finds the paper.
     """
-    from app.services.documents.service import DocumentService
 
     async with get_async_session() as db:
         if await MatterService(db).get(matter_id) is None:
             raise HTTPException(status_code=404)
-        if file is None or not file.filename:
-            raise HTTPException(status_code=400, detail="Pick a file.")
-        documents = DocumentService(db)
-        try:
-            document = await documents.ingest(
-                await file.read(),
-                title=file.filename,
-                media_type=file.content_type,
-                owner_user_id=owner_user_id,
-                source="upload",
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        await documents.tag(document.id, matter_tag(matter_id))
+        document = await file_upload(
+            db, file, owner_user_id=owner_user_id, tags=(matter_tag(matter_id),)
+        )
         await db.commit()
     return dialog_done(f"{SECTION.path}/{matter_id}", f"Filed {document.title}")

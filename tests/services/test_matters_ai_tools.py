@@ -4,7 +4,6 @@ Each tool opens its own session in production; tests point that at the
 transactional test session so seeded rows are visible and rolled back.
 """
 
-from contextlib import asynccontextmanager
 from datetime import timedelta
 
 import pytest
@@ -18,6 +17,7 @@ from app.services.matters.facts import FactService
 from app.services.matters.matters import MatterService
 from app.services.matters.requests import RequestService
 from app.services.matters.service import PartyService
+from tests._session import opens
 
 EXPECTED_TOOLS = {"parties", "matters", "requests", "facts"}
 
@@ -26,11 +26,7 @@ EXPECTED_TOOLS = {"parties", "matters", "requests", "facts"}
 def _tools_use_test_session(
     async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    @asynccontextmanager
-    async def test_session():
-        yield async_db_session
-
-    monkeypatch.setattr(ai_tools, "get_async_session", test_session)
+    monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
 
 
 async def _renewal(db: AsyncSession) -> tuple[int, int]:
@@ -88,10 +84,17 @@ async def test_requests_says_what_is_answered_and_what_is_missing(
     await service.attach(items[0].id, 99, "Power of attorney.pdf")
     await async_db_session.commit()
 
+    letter_id = await _on_file(async_db_session, pages=["REQUEST FOR INFORMATION"])
+    await service.cite(request_id, letter_id)
+    await async_db_session.commit()
+
     rows = (await ai_tools.requests(matter_id=matter_id))["requests"]
 
     assert len(rows) == 1
     assert rows[0]["overdue"] is True
+    # The letter behind the asks, by the id `paper` reads.
+    assert rows[0]["letter_document_id"] == letter_id
+    assert rows[0]["letter"] == "Bedner J Request.pdf"
     assert rows[0]["settled"] == 1
     answered = {item["asked"]: item["document_id"] for item in rows[0]["items"]}
     assert answered["A copy of the power of attorney"] == 99
@@ -156,17 +159,11 @@ class TestWhoseMoneyThroughIlliana:
     async def test_the_default_answer_is_our_money(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from contextlib import asynccontextmanager
-
         import app.services.finance.ai_account_tools as account_tools
         import app.services.finance.ai_tools as finance_tools
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(finance_tools, "get_async_session", test_session)
-        monkeypatch.setattr(account_tools, "get_async_session", test_session)
+        monkeypatch.setattr(finance_tools, "get_async_session", opens(async_db_session))
+        monkeypatch.setattr(account_tools, "get_async_session", opens(async_db_session))
         _party_id, subject_id = await self._their_account(
             async_db_session, "Tool Whose One"
         )
@@ -219,7 +216,6 @@ class TestWhoseMoneyThroughIlliana:
         """Asked what it knew about a pension, she answered "nothing
         linked" while the account itself named a subject, an institution
         and a member id - none of which the tool reported."""
-        from contextlib import asynccontextmanager
 
         import app.services.finance.ai_account_tools as account_tools
         from app.services.finance.domains.ledger.accounts import create_manual_account
@@ -229,20 +225,12 @@ class TestWhoseMoneyThroughIlliana:
             subject_for_party,
         )
 
-        @asynccontextmanager
-        async def test_session():
-            yield async_db_session
-
-        monkeypatch.setattr(account_tools, "get_async_session", test_session)
+        monkeypatch.setattr(account_tools, "get_async_session", opens(async_db_session))
         parties = PartyService(async_db_session)
         person = await parties.create(name="Linked Subject", kind="person")
         fund = await parties.create(name="Linked Pension Fund", kind="organization")
-        subject = await subject_for_party(
-            async_db_session, person.id, name=person.name
-        )
-        bank = await institution_for_party(
-            async_db_session, fund.id, name=fund.name
-        )
+        subject = await subject_for_party(async_db_session, person.id, name=person.name)
+        bank = await institution_for_party(async_db_session, fund.id, name=fund.name)
         account = await create_manual_account(
             async_db_session,
             name="Linked Pension",
@@ -263,3 +251,136 @@ class TestWhoseMoneyThroughIlliana:
         assert row["whose"] == "Linked Subject"
         assert row["held_with"] == "Linked Pension Fund"
         assert row["reference"] == "R10932601"
+
+
+async def _on_file(db: AsyncSession, *, pages: list[str] | None) -> int:
+    """A stored document, with its pages already read or not read at all."""
+    from app.services.documents.models import DocumentPage
+    from app.services.documents.service import DocumentService
+
+    document = await DocumentService(db).ingest(
+        b"%PDF-1.4 not really",
+        title="Bedner J Request.pdf",
+        media_type="application/pdf",
+    )
+    for number, text in enumerate(pages or [], start=1):
+        db.add(
+            DocumentPage(
+                document_id=document.id,
+                page_number=number,
+                status="read",
+                method="text",
+                text=text,
+            )
+        )
+    await db.commit()
+    return int(document.id or 0)
+
+
+async def test_paper_returns_a_read_document_without_reading_it_again(
+    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+
+    async def never(document_id: int, **kwargs: object) -> str:
+        calls.append(document_id)
+        return "job"
+
+    monkeypatch.setattr(ai_tools, "start_extraction", never)
+    document_id = await _on_file(
+        async_db_session, pages=["REQUEST FOR INFORMATION", "Provide proof of income"]
+    )
+
+    found = await ai_tools.paper(document_id)
+
+    assert found["read"] is True
+    assert found["title"] == "Bedner J Request.pdf"
+    assert "--- page 1 ---" in found["text"] and "--- page 2 ---" in found["text"]
+    assert "Provide proof of income" in found["text"]
+    assert calls == []  # already read: no second pass
+
+
+async def test_paper_waits_for_the_worker_and_returns_the_text(
+    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """On the worker, not inline - but the call sits on the job, so the
+    person asking gets the letter in the same turn."""
+    from app.services.documents.models import DocumentPage
+
+    queued: list[int] = []
+
+    async def enqueue(document_id: int, **kwargs: object) -> str:
+        queued.append(document_id)
+        return "job-1"
+
+    async def lands(job_id: str, **kwargs: object) -> str:
+        async_db_session.add(
+            DocumentPage(
+                document_id=queued[0],
+                page_number=1,
+                status="read",
+                method="vision",
+                text="Due 9/8/2026",
+            )
+        )
+        await async_db_session.commit()
+        return "done"
+
+    monkeypatch.setattr(ai_tools, "start_extraction", enqueue)
+    monkeypatch.setattr(ai_tools, "wait_for_extraction", lands)
+    document_id = await _on_file(async_db_session, pages=None)
+
+    found = await ai_tools.paper(document_id)
+
+    assert queued == [document_id]
+    assert found["read"] is True
+    assert found["reading"] is None
+    assert "Due 9/8/2026" in found["text"]
+
+
+async def test_paper_says_so_when_the_read_outlasts_the_wait(
+    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def enqueue(document_id: int, **kwargs: object) -> str:
+        return "job-1"
+
+    async def still_going(job_id: str, **kwargs: object) -> str:
+        return "running"
+
+    monkeypatch.setattr(ai_tools, "start_extraction", enqueue)
+    monkeypatch.setattr(ai_tools, "wait_for_extraction", still_going)
+    document_id = await _on_file(async_db_session, pages=None)
+
+    found = await ai_tools.paper(document_id)
+
+    assert found["read"] is False
+    assert found["reading"] == "job-1"
+
+
+async def test_paper_names_a_missing_document() -> None:
+    assert "error" in await ai_tools.paper(999_999)
+
+
+async def test_parties_hand_back_their_paper(async_db_session: AsyncSession) -> None:
+    """A place's statements are readable with paper(): the ids ride on
+    the party, so "what has NYSLRS sent us" is one call, not a hunt."""
+    from app.services.documents.service import DocumentService
+    from app.services.matters.models import party_tag
+
+    place = await PartyService(async_db_session).create(
+        name="NYSLRS", kind="organization", owner_user_id=None
+    )
+    documents = DocumentService(async_db_session)
+    statement = await documents.ingest(
+        b"%PDF-1.4 statement",
+        title="NYSLRS statement.pdf",
+        media_type="application/pdf",
+    )
+    await documents.tag(statement.id, party_tag(place.id))
+    await async_db_session.commit()
+
+    found = next(
+        p for p in (await ai_tools.parties())["parties"] if p["id"] == place.id
+    )
+
+    assert found["document_ids"] == [statement.id]
