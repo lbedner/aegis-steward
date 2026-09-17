@@ -303,10 +303,17 @@ async def institution_describe(
         if account.institution_id
         else None
     )
+    # "X to X" is a card saying nothing twice. When the account is
+    # already held there and only the routing number is new, that is
+    # what the row should read as.
+    moving = held is None or held.party_id != party.id
     rows = [
         ChangeDisplayRow(label="Account", value=account.name),
         ChangeDisplayRow(
-            label="Held with", value=f"{held.name if held else '-'} → {party.name}"
+            label="Held with",
+            value=f"{held.name if held else '-'} → {party.name}"
+            if moving
+            else f"{party.name} (unchanged)",
         ),
     ]
     # Say when a bank record is being MADE: reusing one is the quiet
