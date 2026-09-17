@@ -101,12 +101,20 @@ async def _to_response(
     row: FinancePendingChange,
     marks: dict[int, dict[str, str | None]] | None = None,
 ) -> PendingChangeResponse:
-    executor = writes.executor_for(row.change_type)
+    # A change type can leave: retired, or not built on the branch
+    # somebody is running. The ROW outlives it, and a listing that
+    # raises takes down the page you would reject it from. The same
+    # tolerance describe_pending_change already has for a payload that
+    # no longer validates.
+    try:
+        title = writes.executor_for(row.change_type).title
+    except ValueError:
+        title = f"{row.change_type} (no longer a change this app makes)"
     display = await service.describe_pending_change(row)
     if marks is None:
         marks = await _marks(service, [row])
     return PendingChangeResponse.from_row(
-        row, title=executor.title, display=display, mark=marks.get(row.id or 0)
+        row, title=title, display=display, mark=marks.get(row.id or 0)
     )
 
 

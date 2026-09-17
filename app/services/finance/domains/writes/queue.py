@@ -230,7 +230,17 @@ async def _describe_row(
     Validation guards the DOOR (propose); a stored payload that no
     longer validates is exactly what reject/withdraw exist to clean up,
     so it renders as its raw payload instead of raising."""
-    executor = executor_for(row.change_type)
+    # A type can leave the app while its row stays: retired, or not
+    # built on the branch somebody is running. Then the payload IS all
+    # there is to show, and the card still has to draw so there is
+    # somewhere to reject it from.
+    try:
+        executor = executor_for(row.change_type)
+    except ValueError:
+        return [
+            ChangeDisplayRow(label="Change", value=row.change_type),
+            ChangeDisplayRow(label="Payload", value=str(row.payload)),
+        ]
     try:
         model = executor.payload_model(**row.payload)
     except ValidationError:

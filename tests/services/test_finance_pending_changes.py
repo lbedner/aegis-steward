@@ -1198,3 +1198,39 @@ class TestWhatABatchApprovalLanded:
         landed = await approved_in_batch(async_db_session, batch_id)
 
         assert [row.id for row in landed] == [first.id]
+
+
+async def _fixture_rows(svc: FinanceService, session: AsyncSession):
+    account = await _account(svc)
+    groceries = await _category(session, "Food & Dining:Groceries")
+    txn = await _txn(svc, account.id, -897, date(2026, 6, 10), name="Retired")
+    return groceries, txn
+
+
+class TestACardWhoseTypeIsGone:
+    """A change type can leave: retired, or simply not built on the
+    branch somebody is running. The row outlives it, and the Approvals
+    page has to stay up so there is somewhere to reject it FROM."""
+
+    @pytest.mark.asyncio
+    async def test_the_listing_survives_it(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        from app.components.backend.api.finance.changes import _to_responses
+
+        groceries, txn = await _fixture_rows(svc, async_db_session)
+        row = await svc.propose_change(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": groceries.id},
+            owner_user_id=1,
+        )
+        await async_db_session.flush()
+        row.change_type = "document.something_retired"
+        async_db_session.add(row)
+        await async_db_session.flush()
+
+        listed = await _to_responses(svc, [row])
+
+        assert len(listed) == 1
+        # It names itself with the only thing left: its own type.
+        assert "document.something_retired" in listed[0].title
