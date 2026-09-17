@@ -14,7 +14,6 @@ tracked here is not part of it.
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import Any
 
 from app.core.db import get_async_session
@@ -35,12 +34,9 @@ from app.services.finance.domains.ledger.subjects import subject_filter
 from app.services.finance.domains.ledger.valuations import preferred_valuation_row
 from app.services.finance.domains.planning.envelopes import envelope_metadata
 from app.services.finance.domains.planning.goals import goal_metadata
-from app.services.finance.domains.planning.recurring import queries as recurring_queries
-from app.services.finance.utils import current_date
-
-# How far ahead accounts() reports scheduled flows: one full monthly
-# cycle with margin, so a mid-month plan sees next month's rent.
-_UPCOMING_WINDOW_DAYS = 35
+from app.services.finance.domains.planning.recurring.upcoming import (
+    scheduled_by_account,
+)
 
 
 async def _named(
@@ -118,26 +114,21 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             for account in account_rows
             if account.account_type == PROPERTY_ACCOUNT_TYPE
         }
-        streams = await recurring_queries.active_streams(session, subject_id=EVERYONE)
+        # The same sum the account's own cover sheet draws, so the page
+        # and the answer cannot disagree in front of somebody.
+        coming_by_account = await scheduled_by_account(session, subject_id=EVERYONE)
 
-    today = current_date()
-    horizon = today + timedelta(days=_UPCOMING_WINDOW_DAYS)
-    upcoming_by_account: dict[int, list[dict[str, Any]]] = {}
-    for stream in streams:
-        when = stream.next_expected_date
-        if stream.account_id is None or when is None:
-            continue
-        if not today <= when <= horizon:
-            continue
-        amount = stream.amount
-        sign = 1 if stream.direction == "inflow" else -1
-        upcoming_by_account.setdefault(stream.account_id, []).append(
+    upcoming_by_account = {
+        account_id: [
             {
-                "name": stream.name,
-                "date": when.isoformat(),
-                "amount_cents": sign * abs(amount),
+                "name": one.name,
+                "date": one.when.isoformat(),
+                "amount_cents": one.amount_cents,
             }
-        )
+            for one in coming
+        ]
+        for account_id, coming in coming_by_account.items()
+    }
 
     balances = {
         account.id: effective_balance(

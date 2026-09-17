@@ -104,6 +104,9 @@ class AccountResponse(BaseModel):
     # so a bare zero WITHOUT this stamp means "never set", and the UI
     # falls back to the register sum instead of rendering $0.00.
     balance_as_of: datetime | None = None
+    # What the bank says can be spent today, which is not what the books
+    # say is there: a deposit on hold is in one and not the other.
+    available_balance: int | None = None
     # Balance derived from the sum of imported transactions (the register
     # balance Quicken shows). Useful when no valuation/statement balance was
     # set. Falls back to 0 when there are no transactions.

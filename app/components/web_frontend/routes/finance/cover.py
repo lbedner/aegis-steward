@@ -36,6 +36,11 @@ from app.components.web_frontend.routes.finance.valuations import (
 from app.components.web_frontend.seen import remember, watermark
 from app.services.finance.constants import PROPERTY_ACCOUNT_TYPE
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.planning.recurring.upcoming import (
+    Total,
+    scheduled_by_account,
+    totalled,
+)
 from app.services.finance.schemas import AccountResponse
 from app.services.finance.service import FinanceService
 
@@ -100,6 +105,57 @@ def loan_terms(account: AccountResponse) -> list[dict[str, str]]:
     return cells[:4] if len(cells) > 1 else []
 
 
+def cash_terms(account: AccountResponse, scheduled: Total) -> list[dict[str, str]]:
+    """A cash account's cover: what is coming, and what it leaves.
+
+    A card's Overview showed what it costs and a property's what it is
+    worth; a checking account's showed nothing, which read as broken
+    when the figures were there the whole time. What cash is FOR is
+    flow, so the strip answers "can I cover the month" rather than
+    restating the balance the header already carries.
+    """
+    from app.services.finance.constants import CASH_ACCOUNT_TYPES
+    from app.services.finance.domains.ledger.accounts import effective_balance
+
+    if account.classification != "asset" or account.account_type not in (
+        CASH_ACCOUNT_TYPES
+    ):
+        return []
+    if not scheduled.items:
+        return []
+    balance = effective_balance(
+        current_balance=account.current_balance,
+        balance_as_of=account.balance_as_of,
+        classification=account.classification,
+        activity_balance=account.activity_balance,
+    )
+    counted = f"{scheduled.items} bill{'s' if scheduled.items > 1 else ''} and deposit"
+    cells = [
+        {
+            "label": "Scheduled",
+            "value": money(scheduled.net, account.currency),
+            "caption": f"{counted}{'s' if scheduled.items > 1 else ''} to come",
+        },
+        {
+            "label": "After",
+            "value": money(balance + scheduled.net, account.currency),
+            "caption": "if every one lands",
+        },
+    ]
+    # What the bank says can be spent, when it said and it differs: a
+    # deposit on hold is on the books and not yet spendable.
+    if account.available_balance is not None and account.available_balance != balance:
+        cells.insert(
+            0,
+            {
+                "label": "Available",
+                "value": money(account.available_balance, account.currency),
+                "caption": f"of {money(balance, account.currency)} on the books",
+            },
+        )
+    return cells
+
+
 @router.get(SECTION.path + "/{account_id:int}/overview", include_in_schema=False)
 async def cover(
     request: Request,
@@ -132,6 +188,10 @@ async def cover(
             **account_tabs(account_id, "cover", len(filed)),
             **await _header_context(service, selected, owner_user_id),
             "loan_terms": loan_terms(selected),
+            "cash_terms": cash_terms(
+                selected,
+                totalled((await scheduled_by_account(service.db)).get(account_id, [])),
+            ),
             "payoff": payoff_terms(selected),
             "valuations": valuations,
             "valuation_chart": valuation_chart(valuations, selected),
