@@ -112,21 +112,76 @@ async def _read(url: str, host: str) -> str | None:
         return None
 
 
+def _known_marks(known: set[str] | None) -> set[str]:
+    """Known details reduced to something a page can be searched for.
+
+    A postcode as printed, and a phone as DIGITS - the record may hold
+    "1-888-282-8784" where the site prints "(888) 282-8784", and those
+    are one number written two ways.
+    """
+    marks: set[str] = set()
+    for value in known or set():
+        text = (value or "").strip()
+        if not text:
+            continue
+        digits = re.sub(r"\D", "", text)
+        if len(digits) >= 9:  # a phone; compare on digits
+            marks.add(digits[-10:])
+        else:
+            marks.add(text.casefold())
+    return marks
+
+
+def corroborates(page: str, known: set[str] | None) -> bool:
+    """Whether a page carries something we ALREADY hold about them.
+
+    The name alone proves a page MENTIONS an organization, not that it
+    belongs to it: there is more than one "Eleanor Nursing Care Center"
+    in the country, and a directory listing carries the name more
+    prominently than a home page does. Either confirms on the name
+    alone, and then somebody else's phone number is filed under your
+    grandfather's nursing home - with a citation, which is exactly what
+    makes approving it feel safe.
+
+    So when the record already holds a postcode or a number, the page
+    has to carry it too. With nothing known this cannot help, and the
+    weaker name check stands - which is the case a person has to read
+    the card for.
+    """
+    marks = _known_marks(known)
+    if not marks:
+        return True
+    text = _TAGS.sub(" ", page or "").casefold()
+    digits = re.sub(r"\D", "", text)
+    return any(
+        (mark in digits if mark.isdigit() else mark in text) for mark in marks
+    )
+
+
 async def confirm(
-    name: str, candidates: list[str], *, scheme: str = "https"
+    name: str,
+    candidates: list[str],
+    *,
+    scheme: str = "https",
+    corroborate: set[str] | None = None,
 ) -> str | None:
-    """The first candidate domain whose page carries this name, or None.
+    """The first candidate domain whose page is theirs, or None.
+
+    Two tests, and the second is the one that matters. The page must
+    carry the organization's NAME, and - when we already hold a postcode
+    or a number for them - it must carry that too. Passing the name
+    alone means "this page mentions them", which is not the same claim.
 
     Tried in the order given, because the caller's first guess is its
-    best one. At most ``CANDIDATE_BUDGET`` of them are fetched: a longer
-    list is a scan, and the extra guesses are the least likely anyway.
+    best one. At most ``CANDIDATE_BUDGET`` are fetched: a longer list is
+    a scan, and the extra guesses are the least likely anyway.
     """
     for candidate in candidates[:CANDIDATE_BUDGET]:
         host = _host_of(candidate)
         if not host:
             continue
         page = await _read(f"{scheme}://{candidate.lstrip('/')}", host)
-        if page and says(page, name):
+        if page and says(page, name) and corroborates(page, corroborate):
             return candidate
     return None
 

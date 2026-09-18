@@ -120,6 +120,79 @@ class TestConfirmingADomain:
         assert await confirm("Delta Dental", tried, scheme="http") is None
 
 
+class TestCorroboratingAgainstWhatIsAlreadyKnown:
+    """The name on a page proves the page MENTIONS the organization. It
+    does not prove the page belongs to it.
+
+    There is more than one "Eleanor Nursing Care Center" in the country,
+    and a directory listing carries the name more prominently than the
+    home page does. Either would confirm on the name alone, and then
+    somebody else's phone number is filed under your grandfather's
+    nursing home - with a citation, which is what makes approving it
+    feel safe.
+
+    So when the record already holds a postcode or a number, the page
+    has to carry it too.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_page_missing_a_known_postcode_is_refused(
+        self, site: str
+    ) -> None:
+        from app.services.matters.domain_lookup import confirm
+
+        # The site says "Delta Dental of New York" but nothing in Hyde
+        # Park. Known-good detail we already hold: a different postcode.
+        found = await confirm(
+            "Delta Dental of New York",
+            [site],
+            scheme="http",
+            corroborate={"12538"},
+        )
+        assert found is None
+
+    @pytest.mark.asyncio
+    async def test_a_page_carrying_a_known_detail_is_confirmed(
+        self, site: str
+    ) -> None:
+        from app.services.matters.domain_lookup import confirm
+
+        found = await confirm(
+            "Delta Dental of New York",
+            [f"{site}/contact"],
+            scheme="http",
+            corroborate={"75266-0138"},
+        )
+        assert found == f"{site}/contact"
+
+    @pytest.mark.asyncio
+    async def test_a_number_written_differently_still_corroborates(
+        self, site: str
+    ) -> None:
+        """The record holds "1-888-282-8784" and the page may print
+        "(888) 282-8784". One number, two spellings."""
+        from app.services.matters.domain_lookup import confirm
+
+        found = await confirm(
+            "Delta Dental of New York",
+            [f"{site}/contact"],
+            scheme="http",
+            corroborate={"(888) 282-8784"},
+        )
+        assert found == f"{site}/contact"
+
+    @pytest.mark.asyncio
+    async def test_with_nothing_known_the_name_still_decides(
+        self, site: str
+    ) -> None:
+        """A contact with an empty record has nothing to corroborate
+        against. That is the weaker check, and it is the one the card
+        has to be read carefully for."""
+        from app.services.matters.domain_lookup import confirm
+
+        assert await confirm("Delta Dental of New York", [site], scheme="http")
+
+
 class TestTheNameOnThePage:
     def test_a_suffix_is_not_part_of_the_name(self) -> None:
         from app.services.matters.domain_lookup import says

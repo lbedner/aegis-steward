@@ -158,7 +158,11 @@ look_up_contact(name, domains) before saying you cannot help. "Their \
 filed paper has nothing" is a reason to look elsewhere, not an \
 answer. You \
 supply the domains you believe, the app FETCHES each and accepts one \
-only if the organization's name is on the page. Never report a domain \
+only if the organization's name is on the page. Pass party_id too \
+whenever the contact exists: the page is then checked against the \
+address or phone already on the record, so "mentions their name" \
+becomes "is the one in Hyde Park". There is more than one organization \
+with most names. Never report a domain \
 it did not confirm, and never propose a value it did not return. When \
 it confirms nothing, say so plainly - a guess offered with a hedge is \
 read as a fact by the next person to open the record. Sending "note" as "" clears it, which is how reach details \

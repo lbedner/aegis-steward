@@ -342,7 +342,9 @@ register_tool(
 )
 
 
-async def look_up_contact(name: str, domains: list[str]) -> dict[str, Any]:
+async def look_up_contact(
+    name: str, domains: list[str], party_id: int | None = None
+) -> dict[str, Any]:
     """Confirm an organization's website by FETCHING it, then read it.
 
     You supply the candidate domains you believe - "deltadentalins.com",
@@ -356,6 +358,14 @@ async def look_up_contact(name: str, domains: list[str]) -> dict[str, Any]:
     also carry 'label'. Propose contact.amend with those, putting the URL
     in 'sources'.
 
+    ALWAYS pass party_id when the contact exists. The page is then
+    checked against the address or phone already on the record - a
+    postcode, a number - so "mentions their name" becomes "is the one in
+    Hyde Park". There is more than one organization with most names, and
+    a directory listing carries a name more prominently than a home page
+    does. With an empty record there is nothing to check against and the
+    weaker name test stands; say so when that happens.
+
     NEVER report a domain this did not confirm, and never propose a
     value it did not return. When 'confirmed' is None, say plainly that
     nothing could be verified - a guess offered with a hedge is read as
@@ -364,10 +374,30 @@ async def look_up_contact(name: str, domains: list[str]) -> dict[str, Any]:
     """
     from app.services.matters.domain_lookup import confirm, contact_page
 
-    found = await confirm(name, list(domains or []))
+    # Corroborate against what the record ALREADY holds. Pass party_id
+    # whenever you have it: the name alone proves a page mentions them,
+    # and there is more than one organization with most names.
+    known: set[str] = set()
+    if party_id is not None:
+        async with get_async_session() as db:
+            party = await PartyService(db).get(party_id)
+        if party is None:
+            return {"error": f"No contact with id {party_id}"}
+        contact = party.contact or {}
+        known = {
+            str(value)
+            for key, value in contact.items()
+            if key in ("address", "phone") and value
+        }
+
+    found = await confirm(name, list(domains or []), corroborate=known or None)
     if found is None:
-        return {"confirmed": None, "offers": []}
-    return {"confirmed": found, "offers": await contact_page(found)}
+        return {"confirmed": None, "offers": [], "corroborated_against": sorted(known)}
+    return {
+        "confirmed": found,
+        "offers": await contact_page(found),
+        "corroborated_against": sorted(known),
+    }
 
 
 register_tool(

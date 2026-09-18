@@ -30,7 +30,7 @@ from app.components.backend.api.finance.changes import (
     reject_batch,
     reject_change,
 )
-from app.components.backend.api.llm.router import (
+from app.components.backend.api.llm.routes import (
     SetModelRequest,
     get_current,
     get_models,
