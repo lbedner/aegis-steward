@@ -27,7 +27,6 @@ from app.components.backend.api.finance.accounts import (
 from app.components.web_frontend.filters import (
     cents_to_input,
     money_to_cents,
-    positions_from_text,
 )
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
@@ -75,11 +74,42 @@ async def _account(
     return account
 
 
-def _naming(
-    request: Request, account: Any, name: str, reference: str, refused: str = ""
+async def _routed(service: FinanceService, account: Any, routing: str) -> bool:
+    """Write the routing number to the BANK the account is held with.
+    False when it cannot be one; nothing is written then."""
+    from app.services.finance.domains.ledger.numbers import aba_ok
+    from app.services.finance.domains.ledger.queries.accounts import institution_by_id
+
+    if not aba_ok(routing):
+        return False
+    bank = await institution_by_id(service.db, account.institution_id)
+    if bank is not None:
+        bank.routing_number = routing.strip()
+        service.db.add(bank)
+    return True
+
+
+async def _naming(
+    request: Request,
+    service: FinanceService,
+    account: Any,
+    name: str,
+    reference: str,
+    routing: str | None = None,
+    refused: str = "",
 ) -> Response:
     """The naming dialog, opened or refused. One home, because the two
-    differ only by what went wrong."""
+    differ only by what went wrong.
+
+    The routing number is drawn here beside the account number, because
+    that is the pair people think in - but it belongs to the BANK, so
+    it is read from there and only offered once a bank is set.
+    """
+    from app.services.finance.domains.ledger.queries.accounts import institution_by_id
+
+    if routing is None and account.institution_id:
+        bank = await institution_by_id(service.db, account.institution_id)
+        routing = (bank.routing_number or "") if bank else ""
     return dialog(
         request,
         "partials/accounts/rename.html",
@@ -87,6 +117,7 @@ def _naming(
         account=account,
         name=name,
         reference=reference,
+        routing=routing,
         errors=[refused] if refused else [],
     )
 
@@ -99,7 +130,9 @@ async def rename_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _account(service, account_id, owner_user_id)
-    return _naming(request, account, account.name, account.reference or "")
+    return await _naming(
+        request, service, account, account.name, account.reference or ""
+    )
 
 
 @router.post("/{account_id:int}/rename", include_in_schema=False)
@@ -109,13 +142,21 @@ async def rename(
     name: Annotated[str, Form()] = "",
     reference: Annotated[str, Form()] = "",
     account_number: Annotated[str, Form()] = "",
+    routing_number: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _account(service, account_id, owner_user_id)
     label = name.strip()
     if not label:
-        return _naming(request, account, name, reference, "Give the account a name.")
+        return await _naming(
+            request,
+            service,
+            account,
+            name,
+            reference,
+            refused="Give the account a name.",
+        )
     await update_account(
         account_id,
         AccountUpdate(name=label, reference=reference.strip()),
@@ -124,6 +165,16 @@ async def rename(
     )
     # Blank leaves the stored number alone; it derives the mask.
     await set_number(service.db, account_id, account_number)
+    if routing_number.strip() and not await _routed(service, account, routing_number):
+        return await _naming(
+            request,
+            service,
+            account,
+            name,
+            reference,
+            routing_number,
+            "That is not a routing number; check for a transposed pair.",
+        )
     await service.db.commit()
     return dialog_done(
         where_from(request, f"{SECTION.path}/{account_id}"), f"Renamed to {label}"
@@ -528,111 +579,6 @@ async def terms_save(
     await service.db.commit()
     response = await _terms_dialog(request, service, owner_user_id, account, [])
     return with_toast(response, "Terms saved")
-
-
-# --- positions ---------------------------------------------------------------
-
-
-async def _positions_dialog(
-    request: Request,
-    service: FinanceService,
-    owner_user_id: int | None,
-    account: FinanceAccount,
-    errors: list[str],
-    status_code: int = 200,
-    positions: str = "",
-    as_of_date: str = "",
-) -> Response:
-    from app.components.backend.api.finance.investments import list_account_holdings
-
-    held = await list_account_holdings(
-        account.id, service=service, owner_user_id=owner_user_id
-    )
-    return dialog(
-        request,
-        "partials/accounts/positions.html",
-        status_code,
-        account=account,
-        errors=errors,
-        positions=positions,
-        as_of_date=as_of_date or current_date().isoformat(),
-        holdings=[
-            {
-                "ticker": h.ticker,
-                "quantity": f"{h.quantity:g}",
-                "value": h.market_value,
-            }
-            for h in held.items
-        ],
-    )
-
-
-@router.get("/{account_id:int}/positions", include_in_schema=False)
-async def positions_form(
-    request: Request,
-    account_id: int,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    account = await _account(service, account_id, owner_user_id)
-    return await _positions_dialog(request, service, owner_user_id, account, [])
-
-
-@router.post("/{account_id:int}/positions", include_in_schema=False)
-async def positions_save(
-    request: Request,
-    account_id: int,
-    positions: Annotated[str, Form()] = "",
-    as_of_date: Annotated[str, Form()] = "",
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    """Pasted positions, all-or-nothing.
-
-    A paste of twenty rows where two are malformed files NOTHING and says
-    which two: filing eighteen leaves the account wrong in a way that
-    looks right, and the reader has no way to tell which two are missing.
-    """
-    from app.components.backend.api.finance.investments import upsert_holding
-    from app.services.finance.schemas.investments import HoldingCreate
-
-    account = await _account(service, account_id, owner_user_id)
-    rows, errors = positions_from_text(positions)
-    if not errors and not rows:
-        errors = ["Nothing to save - one position per line."]
-    try:
-        as_of = date.fromisoformat(as_of_date) if as_of_date else current_date()
-    except ValueError:
-        errors.append(f"{as_of_date!r} is not a date")
-        as_of = current_date()
-    if errors:
-        return await _positions_dialog(
-            request,
-            service,
-            owner_user_id,
-            account,
-            errors,
-            422,
-            positions=positions,
-            as_of_date=as_of_date,
-        )
-    for row in rows:
-        await upsert_holding(
-            account.id,
-            HoldingCreate(
-                ticker=row["ticker"],
-                quantity=row["quantity"],
-                price=row["price"],
-                as_of_date=as_of,
-            ),
-            service=service,
-            owner_user_id=owner_user_id,
-        )
-    await service.db.commit()
-    response = await _positions_dialog(request, service, owner_user_id, account, [])
-    return with_toast(
-        response, f"Saved {len(rows)} position{'s' if len(rows) != 1 else ''}"
-    )
 
 
 # --- secured by --------------------------------------------------------------

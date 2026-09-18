@@ -64,11 +64,7 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/routes/chat.py": 931,
     "components/frontend/dashboard/modals/finance_modal/transactions_panel/panel.py": 899,
     "components/frontend/dashboard/modals/finance_modal/uncategorized_panel.py": 850,
-    # Grew by five when an account number needed somewhere to be typed:
-    # storage, a reveal and a masked row had all shipped with no way in.
-    # The positions block (~105 lines) is the seam that pays this back
-    # and then some - see the ticket.
-    "components/web_frontend/routes/finance/account_manage.py": 729,
+    "components/web_frontend/routes/finance/account_manage.py": 675,
     "components/frontend/dashboard/modals/comms_modal.py": 832,
     "components/frontend/controls/form_fields.py": 810,
     "cli/load_test.py": 805,

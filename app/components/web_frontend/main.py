@@ -22,6 +22,9 @@ def create_web_frontend_app() -> APIRouter:
     )
     from app.components.web_frontend.routes.facts import router as facts_router
     from app.components.web_frontend.routes.finance import router as finance_router
+    from app.components.web_frontend.routes.finance.positions import (
+        router as positions_router,
+    )
     from app.components.web_frontend.routes.icons import router as icons_router
     from app.components.web_frontend.routes.jobs import router as jobs_router
     from app.components.web_frontend.routes.matter_papers import (
@@ -47,6 +50,7 @@ def create_web_frontend_app() -> APIRouter:
     router.include_router(account_facts_router)
     router.include_router(signins_router)
     router.include_router(policies_router)
+    router.include_router(positions_router)
     router.include_router(contacts_router)
     router.include_router(documents_router)
     router.include_router(icons_router)

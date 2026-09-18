@@ -18,5 +18,14 @@
      password box does. #}
   {{ text_input("account_number", "", placeholder="Leave blank to keep the one stored" if account.mask else "") }}
   {% endcall %}
+  {# The pair people think in, drawn together - but the routing number
+     belongs to the BANK, so it is written once however many accounts
+     point at it. Absent until a bank is set: it would have nowhere to
+     go. #}
+  {% if routing is not none %}
+  {% call field("Routing number") %}{{ text_input("routing_number", routing, placeholder="021000021") }}
+  <p class="mt-1 text-xs text-aegis-muted">The bank's, shared by every account you hold there.</p>
+  {% endcall %}
+  {% endif %}
   {{ primary_button("Save", type="submit") }}
 </form>

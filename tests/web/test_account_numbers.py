@@ -148,3 +148,102 @@ class TestPuttingTheNumberIn:
         )
 
         assert await reveal_number(async_db_session, account_id) == NUMBER
+
+
+class TestBothNumbersInOnePlace:
+    """People think of routing and account number as a pair, and they
+    sat in two different dialogs because of where the data LIVES. The
+    pair reads together now; the routing still belongs to the bank and
+    is written once however many accounts point at it."""
+
+    async def _chase(self, db: AsyncSession) -> int:
+        from app.services.finance.domains.writes.accounts import (
+            InstitutionPayload,
+            institution_execute,
+        )
+        from app.services.finance.service import FinanceService
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(db).create(name="A Bank", kind="organization")
+        account = await seed_account(FinanceService(db), name="Paired")
+        await db.flush()
+        await institution_execute(
+            db,
+            InstitutionPayload(
+                account_id=int(account.id),
+                party_id=int(party.id),
+                routing_number="021000021",
+            ),
+            None,
+        )
+        await db.commit()
+        return int(account.id)
+
+    @pytest.mark.asyncio
+    async def test_the_dialog_shows_the_banks_routing_number(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        account_id = await self._chase(async_db_session)
+
+        form = client.get(f"/accounts/{account_id}/rename").text
+
+        assert one(form, 'input[name="routing_number"]').get("value") == "021000021"
+
+    @pytest.mark.asyncio
+    async def test_changing_it_writes_to_the_bank_not_the_account(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.ledger.queries.accounts import (
+            account_by_id,
+            institution_by_id,
+        )
+
+        account_id = await self._chase(async_db_session)
+
+        client.post(
+            f"/accounts/{account_id}/rename",
+            data={
+                "name": "Paired",
+                "reference": "",
+                "account_number": "",
+                "routing_number": "011401533",
+            },
+        )
+
+        account = await account_by_id(async_db_session, account_id)
+        bank = await institution_by_id(async_db_session, account.institution_id)
+        assert bank.routing_number == "011401533"
+
+    @pytest.mark.asyncio
+    async def test_one_that_cannot_be_a_routing_number_is_refused(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        account_id = await self._chase(async_db_session)
+
+        refused = client.post(
+            f"/accounts/{account_id}/rename",
+            data={
+                "name": "Paired",
+                "reference": "",
+                "account_number": "",
+                "routing_number": "020100021",
+            },
+        )
+
+        assert refused.status_code == 422
+        one(refused.text, "[role=alert]")
+
+    @pytest.mark.asyncio
+    async def test_an_account_with_no_bank_is_not_asked_for_one(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        """A routing number with no bank to hang it on has nowhere to
+        go, so the field stays away until the bank is set."""
+        from app.services.finance.service import FinanceService
+
+        account = await seed_account(FinanceService(async_db_session), name="Bankless")
+        await async_db_session.commit()
+
+        form = client.get(f"/accounts/{account.id}/rename").text
+
+        none(form, 'input[name="routing_number"]')
