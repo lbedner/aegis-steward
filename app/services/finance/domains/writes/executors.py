@@ -8,6 +8,7 @@ debt costs); importing this module arms the whole surface.
 
 from __future__ import annotations
 
+from app.services.documents.domains import reading
 from app.services.finance.domains.writes import (
     accounts,
     curation,
@@ -221,5 +222,26 @@ register(
         payload_model=accounts.InstitutionPayload,
         execute=accounts.institution_execute,
         describe=accounts.institution_describe,
+    )
+)
+
+# A document's own metadata is read off its pages and approved like any
+# other claim: extraction proposes, nothing extracted becomes truth.
+register(
+    ChangeExecutor(
+        change_type="document.metadata",
+        title="What a document says it is",
+        payload_model=reading.MetadataPayload,
+        execute=reading.metadata_execute,
+        describe=reading.metadata_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="document.request",
+        title="What a letter asks for",
+        payload_model=reading.RequestPayload,
+        execute=reading.request_execute,
+        describe=reading.request_describe,
     )
 )

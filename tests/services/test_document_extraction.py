@@ -345,3 +345,37 @@ class TestWhatCountsAsARead:
         text, confidence = _assemble(data)
         assert text == "REQUEST FOR\nDue 9/8/2026"
         assert confidence == 90.25
+
+
+class TestExtractionProposes:
+    """ST-08's seam: reading a document ends by putting what it says
+    about itself in front of somebody, without anybody asking."""
+
+    @pytest.mark.asyncio
+    async def test_running_the_job_leaves_a_card_behind(
+        self, svc, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.documents.domains.extraction import jobs
+        from app.services.finance.domains.writes.queue import list_changes
+        from tests._session import opens
+
+        doc = await svc.ingest(
+            pdf_bytes(["Mortgage Interest Statement", "Statement Date: March 3, 2026"]),
+            title="Aug-2026.pdf",
+            media_type="application/pdf",
+        )
+        await svc.db.flush()
+        monkeypatch.setattr(jobs, "get_async_session", opens(async_db_session))
+
+        await jobs.run_extraction(
+            int(doc.id), owner_user_id=None, force=False, report=lambda _label: None
+        )
+
+        cards = [
+            c
+            for c in await list_changes(async_db_session, status="pending")
+            if c.change_type == "document.metadata"
+            and c.payload["document_id"] == doc.id
+        ]
+        assert len(cards) == 1
+        assert cards[0].payload["kind"]["value"] == "statement"
