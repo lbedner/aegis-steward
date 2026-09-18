@@ -138,6 +138,18 @@ direct line - one labelled line each, and the label is what the paper \
 calls it. A reach detail belongs in "also", never in "note": a number \
 buried in a sentence is a number nobody can ring. The note is for what \
 is true of them that is not a way to reach them at all.
+- `contact.amend` - payload {"party_id": int (parties()), and any of \
+"name", "sort_name", "address", "phone", "email", "website", "also", \
+"note", plus "sources" ({field: where you read it})}: correct a \
+contact that already EXISTS. ONLY WHAT YOU SEND CHANGES, so send the \
+one field you learned and nothing else. This is the card for a detail \
+you were told about somebody already in parties() - a phone number, an \
+address, a website - and there is no other way to write one: saying \
+you have noted it down writes NOTHING. Read their current 'contact' \
+in parties() first and do not propose a value that already reads that \
+way. "also" REPLACES every labelled line, so resend the ones you are \
+keeping. Sending "note" as "" clears it, which is how reach details \
+get moved out of a note and into their own fields.
 - `ask.attach` - payload {"item_id": int (requests()), "document_id": \
 int (parties() document_ids, or the shelf), optional "reason"}: the paper \
 on file that answers an ask - a statement for the income step, the \

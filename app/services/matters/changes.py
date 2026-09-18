@@ -17,7 +17,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.schema import known
@@ -27,9 +32,7 @@ from app.services.matters.models import (
     FACT_PERIODS,
     FACT_PROVENANCE,
     ITEM_KINDS,
-    PARTY_KINDS,
 )
-from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES, reach_lines
 
 
 class RecordFactPayload(BaseModel):
@@ -305,87 +308,4 @@ async def attach_ask_describe(
     ]
     if payload.reason:
         rows.append(ChangeDisplayRow(label="Because", value=payload.reason))
-    return rows
-
-
-class CreateContactPayload(BaseModel):
-    """A person or an organization named for the first time, with how
-    to reach them. Never deduplicated by name: two "Bedner"s are two
-    people until somebody says otherwise."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    kind: str = "person"
-    address: str | None = None
-    phone: str | None = None
-    email: str | None = None
-    website: str | None = None
-    # Everything else they print: a Spanish line, a number from abroad,
-    # a claims fax. Labelled because a number nobody labelled is a
-    # number whose meaning is lost.
-    also: list[dict[str, str]] = Field(default_factory=list)
-    note: str | None = None
-
-    _known_kind = field_validator("kind")(known(PARTY_KINDS))
-
-    @field_validator("name")
-    @classmethod
-    def _named(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("A contact needs a name.")
-        return value
-
-    def reach(self) -> dict[str, Any]:
-        found: dict[str, Any] = {
-            key: value.strip()
-            for key, _label in CONTACT_FIELDS
-            if (value := getattr(self, key)) and value.strip()
-        }
-        if lines := [
-            {"label": label, "value": value}
-            for label, value in reach_lines({CONTACT_LINES: self.also})
-        ]:
-            found[CONTACT_LINES] = lines
-        return found
-
-
-async def create_contact_execute(
-    db: AsyncSession, payload: CreateContactPayload, owner_user_id: int | None
-) -> dict[str, Any]:
-    from app.services.matters.service import PartyService
-
-    party = await PartyService(db).create(
-        name=payload.name,
-        kind=payload.kind,
-        owner_user_id=owner_user_id,
-        contact=payload.reach(),
-        note=payload.note,
-    )
-    await db.flush()
-    return {"party_id": party.id, "name": party.name}
-
-
-async def create_contact_describe(
-    db: AsyncSession, payload: CreateContactPayload, owner_user_id: int | None
-) -> list[ChangeDisplayRow]:
-    rows = [
-        ChangeDisplayRow(label="Contact", value=payload.name),
-        ChangeDisplayRow(label="Kind", value=payload.kind),
-    ]
-    labels = dict(CONTACT_FIELDS)
-    reach = payload.reach()
-    rows.extend(
-        ChangeDisplayRow(label=labels[key], value=reach[key])
-        for key, _label in CONTACT_FIELDS
-        if key in reach
-    )
-    # Each labelled line gets its own row: a card that folds three phone
-    # numbers into one line is a card nobody checks.
-    rows.extend(
-        ChangeDisplayRow(label=label, value=value)
-        for label, value in reach_lines(reach)
-    )
-    if payload.note:
-        rows.append(ChangeDisplayRow(label="Note", value=payload.note))
     return rows
