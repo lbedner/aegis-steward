@@ -10,7 +10,9 @@
      policy number - so it is plain and it renders on the page. The
      account number moves money, so it is encrypted and only its last
      four are ever drawn. #}
-  {% call field("Their reference") %}{{ text_input("reference", reference, placeholder="R10932601") }}{% endcall %}
+  {# A hint, never a plausible VALUE: "R10932601" read as a stored
+     number rather than an example of one. #}
+  {% call field("Their reference") %}{{ text_input("reference", reference, placeholder="Member, policy or loan number") }}{% endcall %}
   {% call field("Account number" ~ (" · ends " ~ account.mask if account.mask else "")) %}
   {# Never pre-filled: a form that renders a secret to save one
      keystroke has put it in the page, the cache and the screenshot.
