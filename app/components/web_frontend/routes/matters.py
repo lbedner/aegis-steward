@@ -15,7 +15,7 @@ from starlette.responses import Response
 
 from app.components.web_frontend.documents import PAPER_COLUMNS
 from app.components.web_frontend.filters import parse_date
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import matter_tabs, section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
@@ -28,6 +28,7 @@ from app.components.web_frontend.routes.facts import facts_for
 from app.components.web_frontend.routes.matter_papers import matter_papers
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
+from app.services.matters.answers import answer_sheet
 from app.services.matters.matters import MatterService, summarised
 from app.services.matters.models import PARTICIPANT_ROLES
 from app.services.matters.requests import RequestService
@@ -212,17 +213,54 @@ async def matter(request: Request, matter_id: int) -> Response:
         ]
         known = await facts_for(db, matter_id)
         papers = await matter_papers(db, matter_id)
+        outstanding = (await answer_sheet(db, matter_id))["outstanding"]
     return render(
         request,
         "pages/matter.html",
         {
             "section": SECTION,
+            **matter_tabs(matter_id, "case", outstanding),
             "matter": drawn,
             "requests": asked,
             "facts": known,
             "papers": papers,
             "paper_columns": list(PAPER_COLUMNS),
             "path": SECTION.path,
+        },
+    )
+
+
+@router.get("/{matter_id:int}/answers", include_in_schema=False)
+async def answers(request: Request, matter_id: int) -> Response:
+    """What to write on the county's form, and where each figure came
+    from. Its own page because it is read beside a paper form with the
+    app's chrome dropped out of print."""
+    async with get_async_session() as db:
+        or_404(await MatterService(db).get(matter_id))
+        sheet = await answer_sheet(db, matter_id)
+        drawn = await summarised(db, sheet["matter"])
+    return render(
+        request,
+        "pages/matter_answers.html",
+        {
+            "section": SECTION,
+            "path": SECTION.path,
+            **matter_tabs(matter_id, "answers", sheet["outstanding"]),
+            "matter": drawn,
+            "reference": sheet["reference"],
+            "due_on": sheet["due_on"],
+            "answers": sheet["answers"],
+            "outstanding": sheet["outstanding"],
+            # Whose case it is, by name. On paper this is what tells
+            # somebody which person the sheet is about.
+            "subject": next(
+                (
+                    one["party"]
+                    for one in (drawn.get("participants") or [])
+                    if one.get("role") == "subject"
+                ),
+                None,
+            ),
         },
     )
 
