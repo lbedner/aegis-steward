@@ -185,6 +185,34 @@ def settings_nav(current: str) -> dict[str, Any]:
     }
 
 
+def matter_tabs(matter_id: int, current: str, outstanding: int = 0) -> dict[str, Any]:
+    """A matter's two faces, through the sub-nav every section uses.
+
+    The case is where the work happens; the answer sheet is what leaves
+    the building. Two pages rather than one because the sheet is read
+    beside a paper form, with the app's own chrome dropped out of print,
+    and a page that is both is a page that prints badly.
+
+    ``outstanding`` on the tab, because the useful thing to know before
+    clicking is whether anything is still missing.
+    """
+    base = f"{section('matters').path}/{matter_id}"
+    return {
+        "nav_label": "Matter",
+        "nav_id": "matter-tabs",
+        "current_tab": current,
+        "sub_nav": [
+            {"key": "case", "label": "The case", "href": base},
+            {
+                "key": "answers",
+                "label": "Answer sheet",
+                "href": f"{base}/answers",
+                "count": outstanding,
+            },
+        ],
+    }
+
+
 def account_tabs(account_id: int, current: str, filed: int = 0) -> dict[str, Any]:
     """An account's two faces, as the sub-nav every section uses.
 

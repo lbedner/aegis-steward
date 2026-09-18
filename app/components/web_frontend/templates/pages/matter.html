@@ -37,6 +37,11 @@
     {{ badge(matter.status, "ok" if matter.status == "open" else "muted") }}
   </header>
 
+  {#- The case, and what leaves the building. Two pages because the
+      answer sheet is read beside a paper form with the app's own chrome
+      dropped out of print, and a page that is both prints badly. -#}
+  {% include "components/sub_nav.html" %}
+
   {% call card(word("who")) %}
   {% if matter.participants %}
   <dl class="border-t border-aegis-border/60">
