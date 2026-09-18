@@ -563,3 +563,92 @@ class TestAmendingAContact:
         again = await parties.get(party.id)
         assert again.note is None
         assert again.contact["phone"] == "800-471-7091"
+
+
+class TestClearingAFieldThatShouldNotBeThere:
+    """A reach field can be emptied, not only corrected.
+
+    Live: a bad reading put a website of "state.ny.us" and a truncated
+    caseworker email onto Dutchess County DSS. Nothing could take them
+    off again - an unset field meant "say nothing about this", so there
+    was no way to say "this should be blank" (2026-09-18). A record you
+    can fill and cannot empty accumulates every mistake ever made in it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_empty_string_clears_a_reach_field(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_execute,
+        )
+        from app.services.matters.service import PartyService
+
+        parties = PartyService(async_db_session)
+        party = await parties.create(
+            name="Wrong Testcase",
+            kind="organization",
+            contact={
+                "address": "60 Market St",
+                "phone": "(845) 486-3000",
+                "website": "state.ny.us",
+            },
+        )
+        await amend_contact_execute(
+            async_db_session,
+            AmendContactPayload(party_id=party.id, website=""),
+            None,
+        )
+        await async_db_session.commit()
+
+        again = await parties.get(party.id)
+        assert "website" not in again.contact
+        # Untouched, because unsent still means unsaid.
+        assert again.contact["phone"] == "(845) 486-3000"
+        assert again.contact["address"] == "60 Market St"
+
+    @pytest.mark.asyncio
+    async def test_the_card_says_it_is_being_emptied(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_describe,
+        )
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(async_db_session).create(
+            name="Clear Testcase",
+            kind="organization",
+            contact={"website": "state.ny.us"},
+        )
+        said = {
+            row.label: row.value
+            for row in await amend_contact_describe(
+                async_db_session,
+                AmendContactPayload(party_id=party.id, website=""),
+                None,
+            )
+        }
+        assert said["Website"] == "state.ny.us → -"
+
+    @pytest.mark.asyncio
+    async def test_clearing_something_already_blank_changes_nothing(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_describe,
+        )
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(async_db_session).create(
+            name="Blank Testcase", kind="organization", contact={"phone": "1"}
+        )
+        with pytest.raises(ValueError, match="nothing"):
+            await amend_contact_describe(
+                async_db_session,
+                AmendContactPayload(party_id=party.id, website=""),
+                None,
+            )

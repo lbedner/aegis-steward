@@ -148,21 +148,37 @@ address, a website - and there is no other way to write one: saying \
 you have noted it down writes NOTHING. Read their current 'contact' \
 in parties() first and do not propose a value that already reads that \
 way. "also" REPLACES every labelled line, so resend the ones you are \
-keeping. Sending "note" as "" clears it, which is how reach details \
+keeping - contact_details returns new ones with field "also" and a \
+"label", and parties() has the ones already on the record. A labelled \
+line is where a fax, an examiner's direct line or a caseworker's \
+address goes; the four named fields are for the MAIN way in. Sending "note" as "" clears it, which is how reach details \
 get moved out of a note and into their own fields. A reach detail is \
 never kept in memory instead: memory is what you remember ABOUT \
 somebody, the contact row is how to reach them, and a phone number in \
 both is a phone number that can disagree with itself. Propose the card; \
 once it is approved, forget_memory anything you kept about reaching \
-them.
-- `document.metadata` - payload {"document_id": int (the shelf, or a \
-party's document_ids), and any of "title", "kind" (letter/statement/\
-schedule/form/identification/receipt/other), "document_date", each as \
-{"value", "page": int, "because": the line you read it on}}: what a \
+them. Call contact_details(party_id) FIRST: it reads their own filed \
+paper and returns what the letterhead printed, with the document and \
+page. Put those in "sources" so each row cites its line. A detail it \
+did not return is one you did not read - do not propose it.
+- `document.metadata` - payload {"document_id": int (from `documents`, \
+or a party's document_ids - NEVER guess a number; `documents` turns \
+"the county letter" into an id, and documents(unattributed=True) is \
+the queue of paper whose sender nobody has recorded), and any of "title", "kind" (letter/statement/\
+schedule/form/identification/receipt/other), "document_date", and \
+"sender" (a parties() id - WHO SENT IT, read off the letterhead), each \
+as {"value", "page": int, "because": the line you read it on}}: what a \
 document says it IS. The citation is NOT optional - a field that \
 cannot name its page is a guess, not a reading - so read the pages \
 (paper()) and quote the line. Only what you send changes, and the \
 bytes never do: a document is what arrived.
+  The SENDER matters more than it looks: it is what attaches a letter \
+to the organization whose address is printed at the top of it, and \
+contact_details can only read a letterhead that is attached to \
+somebody. Send the id of the party who WROTE the document, not \
+everyone it mentions - a county letter about a resident is FROM the \
+county. Propose contact.create first when parties() has no row for the \
+sender, and do not guess an id.
 - `document.request` - payload {"document_id": int, "matter_id": int \
 (matters()), optional "received_on" and "due_on", "items": a list of \
 {"asked", "kind" (document/form/figure/action), "page": int, "quote": \

@@ -191,6 +191,14 @@ FINANCE_CHAT_TOOL_NAMES = (
     # The paper itself, by the id the three above hand back: the letter
     # behind a request, read to the person who asked what it says.
     "paper",
+    # And the shelf by NAME, because nobody knows a document's number.
+    # Without this the only findable paper is paper already attached to
+    # somebody, so the documents most needing attention - the ones with
+    # no sender recorded - are the exact ones she cannot see.
+    "documents",
+    # How to reach a contact, read off their own filed letterhead. The
+    # read half of contact.amend: without it she proposes from memory.
+    "contact_details",
     # Policies and the claims on them, with the ids claim.record names.
     "policies",
     "claim_candidates",

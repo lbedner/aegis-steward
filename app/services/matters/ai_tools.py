@@ -308,6 +308,70 @@ async def paper(document_id: int) -> dict[str, Any]:
     }
 
 
+async def documents(
+    q: str | None = None, kind: str | None = None, unattributed: bool = False
+) -> dict[str, Any]:
+    """What is on the shelf, found by NAME rather than by id.
+
+    Returns {'documents': [...]}, newest first, each with 'id', 'title',
+    'kind', 'document_date', 'pages' and 'from' (who it is tagged as
+    being from, as {'party_id','name'}).
+
+    'q' matches the title, case-insensitively - "county letter", "delta
+    invoice" - which is what a person actually has to go on. 'kind'
+    filters to letter/statement/schedule/form/identification/receipt/
+    other. 'unattributed=True' shows only documents NOBODY is tagged on:
+    that is the working queue, because a document with no sender is one
+    whose letterhead nothing can read.
+
+    Use it to turn a description into an id, then `paper` to read it and
+    document.metadata to say what it is and who sent it.
+    """
+    from app.services.documents.domains.shelf import shelf
+
+    async with get_async_session() as db:
+        found = await shelf(db, q=q, kind=kind, unattributed=unattributed)
+    return {"documents": found}
+
+
+register_tool(
+    "documents",
+    documents,
+    description="What is on the shelf, searchable by title and by who sent it",
+    replace=True,
+)
+
+
+async def contact_details(party_id: int) -> dict[str, Any]:
+    """How to reach a party, read off the paper already filed against them.
+
+    Returns {'party_id', 'name', 'offers'}: each offer carries 'field'
+    (address/phone/email/website), 'value', and the 'document_id' and
+    'page' it was READ FROM. Only fields the contact record is missing
+    are offered; a field already filled in is never re-proposed.
+
+    Patterns, not a model - so a page that says nothing offers nothing,
+    and an offer you get is one the paper actually printed. Propose
+    contact.amend with these, putting the document and page in
+    'sources' so the card cites the line. Never propose a value this
+    did not return: a contact detail you remember is not one you read.
+    """
+    from app.services.matters.lookup import contact_details as read_details
+
+    async with get_async_session() as db:
+        party = await PartyService(db).get(party_id)
+        if party is None:
+            return {"error": f"No contact with id {party_id}"}
+        offers = await read_details(db, party_id)
+    return {"party_id": party_id, "name": party.name, "offers": offers}
+
+
+register_tool(
+    "contact_details",
+    contact_details,
+    description="Reach fields for a contact, read off their own filed paper",
+    replace=True,
+)
 register_tool(
     "parties",
     parties,
