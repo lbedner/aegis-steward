@@ -154,7 +154,10 @@ never kept in memory instead: memory is what you remember ABOUT \
 somebody, the contact row is how to reach them, and a phone number in \
 both is a phone number that can disagree with itself. Propose the card; \
 once it is approved, forget_memory anything you kept about reaching \
-them.
+them. Call contact_details(party_id) FIRST: it reads their own filed \
+paper and returns what the letterhead printed, with the document and \
+page. Put those in "sources" so each row cites its line. A detail it \
+did not return is one you did not read - do not propose it.
 - `document.metadata` - payload {"document_id": int (the shelf, or a \
 party's document_ids), and any of "title", "kind" (letter/statement/\
 schedule/form/identification/receipt/other), "document_date", each as \

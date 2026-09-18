@@ -308,6 +308,36 @@ async def paper(document_id: int) -> dict[str, Any]:
     }
 
 
+async def contact_details(party_id: int) -> dict[str, Any]:
+    """How to reach a party, read off the paper already filed against them.
+
+    Returns {'party_id', 'name', 'offers'}: each offer carries 'field'
+    (address/phone/email/website), 'value', and the 'document_id' and
+    'page' it was READ FROM. Only fields the contact record is missing
+    are offered; a field already filled in is never re-proposed.
+
+    Patterns, not a model - so a page that says nothing offers nothing,
+    and an offer you get is one the paper actually printed. Propose
+    contact.amend with these, putting the document and page in
+    'sources' so the card cites the line. Never propose a value this
+    did not return: a contact detail you remember is not one you read.
+    """
+    from app.services.matters.lookup import contact_details as read_details
+
+    async with get_async_session() as db:
+        party = await PartyService(db).get(party_id)
+        if party is None:
+            return {"error": f"No contact with id {party_id}"}
+        offers = await read_details(db, party_id)
+    return {"party_id": party_id, "name": party.name, "offers": offers}
+
+
+register_tool(
+    "contact_details",
+    contact_details,
+    description="Reach fields for a contact, read off their own filed paper",
+    replace=True,
+)
 register_tool(
     "parties",
     parties,
