@@ -155,6 +155,23 @@ somebody, the contact row is how to reach them, and a phone number in \
 both is a phone number that can disagree with itself. Propose the card; \
 once it is approved, forget_memory anything you kept about reaching \
 them.
+- `document.metadata` - payload {"document_id": int (the shelf, or a \
+party's document_ids), and any of "title", "kind" (letter/statement/\
+schedule/form/identification/receipt/other), "document_date", each as \
+{"value", "page": int, "because": the line you read it on}}: what a \
+document says it IS. The citation is NOT optional - a field that \
+cannot name its page is a guess, not a reading - so read the pages \
+(paper()) and quote the line. Only what you send changes, and the \
+bytes never do: a document is what arrived.
+- `document.request` - payload {"document_id": int, "matter_id": int \
+(matters()), optional "received_on" and "due_on", "items": a list of \
+{"asked", "kind" (document/form/figure/action), "page": int, "quote": \
+the words the letter used}, "dropped": how many demands you found and \
+could NOT quote}: a letter's demands, as ONE card. Never one card per \
+ask: a letter is answered as a whole, and approving half a demand list \
+leaves a matter that looks handled. Quote the letter for every item; \
+count the ones you had to drop rather than padding the list, because a \
+list somebody trusts as whole is worse than one that admits its gap.
 - `ask.attach` - payload {"item_id": int (requests()), "document_id": \
 int (parties() document_ids, or the shelf), optional "reason"}: the paper \
 on file that answers an ask - a statement for the income step, the \
