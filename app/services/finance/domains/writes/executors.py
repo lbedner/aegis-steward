@@ -249,6 +249,17 @@ register(
         describe=reading.metadata_describe,
     )
 )
+# A figure read off a page, with where it was read. ST-08's gate: a
+# statement produces facts whose provenance names document and page.
+register(
+    ChangeExecutor(
+        change_type="document.fact",
+        title="A figure read off a page",
+        payload_model=reading.FactPayload,
+        execute=reading.fact_execute,
+        describe=reading.fact_describe,
+    )
+)
 # Which paper answers which ask. ST-07 makes the link a human action;
 # this is the door that lets a reading PROPOSE one.
 register(

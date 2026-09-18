@@ -342,3 +342,121 @@ async def evidence_describe(
         ChangeDisplayRow(label="Answers", value=item.asked),
         ChangeDisplayRow(label="Because", value=payload.cited()),
     ]
+
+
+# How often the money arrives, said the way a card should read it.
+# "$1,004.93 a month" is a sentence; "$1,004.93 month" is a database row
+# somebody has to translate.
+PERIOD_WORDS = {
+    "once": "",
+    "day": " a day",
+    "week": " a week",
+    "month": " a month",
+    "year": " a year",
+}
+
+
+class FactPayload(BaseModel):
+    """A figure read off a page, with where it was read.
+
+    ST-08's validation gate: a statement produces balance facts whose
+    provenance names the document and page. A figure without its
+    provenance is not fit to put on a government form, which is why
+    neither the page nor the line behind it is optional.
+
+    The rate is stored AS QUOTED. A pension portal quotes a daily rate
+    and the county asks for a monthly figure; converting on the way in
+    files arithmetic as a quotation, and the number stops matching the
+    paper it came from.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: int
+    subject_party_id: int
+    attribute: str
+    value_cents: int = Field(ge=0)
+    period: str = "once"
+    page: int = Field(ge=1)
+    because: str
+    label: str | None = None
+    as_of: date | None = None
+    matter_id: int | None = None
+
+    @model_validator(mode="after")
+    def _known_and_cited(self) -> FactPayload:
+        from app.services.matters.facts import ATTRIBUTE_KEYS
+        from app.services.matters.models import FACT_PERIODS
+
+        require_one_of(self.attribute, ATTRIBUTE_KEYS)
+        require_one_of(self.period, FACT_PERIODS)
+        if not self.because.strip():
+            raise ValueError(
+                "A figure needs the line it was read from: a number nobody "
+                "can check against the page is a number nobody should put "
+                "on a form."
+            )
+        return self
+
+    def cited(self) -> str:
+        return f"page {self.page}: {self.because.strip()}"
+
+
+async def _subject(db: AsyncSession, party_id: int) -> Any:
+    from app.services.matters.service import PartyService
+
+    party = await PartyService(db).get(party_id)
+    if party is None:
+        raise ValueError(f"No contact with id {party_id}")
+    return party
+
+
+async def fact_execute(
+    db: AsyncSession, payload: FactPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.facts import FactService
+
+    await _document(db, payload.document_id)
+    await _subject(db, payload.subject_party_id)
+    fact = await FactService(db).record(
+        subject_party_id=payload.subject_party_id,
+        attribute=payload.attribute,
+        value_cents=payload.value_cents,
+        period=payload.period,
+        label=payload.label,
+        as_of=payload.as_of,
+        matter_id=payload.matter_id,
+        # Never "verified": approving a card is approving what was READ,
+        # not confirming somebody opened the source and checked it.
+        provenance="document",
+        document_id=payload.document_id,
+        page=payload.page,
+        source_note=payload.because.strip(),
+        owner_user_id=owner_user_id,
+    )
+    await db.flush()
+    return {"fact_id": fact.id, "subject_party_id": payload.subject_party_id}
+
+
+async def fact_describe(
+    db: AsyncSession, payload: FactPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+    from app.services.matters.facts import LABELS
+
+    document = await _document(db, payload.document_id)
+    party = await _subject(db, payload.subject_party_id)
+    money = format_usd(payload.value_cents) + PERIOD_WORDS.get(payload.period, "")
+    rows = [
+        ChangeDisplayRow(label="About", value=party.name),
+        ChangeDisplayRow(
+            label=LABELS.get(payload.attribute, payload.attribute), value=money
+        ),
+        ChangeDisplayRow(label="Read from", value=document.title),
+        ChangeDisplayRow(label="Because", value=payload.cited()),
+    ]
+    if payload.as_of:
+        rows.insert(
+            2, ChangeDisplayRow(label="As of", value=payload.as_of.isoformat())
+        )
+    return rows

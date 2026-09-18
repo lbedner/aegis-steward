@@ -496,3 +496,191 @@ async def _an_ask_and_a_document(db: AsyncSession) -> tuple[Any, Any]:
     db.add(document)
     await db.flush()
     return item, document
+
+
+class TestAFigureReadOffAPage:
+    """ST-08's validation gate: a statement produces balance facts whose
+    provenance names the document and page.
+
+    The last of the four change types. The NYSLRS statement has
+    "Net Benefit: $1004.93" printed on page 1 and it is the figure the
+    renewal form asks for - but until now nothing could record it, so a
+    number that exists on paper existed nowhere the app could cite.
+
+    A figure without its provenance is not fit to put on a government
+    form, which is why the page and the line are not optional here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_approving_it_records_the_figure_with_its_page(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            FactPayload,
+            fact_execute,
+        )
+        from app.services.matters.facts import FactService
+
+        party, document = await _a_person_and_a_statement(async_db_session)
+        await fact_execute(
+            async_db_session,
+            FactPayload(
+                document_id=document.id,
+                subject_party_id=party.id,
+                attribute="gross_income",
+                value_cents=100493,
+                period="month",
+                page=1,
+                because="Net Benefit: $1004.93",
+            ),
+            None,
+        )
+        await async_db_session.commit()
+
+        facts = await FactService(async_db_session).find(subject_party_id=party.id)
+        assert len(facts) == 1
+        assert facts[0].value_cents == 100493
+        assert facts[0].period == "month"
+        # Provenance, which is the whole point.
+        assert facts[0].document_id == document.id
+        assert facts[0].page == 1
+        assert facts[0].provenance == "document"
+
+    @pytest.mark.asyncio
+    async def test_the_card_shows_the_money_and_the_line(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            FactPayload,
+            fact_describe,
+        )
+
+        party, document = await _a_person_and_a_statement(async_db_session)
+        said = {
+            row.label: row.value
+            for row in await fact_describe(
+                async_db_session,
+                FactPayload(
+                    document_id=document.id,
+                    subject_party_id=party.id,
+                    attribute="gross_income",
+                    value_cents=100493,
+                    period="month",
+                    page=1,
+                    because="Net Benefit: $1004.93",
+                ),
+                None,
+            )
+        }
+        assert "Subject Testcase" in said["About"]
+        assert "$1,004.93" in said["Gross income"]
+        assert "a month" in said["Gross income"]
+        assert "page 1" in said["Because"]
+        assert "Net Benefit" in said["Because"]
+
+    @pytest.mark.asyncio
+    async def test_a_rate_is_stored_as_quoted_not_converted(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A pension portal quotes a DAILY rate and the county asks for a
+        month. Storing the arithmetic instead of the quotation is how a
+        figure stops matching the paper it came from."""
+        from app.services.documents.domains.reading.changes import (
+            FactPayload,
+            fact_execute,
+        )
+        from app.services.matters.facts import FactService
+
+        party, document = await _a_person_and_a_statement(async_db_session)
+        await fact_execute(
+            async_db_session,
+            FactPayload(
+                document_id=document.id,
+                subject_party_id=party.id,
+                attribute="gross_income",
+                value_cents=3300,
+                period="day",
+                page=2,
+                because="Daily rate $33.00",
+            ),
+            None,
+        )
+        await async_db_session.commit()
+
+        facts = await FactService(async_db_session).find(subject_party_id=party.id)
+        assert (facts[0].value_cents, facts[0].period) == (3300, "day")
+
+    def test_an_attribute_nobody_defined_is_refused(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.documents.domains.reading.changes import FactPayload
+
+        with pytest.raises(ValidationError):
+            FactPayload(
+                document_id=1,
+                subject_party_id=1,
+                attribute="vibes",
+                value_cents=1,
+                period="month",
+                page=1,
+                because="x",
+            )
+
+    def test_a_figure_with_no_line_behind_it_is_refused(self) -> None:
+        """The citation is not optional. A number nobody can check
+        against the page is a number nobody should put on a form."""
+        from pydantic import ValidationError
+
+        from app.services.documents.domains.reading.changes import FactPayload
+
+        with pytest.raises(ValidationError):
+            FactPayload(
+                document_id=1,
+                subject_party_id=1,
+                attribute="gross_income",
+                value_cents=1,
+                period="month",
+                page=1,
+                because="   ",
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_subject_who_does_not_exist_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            FactPayload,
+            fact_execute,
+        )
+
+        _party, document = await _a_person_and_a_statement(async_db_session)
+        with pytest.raises(ValueError, match="999999"):
+            await fact_execute(
+                async_db_session,
+                FactPayload(
+                    document_id=document.id,
+                    subject_party_id=999999,
+                    attribute="gross_income",
+                    value_cents=1,
+                    period="month",
+                    page=1,
+                    because="x",
+                ),
+                None,
+            )
+
+
+async def _a_person_and_a_statement(db: AsyncSession) -> tuple[Any, Any]:
+    from app.services.documents.models import Document
+    from app.services.matters.service import PartyService
+
+    party = await PartyService(db).create(name="Subject Testcase", kind="person")
+    document = Document(
+        title="NYSLRS Monthly Statement.pdf",
+        kind="statement",
+        storage_key="s1",
+        content_hash="s1",
+    )
+    db.add(document)
+    await db.flush()
+    return party, document

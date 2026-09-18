@@ -193,6 +193,16 @@ somebody. Send the id of the party who WROTE the document, not \
 everyone it mentions - a county letter about a resident is FROM the \
 county. Propose contact.create first when parties() has no row for the \
 sender, and do not guess an id.
+- `document.fact` - payload {"document_id": int, "subject_party_id": \
+int (parties() - WHOSE money), "attribute": gross_income/net_income/\
+account_balance/resource_value/premium/other, "value_cents", "period" \
+(once/day/week/month/year), "page": int, "because": the line you read \
+it on, optional "label", "as_of", "matter_id"}: a figure read off a \
+page. Store the rate AS QUOTED - a portal quotes a DAILY rate and the \
+county asks for a month, and converting on the way in files arithmetic \
+as a quotation. "because" is not optional: a figure without its \
+provenance is not fit to put on a government form, which is the whole \
+reason this goes through a card.
 - `document.evidence_link` - payload {"document_id": int, \
 "request_item_id": int (requests()), "page": int, "because": the line \
 on that page that answers it}: which paper answers which ask. One ask \
