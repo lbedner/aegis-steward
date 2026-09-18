@@ -380,3 +380,119 @@ async def _a_document(db: AsyncSession, title: str) -> Any:
     db.add(document)
     await db.flush()
     return document
+
+
+class TestProposingALink:
+    """ST-08's other half. ST-07 says the link is a HUMAN action there
+    and proposing one is this ticket's job - so extraction offers, the
+    queue approves, and nothing is linked because a model was confident.
+    """
+
+    @pytest.mark.asyncio
+    async def test_approving_it_answers_the_ask(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            EvidencePayload,
+            evidence_execute,
+        )
+        from app.services.matters.evidence import satisfied_by
+        from app.services.matters.requests import RequestService
+
+        item, document = await _an_ask_and_a_document(async_db_session)
+        await evidence_execute(
+            async_db_session,
+            EvidencePayload(
+                document_id=document.id,
+                request_item_id=item.id,
+                page=2,
+                because="Net Benefit: $1004.93",
+            ),
+            None,
+        )
+        await async_db_session.commit()
+
+        found = await satisfied_by(async_db_session, item.id)
+        assert [(one.document_id, one.page) for one in found] == [(document.id, 2)]
+        assert (await RequestService(async_db_session).item(item.id)).status == (
+            "satisfied"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_card_quotes_the_line_it_read(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A link nobody can check is a link nobody should approve."""
+        from app.services.documents.domains.reading.changes import (
+            EvidencePayload,
+            evidence_describe,
+        )
+
+        item, document = await _an_ask_and_a_document(async_db_session)
+        said = {
+            row.label: row.value
+            for row in await evidence_describe(
+                async_db_session,
+                EvidencePayload(
+                    document_id=document.id,
+                    request_item_id=item.id,
+                    page=2,
+                    because="Net Benefit: $1004.93",
+                ),
+                None,
+            )
+        }
+        assert "Proof of gross income" in said["Answers"]
+        assert "page 2" in said["Because"]
+        assert "Net Benefit" in said["Because"]
+
+    @pytest.mark.asyncio
+    async def test_an_ask_that_does_not_exist_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            EvidencePayload,
+            evidence_execute,
+        )
+
+        _item, document = await _an_ask_and_a_document(async_db_session)
+        with pytest.raises(ValueError, match="999999"):
+            await evidence_execute(
+                async_db_session,
+                EvidencePayload(
+                    document_id=document.id,
+                    request_item_id=999999,
+                    page=1,
+                    because="x",
+                ),
+                None,
+            )
+
+    def test_a_link_with_no_reason_is_refused(self) -> None:
+        """The citation is not optional here either: "because" is what
+        somebody reads to decide whether this paper answers this ask."""
+        from pydantic import ValidationError
+
+        from app.services.documents.domains.reading.changes import EvidencePayload
+
+        with pytest.raises(ValidationError):
+            EvidencePayload(document_id=1, request_item_id=1, page=1, because="  ")
+
+
+async def _an_ask_and_a_document(db: AsyncSession) -> tuple[Any, Any]:
+    from app.services.documents.models import Document
+    from app.services.matters.matters import MatterService
+    from app.services.matters.requests import RequestService
+
+    matter = await MatterService(db).open(title="Renewal", reference="R-9")
+    request = await RequestService(db).record(
+        matter_id=matter.id,
+        items=[{"asked": "Proof of gross income", "kind": "figure"}],
+    )
+    item = (await RequestService(db).items(request.id))[0]
+    document = Document(
+        title="NYSLRS.pdf", kind="statement", storage_key="n1", content_hash="n1"
+    )
+    db.add(document)
+    await db.flush()
+    return item, document

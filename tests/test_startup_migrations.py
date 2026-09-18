@@ -288,3 +288,28 @@ class TestAdoptionStopsAtAGap:
         # would mark the schema complete while a table is missing.
         assert adopted == ["documents", "party"]
         assert stamped == ["002"]
+
+
+def test_init_database_does_not_build_tables_when_migrations_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``init_database`` is ``create_all``, and it is still called by the
+    scheduler and by ConversationManager on construction. Removing it
+    from the startup hook was not enough: it ran FIRST, created a new
+    model's table, and alembic then stamped the migration instead of
+    running it - so migration 030's data carry-over never executed and
+    two answered asks lost their evidence (live, 2026-09-18).
+
+    That is the finance_icon incident for the third time, through a door
+    #163 left open.
+    """
+    from sqlmodel import SQLModel
+
+    import app.core.db as db_module
+
+    called: list[str] = []
+    monkeypatch.setattr(
+        SQLModel.metadata, "create_all", lambda *a, **k: called.append("create_all")
+    )
+    db_module.init_database()
+    assert called == [], "init_database built tables behind alembic's back"

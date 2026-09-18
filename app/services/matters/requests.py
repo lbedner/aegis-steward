@@ -270,24 +270,37 @@ class RequestService:
         that the item is satisfied. It can be put back like any other
         mark if the paper turns out to be the wrong one.
         """
+        from app.services.matters.evidence import link
+
         item = await self.db.get(RequestItem, item_id)
         if item is None:
             return None
+        # Through the LINK, the one home for "what answers this". The
+        # old column is still written until nothing reads it.
+        await link(self.db, item_id, document_id=document_id, note=title)
         item.document_id = document_id
         self.db.add(item)
         await self.db.flush()
         return await self.mark(item_id, "satisfied", title)
 
     async def detach(self, item_id: int) -> RequestItem | None:
-        """Wrong paper. The item stands again, because an item whose
-        only evidence has been taken away is not answered."""
+        """Wrong paper. Takes EVERY piece of evidence off this item.
+
+        The item stands again only if nothing is left, which the link
+        layer decides: one of three removed leaves two, and two is still
+        an answer. This is the blunt "none of it was right" door; the
+        precise one is ``evidence.unlink``.
+        """
+        from app.services.matters.evidence import unlink
+
         item = await self.db.get(RequestItem, item_id)
         if item is None:
             return None
+        await unlink(self.db, item_id)
         item.document_id = None
         self.db.add(item)
         await self.db.flush()
-        return await self.mark(item_id, "needed")
+        return await self.db.get(RequestItem, item_id)
 
     async def cite(self, request_id: int, document_id: int | None) -> Request | None:
         """The letter this request came from.

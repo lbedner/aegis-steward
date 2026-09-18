@@ -266,3 +266,79 @@ async def request_describe(
             )
         )
     return rows
+
+
+class EvidencePayload(BaseModel):
+    """Which paper answers which ask, proposed rather than decided.
+
+    ST-07 says the link is a HUMAN action, and that proposing one is
+    ST-08's job. So extraction offers and the queue approves: nothing is
+    linked because a model was confident about it.
+
+    ``because`` is the line read off the page, and it is not optional.
+    An approver looking at "this statement answers proof of gross
+    income" has no way to judge it; one looking at "page 2: Net Benefit:
+    $1004.93" has the whole question in front of them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: int
+    request_item_id: int
+    page: int = Field(ge=1)
+    because: str
+
+    @model_validator(mode="after")
+    def _cites_something(self) -> EvidencePayload:
+        if not self.because.strip():
+            raise ValueError(
+                "An evidence link needs the line it was read from: a link "
+                "nobody can check is a link nobody should approve."
+            )
+        return self
+
+    def cited(self) -> str:
+        return f"page {self.page}: {self.because.strip()}"
+
+
+async def _ask(db: AsyncSession, request_item_id: int) -> Any:
+    from app.services.matters.models import RequestItem
+
+    item = await db.get(RequestItem, request_item_id)
+    if item is None:
+        raise ValueError(f"No ask with id {request_item_id}")
+    return item
+
+
+async def evidence_execute(
+    db: AsyncSession, payload: EvidencePayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.evidence import link
+
+    await _document(db, payload.document_id)
+    await _ask(db, payload.request_item_id)
+    row = await link(
+        db,
+        payload.request_item_id,
+        document_id=payload.document_id,
+        page=payload.page,
+        note=payload.because.strip(),
+    )
+    await db.flush()
+    return {
+        "evidence_link_id": row.id,
+        "request_item_id": payload.request_item_id,
+        "document_id": payload.document_id,
+    }
+
+
+async def evidence_describe(
+    db: AsyncSession, payload: EvidencePayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    document = await _document(db, payload.document_id)
+    item = await _ask(db, payload.request_item_id)
+    return [
+        ChangeDisplayRow(label="Document", value=document.title),
+        ChangeDisplayRow(label="Answers", value=item.asked),
+        ChangeDisplayRow(label="Because", value=payload.cited()),
+    ]
