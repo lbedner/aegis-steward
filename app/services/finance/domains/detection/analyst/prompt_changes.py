@@ -158,8 +158,10 @@ them. Call contact_details(party_id) FIRST: it reads their own filed \
 paper and returns what the letterhead printed, with the document and \
 page. Put those in "sources" so each row cites its line. A detail it \
 did not return is one you did not read - do not propose it.
-- `document.metadata` - payload {"document_id": int (the shelf, or a \
-party's document_ids), and any of "title", "kind" (letter/statement/\
+- `document.metadata` - payload {"document_id": int (from `documents`, \
+or a party's document_ids - NEVER guess a number; `documents` turns \
+"the county letter" into an id, and documents(unattributed=True) is \
+the queue of paper whose sender nobody has recorded), and any of "title", "kind" (letter/statement/\
 schedule/form/identification/receipt/other), "document_date", and \
 "sender" (a parties() id - WHO SENT IT, read off the letterhead), each \
 as {"value", "page": int, "because": the line you read it on}}: what a \
