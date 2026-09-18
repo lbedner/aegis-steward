@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from app.core.db import get_async_session, retry_on_locked
+from app.core.db import get_async_session
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.finance.domains.writes.display import candidate_row
 
@@ -71,7 +71,7 @@ async def propose_many(
             "items": items,
         }
 
-    return await retry_on_locked(write)
+    return await write()
 
 
 async def categories() -> dict[str, Any]:
@@ -214,7 +214,7 @@ async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
             "display": display,
         }
 
-    return await retry_on_locked(write)
+    return await write()
 
 
 # No single turn papers the thread, however the model asks.
@@ -353,7 +353,7 @@ async def withdraw(pending_change_id: int, reason: str | None = None) -> dict[st
             "note": (row.result or {}).get("note"),
         }
 
-    return await retry_on_locked(write)
+    return await write()
 
 
 async def withdraw_batch(batch_id: str, reason: str | None = None) -> dict[str, Any]:
@@ -379,7 +379,7 @@ async def withdraw_batch(batch_id: str, reason: str | None = None) -> dict[str, 
                 return {"error": str(e)}
         return {"batch_id": batch_id, "withdrawn": withdrawn}
 
-    return await retry_on_locked(write)
+    return await write()
 
 
 # Built-in registration: importing this module makes the tools grantable

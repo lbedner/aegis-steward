@@ -243,13 +243,23 @@ class TestTheModeTheStackIntends:
 
 def test_the_retry_helper_is_gone() -> None:
     """#158: the engine handles the lock once, so nothing in the app may
-    know that SQLite has one writer."""
+    know that SQLite has one writer.
+
+    USE, not mentions: ``db.py`` keeps a comment saying what used to be
+    there and why it went, which is the note that stops somebody adding
+    it back the next time a write looks flaky.
+    """
+    import re
+
     import app.core.db as db_module
 
     assert not hasattr(db_module, "retry_on_locked")
+
+    used = re.compile(r"retry_on_locked\s*\(|import[^\n]*\bretry_on_locked\b")
     offenders = [
-        str(path)
-        for path in list(Path("app").rglob("*.py"))
-        if "retry_on_locked" in path.read_text()
+        f"{path}:{number}"
+        for path in Path("app").rglob("*.py")
+        for number, line in enumerate(path.read_text().splitlines(), start=1)
+        if used.search(line)
     ]
     assert not offenders, f"still wrapping writes by hand: {offenders}"

@@ -6,15 +6,13 @@ This module provides SQLite database connectivity using SQLModel and SQLAlchemy.
 Includes proper session management with transaction handling and foreign key support.
 """
 
-import asyncio
-from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 from urllib.parse import urlparse
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -112,36 +110,14 @@ def apply_sqlite_pragmas(dbapi_connection: Any) -> None:
     dbapi_connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
 
 
-# A deferred transaction that reads and then writes has to UPGRADE its
-# lock, and SQLite fails that upgrade AT ONCE rather than waiting: a
-# transaction holding a read lock while waiting for a write lock is how
-# two of them deadlock, so ``busy_timeout`` deliberately does not cover
-# it. Taking the write lock up front instead (BEGIN IMMEDIATE) makes
-# every read a writer, which on a stack of four containers sharing one
-# file is a hang. So the upgrade is retried where it happens.
-T = TypeVar("T")
-
-LOCK_RETRIES = 4
-LOCK_BACKOFF_SECONDS = 0.25
-
-
-async def retry_on_locked(write: Callable[[], Awaitable[T]]) -> T:
-    """Run an async write, retrying the lock-upgrade failure.
-
-    For the turn that reads and then writes - a chat answer that saves a
-    memory, a proposal that files a change - where the read has already
-    taken a shared lock and the write cannot have it. Nothing else
-    retries: a lock held for longer than this is a problem to see, not
-    to paper over.
-    """
-    for attempt in range(LOCK_RETRIES):
-        try:
-            return await write()
-        except OperationalError as exc:
-            if "database is locked" not in str(exc) or attempt == LOCK_RETRIES - 1:
-                raise
-            await asyncio.sleep(LOCK_BACKOFF_SECONDS * (attempt + 1))
-    raise AssertionError("unreachable")
+# There used to be a ``retry_on_locked`` here, and twelve call sites
+# wrapped in it, because a deferred transaction that reads and then
+# writes has to UPGRADE its lock and SQLite fails that upgrade at once.
+# The engine takes the write lock up front now (see
+# ``_async_sqlite_emit_begin``), so there is no upgrade to fail and
+# ``busy_timeout`` covers the wait. Nothing outside this module should
+# know SQLite has one writer; if that knowledge starts reappearing at
+# call sites, the pragmas above are the thing to check.
 
 
 def ensure_wal(dbapi_connection: Any) -> str | None:
