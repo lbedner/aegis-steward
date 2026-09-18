@@ -78,6 +78,9 @@
   {% endif %}
 
   {% if loan_terms %}{{ stats_strip(loan_terms) }}{% endif %}
+  {# Cash answers "can I cover the month", which is a question about
+     what is coming rather than what is there. #}
+  {% if cash_terms %}{{ stats_strip(cash_terms) }}{% endif %}
   {# What the place is worth against what is secured on it. Derived from
      the confirmed lien links at read time, so it cannot disagree with
      the accounts it came from. #}
