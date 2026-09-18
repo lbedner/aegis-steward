@@ -343,3 +343,25 @@ class TestANewContact:
 
         with pytest.raises(ValidationError):
             CreateContactPayload(name="X", kind="agency")
+
+
+@pytest.mark.asyncio
+async def test_an_item_keeps_the_kind_the_letter_made_it(
+    async_db_session: AsyncSession,
+) -> None:
+    """``record`` took a kind and threw it away, so every ask a letter
+    filed came out a "document" - including the ones that were figures
+    and the ones that were forms. ``add_item`` had honoured it all
+    along, which is how the two drifted apart unnoticed."""
+    matter = await MatterService(async_db_session).open(title="Kinds", reference="K-1")
+    request = await RequestService(async_db_session).record(
+        matter_id=matter.id,
+        items=[
+            {"asked": "Proof of gross income", "kind": "figure"},
+            {"asked": "Sign the enclosed form", "kind": "form"},
+            {"asked": "A copy of the deed"},
+        ],
+    )
+
+    items = await RequestService(async_db_session).items(request.id)
+    assert [i.kind for i in items] == ["figure", "form", "document"]

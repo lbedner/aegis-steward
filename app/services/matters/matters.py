@@ -18,6 +18,7 @@ from app.core.schema import require_one_of
 from app.services.matters.models import (
     DOCUMENT_PARTY_ROLES,
     MATTER_STATUSES,
+    MATTER_TAG_PREFIX,
     PARTICIPANT_ROLES,
     DocumentParty,
     Matter,
@@ -158,6 +159,23 @@ class MatterService:
         self.db.add(link)
         await self.db.flush()
         return link
+
+    async def for_document(self, document_id: int) -> int | None:
+        """The matter a document is filed on, or None.
+
+        The other direction of ``matter_tag``, and a query rather than a
+        model: a document knows nothing about matters, so the answer is
+        read off the tag whose shape matters owns.
+        """
+        from app.services.documents.service import DocumentService
+
+        filed = await DocumentService(self.db).tags_for(document_id)
+        ids = [
+            tag.removeprefix(MATTER_TAG_PREFIX)
+            for tag in filed
+            if tag.startswith(MATTER_TAG_PREFIX)
+        ]
+        return next((int(one) for one in ids if one.isdigit()), None)
 
     async def document_parties(self, document_id: int) -> list[tuple[str, Party]]:
         rows = (
