@@ -94,6 +94,26 @@ class TestWhatAPageOffers:
         assert found["website"].startswith("deltadentalins.com")
         assert "email" not in found
 
+    def test_a_domain_inside_an_email_is_not_a_website(self) -> None:
+        """Live, on the DSS letter: `Traver@dfa.state.ny.us` was read as
+        a website of `state.ny.us`, which then "corroborated" the email
+        it had been extracted from. Two wrong fields propping each other
+        up. An email is removed before any website is looked for."""
+        from app.services.matters.lookup import found_in
+
+        found = found_in("Contact P. Traver at Traver@dfa.state.ny.us today.")
+        assert "website" not in found
+        assert "email" not in found
+
+    def test_a_real_site_beside_an_email_still_reads(self) -> None:
+        from app.services.matters.lookup import found_in
+
+        found = found_in(
+            "See www.dutchessny.gov/dcfs or mail Traver@dutchessny.gov."
+        )
+        assert found["website"] == "www.dutchessny.gov/dcfs"
+        assert found["email"] == "Traver@dutchessny.gov"
+
     def test_an_email_with_nothing_to_vouch_for_it_is_dropped(self) -> None:
         """No letterhead site on the page means nothing corroborates the
         address, and a wrong email is worse than a blank one."""

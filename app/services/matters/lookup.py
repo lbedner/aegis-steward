@@ -124,7 +124,18 @@ def found_in(text: str) -> dict[str, str]:
 
     if match := _PHONE.search(text):
         found["phone"] = match.group(0).strip()
-    if match := _URL.search(text):
+
+    # Take the emails OUT before looking for a website. An address
+    # carries a domain inside it, and a lookbehind does not save you:
+    # "Traver@dfa.state.ny.us" matched from "state.ny.us" onwards,
+    # because the character before it is a dot. That produced a website
+    # of "state.ny.us" which then corroborated the very email it had
+    # been cut from - two wrong fields propping each other up, both
+    # cited to a real page (live, 2026-09-18).
+    emails = _EMAIL.findall(text)
+    without_emails = _EMAIL.sub(" ", text)
+
+    if match := _URL.search(without_emails):
         found["website"] = match.group(0).rstrip(".,;)")
     if address := _address_in(lines):
         found["address"] = address
@@ -138,9 +149,9 @@ def found_in(text: str) -> dict[str, str]:
     # its domain must match the site printed on the same page. Nothing
     # to corroborate against means nothing offered, which is the right
     # answer for a field this easy to get wrong.
-    if (match := _EMAIL.search(text)) and (site := found.get("website")):
+    if emails and (site := found.get("website")):
         # A sentence's full stop is not part of the address.
-        email = match.group(0).rstrip(".,;:)>")
+        email = emails[0].rstrip(".,;:)>")
         address_domain = email.rsplit("@", 1)[-1].lower()
         if _host(site).endswith(_registrable(address_domain)):
             found["email"] = email
