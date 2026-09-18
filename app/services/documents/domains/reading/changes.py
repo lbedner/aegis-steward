@@ -53,11 +53,27 @@ class MetadataPayload(BaseModel):
     title: ReadValue | None = None
     kind: ReadValue | None = None
     document_date: ReadValue | None = None
+    # WHO SENT IT, as a ``parties()`` id in ``value``. Not a column on
+    # the document but a tag, because a document can involve several
+    # people - a letter FROM the county ABOUT a resident - and the
+    # sender is one of those rather than a different kind of fact.
+    #
+    # It is also what makes the shelf readable by letterhead: until a
+    # document is attached to its sender, the address printed at the top
+    # of it belongs to nobody. Four parties were tagged to one statement
+    # and the letter carrying the county's own address was attached to
+    # nothing (2026-09-18).
+    sender: ReadValue | None = None
 
     @model_validator(mode="after")
     def _says_something_it_can_mean(self) -> MetadataPayload:
-        if not self.fields():
+        if not self.fields() and self.sender is None:
             raise ValueError("Nothing to change.")
+        if self.sender is not None and not self.sender.value.strip().isdigit():
+            raise ValueError(
+                "The sender is a parties() id, not a name: a name typed here "
+                "is a second directory nobody can join to the first."
+            )
         if self.kind is not None:
             require_one_of(self.kind.value, DOCUMENT_KINDS)
         if self.document_date is not None:
@@ -91,15 +107,38 @@ async def _document(db: AsyncSession, document_id: int) -> Any:
     return found
 
 
+async def _sender(db: AsyncSession, payload: MetadataPayload) -> Any:
+    """The party a reading says sent this, or None."""
+    if payload.sender is None:
+        return None
+    from app.services.matters.service import PartyService
+
+    party = await PartyService(db).get(int(payload.sender.value))
+    if party is None:
+        raise ValueError(f"No contact with id {payload.sender.value}")
+    return party
+
+
 async def metadata_execute(
     db: AsyncSession, payload: MetadataPayload, owner_user_id: int | None
 ) -> dict[str, Any]:
     from app.services.documents.service import DocumentService
+    from app.services.matters.models import party_tag
 
     await _document(db, payload.document_id)
-    await DocumentService(db).update(payload.document_id, payload.stored())
+    party = await _sender(db, payload)
+    service = DocumentService(db)
+    if payload.fields():
+        await service.update(payload.document_id, payload.stored())
+    if party is not None:
+        # ``tag`` is idempotent, so re-reading a document files it once.
+        await service.tag(payload.document_id, party_tag(party.id))
     await db.flush()
-    return {"document_id": payload.document_id, "read": list(payload.fields())}
+    return {
+        "document_id": payload.document_id,
+        "read": list(payload.fields()),
+        "sender_party_id": party.id if party else None,
+    }
 
 
 async def metadata_describe(
@@ -117,6 +156,14 @@ async def metadata_describe(
         )
         for name, read in payload.fields().items()
     )
+    # The sender by NAME. An id on a card is a number somebody has to go
+    # and look up before they can say yes.
+    if (party := await _sender(db, payload)) is not None:
+        rows.append(
+            ChangeDisplayRow(
+                label="From", value=f"{party.name} · {payload.sender.cited()}"
+            )
+        )
     return rows
 
 

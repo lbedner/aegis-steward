@@ -160,12 +160,20 @@ page. Put those in "sources" so each row cites its line. A detail it \
 did not return is one you did not read - do not propose it.
 - `document.metadata` - payload {"document_id": int (the shelf, or a \
 party's document_ids), and any of "title", "kind" (letter/statement/\
-schedule/form/identification/receipt/other), "document_date", each as \
-{"value", "page": int, "because": the line you read it on}}: what a \
+schedule/form/identification/receipt/other), "document_date", and \
+"sender" (a parties() id - WHO SENT IT, read off the letterhead), each \
+as {"value", "page": int, "because": the line you read it on}}: what a \
 document says it IS. The citation is NOT optional - a field that \
 cannot name its page is a guess, not a reading - so read the pages \
 (paper()) and quote the line. Only what you send changes, and the \
 bytes never do: a document is what arrived.
+  The SENDER matters more than it looks: it is what attaches a letter \
+to the organization whose address is printed at the top of it, and \
+contact_details can only read a letterhead that is attached to \
+somebody. Send the id of the party who WROTE the document, not \
+everyone it mentions - a county letter about a resident is FROM the \
+county. Propose contact.create first when parties() has no row for the \
+sender, and do not guess an id.
 - `document.request` - payload {"document_id": int, "matter_id": int \
 (matters()), optional "received_on" and "due_on", "items": a list of \
 {"asked", "kind" (document/form/figure/action), "page": int, "quote": \

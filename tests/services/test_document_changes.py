@@ -242,3 +242,141 @@ class TestReadingADocumentProducesACard:
 
         assert await propose_reading(async_db_session, document_id) is None
         assert await self._cards(async_db_session, document_id) == []
+
+
+class TestWhoSentIt:
+    """A document nobody attributed is a letterhead nobody can read.
+
+    Metadata shipped title, kind and date; the sender was the fourth
+    field the ticket named and the one that makes the shelf searchable
+    by WHO. Without it, four parties ended up tagged to the same
+    statement and the letter carrying Dutchess County DSS's own address
+    was attached to nobody (found 2026-09-18).
+    """
+
+    @pytest.mark.asyncio
+    async def test_approving_a_sender_tags_the_document(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            MetadataPayload,
+            ReadValue,
+            metadata_execute,
+        )
+        from app.services.documents.queries import document_ids_by_tag_prefix
+        from app.services.matters.models import PARTY_TAG_PREFIX, party_tag
+        from app.services.matters.service import PartyService
+
+        sender = await PartyService(async_db_session).create(
+            name="Dutchess Testcase", kind="organization"
+        )
+        document = await _a_document(async_db_session, "Request.pdf")
+
+        await metadata_execute(
+            async_db_session,
+            MetadataPayload(
+                document_id=document.id,
+                sender=ReadValue(
+                    value=str(sender.id),
+                    page=1,
+                    because="DUTCHESS COUNTY DEPARTMENT OF COMMUNITY AND FAMILY SERVICES",
+                ),
+            ),
+            None,
+        )
+        await async_db_session.commit()
+
+        filed = await document_ids_by_tag_prefix(async_db_session, PARTY_TAG_PREFIX)
+        assert document.id in filed.get(party_tag(sender.id), [])
+
+    @pytest.mark.asyncio
+    async def test_the_card_names_the_sender_rather_than_its_id(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """An id on a card is a number somebody has to go and look up."""
+        from app.services.documents.domains.reading.changes import (
+            MetadataPayload,
+            ReadValue,
+            metadata_describe,
+        )
+        from app.services.matters.service import PartyService
+
+        sender = await PartyService(async_db_session).create(
+            name="Delta Testcase", kind="organization"
+        )
+        document = await _a_document(async_db_session, "Invoice.pdf")
+
+        said = {
+            row.label: row.value
+            for row in await metadata_describe(
+                async_db_session,
+                MetadataPayload(
+                    document_id=document.id,
+                    sender=ReadValue(value=str(sender.id), page=1, because="letterhead"),
+                ),
+                None,
+            )
+        }
+        assert "Delta Testcase" in said["From"]
+        assert "page 1" in said["From"]
+
+    @pytest.mark.asyncio
+    async def test_a_sender_who_does_not_exist_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            MetadataPayload,
+            ReadValue,
+            metadata_execute,
+        )
+
+        document = await _a_document(async_db_session, "Orphan.pdf")
+        with pytest.raises(ValueError, match="999999"):
+            await metadata_execute(
+                async_db_session,
+                MetadataPayload(
+                    document_id=document.id,
+                    sender=ReadValue(value="999999", page=1, because="letterhead"),
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_tagging_the_same_sender_twice_is_not_two_tags(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Re-reading a document must not file it twice."""
+        from app.services.documents.domains.reading.changes import (
+            MetadataPayload,
+            ReadValue,
+            metadata_execute,
+        )
+        from app.services.documents.queries import document_ids_by_tag_prefix
+        from app.services.matters.models import PARTY_TAG_PREFIX, party_tag
+        from app.services.matters.service import PartyService
+
+        sender = await PartyService(async_db_session).create(
+            name="Twice Testcase", kind="organization"
+        )
+        document = await _a_document(async_db_session, "Repeat.pdf")
+        read = MetadataPayload(
+            document_id=document.id,
+            sender=ReadValue(value=str(sender.id), page=1, because="letterhead"),
+        )
+        await metadata_execute(async_db_session, read, None)
+        await metadata_execute(async_db_session, read, None)
+        await async_db_session.commit()
+
+        filed = await document_ids_by_tag_prefix(async_db_session, PARTY_TAG_PREFIX)
+        assert filed.get(party_tag(sender.id), []).count(document.id) == 1
+
+
+async def _a_document(db: AsyncSession, title: str) -> Any:
+    from app.services.documents.models import Document
+
+    document = Document(
+        title=title, kind="other", storage_key=title, content_hash=title
+    )
+    db.add(document)
+    await db.flush()
+    return document
