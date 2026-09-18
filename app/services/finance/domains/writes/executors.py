@@ -19,6 +19,7 @@ from app.services.finance.domains.writes import (
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
 from app.services.insurance import changes as insurance
 from app.services.matters import changes as matters
+from app.services.matters import contacts
 
 register(
     ChangeExecutor(
@@ -172,9 +173,21 @@ register(
     ChangeExecutor(
         change_type="contact.create",
         title="Add a person or an organization",
-        payload_model=matters.CreateContactPayload,
-        execute=matters.create_contact_execute,
-        describe=matters.create_contact_describe,
+        payload_model=contacts.CreateContactPayload,
+        execute=contacts.create_contact_execute,
+        describe=contacts.create_contact_describe,
+    )
+)
+# Correcting one she did not create. Without this a detail learned
+# about somebody already on file has nowhere to go, and what happens
+# instead is that it gets announced as saved and written nowhere.
+register(
+    ChangeExecutor(
+        change_type="contact.amend",
+        title="Correct a contact already on file",
+        payload_model=contacts.AmendContactPayload,
+        execute=contacts.amend_contact_execute,
+        describe=contacts.amend_contact_describe,
     )
 )
 register(

@@ -125,7 +125,7 @@ class TestWhatIllianaCanPropose:
     async def test_contact_create_takes_them(
         self, async_db_session: AsyncSession
     ) -> None:
-        from app.services.matters.changes import (
+        from app.services.matters.contacts import (
             CreateContactPayload,
             create_contact_describe,
             create_contact_execute,

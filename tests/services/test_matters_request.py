@@ -309,7 +309,7 @@ class TestANewContact:
     async def test_a_person_is_created_with_how_to_reach_them(
         self, async_db_session: AsyncSession
     ) -> None:
-        from app.services.matters.changes import (
+        from app.services.matters.contacts import (
             CreateContactPayload,
             create_contact_describe,
             create_contact_execute,
@@ -339,7 +339,7 @@ class TestANewContact:
     def test_a_kind_nobody_defined_is_refused(self) -> None:
         from pydantic import ValidationError
 
-        from app.services.matters.changes import CreateContactPayload
+        from app.services.matters.contacts import CreateContactPayload
 
         with pytest.raises(ValidationError):
             CreateContactPayload(name="X", kind="agency")
@@ -365,3 +365,201 @@ async def test_an_item_keeps_the_kind_the_letter_made_it(
 
     items = await RequestService(async_db_session).items(request.id)
     assert [i.kind for i in items] == ["figure", "form", "document"]
+
+
+class TestAmendingAContact:
+    """Illiana can correct a contact she did not create.
+
+    ``contact.create`` existed and nothing amended one, so a phone
+    number learned about an existing person had nowhere to go. She said
+    she had "saved" two numbers; nothing was written, because there was
+    no card that could write them.
+    """
+
+    @pytest.mark.asyncio
+    async def test_only_what_is_sent_changes(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_execute,
+        )
+        from app.services.matters.service import PartyService
+
+        parties = PartyService(async_db_session)
+        party = await parties.create(
+            name="Leonard Testcase",
+            kind="person",
+            contact={"email": "leonard@example.com"},
+            note="Head of household",
+        )
+        await amend_contact_execute(
+            async_db_session,
+            AmendContactPayload(
+                party_id=party.id,
+                address="3 Somewhere Cir, Poughkeepsie, NY 12601",
+                phone="845-430-1070",
+            ),
+            None,
+        )
+        await async_db_session.commit()
+
+        again = await parties.get(party.id)
+        assert again.contact == {
+            "email": "leonard@example.com",
+            "address": "3 Somewhere Cir, Poughkeepsie, NY 12601",
+            "phone": "845-430-1070",
+        }
+        # Untouched because unsent: a card that fills in a phone number
+        # must not empty the note it said nothing about.
+        assert again.note == "Head of household"
+        assert again.name == "Leonard Testcase"
+
+    @pytest.mark.asyncio
+    async def test_the_card_shows_before_and_after_with_its_source(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_describe,
+        )
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(async_db_session).create(
+            name="Delta Testcase",
+            kind="organization",
+            contact={"phone": "800-000-0000"},
+        )
+        said = {
+            row.label: row.value
+            for row in await amend_contact_describe(
+                async_db_session,
+                AmendContactPayload(
+                    party_id=party.id,
+                    phone="800-471-7091",
+                    website="https://deltadental.example",
+                    sources={"phone": "Document 12, page 1"},
+                ),
+                None,
+            )
+        }
+        assert said["Contact"] == "Delta Testcase"
+        # What it WAS is on the card: approving a correction blind is
+        # how a good number gets overwritten by a worse one.
+        assert said["Phone"] == "800-000-0000 → 800-471-7091 · Document 12, page 1"
+        assert said["Website"] == "- → https://deltadental.example"
+
+    @pytest.mark.asyncio
+    async def test_a_card_that_would_change_nothing_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_describe,
+        )
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(async_db_session).create(
+            name="Nothing Testcase", kind="person", contact={"phone": "845-616-9084"}
+        )
+        with pytest.raises(ValueError, match="nothing"):
+            await amend_contact_describe(
+                async_db_session,
+                AmendContactPayload(party_id=party.id, phone="845-616-9084"),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_contact_that_is_not_there_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_execute,
+        )
+
+        with pytest.raises(ValueError, match="999999"):
+            await amend_contact_execute(
+                async_db_session,
+                AmendContactPayload(party_id=999999, phone="845-430-1070"),
+                None,
+            )
+
+    def test_an_empty_card_is_refused_at_the_payload(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.contacts import AmendContactPayload
+
+        with pytest.raises(ValidationError):
+            AmendContactPayload(party_id=1)
+
+    @pytest.mark.asyncio
+    async def test_the_labelled_lines_replace_rather_than_append(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Sending ``also`` replaces the whole list, and the card says
+        so by drawing what was there beside what will be."""
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_describe,
+            amend_contact_execute,
+        )
+        from app.services.matters.service import PartyService
+
+        parties = PartyService(async_db_session)
+        party = await parties.create(
+            name="Chase Testcase",
+            kind="organization",
+            contact={"also": [{"label": "Claims fax", "value": "800-000-0001"}]},
+        )
+        payload = AmendContactPayload(
+            party_id=party.id,
+            also=[{"label": "Spanish line", "value": "800-000-0002"}],
+        )
+        said = {
+            row.label: row.value
+            for row in await amend_contact_describe(async_db_session, payload, None)
+        }
+        assert said["Claims fax"] == "800-000-0001 → -"
+        assert said["Spanish line"] == "- → 800-000-0002"
+
+        await amend_contact_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+        again = await parties.get(party.id)
+        assert again.contact["also"] == [
+            {"label": "Spanish line", "value": "800-000-0002"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_note_can_be_emptied_out(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The case the ticket was written for: Delta Dental's numbers
+        went into the note because nothing could file them properly, and
+        moving them out means the note has to be clearable."""
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            amend_contact_execute,
+        )
+        from app.services.matters.service import PartyService
+
+        parties = PartyService(async_db_session)
+        party = await parties.create(
+            name="Noted Testcase",
+            kind="organization",
+            note="Phone 800-471-7091, deltadental.example",
+        )
+        await amend_contact_execute(
+            async_db_session,
+            AmendContactPayload(
+                party_id=party.id,
+                phone="800-471-7091",
+                website="https://deltadental.example",
+                note="",
+            ),
+            None,
+        )
+        await async_db_session.commit()
+        again = await parties.get(party.id)
+        assert again.note is None
+        assert again.contact["phone"] == "800-471-7091"

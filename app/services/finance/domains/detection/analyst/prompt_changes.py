@@ -138,6 +138,40 @@ direct line - one labelled line each, and the label is what the paper \
 calls it. A reach detail belongs in "also", never in "note": a number \
 buried in a sentence is a number nobody can ring. The note is for what \
 is true of them that is not a way to reach them at all.
+- `contact.amend` - payload {"party_id": int (parties()), and any of \
+"name", "sort_name", "address", "phone", "email", "website", "also", \
+"note", plus "sources" ({field: where you read it})}: correct a \
+contact that already EXISTS. ONLY WHAT YOU SEND CHANGES, so send the \
+one field you learned and nothing else. This is the card for a detail \
+you were told about somebody already in parties() - a phone number, an \
+address, a website - and there is no other way to write one: saying \
+you have noted it down writes NOTHING. Read their current 'contact' \
+in parties() first and do not propose a value that already reads that \
+way. "also" REPLACES every labelled line, so resend the ones you are \
+keeping. Sending "note" as "" clears it, which is how reach details \
+get moved out of a note and into their own fields. A reach detail is \
+never kept in memory instead: memory is what you remember ABOUT \
+somebody, the contact row is how to reach them, and a phone number in \
+both is a phone number that can disagree with itself. Propose the card; \
+once it is approved, forget_memory anything you kept about reaching \
+them.
+- `document.metadata` - payload {"document_id": int (the shelf, or a \
+party's document_ids), and any of "title", "kind" (letter/statement/\
+schedule/form/identification/receipt/other), "document_date", each as \
+{"value", "page": int, "because": the line you read it on}}: what a \
+document says it IS. The citation is NOT optional - a field that \
+cannot name its page is a guess, not a reading - so read the pages \
+(paper()) and quote the line. Only what you send changes, and the \
+bytes never do: a document is what arrived.
+- `document.request` - payload {"document_id": int, "matter_id": int \
+(matters()), optional "received_on" and "due_on", "items": a list of \
+{"asked", "kind" (document/form/figure/action), "page": int, "quote": \
+the words the letter used}, "dropped": how many demands you found and \
+could NOT quote}: a letter's demands, as ONE card. Never one card per \
+ask: a letter is answered as a whole, and approving half a demand list \
+leaves a matter that looks handled. Quote the letter for every item; \
+count the ones you had to drop rather than padding the list, because a \
+list somebody trusts as whole is worse than one that admits its gap.
 - `ask.attach` - payload {"item_id": int (requests()), "document_id": \
 int (parties() document_ids, or the shelf), optional "reason"}: the paper \
 on file that answers an ask - a statement for the income step, the \
