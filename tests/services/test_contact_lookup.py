@@ -91,7 +91,19 @@ class TestWhatAPageOffers:
             "Delta Dental of New York\ndeltadentalins.com/about/contact/\n"
             "Enrollee: Marisa B <someone@gmail.com>"
         )
-        assert found["website"].startswith("deltadentalins.com")
+        assert found["website"] == "deltadentalins.com/about/contact/"
+        assert "email" not in found
+
+    def test_a_lookalike_domain_does_not_vouch_for_an_email(self) -> None:
+        """A suffix test on a hostname accepts the lookalike it exists to
+        refuse: "notdeltadentalins.com" ends with "deltadentalins.com".
+        The registrable domains have to be EQUAL."""
+        from app.services.matters.lookup import found_in
+
+        found = found_in(
+            "notdeltadentalins.com and write to billing@deltadentalins.com"
+        )
+        assert found["website"] == "notdeltadentalins.com"
         assert "email" not in found
 
     def test_a_domain_inside_an_email_is_not_a_website(self) -> None:

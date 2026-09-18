@@ -153,7 +153,10 @@ def found_in(text: str) -> dict[str, str]:
         # A sentence's full stop is not part of the address.
         email = emails[0].rstrip(".,;:)>")
         address_domain = email.rsplit("@", 1)[-1].lower()
-        if _host(site).endswith(_registrable(address_domain)):
+        # EQUAL registrable domains, not endswith: "notdeltadentalins.com"
+        # ends with "deltadentalins.com", and a suffix test on a hostname
+        # accepts exactly the lookalike it is meant to refuse.
+        if _registrable(_host(site)) == _registrable(address_domain):
             found["email"] = email
 
     known = {key for key, _label in CONTACT_FIELDS}
