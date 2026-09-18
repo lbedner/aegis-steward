@@ -82,6 +82,56 @@ def _check_schema_mismatch() -> None:
         logger.debug(f"Schema mismatch check skipped: {e}")
 
 
+def _build_schema() -> None:
+    """Bring the database to head, and say so when a model has no
+    migration to create its table.
+
+    Adoption first: a persisted database that already HAS the objects a
+    pending migration would create is stamped rather than replayed,
+    because replaying is what makes a boot log "already exists" forever.
+
+    Then the loud part. A model table that no migration creates used to
+    be conjured here and the lag began; now it stops startup and names
+    the table, which is the only signal that ever pointed at the real
+    problem. ``EXTERNALLY_OWNED`` covers the tables a library builds for
+    itself.
+    """
+    from sqlalchemy import inspect as sa_inspect
+    from sqlmodel import SQLModel
+
+    from app.components.backend.startup.migrations import (
+        adopt_pending,
+        missing_model_tables,
+        upgrade_to_head,
+        versions_exist,
+    )
+    from app.core.db import DATABASE_PATH, engine
+
+    if not versions_exist():
+        # A project generated without migrations has no other way to get
+        # its tables. This is the only create_all left on the startup
+        # path, and it is unreachable while alembic/versions has files.
+        SQLModel.metadata.create_all(engine)
+        logger.info("Database tables created (no migrations on this install)")
+        return
+
+    adopted = adopt_pending(DATABASE_PATH)
+    if adopted:
+        logger.info(f"Adopted already-applied migrations: {sorted(adopted)}")
+    upgrade_to_head(DATABASE_PATH)
+
+    missing = missing_model_tables(
+        sa_inspect(engine), {table.name for table in SQLModel.metadata.tables.values()}
+    )
+    if missing:
+        raise RuntimeError(
+            "These models have no migration to create their tables: "
+            f"{sorted(missing)}. Write one (see the add-model-and-migration "
+            "skill); the server will not create them for you."
+        )
+    logger.info("Database at head (migrations)")
+
+
 async def startup_database_init() -> None:
     """
     Initialize database and run migrations.
@@ -97,13 +147,13 @@ async def startup_database_init() -> None:
         db_path = Path(DATABASE_PATH)
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create tables via SQLModel (no Alembic needed for SQLite)
-        from sqlmodel import SQLModel
-
-        from app.core.db import engine
-
-        SQLModel.metadata.create_all(engine)
-        logger.info("Database tables created/verified (SQLite)")
+        # MIGRATIONS build the schema. Not create_all, which reads as
+        # harmless and is how the version number falls behind: the moment
+        # a new model became importable, a reload created its table and
+        # alembic afterwards found it already there. It cost a hand-stamp
+        # twice, and _check_schema_mismatch ran AFTER the create_all that
+        # had already hidden the evidence.
+        _build_schema()
 
         # Check for schema mismatches (e.g., after aegis update added new columns)
         _check_schema_mismatch()
@@ -128,18 +178,19 @@ async def startup_database_init() -> None:
             logger.warning(f"Database verification failed: {e}")
             # Don't fail startup - let the app run and show clear errors
 
-        # The journal mode is a decision the db module makes and cannot
-        # enforce: it lives in the FILE and changing it needs exclusive
-        # access. Say so at startup rather than discover it after a
-        # night of locks.
+        # The journal mode lives in the FILE and persists, so it is set
+        # here once rather than on every connect - where a pragma that
+        # returns a row leaves a statement open and breaks the first
+        # commit. WAL is what lets the engine take the write lock up
+        # front without every read queuing behind every write.
         try:
             import sqlite3
 
-            from app.core.db import DATABASE_PATH, warn_if_wal
+            from app.core.db import DATABASE_PATH, ensure_wal
 
             connection = sqlite3.connect(DATABASE_PATH)
             try:
-                warn_if_wal(connection)
+                ensure_wal(connection)
             finally:
                 connection.close()
         except Exception as e:  # noqa: BLE001 - never block startup on a check

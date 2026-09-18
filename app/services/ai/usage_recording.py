@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlmodel import select
 
-from app.core.db import get_async_session, retry_on_locked
+from app.core.db import get_async_session
 from app.core.log import logger
 
 from .models.llm import LargeLanguageModel, LLMPrice, LLMUsage
@@ -188,7 +188,7 @@ async def record_usage(
             return cost
 
     try:
-        total_cost = await retry_on_locked(write)
+        total_cost = await write()
         logger.info(
             "Usage committed to database",
             model=bare,

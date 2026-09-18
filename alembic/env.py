@@ -70,9 +70,16 @@ from app.services.scheduler.models import JobExecution  # noqa: E402,F401
 # access to the values within the .ini file in use.
 config = context.config
 
-# Set the SQLAlchemy URL from our settings
+# Set the SQLAlchemy URL from our settings - unless a caller already
+# supplied a real one. ``alembic.command.upgrade`` is invoked in-process
+# at startup and by tests against a throwaway file, and overwriting the
+# url they set would silently point those runs at the configured
+# database instead. The shipped ini still carries the placeholder, so
+# the CLI path is unchanged.
+PLACEHOLDER_URL = "driver://user:pass@localhost/dbname"
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+if (config.get_main_option("sqlalchemy.url") or PLACEHOLDER_URL) == PLACEHOLDER_URL:
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 
 # Set target metadata to SQLModel.metadata

@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.db import get_async_session, init_database, retry_on_locked
+from app.core.db import get_async_session, init_database
 from app.core.log import logger
 from app.models.conversation import Conversation as ConversationModel
 from app.models.conversation import ConversationMessage as MessageModel
@@ -346,7 +346,7 @@ class ConversationManager:
             async with get_async_session() as session:
                 await self._write(session, conversation)
 
-        await retry_on_locked(write)
+        await write()
 
     @staticmethod
     async def _write(session: AsyncSession, conversation: Conversation) -> None:

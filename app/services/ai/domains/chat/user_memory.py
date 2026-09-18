@@ -22,7 +22,7 @@ from typing import Any, TypeVar
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.db import get_async_session, retry_on_locked
+from app.core.db import get_async_session
 from app.core.log import logger
 from app.services.ai.models.agents import AgentUserMemory
 from app.services.ai.models.agents.timestamps import utcnow_naive
@@ -371,14 +371,16 @@ async def build_user_memory_context(
 
 
 async def own_write(work: Callable[[AsyncSession], Awaitable[T]]) -> T:
-    """A memory write in a session of its own, retried on the lock-upgrade
-    failure. Every memory tool reads the row and writes it back; under
-    another writer - the worker's health check, an extraction landing a
-    page - that upgrade fails at once, and a turn's cleanup silently did
-    nothing (2026-09-16: two forget_memory calls, both lost)."""
+    """A memory write in a session of its OWN.
 
-    async def attempt() -> T:
-        async with get_async_session() as session:
-            return await work(session)
-
-    return await retry_on_locked(attempt)
+    Every memory tool reads the row and writes it back, and doing that
+    inside the turn's session would tie a cleanup to whether the answer
+    committed. It used to retry the lock-upgrade failure as well, which
+    it had to: under another writer - the worker's health check, an
+    extraction landing a page - the upgrade failed at once and a turn's
+    cleanup silently did nothing (2026-09-16: two forget_memory calls,
+    both lost). The engine takes the write lock up front now, so the
+    session is all this has to provide.
+    """
+    async with get_async_session() as session:
+        return await work(session)

@@ -33,6 +33,10 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "auth_tokens": ("table", "refresh_token"),
     "blog": ("table", "blog_post"),
     "documents": ("table", "document"),
+    # Had a model and no migration for months; create_all built it at
+    # startup on every install, which is exactly the habit #163 removes.
+    # Existing databases adopt it here instead of replaying the DDL.
+    "job_execution": ("table", "job_execution"),
     # Widens ck_document_kind; adds no table or column.
     "document_schedule": ("check", "document", "ck_document_kind", "schedule"),
     "payoff_terms": (

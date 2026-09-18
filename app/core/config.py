@@ -224,9 +224,9 @@ class Settings(
     # Worker configuration comes from individual WorkerSettings classes
     # in app/components/worker/queues/ - just import and use as arq intended!
 
-    # Database settings
-
-    DATABASE_URL: str = "sqlite:///./data/app.db"
+    # Database. ABSOLUTE, on the aegis-data volume: off the bind mount or
+    # WAL is unsafe (app/core/db.py). Host cannot open it; compose exec.
+    DATABASE_URL: str = "sqlite:////data/db/app.db"
     DATABASE_ENGINE_ECHO: bool = False
     DATABASE_CONNECT_ARGS: dict[str, Any] = {"check_same_thread": False}
 
