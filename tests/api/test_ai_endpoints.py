@@ -266,7 +266,7 @@ class TestLLMPickerGating:
         is configured - only keyless ollama survives."""
         # The llm package re-exports its APIRouter under the same name,
         # shadowing the module attribute - import the module directly.
-        llm_router = importlib.import_module("app.components.backend.api.llm.router")
+        llm_router = importlib.import_module("app.components.backend.api.llm.routes")
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
@@ -282,7 +282,7 @@ class TestLLMPickerGating:
     ) -> None:
         # The llm package re-exports its APIRouter under the same name,
         # shadowing the module attribute - import the module directly.
-        llm_router = importlib.import_module("app.components.backend.api.llm.router")
+        llm_router = importlib.import_module("app.components.backend.api.llm.routes")
         from app.core.config import settings
 
         monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test")
@@ -308,7 +308,7 @@ class TestLLMPickerGating:
         queried at all."""
         # The llm package re-exports its APIRouter under the same name,
         # shadowing the module attribute - import the module directly.
-        llm_router = importlib.import_module("app.components.backend.api.llm.router")
+        llm_router = importlib.import_module("app.components.backend.api.llm.routes")
         from app.core.config import settings
         from app.services.ai.domains.llm.llm_service import LLMListResult
 

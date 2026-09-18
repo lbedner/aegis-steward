@@ -665,7 +665,7 @@ class TestModelPicker:
     def catalog(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         import importlib
 
-        llm = importlib.import_module("app.components.backend.api.llm.router")
+        llm = importlib.import_module("app.components.backend.api.llm.routes")
         from app.components.web_frontend.routes import chat as routes
 
         state: dict[str, Any] = {"active": "qwen2.5:7b", "picks": []}

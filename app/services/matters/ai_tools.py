@@ -342,6 +342,72 @@ register_tool(
 )
 
 
+async def look_up_contact(
+    name: str, domains: list[str], party_id: int | None = None
+) -> dict[str, Any]:
+    """Confirm an organization's website by FETCHING it, then read it.
+
+    You supply the candidate domains you believe - "deltadentalins.com",
+    "deltadental.com" - and the app decides. It fetches each over https
+    and accepts one only if the organization's name is actually on the
+    page. A parked domain, a 404 and a redirect onto somebody else's
+    host all confirm NOTHING.
+
+    Returns {'confirmed': domain or None, 'offers': [...]}. Each offer
+    carries 'field', 'value' and the 'url' it was read at; labelled ones
+    also carry 'label'. Propose contact.amend with those, putting the URL
+    in 'sources'.
+
+    ALWAYS pass party_id when the contact exists. The page is then
+    checked against the address or phone already on the record - a
+    postcode, a number - so "mentions their name" becomes "is the one in
+    Hyde Park". There is more than one organization with most names, and
+    a directory listing carries a name more prominently than a home page
+    does. With an empty record there is nothing to check against and the
+    weaker name test stands; say so when that happens.
+
+    NEVER report a domain this did not confirm, and never propose a
+    value it did not return. When 'confirmed' is None, say plainly that
+    nothing could be verified - a guess offered with a hedge is read as
+    a fact by the next person to open the record. At most four
+    candidates are tried, so put your best first.
+    """
+    from app.services.matters.domain_lookup import confirm, contact_page
+
+    # Corroborate against what the record ALREADY holds. Pass party_id
+    # whenever you have it: the name alone proves a page mentions them,
+    # and there is more than one organization with most names.
+    known: set[str] = set()
+    if party_id is not None:
+        async with get_async_session() as db:
+            party = await PartyService(db).get(party_id)
+        if party is None:
+            return {"error": f"No contact with id {party_id}"}
+        contact = party.contact or {}
+        known = {
+            str(value)
+            for key, value in contact.items()
+            if key in ("address", "phone") and value
+        }
+
+    found = await confirm(name, list(domains or []), corroborate=known or None)
+    if found is None:
+        return {"confirmed": None, "offers": [], "corroborated_against": sorted(known)}
+    return {
+        "confirmed": found,
+        "offers": await contact_page(found),
+        "corroborated_against": sorted(known),
+    }
+
+
+register_tool(
+    "look_up_contact",
+    look_up_contact,
+    description="Confirm an organization's website by fetching it, and read it",
+    replace=True,
+)
+
+
 async def contact_details(party_id: int) -> dict[str, Any]:
     """How to reach a party, read off the paper already filed against them.
 

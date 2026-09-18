@@ -59,6 +59,15 @@ class TestWhatAPageOffers:
         assert found["phone"] == "(845) 486-3000"
         assert "845-486-3301" not in found.values()
 
+    def test_a_box_is_an_address_too(self) -> None:
+        """What large organizations actually print. Delta Dental and
+        Chase both use one, and a rule that only knows house numbers
+        reads neither of their addresses."""
+        from app.services.matters.lookup import found_in
+
+        found = found_in("Delta Dental\nP.O. Box 660138\nDallas, TX 75266-0138")
+        assert found["address"] == "P.O. Box 660138, Dallas, TX 75266-0138"
+
     def test_a_page_with_nothing_offers_nothing(self) -> None:
         from app.services.matters.lookup import found_in
 
