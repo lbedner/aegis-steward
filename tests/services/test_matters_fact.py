@@ -232,3 +232,163 @@ class TestWhatAPlaceSays:
 
         assert [f.attribute for f in says] == ["gross_income"]
         assert {f.attribute for f in about} == {"gross_income", "account_balance"}
+
+
+class TestAFigureMustSayWhereItWasRead:
+    """A figure without its provenance is not fit to put on a government
+    form, and "provenance: document" is not provenance - it is a claim
+    that provenance exists somewhere.
+
+    The service already refused a document-derived fact with no
+    document. It did not insist on the PAGE or the line, so a statement
+    could be cited as a whole: nine pages, one of which says $1,004.93,
+    and no way to know which without opening it.
+    """
+
+    def test_a_document_fact_needs_its_page(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.changes import RecordFactPayload
+
+        with pytest.raises(ValidationError, match="page"):
+            RecordFactPayload(
+                subject_party_id=1,
+                attribute="gross_income",
+                provenance="document",
+                document_id=8,
+                value_cents=217894,
+                period="month",
+                source_note="Base Benefit $1,089.47",
+            )
+
+    def test_a_document_fact_needs_the_line_it_was_read_from(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.changes import RecordFactPayload
+
+        with pytest.raises(ValidationError, match="read"):
+            RecordFactPayload(
+                subject_party_id=1,
+                attribute="gross_income",
+                provenance="document",
+                document_id=8,
+                page=1,
+                value_cents=217894,
+                period="month",
+            )
+
+    def test_a_cited_document_fact_is_accepted(self) -> None:
+        from app.services.matters.changes import RecordFactPayload
+
+        payload = RecordFactPayload(
+            subject_party_id=1,
+            attribute="gross_income",
+            provenance="document",
+            document_id=8,
+            page=1,
+            value_cents=217894,
+            period="month",
+            source_note="Base Benefit $1,089.47 + Pension Reserve $746.80",
+        )
+        assert payload.page == 1
+
+    def test_a_stated_fact_needs_none_of_that(self) -> None:
+        """Somebody saying a number out loud has no page. The rule is
+        about what "document" CLAIMS, not about every fact."""
+        from app.services.matters.changes import RecordFactPayload
+
+        payload = RecordFactPayload(
+            subject_party_id=1,
+            attribute="gross_income",
+            provenance="stated",
+            value_cents=217894,
+            period="month",
+        )
+        assert payload.page is None
+
+
+class TestTheSameFigureTwice:
+    """Live: the NYSLRS gross benefit was recorded on 16 September and
+    again on 18 September - same subject, same attribute, same value,
+    same document, same page - and nothing said a word. A ledger that
+    answers "what is his gross income" with two identical rows has made
+    the question harder than it was on paper.
+
+    Not refused: a figure really can be recorded twice, from two
+    statements, or restated after a change. Said out loud on the card,
+    the way account.create says "You already have".
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_card_says_when_this_is_already_on_file(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.changes import (
+            RecordFactPayload,
+            record_fact_describe,
+            record_fact_execute,
+        )
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(async_db_session).create(
+            name="Twice Testcase", kind="person"
+        )
+        payload = RecordFactPayload(
+            subject_party_id=party.id,
+            attribute="gross_income",
+            provenance="stated",
+            value_cents=217894,
+            period="month",
+        )
+        await record_fact_execute(async_db_session, payload, None)
+        await async_db_session.flush()
+
+        said = {
+            row.label: row.value
+            for row in await record_fact_describe(async_db_session, payload, None)
+        }
+        assert "already" in " ".join(said).casefold()
+        assert "$2,178.94" in said["Already on file"]
+
+    @pytest.mark.asyncio
+    async def test_a_different_figure_is_not_flagged(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.changes import (
+            RecordFactPayload,
+            record_fact_describe,
+            record_fact_execute,
+        )
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(async_db_session).create(
+            name="Different Testcase", kind="person"
+        )
+        await record_fact_execute(
+            async_db_session,
+            RecordFactPayload(
+                subject_party_id=party.id,
+                attribute="gross_income",
+                provenance="stated",
+                value_cents=100493,
+                period="month",
+            ),
+            None,
+        )
+        await async_db_session.flush()
+
+        said = {
+            row.label: row.value
+            for row in await record_fact_describe(
+                async_db_session,
+                RecordFactPayload(
+                    subject_party_id=party.id,
+                    attribute="gross_income",
+                    provenance="stated",
+                    value_cents=217894,
+                    period="month",
+                ),
+                None,
+            )
+        }
+        assert "Already on file" not in said

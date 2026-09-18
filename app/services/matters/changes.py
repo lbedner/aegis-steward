@@ -22,6 +22,7 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
+    model_validator,
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -65,6 +66,37 @@ class RecordFactPayload(BaseModel):
     _known_attribute = field_validator("attribute")(known(ATTRIBUTE_KEYS))
 
     _known_period = field_validator("period")(known(FACT_PERIODS))
+
+    @model_validator(mode="after")
+    def _a_document_fact_says_where(self) -> RecordFactPayload:
+        """"provenance: document" is not provenance. It is a claim that
+        provenance exists somewhere.
+
+        The service already refused a document-derived fact with no
+        document. It did not insist on the PAGE or the line, so a
+        statement could be cited whole: nine pages, one of which says
+        the number, and no way to know which without opening it. A
+        figure without its provenance is not fit to put on a government
+        form, and this is the field that decides whether it has any.
+
+        Only for ``document``. Somebody saying a number out loud has no
+        page, and the rule is about what this provenance CLAIMS.
+        """
+        if self.provenance != "document":
+            return self
+        if self.document_id is None:
+            raise ValueError("A document-derived fact needs the document.")
+        if self.page is None:
+            raise ValueError(
+                "A document-derived fact needs the page it was read from."
+            )
+        if not (self.source_note or "").strip():
+            raise ValueError(
+                "A document-derived fact needs the line it was read from: a "
+                "number nobody can check against the page is a number nobody "
+                "should put on a form."
+            )
+        return self
 
     _known_provenance = field_validator("provenance")(known(FACT_PROVENANCE))
 
@@ -138,7 +170,47 @@ async def record_fact_describe(
     if payload.source_note:
         source = f"{source} · {payload.source_note}"
     rows.append(ChangeDisplayRow(label="How it is known", value=source))
+    if already := await _already_said(db, payload):
+        rows.append(ChangeDisplayRow(label="Already on file", value=already))
     return rows
+
+
+async def _already_said(db: AsyncSession, payload: RecordFactPayload) -> str | None:
+    """The same figure, already recorded about the same person.
+
+    Live: the NYSLRS gross benefit went in on 16 September and again on
+    18 September - same subject, same attribute, same value, same
+    document, same page - and nothing said a word. A ledger that answers
+    "what is his gross income" with two identical rows has made the
+    question harder than it was on paper.
+
+    NOT refused. A figure really can be recorded twice, from two
+    statements or restated after a change, and only the person
+    approving knows which this is. So it is SAID, the way
+    ``account.create`` says "You already have" - the expensive mistake
+    is the one nobody was shown.
+    """
+    if payload.value_cents is None:
+        return None
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+    from app.services.matters.facts import FactService
+
+    same = [
+        fact
+        for fact in await FactService(db).find(
+            subject_party_id=payload.subject_party_id,
+            attribute=payload.attribute,
+        )
+        if fact.value_cents == payload.value_cents and fact.period == payload.period
+    ]
+    if not same:
+        return None
+    said = format_usd(payload.value_cents)
+    if payload.period != "once":
+        said = f"{said} a {payload.period}"
+    when = same[0].as_of or same[0].created_at.date()
+    more = f" (and {len(same) - 1} more)" if len(same) > 1 else ""
+    return f"{said}, recorded {when}{more}"
 
 
 # --- Asks: what a letter obliges you to produce -------------------------

@@ -114,7 +114,12 @@ premium/other, "provenance": stated/document/ledger, optional "label" \
 (once/day/week/month/year - store the rate AS QUOTED; a portal quotes a \
 day and a form asks for a month), "as_of", "matter_id", "document_id", \
 "page", "source_party_id", "source_url", "source_note"}: record what \
-can be said about somebody's money. Two facts that disagree both stand \
+can be said about somebody's money. With provenance "document" the \
+"document_id", the "page" and the "source_note" (the LINE you read it \
+on) are all REQUIRED - a statement cited whole is nine pages, one of \
+which says the number. Check facts() first: the card will say when the \
+same figure is already on file, and two identical rows make "what is \
+his gross income" harder to answer than the paper did. Two facts that disagree both stand \
 - a deposit is not GROSS income - so record what the source says and \
 say which source it was; never reconcile them yourself.
 - `ask.amend` - payload {"item_id": int (requests()), optional "asked" \
