@@ -20,11 +20,54 @@
 
   {% include "components/sub_nav.html" %}
 
-  {#- Who and where: an account with no transactions still has a person
-      whose money it is and an organization it is held with, and both
-      were a click away behind two dialogs, on a page that looked empty.
-      NAMES that link out, though - what the address book holds about
-      them belongs on their page, not under every account held there. -#}
+  {#- What can be said about whose money it is, and the case that asked.
+      A pension holds no transactions and never will - the money lands
+      in a bank account somewhere else - so what it is FOR is the figure
+      somebody has to put on a form. The same row the matter draws, from
+      the same macro. -#}
+  {% if about or matters or fact_party_id %}
+  {% call card(word("can_say")) %}
+  {% if about %}
+  <ul class="border-t border-aegis-border/60">
+    {% for fact in about %}{{ fact_row(fact, "/matters") }}{% endfor %}
+  </ul>
+  {% endif %}
+  {% for matter in matters %}
+  <p class="text-xs text-aegis-muted" data-matter>
+    In <a href="/matters/{{ matter.id }}" {{ hx_page("/matters/" ~ matter.id) }} class="text-aegis-teal hover:underline">{{ matter.title }}</a>, still {{ matter.status }}.
+  </p>
+  {% endfor %}
+  {% if fact_party_id %}
+  {{ action(word("add_fact"), hx_dialog(section.path ~ "/" ~ selected.id ~ "/facts/new")) }}
+  {% endif %}
+  {% endcall %}
+  {% endif %}
+
+  {% if loan_terms %}{{ stats_strip(loan_terms) }}{% endif %}
+  {# Cash answers "can I cover the month", which is a question about
+     what is coming rather than what is there. #}
+  {% if cash_terms %}{{ stats_strip(cash_terms) }}{% endif %}
+
+  {# Which account this is. The number is kept the way a password is,
+     so the page shows four digits and asks before it shows the rest. #}
+  {% if selected.mask %}
+  {% call card("Numbers") %}
+  <dl class="border-t border-aegis-border/60 divide-y divide-aegis-border/60">
+    {% with account = selected %}{% include "partials/accounts/number.html" %}{% endwith %}
+  </dl>
+  {% endcall %}
+  {% endif %}
+
+  {# What the place is worth against what is secured on it. Derived from
+     the confirmed lien links at read time, so it cannot disagree with
+     the accounts it came from. #}
+  {% if secured %}{{ stats_strip(secured) }}{% endif %}
+
+  {#- Who and where, under the figures rather than over them: the money
+      is why the page is open, and who holds it is the footnote that
+      says where to ring. An account with no transactions has no figures
+      at all, so on a pension this is still the first thing on the page
+      - which is the case it was put here for. -#}
   {% if who_and_where %}
   {% call card("Who and where") %}
   <dl class="grid gap-5 sm:grid-cols-2">
@@ -53,44 +96,6 @@
   </dl>
   {% endcall %}
   {% endif %}
-
-  {#- What can be said about whose money it is, and the case that asked.
-      A pension holds no transactions and never will - the money lands
-      in a bank account somewhere else - so what it is FOR is the figure
-      somebody has to put on a form. The same row the matter draws, from
-      the same macro. -#}
-  {% if about or matters or fact_party_id %}
-  {% call card(word("can_say")) %}
-  {% if about %}
-  <ul class="border-t border-aegis-border/60">
-    {% for fact in about %}{{ fact_row(fact, "/matters") }}{% endfor %}
-  </ul>
-  {% endif %}
-  {% for matter in matters %}
-  <p class="text-xs text-aegis-muted" data-matter>
-    In <a href="/matters/{{ matter.id }}" {{ hx_page("/matters/" ~ matter.id) }} class="text-aegis-teal hover:underline">{{ matter.title }}</a>, still {{ matter.status }}.
-  </p>
-  {% endfor %}
-  {% if fact_party_id %}
-  {{ action(word("add_fact"), hx_dialog(section.path ~ "/" ~ selected.id ~ "/facts/new")) }}
-  {% endif %}
-  {% endcall %}
-  {% endif %}
-
-  {% if loan_terms %}{{ stats_strip(loan_terms) }}{% endif %}
-  {# Which account this is. The number is kept the way a password is,
-     so the page shows four digits and asks before it shows the rest. #}
-  {% if selected.mask %}
-  {% call card("Numbers") %}
-  <dl class="border-t border-aegis-border/60 divide-y divide-aegis-border/60">
-    {% with account = selected %}{% include "partials/accounts/number.html" %}{% endwith %}
-  </dl>
-  {% endcall %}
-  {% endif %}
-  {# What the place is worth against what is secured on it. Derived from
-     the confirmed lien links at read time, so it cannot disagree with
-     the accounts it came from. #}
-  {% if secured %}{{ stats_strip(secured) }}{% endif %}
 
   {# How it can be paid DOWN, which a rate does not answer. Unconfirmed
      is drawn as unconfirmed: a loan nobody has asked about must not

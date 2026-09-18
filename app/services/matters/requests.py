@@ -71,6 +71,10 @@ class RequestService:
                     request_id=request.id,
                     ordinal=item.get("ordinal") or ordinal,
                     asked=asked,
+                    # The kind rides with the ask. ``add_item`` had always
+                    # honoured it and this dropped it, so every ask a
+                    # letter filed came out a "document".
+                    kind=str(item.get("kind") or "document"),
                     ask=(item.get("ask") or "").strip() or None,
                     subject_party_id=item.get("subject_party_id"),
                     as_of=item.get("as_of"),
@@ -176,6 +180,15 @@ class RequestService:
                 )
             ).all()
         )
+
+    async def citing(self, document_id: int) -> list[Request]:
+        """The requests already read off this letter. A second reading
+        that files them again is a duplicate matter, not a correction."""
+        query = select(Request).where(
+            col(Request.document_id) == document_id,
+            col(Request.deleted_at).is_(None),
+        )
+        return list((await self.db.exec(query)).all())
 
     async def for_matter(self, matter_id: int) -> list[Request]:
         return list(

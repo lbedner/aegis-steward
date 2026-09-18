@@ -323,6 +323,9 @@ class RequestItem(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+MATTER_TAG_PREFIX = "matter:"
+
+
 def matter_tag(matter_id: int) -> str:
     """The one label that files a document against a matter.
 
@@ -331,7 +334,7 @@ def matter_tag(matter_id: int) -> str:
     per application, so steward's meaning is written once and every
     caller reads it from here.
     """
-    return f"matter:{matter_id}"
+    return f"{MATTER_TAG_PREFIX}{matter_id}"
 
 
 def party_tag(party_id: int) -> str:
