@@ -148,7 +148,10 @@ address, a website - and there is no other way to write one: saying \
 you have noted it down writes NOTHING. Read their current 'contact' \
 in parties() first and do not propose a value that already reads that \
 way. "also" REPLACES every labelled line, so resend the ones you are \
-keeping. Sending "note" as "" clears it, which is how reach details \
+keeping - contact_details returns new ones with field "also" and a \
+"label", and parties() has the ones already on the record. A labelled \
+line is where a fax, an examiner's direct line or a caseworker's \
+address goes; the four named fields are for the MAIN way in. Sending "note" as "" clears it, which is how reach details \
 get moved out of a note and into their own fields. A reach detail is \
 never kept in memory instead: memory is what you remember ABOUT \
 somebody, the contact row is how to reach them, and a phone number in \

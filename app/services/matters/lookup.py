@@ -25,7 +25,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.matters.reach import CONTACT_FIELDS
+from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES
 
 # Letterhead and footer carry the contact block. A number buried on page
 # nine of a policy belongs to whatever that page is about, not to the
@@ -160,6 +160,53 @@ def found_in(text: str) -> dict[str, str]:
     return {key: value for key, value in found.items() if key in known and value}
 
 
+# A label and the rest of its line: "SSPA-45 fax: 845-486-3301" gives
+# ("fax", "845-486-3301"). The label is the WORD before the colon, not
+# the whole prefix, because forms carry a form number in front of it.
+_LABELLED = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z ]{0,20}?)\s*:\s*(\S.*)$")
+
+
+def lines_in(text: str, besides: set[str] | None = None) -> list[tuple[str, str]]:
+    """The labelled ways to reach somebody that a page prints.
+
+    Everything the four ``CONTACT_FIELDS`` have no room for: a fax, an
+    examiner's direct line, a caseworker's address, a Spanish line. A
+    number nobody labelled is a number whose meaning is lost, so a line
+    needs BOTH halves and an unlabelled one is dropped rather than
+    guessed at.
+
+    The value is the rest of the line, VERBATIM. A person reads these and
+    nothing parses them, so an OCR artifact shows as printed rather than
+    being quietly closed up - "Melissa. Traver@..." is a reading somebody
+    can see is imperfect, and repairing it here would be a guess wearing
+    a citation.
+
+    ``besides`` are values already taken as a main field, so the
+    letterhead's own number is not offered twice.
+    """
+    taken = {value.strip() for value in (besides or set())}
+    found: list[tuple[str, str]] = []
+    for line in (text or "").splitlines():
+        if not (_PHONE.search(line) or _EMAIL.search(line)):
+            continue
+        match = _LABELLED.search(line.strip())
+        if match is None:
+            continue
+        label, value = match.group(1).strip(), match.group(2).strip()
+        if not label or value in taken or _digits(value) in {
+            _digits(one) for one in taken
+        }:
+            continue
+        found.append((label, value))
+    return found
+
+
+def _digits(value: str) -> str:
+    """Just the digits, so "(845) 486-3000" and "845-486-3000" are the
+    same number printed two ways."""
+    return re.sub(r"\D", "", value)
+
+
 async def contact_details(db: AsyncSession, party_id: int) -> list[dict[str, Any]]:
     """What this party's own paper says about reaching them.
 
@@ -205,16 +252,42 @@ async def contact_details(db: AsyncSession, party_id: int) -> list[dict[str, Any
         )
     ).all()
 
+    from app.services.matters.reach import reach_lines
+
+    # What the record already prints, so a line is not offered twice.
+    # Compared on digits as well as text: "(845) 486-3000" and
+    # "845-486-3000" are one number written two ways.
+    already = {value for _label, value in reach_lines(party.contact)}
+    already_digits = {_digits(one) for one in already if _digits(one)}
+
     offers: list[dict[str, Any]] = []
     seen: set[str] = set()
     for page in pages:
-        for field, value in found_in(page.text or "").items():
+        text = page.text or ""
+        main = found_in(text)
+        for field, value in main.items():
             if field in have or field in seen:
                 continue
             seen.add(field)
             offers.append(
                 {
                     "field": field,
+                    "value": value,
+                    "document_id": page.document_id,
+                    "page": page.page_number,
+                }
+            )
+        # Then everything the four fields have no room for, labelled.
+        # The main values are held back so the letterhead's own number
+        # is a field rather than a line as well.
+        for label, value in lines_in(text, besides=set(main.values()) | already):
+            if value in seen or _digits(value) in already_digits:
+                continue
+            seen.add(value)
+            offers.append(
+                {
+                    "field": CONTACT_LINES,
+                    "label": label,
                     "value": value,
                     "document_id": page.document_id,
                     "page": page.page_number,

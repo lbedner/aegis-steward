@@ -122,6 +122,53 @@ class TestWhatAPageOffers:
         assert "email" not in found_in("Reply to someone@gmail.com please.")
 
 
+class TestTheLabelledLines:
+    """Everything else the paper prints, with the word that names it.
+
+    The DSS letter carries a fax, an examiner's direct line and a
+    caseworker's email, all labelled, and the first pass read none of
+    them: only the letterhead's first match per field. A number nobody
+    labelled is a number whose meaning is lost, so the LABEL is what
+    makes these worth keeping.
+
+    The value is taken verbatim, the whole of the line after the colon.
+    A person reads these; nothing parses them. "Melissa. Traver@..."
+    carries an OCR artifact, and showing it as printed is honest where
+    quietly closing the gap would be a guess dressed as a reading.
+    """
+
+    def test_it_reads_a_labelled_number(self) -> None:
+        from app.services.matters.lookup import lines_in
+
+        found = lines_in("SSPA-45 fax: 845-486-3301")
+        assert found == [("fax", "845-486-3301")]
+
+    def test_it_keeps_the_value_as_printed(self) -> None:
+        from app.services.matters.lookup import lines_in
+
+        found = lines_in("Rev. 12/13 Email: Melissa. Traver@dfa.state.ny.us")
+        assert found == [("Email", "Melissa. Traver@dfa.state.ny.us")]
+
+    def test_a_line_with_no_way_to_reach_anyone_is_not_a_line(self) -> None:
+        from app.services.matters.lookup import lines_in
+
+        assert lines_in("Case #; MA258760XX") == []
+        assert lines_in("Date : 8/27/2026") == []
+
+    def test_an_unlabelled_number_is_dropped(self) -> None:
+        """A label this cannot read is a line it must not invent."""
+        from app.services.matters.lookup import lines_in
+
+        assert lines_in("Call 845-486-3345 between 9 and 5.") == []
+
+    def test_the_letterhead_number_is_not_repeated_as_a_line(self) -> None:
+        from app.services.matters.lookup import found_in, lines_in
+
+        page = "DUTCHESS COUNTY\n(845) 486-3000\nSSPA-45 fax: 845-486-3301"
+        assert found_in(page)["phone"] == "(845) 486-3000"
+        assert lines_in(page, besides={"(845) 486-3000"}) == [("fax", "845-486-3301")]
+
+
 class TestWhatToProposeForAParty:
     @pytest.mark.asyncio
     async def test_it_offers_only_what_the_contact_lacks(
@@ -157,6 +204,48 @@ class TestWhatToProposeForAParty:
         # Every offer says where it was read, or it is not an offer.
         assert fields["phone"]["document_id"] == document.id
         assert fields["phone"]["page"] == 1
+
+    @pytest.mark.asyncio
+    async def test_the_labelled_lines_come_through_with_their_labels(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.models import Document, DocumentTag
+        from app.services.matters.lookup import contact_details
+        from app.services.matters.models import party_tag
+        from app.services.matters.service import PartyService
+
+        party = await PartyService(async_db_session).create(
+            name="Lines Testcase",
+            kind="organization",
+            contact={"also": [{"label": "fax", "value": "845-486-3301"}]},
+        )
+        document = Document(
+            title="Letter.pdf", kind="letter", storage_key="k3", content_hash="h3"
+        )
+        async_db_session.add(document)
+        await async_db_session.flush()
+        async_db_session.add(
+            DocumentTag(document_id=document.id, label=party_tag(party.id))
+        )
+        await async_db_session.flush()
+        await _page(
+            async_db_session,
+            document.id,
+            1,
+            "DUTCHESS COUNTY\n60 MARKET STREET\nPOUGHKEEPSIE, NY 12601\n"
+            "(845) 486-3000\nSSPA-45 fax: 845-486-3301\nphone: 845-486-3345",
+        )
+
+        offers = await contact_details(async_db_session, party.id)
+        lines = [o for o in offers if o["field"] == "also"]
+        # The fax is already a line on the record, so only the examiner's
+        # number is new - and the letterhead's own number is a main
+        # field, not a line.
+        assert [(o["label"], o["value"]) for o in lines] == [
+            ("phone", "845-486-3345")
+        ]
+        assert lines[0]["document_id"] == document.id
+        assert lines[0]["page"] == 1
 
     @pytest.mark.asyncio
     async def test_a_party_with_no_paper_offers_nothing(
