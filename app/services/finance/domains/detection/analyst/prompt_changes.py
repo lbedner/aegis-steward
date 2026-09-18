@@ -149,7 +149,12 @@ you have noted it down writes NOTHING. Read their current 'contact' \
 in parties() first and do not propose a value that already reads that \
 way. "also" REPLACES every labelled line, so resend the ones you are \
 keeping. Sending "note" as "" clears it, which is how reach details \
-get moved out of a note and into their own fields.
+get moved out of a note and into their own fields. A reach detail is \
+never kept in memory instead: memory is what you remember ABOUT \
+somebody, the contact row is how to reach them, and a phone number in \
+both is a phone number that can disagree with itself. Propose the card; \
+once it is approved, forget_memory anything you kept about reaching \
+them.
 - `ask.attach` - payload {"item_id": int (requests()), "document_id": \
 int (parties() document_ids, or the shelf), optional "reason"}: the paper \
 on file that answers an ask - a statement for the income step, the \
