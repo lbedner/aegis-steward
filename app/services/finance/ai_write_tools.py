@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from app.core.db import get_async_session
+from app.core.db import get_async_session, retry_on_locked
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.finance.domains.writes.display import candidate_row
 
@@ -32,43 +32,46 @@ async def propose_many(
     )
     from app.services.finance.domains import writes
 
-    async with get_async_session() as session:
-        try:
-            rows = await writes.propose_many(
-                session,
-                change_type,
-                payloads,
-                owner_user_id=None,
-                proposed_by_agent=current_agent_slug.get(),
-                conversation_id=current_conversation_id.get(),
-            )
-            items = [
-                {
-                    "id": row.id,
-                    "pending_change_id": row.id,
-                    "status": row.status,
-                    # Tool results serialize into the model's context:
-                    # typed rows become plain dicts at this boundary.
-                    "display": [
-                        line.model_dump()
-                        for line in await writes.describe_change(session, row)
-                    ],
+    async def write() -> dict[str, Any]:
+        async with get_async_session() as session:
+            try:
+                rows = await writes.propose_many(
+                    session,
+                    change_type,
+                    payloads,
+                    owner_user_id=None,
+                    proposed_by_agent=current_agent_slug.get(),
+                    conversation_id=current_conversation_id.get(),
+                )
+                items = [
+                    {
+                        "id": row.id,
+                        "pending_change_id": row.id,
+                        "status": row.status,
+                        # Tool results serialize into the model's context:
+                        # typed rows become plain dicts at this boundary.
+                        "display": [
+                            line.model_dump()
+                            for line in await writes.describe_change(session, row)
+                        ],
+                    }
+                    for row in rows
+                ]
+                await session.commit()
+            except ValueError as e:
+                return {
+                    "error": str(e),
+                    "registered_change_types": list(writes.registered_change_types()),
                 }
-                for row in rows
-            ]
-            await session.commit()
-        except ValueError as e:
-            return {
-                "error": str(e),
-                "registered_change_types": list(writes.registered_change_types()),
-            }
-    return {
-        "batch_id": rows[0].batch_id,
-        "change_type": change_type,
-        "title": writes.executor_for(change_type).title,
-        "count": len(items),
-        "items": items,
-    }
+        return {
+            "batch_id": rows[0].batch_id,
+            "change_type": change_type,
+            "title": writes.executor_for(change_type).title,
+            "count": len(items),
+            "items": items,
+        }
+
+    return await retry_on_locked(write)
 
 
 async def categories() -> dict[str, Any]:
@@ -182,32 +185,36 @@ async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
     from app.services.finance.domains import writes
 
-    async with get_async_session() as session:
-        try:
-            row = await writes.propose(
-                session,
-                change_type,
-                payload,
-                owner_user_id=None,
-                proposed_by_agent=current_agent_slug.get(),
-                conversation_id=current_conversation_id.get(),
-            )
-            display = [
-                line.model_dump() for line in await writes.describe_change(session, row)
-            ]
-            await session.commit()
-        except ValueError as e:
-            return {
-                "error": str(e),
-                "registered_change_types": list(writes.registered_change_types()),
-            }
-    return {
-        "pending_change_id": row.id,
-        "change_type": row.change_type,
-        "title": writes.executor_for(row.change_type).title,
-        "status": row.status,
-        "display": display,
-    }
+    async def write() -> dict[str, Any]:
+        async with get_async_session() as session:
+            try:
+                row = await writes.propose(
+                    session,
+                    change_type,
+                    payload,
+                    owner_user_id=None,
+                    proposed_by_agent=current_agent_slug.get(),
+                    conversation_id=current_conversation_id.get(),
+                )
+                display = [
+                    line.model_dump()
+                    for line in await writes.describe_change(session, row)
+                ]
+                await session.commit()
+            except ValueError as e:
+                return {
+                    "error": str(e),
+                    "registered_change_types": list(writes.registered_change_types()),
+                }
+        return {
+            "pending_change_id": row.id,
+            "change_type": row.change_type,
+            "title": writes.executor_for(row.change_type).title,
+            "status": row.status,
+            "display": display,
+        }
+
+    return await retry_on_locked(write)
 
 
 # No single turn papers the thread, however the model asks.
@@ -327,23 +334,26 @@ async def withdraw(pending_change_id: int, reason: str | None = None) -> dict[st
     from app.services.ai.domains.chat.user_memory import current_agent_slug
     from app.services.finance.domains import writes
 
-    async with get_async_session() as session:
-        try:
-            row = await writes.withdraw(
-                session,
-                pending_change_id,
-                agent_slug=current_agent_slug.get(),
-                owner_user_id=None,
-                reason=reason,
-            )
-            await session.commit()
-        except ValueError as e:
-            return {"error": str(e)}
-    return {
-        "pending_change_id": row.id,
-        "status": row.status,
-        "note": (row.result or {}).get("note"),
-    }
+    async def write() -> dict[str, Any]:
+        async with get_async_session() as session:
+            try:
+                row = await writes.withdraw(
+                    session,
+                    pending_change_id,
+                    agent_slug=current_agent_slug.get(),
+                    owner_user_id=None,
+                    reason=reason,
+                )
+                await session.commit()
+            except ValueError as e:
+                return {"error": str(e)}
+        return {
+            "pending_change_id": row.id,
+            "status": row.status,
+            "note": (row.result or {}).get("note"),
+        }
+
+    return await retry_on_locked(write)
 
 
 async def withdraw_batch(batch_id: str, reason: str | None = None) -> dict[str, Any]:
@@ -354,19 +364,22 @@ async def withdraw_batch(batch_id: str, reason: str | None = None) -> dict[str, 
     from app.services.ai.domains.chat.user_memory import current_agent_slug
     from app.services.finance.domains import writes
 
-    async with get_async_session() as session:
-        try:
-            withdrawn = await writes.withdraw_batch(
-                session,
-                batch_id,
-                agent_slug=current_agent_slug.get(),
-                owner_user_id=None,
-                reason=reason,
-            )
-            await session.commit()
-        except ValueError as e:
-            return {"error": str(e)}
-    return {"batch_id": batch_id, "withdrawn": withdrawn}
+    async def write() -> dict[str, Any]:
+        async with get_async_session() as session:
+            try:
+                withdrawn = await writes.withdraw_batch(
+                    session,
+                    batch_id,
+                    agent_slug=current_agent_slug.get(),
+                    owner_user_id=None,
+                    reason=reason,
+                )
+                await session.commit()
+            except ValueError as e:
+                return {"error": str(e)}
+        return {"batch_id": batch_id, "withdrawn": withdrawn}
+
+    return await retry_on_locked(write)
 
 
 # Built-in registration: importing this module makes the tools grantable

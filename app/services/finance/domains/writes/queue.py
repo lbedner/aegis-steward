@@ -203,6 +203,17 @@ async def list_changes(
     return list((await db.exec(query)).all())
 
 
+async def approved_in_batch(db: AsyncSession, batch_id: str) -> list[Any]:
+    """The rows a batch approval actually landed, for telling whoever
+    asked for them. Counts came back from the approval; the rows are
+    what carry the ids she needs to propose the next thing."""
+    query = select(FinancePendingChange).where(
+        FinancePendingChange.batch_id == batch_id,
+        FinancePendingChange.status == "approved",
+    )
+    return list((await db.exec(query)).all())
+
+
 def _require_pending(row: FinancePendingChange | None) -> FinancePendingChange:
     if row is None:
         raise ValueError("pending change not found")
@@ -219,7 +230,17 @@ async def _describe_row(
     Validation guards the DOOR (propose); a stored payload that no
     longer validates is exactly what reject/withdraw exist to clean up,
     so it renders as its raw payload instead of raising."""
-    executor = executor_for(row.change_type)
+    # A type can leave the app while its row stays: retired, or not
+    # built on the branch somebody is running. Then the payload IS all
+    # there is to show, and the card still has to draw so there is
+    # somewhere to reject it from.
+    try:
+        executor = executor_for(row.change_type)
+    except ValueError:
+        return [
+            ChangeDisplayRow(label="Change", value=row.change_type),
+            ChangeDisplayRow(label="Payload", value=str(row.payload)),
+        ]
     try:
         model = executor.payload_model(**row.payload)
     except ValidationError:

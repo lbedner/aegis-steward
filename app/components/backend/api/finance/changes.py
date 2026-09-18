@@ -14,6 +14,8 @@ from app.services.finance.deps import (
     get_owner_user_id,
 )
 from app.services.finance.domains import writes
+from app.services.finance.domains.writes.announce import announce
+from app.services.finance.domains.writes.queue import approved_in_batch
 from app.services.finance.models import FinancePendingChange
 from app.services.finance.schemas import (
     BatchResolveRequest,
@@ -99,12 +101,20 @@ async def _to_response(
     row: FinancePendingChange,
     marks: dict[int, dict[str, str | None]] | None = None,
 ) -> PendingChangeResponse:
-    executor = writes.executor_for(row.change_type)
+    # A change type can leave: retired, or not built on the branch
+    # somebody is running. The ROW outlives it, and a listing that
+    # raises takes down the page you would reject it from. The same
+    # tolerance describe_pending_change already has for a payload that
+    # no longer validates.
+    try:
+        title = writes.executor_for(row.change_type).title
+    except ValueError:
+        title = f"{row.change_type} (no longer a change this app makes)"
     display = await service.describe_pending_change(row)
     if marks is None:
         marks = await _marks(service, [row])
     return PendingChangeResponse.from_row(
-        row, title=executor.title, display=display, mark=marks.get(row.id or 0)
+        row, title=title, display=display, mark=marks.get(row.id or 0)
     )
 
 
@@ -193,6 +203,9 @@ async def approve_change(
         ) from None
     response = await _to_response(service, row)
     await service.db.commit()
+    # AFTER the commit, never before: she reads the message, calls
+    # parties(), and the row has to be there.
+    await announce([row])
     return response
 
 
@@ -238,6 +251,9 @@ async def approve_batch(
         batch_id, owner_user_id=owner_user_id, exclude_ids=body.exclude_ids
     )
     await service.db.commit()
+    # One message for the batch, after the commit: six filings are a
+    # sentence to her, not six turns.
+    await announce(await approved_in_batch(service.db, batch_id))
     return BatchResolveResponse(**summary)
 
 

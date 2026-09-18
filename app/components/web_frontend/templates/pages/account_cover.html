@@ -77,19 +77,18 @@
       <dd class="mt-0.5">
         <span class="text-sm" data-party>{{ contact_link(who.party_id, who.name) }}</span>
         <ul class="mt-1 space-y-0.5 text-xs text-aegis-muted">
-          {% if who.contact.website %}
-          <li><a href="{{ who.contact.website }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-website>{{ who.contact.website|replace("https://", "")|replace("http://", "") }}</a></li>
-          {% endif %}
-          {% if who.contact.phone %}<li data-phone>{{ who.contact.phone }}</li>{% endif %}
-          {% if who.contact.email %}<li data-email>{{ who.contact.email }}</li>{% endif %}
-          {% if who.contact.address %}<li data-address>{{ who.contact.address }}</li>{% endif %}
+          {#- The RELATIONSHIP, not the place's record. An address, a
+              second phone line and a note are facts about THEM, they
+              have a page of their own, and copying them here puts the
+              bank's business card on every account you hold there. What
+              stays is what is true of THIS account: the number money
+              arrives on, and the way in. -#}
           {% if who.routing %}<li data-routing>Routing {{ who.routing }}</li>{% endif %}
-          {#- The way in, named but never opened here: the password is
-              one deliberate click away, on the party. -#}
+          {#- Named but never opened here: the password is one
+              deliberate click away, on the party. -#}
           {% for signin in who.signins %}
           <li data-signin>{{ signin.label }}{% if signin.username %} · {{ signin.username }}{% endif %}</li>
           {% endfor %}
-          {% if who.note %}<li class="text-aegis-muted/80">{{ who.note }}</li>{% endif %}
         </ul>
       </dd>
     </div>

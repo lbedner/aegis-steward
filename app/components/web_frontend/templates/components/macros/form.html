@@ -398,3 +398,26 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
   </ul>
 </div>
 {% endmacro %}
+
+{# Rows somebody adds as many of as they need: a label and a value. The
+   rows on load and the one the button clones come from ONE macro, so
+   the two cannot drift. Emptying a value is how a row goes away, for
+   the reason a blank password box leaves the password alone: the form
+   is not a list of deletions. #}
+{% macro line_row(label_name, value_name, label="", value="", label_hint="Label", value_hint="") %}
+<div class="grid grid-cols-[1fr_1.4fr] gap-2" data-line>
+  <input type="text" name="{{ label_name }}" value="{{ label }}" placeholder="{{ label_hint }}" class="{{ control("input") }} w-full">
+  <input type="text" name="{{ value_name }}" value="{{ value }}" placeholder="{{ value_hint }}" class="{{ control("input") }} w-full">
+</div>
+{% endmacro %}
+
+{% macro line_rows(label_name, value_name, lines=(), label_hint="Label", value_hint="", add="Add a line") %}
+<div class="mt-1 space-y-2" x-data="{
+       add() { $refs.blank.before($refs.line.content.cloneNode(true)) },
+     }">
+  {% for label, value in lines %}{{ line_row(label_name, value_name, label, value, label_hint, value_hint) }}{% endfor %}
+  <div x-ref="blank">{{ line_row(label_name, value_name, "", "", label_hint, value_hint) }}</div>
+  <template x-ref="line">{{ line_row(label_name, value_name, "", "", label_hint, value_hint) }}</template>
+  {{ action(add, '@click="add()"') }}
+</div>
+{% endmacro %}

@@ -130,6 +130,43 @@ class TestPointingAnAccountAtItsBank:
         assert said["Held with"].endswith("JPMorgan Chase")
 
     @pytest.mark.asyncio
+    async def test_a_bank_it_is_already_held_with_is_not_an_arrow(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """ "X to X" is the card saying nothing twice. When only the
+        routing number is new, that is what the card should read as."""
+        from app.services.finance.domains.writes.accounts import (
+            InstitutionPayload,
+            institution_describe,
+            institution_execute,
+        )
+
+        party_id, account_id = await self._chase(async_db_session)
+        await institution_execute(
+            async_db_session,
+            InstitutionPayload(account_id=account_id, party_id=party_id),
+            None,
+        )
+        await async_db_session.flush()
+
+        said = {
+            r.label: r.value
+            for r in await institution_describe(
+                async_db_session,
+                InstitutionPayload(
+                    account_id=account_id,
+                    party_id=party_id,
+                    routing_number="021000021",
+                ),
+                None,
+            )
+        }
+
+        assert said["Held with"] == "JPMorgan Chase (unchanged)"
+        assert said["Routing"] == "021000021"
+        assert "Bank record" not in said
+
+    @pytest.mark.asyncio
     async def test_approving_it_points_the_account_at_the_bank(
         self, async_db_session: AsyncSession
     ) -> None:

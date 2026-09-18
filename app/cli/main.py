@@ -124,6 +124,10 @@ except ImportError:
     # Payment service not available, skip payment commands
     pass
 
+from app.cli.secrets import secrets_app  # noqa: E402
+
+app.add_typer(secrets_app, name="secrets")
+
 # Conditionally register finance command if finance service is available
 try:
     finance_module = importlib.import_module("app.cli.finance")

@@ -24,12 +24,12 @@ from app.core.schema import known
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.matters.facts import ATTRIBUTE_KEYS, LABELS, monthly_cents
 from app.services.matters.models import (
-    CONTACT_FIELDS,
     FACT_PERIODS,
     FACT_PROVENANCE,
     ITEM_KINDS,
     PARTY_KINDS,
 )
+from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES, reach_lines
 
 
 class RecordFactPayload(BaseModel):
@@ -321,6 +321,10 @@ class CreateContactPayload(BaseModel):
     phone: str | None = None
     email: str | None = None
     website: str | None = None
+    # Everything else they print: a Spanish line, a number from abroad,
+    # a claims fax. Labelled because a number nobody labelled is a
+    # number whose meaning is lost.
+    also: list[dict[str, str]] = Field(default_factory=list)
     note: str | None = None
 
     _known_kind = field_validator("kind")(known(PARTY_KINDS))
@@ -332,12 +336,18 @@ class CreateContactPayload(BaseModel):
             raise ValueError("A contact needs a name.")
         return value
 
-    def reach(self) -> dict[str, str]:
-        return {
+    def reach(self) -> dict[str, Any]:
+        found: dict[str, Any] = {
             key: value.strip()
             for key, _label in CONTACT_FIELDS
             if (value := getattr(self, key)) and value.strip()
         }
+        if lines := [
+            {"label": label, "value": value}
+            for label, value in reach_lines({CONTACT_LINES: self.also})
+        ]:
+            found[CONTACT_LINES] = lines
+        return found
 
 
 async def create_contact_execute(
@@ -364,9 +374,17 @@ async def create_contact_describe(
         ChangeDisplayRow(label="Kind", value=payload.kind),
     ]
     labels = dict(CONTACT_FIELDS)
+    reach = payload.reach()
     rows.extend(
-        ChangeDisplayRow(label=labels[key], value=value)
-        for key, value in payload.reach().items()
+        ChangeDisplayRow(label=labels[key], value=reach[key])
+        for key, _label in CONTACT_FIELDS
+        if key in reach
+    )
+    # Each labelled line gets its own row: a card that folds three phone
+    # numbers into one line is a card nobody checks.
+    rows.extend(
+        ChangeDisplayRow(label=label, value=value)
+        for label, value in reach_lines(reach)
     )
     if payload.note:
         rows.append(ChangeDisplayRow(label="Note", value=payload.note))

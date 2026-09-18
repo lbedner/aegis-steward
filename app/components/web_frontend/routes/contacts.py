@@ -29,7 +29,8 @@ from app.components.web_frontend.rendering import (
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import web_address
-from app.services.matters.models import CONTACT_FIELDS, PARTY_KINDS, party_tag
+from app.services.matters.models import PARTY_KINDS, party_tag
+from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES, reach_lines
 from app.services.matters.service import PartyService
 
 SECTION = section("contacts")
@@ -105,6 +106,7 @@ def _form(
         party=party,
         kinds=PARTY_KINDS,
         contact_fields=list(CONTACT_FIELDS),
+        lines=reach_lines(party.contact if party else None),
         errors=errors,
         **values,
     )
@@ -141,11 +143,24 @@ async def save_party(
     so the guess is visible and overrulable rather than hidden.
     """
     form = await request.form()
-    contact = {
+    contact: dict[str, Any] = {
         key: str(form.get(key) or "").strip()
         for key, _label in CONTACT_FIELDS
         if str(form.get(key) or "").strip()
     }
+    # Parallel lists, paired by position. A row whose value was emptied
+    # is how a line goes away: the form is a statement of what there is,
+    # not a list of deletions.
+    said = [
+        {"label": str(label), "value": str(value)}
+        for label, value in zip(
+            form.getlist("line_label"), form.getlist("line_value"), strict=False
+        )
+    ]
+    if lines := reach_lines({CONTACT_LINES: said}):
+        contact[CONTACT_LINES] = [
+            {"label": label, "value": value} for label, value in lines
+        ]
     if "website" in contact:
         # Checked here, because it is rendered as a link: an href is a
         # place the reader clicks, and one parser owns that decision.
@@ -282,6 +297,7 @@ async def contact(
                     for key, label in CONTACT_FIELDS
                     if (party.contact or {}).get(key)
                 ],
+                "lines": reach_lines(party.contact),
                 "cases": cases,
                 "letters": letters,
                 "says": says,

@@ -1163,3 +1163,74 @@ class TestANoteIsItsOwnEdit:
         shown = await svc.describe_pending_change(row)
         note = next(line for line in shown if line.label == "Note")
         assert "old note" in note.value and "new note" in note.value
+
+
+class TestWhatABatchApprovalLanded:
+    @staticmethod
+    async def _fixture(svc: FinanceService, session: AsyncSession):
+        account = await _account(svc)
+        groceries = await _category(session, "Food & Dining:Groceries")
+        txn = await _txn(svc, account.id, -897, date(2026, 6, 10), name="Deli")
+        return groceries, txn
+
+    @pytest.mark.asyncio
+    async def test_only_the_approved_rows_of_that_batch(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Counts come back from the approval; the ROWS are what carry
+        the ids she needs to propose the next thing."""
+        from app.services.finance.domains.writes.queue import approved_in_batch
+
+        groceries, txn = await self._fixture(svc, async_db_session)
+        other = await _txn(svc, txn.account_id, -500, date(2026, 6, 11), name="Deli 2")
+        first, second = await svc.propose_many_changes(
+            "transaction.categorize",
+            [
+                {"transaction_id": txn.id, "category_id": groceries.id},
+                {"transaction_id": other.id, "category_id": groceries.id},
+            ],
+            owner_user_id=1,
+        )
+        batch_id = first.batch_id
+        await svc.approve_batch(batch_id, owner_user_id=1, exclude_ids=[second.id])
+        await async_db_session.commit()
+
+        landed = await approved_in_batch(async_db_session, batch_id)
+
+        assert [row.id for row in landed] == [first.id]
+
+
+async def _fixture_rows(svc: FinanceService, session: AsyncSession):
+    account = await _account(svc)
+    groceries = await _category(session, "Food & Dining:Groceries")
+    txn = await _txn(svc, account.id, -897, date(2026, 6, 10), name="Retired")
+    return groceries, txn
+
+
+class TestACardWhoseTypeIsGone:
+    """A change type can leave: retired, or simply not built on the
+    branch somebody is running. The row outlives it, and the Approvals
+    page has to stay up so there is somewhere to reject it FROM."""
+
+    @pytest.mark.asyncio
+    async def test_the_listing_survives_it(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        from app.components.backend.api.finance.changes import _to_responses
+
+        groceries, txn = await _fixture_rows(svc, async_db_session)
+        row = await svc.propose_change(
+            "transaction.categorize",
+            {"transaction_id": txn.id, "category_id": groceries.id},
+            owner_user_id=1,
+        )
+        await async_db_session.flush()
+        row.change_type = "document.something_retired"
+        async_db_session.add(row)
+        await async_db_session.flush()
+
+        listed = await _to_responses(svc, [row])
+
+        assert len(listed) == 1
+        # It names itself with the only thing left: its own type.
+        assert "document.something_retired" in listed[0].title

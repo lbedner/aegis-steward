@@ -129,12 +129,14 @@ async def who_and_where(
 ) -> dict[str, Any]:
     """The people and places behind an account.
 
-    An account with no transactions is not an account with nothing to
-    say. Whose money it is and who it is held with are both rows in the
-    address book, carrying an address, a phone and a website that are
-    exactly what somebody reaches for when they have to ring the pension
-    fund - and they were a click away behind two dialogs, on a page that
-    looked empty.
+    Whose money it is, and who it is held with - each as a NAME that
+    links to the address book, not as a copy of what the address book
+    holds. Their address, their other numbers and their note are facts
+    about THEM, and printing them under every account held there turns
+    an account page into the bank's business card, repeated.
+
+    What stays is what is true of THIS account: the routing number
+    money arrives on, and the way in.
 
     Nothing at all when the account has neither: an empty card on every
     ordinary account teaches people to skip the space it sits in.
@@ -178,17 +180,20 @@ async def who_and_where(
                 "role": role,
                 "party_id": party.id,
                 "name": party.name,
-                "contact": {
-                    key: value for key, value in (party.contact or {}).items() if value
-                },
+                # The RELATIONSHIP only. Their address, their other
+                # phone numbers and their note are facts about THEM,
+                # they have a page of their own, and copying them here
+                # put the bank's business card on every account held
+                # there. The name links out for all of it.
+                #
                 # The way IN, named but never opened here: the password
                 # lives one deliberate click away, on the party.
                 "signins": [drawn(one) for one in rows],
                 # The bank's own number, printed on every cheque, and
                 # only ever under the bank: it belongs to them, not to
-                # the account looking at them.
+                # the account looking at them. Kept because it is how
+                # money reaches THIS account.
                 "routing": routing if role == "Held with" else None,
-                "note": party.note or "",
             }
         )
     return {"who_and_where": cards}

@@ -336,9 +336,13 @@ class TestTheAccountFrontPage:
         held = one(page, '[data-who="held-with"]')
         assert text(one(whose, "[data-party]")) == "Front Subject One"
         assert text(one(held, "[data-party]")) == "Front Pension Fund"
-        assert one(held, "[data-website]").get("href") == (
-            "https://frontpension.example.com"
-        )
+        # The RELATIONSHIP, not the bank's record. An address, a second
+        # phone line and a note are facts about the place, they have a
+        # page of their own, and copying them here puts the bank's
+        # business card on every account you hold there.
+        none(page, "[data-website]")
+        none(page, "[data-address]")
+        none(page, "[data-line]")
 
     def test_an_ordinary_account_gets_no_empty_card(self, client: TestClient) -> None:
         """An empty card on every account teaches people to skip the
