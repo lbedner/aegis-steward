@@ -128,18 +128,19 @@ async def startup_database_init() -> None:
             logger.warning(f"Database verification failed: {e}")
             # Don't fail startup - let the app run and show clear errors
 
-        # The journal mode is a decision the db module makes and cannot
-        # enforce: it lives in the FILE and changing it needs exclusive
-        # access. Say so at startup rather than discover it after a
-        # night of locks.
+        # The journal mode lives in the FILE and persists, so it is set
+        # here once rather than on every connect - where a pragma that
+        # returns a row leaves a statement open and breaks the first
+        # commit. WAL is what lets the engine take the write lock up
+        # front without every read queuing behind every write.
         try:
             import sqlite3
 
-            from app.core.db import DATABASE_PATH, warn_if_wal
+            from app.core.db import DATABASE_PATH, ensure_wal
 
             connection = sqlite3.connect(DATABASE_PATH)
             try:
-                warn_if_wal(connection)
+                ensure_wal(connection)
             finally:
                 connection.close()
         except Exception as e:  # noqa: BLE001 - never block startup on a check

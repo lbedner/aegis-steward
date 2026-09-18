@@ -98,14 +98,15 @@ def apply_sqlite_pragmas(dbapi_connection: Any) -> None:
     ``busy_timeout`` because SQLite has one writer at a time and every
     connection should wait its turn rather than fail at once.
 
-    NOT ``journal_mode=WAL``, though it is the usual answer to a writer
-    that starves readers: WAL coordinates its readers through shared
-    memory mapped from a ``-shm`` file, which is only coherent between
-    processes on one machine. The dev stack bind-mounts this file from
-    the host into several containers and the CLI opens it from the host
-    as well, so those processes do not share memory and WAL would risk
-    the ledger. It belongs with a database the container boundary does
-    not cross (a named volume), or with Postgres.
+    NOT ``journal_mode``, even though WAL is exactly what this stack now
+    wants. That pragma ANSWERS - it returns the mode - and a row left
+    unfetched inside the connect hook is how a session that has not run
+    a query yet fails to commit. It is not enough to close the cursor
+    either: under aiosqlite ``close()`` is a coroutine, so a synchronous
+    call returns an un-awaited object and closes nothing.
+
+    The mode lives in the FILE and survives every restart, so it is set
+    once at startup by ``ensure_wal`` rather than on every connect.
     """
     dbapi_connection.execute("PRAGMA foreign_keys=ON")
     dbapi_connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
@@ -143,40 +144,45 @@ async def retry_on_locked(write: Callable[[], Awaitable[T]]) -> T:
     raise AssertionError("unreachable")
 
 
-def warn_if_wal(dbapi_connection: Any) -> str | None:
-    """Say so, loudly, when the file is in WAL after all.
+def ensure_wal(dbapi_connection: Any) -> str | None:
+    """Put the file in WAL, once, and say loudly if it would not go.
 
-    The mode above is a decision this module makes and cannot enforce:
-    ``journal_mode`` lives in the FILE, survives every restart, and
-    changing it needs exclusive access, so a connection that finds WAL
-    cannot simply turn it off. It is also how a ledger ends up running
-    for weeks in the configuration its own code says would risk it -
-    found exactly that way, after a night of "database is locked" with
-    five containers and a host CLI sharing one bind-mounted file.
+    Setting and checking are one call on purpose. The old version could
+    only WARN, because across a bind mount WAL was the thing to avoid
+    and ``journal_mode`` needs exclusive access to change. On a named
+    volume the app can simply ask for the mode it needs, and a guard
+    that reports a problem it could have fixed is a guard nobody acts
+    on.
 
-    Called once at startup rather than per connection: a pragma read
-    leaves a cursor open, and doing that inside the connect hook is how
-    a session that has not run a query yet fails to commit.
+    Called once at startup rather than per connection. The mode lives in
+    the FILE and persists, and this pragma answers with a row - which
+    inside the connect hook is how a session that has not run a query
+    yet fails to commit. See ``apply_sqlite_pragmas``.
 
-    Returns the mode when it is not what was intended, so a caller can
-    act; silence is what let it drift in the first place.
+    An in-memory database reports ``memory`` and can never be in WAL.
+    That is not drift to report: the suite opens several, and a warning
+    everybody learns to ignore is worse than no warning.
+
+    Returns the mode when it is NOT what was asked for, so a caller can
+    act; silence is what let the old configuration drift for weeks.
     """
     try:
-        cursor = dbapi_connection.execute("PRAGMA journal_mode")
+        cursor = dbapi_connection.execute("PRAGMA journal_mode=WAL")
         mode = cursor.fetchone()[0]
         cursor.close()
-    except Exception:  # noqa: BLE001 - a pragma read must never break startup
+    except Exception:  # noqa: BLE001 - a pragma must never break startup
         return None
-    if str(mode).lower() != "wal":
+    found = str(mode).lower()
+    if found in ("wal", "memory"):
         return None
     logger.warning(
-        "SQLite is in WAL mode, which this stack does not intend: its -shm "
-        "coordination is not coherent across a bind mount, and several "
-        "containers plus the host CLI share this file. Stop the stack and "
-        "run PRAGMA journal_mode=DELETE.",
+        "SQLite would not go into WAL mode, which this stack now requires: "
+        "the engine takes the write lock up front, and without WAL every "
+        "read queues behind every write. Something else holds this file - "
+        "stop the stack and run PRAGMA journal_mode=WAL.",
         journal_mode=mode,
     )
-    return str(mode)
+    return found
 
 
 @event.listens_for(engine, "connect")
@@ -199,34 +205,33 @@ def _async_sqlite_take_over_transactions(
 
 @event.listens_for(async_engine.sync_engine, "begin")
 def _async_sqlite_emit_begin(conn: Any) -> None:
-    """A deferred BEGIN, with the upgrade failure handled elsewhere.
+    """BEGIN IMMEDIATE: take the write lock up front, where waiting works.
 
-    A bare BEGIN is DEFERRED: SQLite takes no lock until the first write
-    and then has to UPGRADE. If another writer holds the lock at that
-    moment the upgrade fails with "database is locked" AT ONCE -
-    ``busy_timeout`` deliberately does not apply to it, because a
-    transaction that already holds a read lock and waits for a write
-    lock is how two of them deadlock.
+    A bare BEGIN is DEFERRED. SQLite takes no lock until the first write
+    and then has to UPGRADE, and an upgrade that finds another writer
+    fails with "database is locked" AT ONCE. ``busy_timeout`` does not
+    apply to it, deliberately: a transaction that already holds a read
+    lock while waiting for a write lock is how two of them deadlock, so
+    SQLite refuses to enter that state rather than hang in it.
 
-    So the 30-second timeout above was never reached. It cost a turn
-    live: the answer streamed, the proposal landed, and then
-    ``save_memory`` - a second session opened inside the same turn -
-    died on "database is locked" with the fact already spoken aloud.
+    So the 30-second timeout was never reached, and measurably so - the
+    deferred path gives up in a tenth of a millisecond without ever
+    consulting it. It cost a turn: the answer streamed, the proposal
+    landed, and then ``save_memory``, a second session opened inside the
+    same turn, died with the fact already spoken aloud.
 
-    IMMEDIATE takes the write lock up front, where waiting is safe and
-    the timeout DOES apply. It was tried, and it is NOT the answer here:
-    it makes every transaction a writer, including reads, and this stack
-    runs four containers and a host CLI against one file. Under WAL that
-    was survivable because readers proceed anyway; with a rollback
-    journal - which this stack intends, see ``apply_sqlite_pragmas`` -
-    every read queues behind every write and the app deadlocks itself
-    into a hang.
+    IMMEDIATE has no upgrade to fail, so the timeout finally applies. It
+    was unaffordable while the file was bind-mounted: without WAL it
+    makes every transaction a writer, reads included, and four
+    containers sharing one rollback-journal file serialise into a hang.
+    Under WAL a reader never queues behind the writer, so the cost is
+    gone - which is what the move onto a named volume bought, and the
+    only reason this line can read this way.
 
-    So: a deferred BEGIN, and the upgrade failure is handled where it
-    actually happens - ``retry_on_locked`` around the write - rather than
-    by making the whole application single-file-serial.
+    One writer at a time is still true. It is now handled here, once,
+    instead of at every call site that happened to read before writing.
     """
-    conn.exec_driver_sql("BEGIN")
+    conn.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 # Configure session factory with SQLModel Session (sync)
