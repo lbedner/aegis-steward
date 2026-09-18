@@ -20,11 +20,11 @@
 
   {% include "components/sub_nav.html" %}
 
-  {#- Who and where, first: an account with no transactions still has a
-      person whose money it is and an organization it is held with, and
-      their address, phone and website are exactly what somebody reaches
-      for when they have to ring the pension fund. Both were a click
-      away behind two dialogs, on a page that looked empty. -#}
+  {#- Who and where: an account with no transactions still has a person
+      whose money it is and an organization it is held with, and both
+      were a click away behind two dialogs, on a page that looked empty.
+      NAMES that link out, though - what the address book holds about
+      them belongs on their page, not under every account held there. -#}
   {% if who_and_where %}
   {% call card("Who and where") %}
   <dl class="grid gap-5 sm:grid-cols-2">
@@ -34,20 +34,18 @@
       <dd class="mt-0.5">
         <span class="text-sm" data-party>{{ contact_link(who.party_id, who.name) }}</span>
         <ul class="mt-1 space-y-0.5 text-xs text-aegis-muted">
-          {% if who.contact.website %}
-          <li><a href="{{ who.contact.website }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-website>{{ who.contact.website|replace("https://", "")|replace("http://", "") }}</a></li>
-          {% endif %}
-          {% if who.contact.phone %}<li data-phone>{{ who.contact.phone }}</li>{% endif %}
-          {% if who.contact.email %}<li data-email>{{ who.contact.email }}</li>{% endif %}
-          {% if who.contact.address %}<li data-address>{{ who.contact.address }}</li>{% endif %}
+          {#- The RELATIONSHIP, not the place's record. An address, a
+              second phone line and a note are facts about THEM, they
+              have a page of their own, and copying them here puts the
+              bank's business card on every account you hold there. What
+              stays is what is true of THIS account: the number money
+              arrives on, and the way in. -#}
           {% if who.routing %}<li data-routing>Routing {{ who.routing }}</li>{% endif %}
-          {% for label, value in who.lines %}<li data-line>{{ label }} {{ value }}</li>{% endfor %}
-          {#- The way in, named but never opened here: the password is
-              one deliberate click away, on the party. -#}
+          {#- Named but never opened here: the password is one
+              deliberate click away, on the party. -#}
           {% for signin in who.signins %}
           <li data-signin>{{ signin.label }}{% if signin.username %} · {{ signin.username }}{% endif %}</li>
           {% endfor %}
-          {% if who.note %}<li class="text-aegis-muted/80">{{ who.note }}</li>{% endif %}
         </ul>
       </dd>
     </div>
