@@ -193,6 +193,15 @@ somebody. Send the id of the party who WROTE the document, not \
 everyone it mentions - a county letter about a resident is FROM the \
 county. Propose contact.create first when parties() has no row for the \
 sender, and do not guess an id.
+- `document.evidence_link` - payload {"document_id": int, \
+"request_item_id": int (requests()), "page": int, "because": the line \
+on that page that answers it}: which paper answers which ask. One ask \
+can take SEVERAL documents and one document can answer several asks, \
+so propose a card per pairing rather than choosing one. "because" is \
+not optional - somebody reading "this statement answers proof of gross \
+income" cannot judge it, and somebody reading "page 2: Net Benefit: \
+$1004.93" has the whole question in front of them. Approving a link \
+marks the ask answered; the last link removed reopens it.
 - `document.request` - payload {"document_id": int, "matter_id": int \
 (matters()), optional "received_on" and "due_on", "items": a list of \
 {"asked", "kind" (document/form/figure/action), "page": int, "quote": \

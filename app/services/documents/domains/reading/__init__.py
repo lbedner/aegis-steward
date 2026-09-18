@@ -14,10 +14,13 @@ lookup in the contact milestone reads the same way).
 """
 
 from app.services.documents.domains.reading.changes import (
+    EvidencePayload,
     MetadataPayload,
     ReadAsk,
     ReadValue,
     RequestPayload,
+    evidence_describe,
+    evidence_execute,
     metadata_describe,
     metadata_execute,
     request_describe,
@@ -29,12 +32,15 @@ from app.services.documents.domains.reading.proposals import propose_reading
 
 __all__ = [
     "Finding",
+    "EvidencePayload",
     "MetadataPayload",
     "Page",
     "ReadAsk",
     "ReadValue",
     "RequestPayload",
     "metadata_describe",
+    "evidence_describe",
+    "evidence_execute",
     "metadata_execute",
     "propose_reading",
     "read_document",

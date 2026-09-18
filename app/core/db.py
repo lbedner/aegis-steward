@@ -296,8 +296,24 @@ def init_database() -> Path:
         db_path = Path(str(engine.url.database or DATABASE_PATH))
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create all tables
-        SQLModel.metadata.create_all(engine)
+        # MIGRATIONS build the schema when this install ships them, and
+        # this function does not. It is called by the scheduler and by
+        # ConversationManager on construction, so it runs in processes
+        # that never go through the startup hook - and it runs FIRST.
+        #
+        # Left alone it creates a new model's table, alembic then finds
+        # the table already there and STAMPS the migration instead of
+        # running it, and any data the migration was carrying gets
+        # silently skipped. That is the finance_icon incident, then the
+        # insurance one, then evidence_link losing two answered asks
+        # (2026-09-18) - three times through this one door.
+        #
+        # A project generated WITHOUT migrations has nothing else to
+        # build its tables, so that case still creates them.
+        from app.components.backend.startup.migrations import versions_exist
+
+        if not versions_exist():
+            SQLModel.metadata.create_all(engine)
 
         if db_path.exists():
             logger.info(f"Database initialized: {db_path}")

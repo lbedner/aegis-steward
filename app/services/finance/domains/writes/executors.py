@@ -249,6 +249,17 @@ register(
         describe=reading.metadata_describe,
     )
 )
+# Which paper answers which ask. ST-07 makes the link a human action;
+# this is the door that lets a reading PROPOSE one.
+register(
+    ChangeExecutor(
+        change_type="document.evidence_link",
+        title="What this paper answers",
+        payload_model=reading.EvidencePayload,
+        execute=reading.evidence_execute,
+        describe=reading.evidence_describe,
+    )
+)
 register(
     ChangeExecutor(
         change_type="document.request",
