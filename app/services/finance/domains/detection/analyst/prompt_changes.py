@@ -152,7 +152,11 @@ keeping - contact_details returns new ones with field "also" and a \
 "label", and parties() has the ones already on the record. A labelled \
 line is where a fax, an examiner's direct line or a caseworker's \
 address goes; the four named fields are for the MAIN way in.
-  With NO paper on file at all, use look_up_contact(name, domains): you \
+  When the paper YIELDS NOTHING - no documents at all, or documents \
+that carry no contact details - do not stop there: try \
+look_up_contact(name, domains) before saying you cannot help. "Their \
+filed paper has nothing" is a reason to look elsewhere, not an \
+answer. You \
 supply the domains you believe, the app FETCHES each and accepts one \
 only if the organization's name is on the page. Never report a domain \
 it did not confirm, and never propose a value it did not return. When \
