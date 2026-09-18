@@ -120,9 +120,13 @@ class AmendContactPayload(BaseModel):
     ONLY WHAT IS SENT CHANGES. An unset field is a field this card says
     nothing about, which is what makes it safe to propose a phone number
     without restating an address nobody asked about. ``None`` and
-    "not sent" are therefore the same thing for a reach field; the note
-    is the one place an empty string means "clear it", because emptying
-    the note is the whole point of moving details out of it.
+    "not sent" are therefore the same thing.
+
+    An EMPTY STRING is different: it means "this should be blank". A bad
+    reading once put a website of "state.ny.us" and a truncated
+    caseworker email onto a county department, and nothing could take
+    them off again - a record you can fill and cannot empty accumulates
+    every mistake ever made in it (2026-09-18).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -162,12 +166,11 @@ class AmendContactPayload(BaseModel):
     def sent(self) -> dict[str, Any]:
         """The fields this card speaks about, reach and all."""
         fields = ("name", "sort_name", "note", *[k for k, _ in CONTACT_FIELDS])
+        # ``is not None`` is the whole test: "" is SENT and means clear.
         found: dict[str, Any] = {
             key: value
             for key in fields
             if (value := getattr(self, key)) is not None
-            # The note is clearable; a blank reach field says nothing.
-            and (key == "note" or value.strip())
         }
         if self.also is not None:
             found[CONTACT_LINES] = [
@@ -190,8 +193,13 @@ def _amended(party: Any, payload: AmendContactPayload) -> dict[str, Any]:
     for key, value in sent.items():
         if key in ("name", "sort_name", "note"):
             changes[key] = value
-        else:
+        elif str(value).strip():
             contact[key] = value
+        else:
+            # Emptied, not blanked: a key whose value is "" would read
+            # back as a field that exists and is empty, which is not the
+            # same as one nobody has recorded.
+            contact.pop(key, None)
     if sent:
         changes["contact"] = contact
     return changes
@@ -248,7 +256,9 @@ async def amend_contact_describe(
                 )
             )
     for key, label in CONTACT_FIELDS:
-        if key in sent and sent[key] != was.get(key):
+        # Absent and empty are the same thing to compare against, so
+        # clearing a field that was never there changes nothing.
+        if key in sent and (sent[key] or "") != (was.get(key) or ""):
             rows.append(
                 ChangeDisplayRow(
                     label=label,
