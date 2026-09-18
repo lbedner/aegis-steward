@@ -342,6 +342,42 @@ register_tool(
 )
 
 
+async def look_up_contact(name: str, domains: list[str]) -> dict[str, Any]:
+    """Confirm an organization's website by FETCHING it, then read it.
+
+    You supply the candidate domains you believe - "deltadentalins.com",
+    "deltadental.com" - and the app decides. It fetches each over https
+    and accepts one only if the organization's name is actually on the
+    page. A parked domain, a 404 and a redirect onto somebody else's
+    host all confirm NOTHING.
+
+    Returns {'confirmed': domain or None, 'offers': [...]}. Each offer
+    carries 'field', 'value' and the 'url' it was read at; labelled ones
+    also carry 'label'. Propose contact.amend with those, putting the URL
+    in 'sources'.
+
+    NEVER report a domain this did not confirm, and never propose a
+    value it did not return. When 'confirmed' is None, say plainly that
+    nothing could be verified - a guess offered with a hedge is read as
+    a fact by the next person to open the record. At most four
+    candidates are tried, so put your best first.
+    """
+    from app.services.matters.domain_lookup import confirm, contact_page
+
+    found = await confirm(name, list(domains or []))
+    if found is None:
+        return {"confirmed": None, "offers": []}
+    return {"confirmed": found, "offers": await contact_page(found)}
+
+
+register_tool(
+    "look_up_contact",
+    look_up_contact,
+    description="Confirm an organization's website by fetching it, and read it",
+    replace=True,
+)
+
+
 async def contact_details(party_id: int) -> dict[str, Any]:
     """How to reach a party, read off the paper already filed against them.
 

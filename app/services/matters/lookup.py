@@ -63,7 +63,18 @@ _CITY_STATE_ZIP = re.compile(
 # Quaker Lane". Deliberately not trying to know every suffix - a line
 # that starts with a house number and sits directly above a CITY, ST ZIP
 # is an address by position, which is more reliable than a word list.
-_STREET = re.compile(r"^\s*\d+[A-Za-z]?\s+[A-Za-z0-9.\s'#-]{3,60}$")
+_STREET = re.compile(
+    r"^\s*(?:"
+    # A house number then words: "60 MARKET STREET", "419 N. Quaker Lane".
+    r"\d+[A-Za-z]?\s+[A-Za-z0-9.\s'#-]{3,60}"
+    # Or a box, which is what large organizations actually print:
+    # "P.O. Box 660138" (Delta Dental), "P.O. Box 44959" (Chase). Every
+    # insurer and bank on this shelf uses one, and a rule that only knows
+    # house numbers reads none of their addresses.
+    r"|P\.?\s?O\.?\s+Box\s+[\w-]+"
+    r")\s*$",
+    re.IGNORECASE,
+)
 
 
 def _host(url: str) -> str:

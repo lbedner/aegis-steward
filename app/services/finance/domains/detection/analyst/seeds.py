@@ -199,6 +199,10 @@ FINANCE_CHAT_TOOL_NAMES = (
     # How to reach a contact, read off their own filed letterhead. The
     # read half of contact.amend: without it she proposes from memory.
     "contact_details",
+    # And for an organization with no paper at all: her guess at their
+    # domain, CHECKED by fetching it. The app confirms; she never
+    # reports a domain it refused.
+    "look_up_contact",
     # Policies and the claims on them, with the ids claim.record names.
     "policies",
     "claim_candidates",
