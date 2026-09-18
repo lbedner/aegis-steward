@@ -36,6 +36,7 @@ from app.components.web_frontend.routes.finance.valuations import (
 from app.components.web_frontend.seen import remember, watermark
 from app.services.finance.constants import PROPERTY_ACCOUNT_TYPE
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.ledger.numbers import reveal_number
 from app.services.finance.domains.planning.recurring.upcoming import (
     Total,
     scheduled_by_account,
@@ -103,6 +104,28 @@ def loan_terms(account: AccountResponse) -> list[dict[str, str]]:
     # The strip draws 2, 3 or 4 columns; one cell alone is a sentence,
     # not a strip, and belongs on the header line that already exists.
     return cells[:4] if len(cells) > 1 else []
+
+
+@router.post(SECTION.path + "/{account_id:int}/number/reveal", include_in_schema=False)
+async def reveal(
+    request: Request,
+    account_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The account number itself, asked for on purpose.
+
+    Answers with the one row (pattern 2), so it is on screen until the
+    next swap takes it away and never sits in a listing somebody
+    screenshots.
+    """
+    account = or_404(await service.get_account(account_id, owner_user_id=owner_user_id))
+    return dialog(
+        request,
+        "partials/accounts/number.html",
+        account=account,
+        revealed=await reveal_number(service.db, account_id),
+    )
 
 
 def cash_terms(account: AccountResponse, scheduled: Total) -> list[dict[str, str]]:
@@ -188,6 +211,7 @@ async def cover(
             **account_tabs(account_id, "cover", len(filed)),
             **await _header_context(service, selected, owner_user_id),
             "loan_terms": loan_terms(selected),
+            "reveal_number": f"{SECTION.path}/{account_id}/number/reveal",
             "cash_terms": cash_terms(
                 selected,
                 totalled((await scheduled_by_account(service.db)).get(account_id, [])),

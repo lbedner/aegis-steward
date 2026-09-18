@@ -222,3 +222,98 @@ async def create_account_describe(
     if near:
         rows.append(ChangeDisplayRow(label="You already have", value=", ".join(near)))
     return rows
+
+
+class InstitutionPayload(BaseModel):
+    """Which bank an account is held with.
+
+    Names a CONTACT rather than a bank's name in text. The ledger's
+    institutions and the address book are two directories behind one
+    question, and typing the name here is how a website lands on one
+    row and a logo on the other with nothing saying they are the same
+    body. ``institution_for_party`` finds or makes the row.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int
+    party_id: int
+    # The bank's, not the account's: every account here shares it.
+    routing_number: str | None = None
+
+    @field_validator("routing_number")
+    @classmethod
+    def _could_be_one(cls, value: str | None) -> str | None:
+        from app.services.finance.domains.ledger.numbers import aba_ok
+
+        if value is not None and not aba_ok(value):
+            raise ValueError(
+                "A routing number is nine digits whose weighted sum checks out; "
+                "this one does not, which usually means a transposed pair."
+            )
+        return value
+
+
+async def _account_and_contact(
+    db: AsyncSession, payload: InstitutionPayload, owner_user_id: int | None
+) -> tuple[Any, Any]:
+    from app.services.finance.domains.ledger.accounts import get_account
+    from app.services.matters.service import PartyService
+
+    account = await get_account(db, payload.account_id, owner_user_id=owner_user_id)
+    if account is None:
+        raise ValueError(f"Account {payload.account_id} not found.")
+    party = await PartyService(db).get(payload.party_id)
+    if party is None:
+        raise ValueError(f"No contact with id {payload.party_id}")
+    return account, party
+
+
+async def institution_execute(
+    db: AsyncSession, payload: InstitutionPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.finance.domains.ledger.subjects import institution_for_party
+
+    account, party = await _account_and_contact(db, payload, owner_user_id)
+    institution = await institution_for_party(
+        db,
+        payload.party_id,
+        name=party.name,
+        website=(party.contact or {}).get("website"),
+        owner_user_id=owner_user_id,
+    )
+    if payload.routing_number:
+        institution.routing_number = payload.routing_number
+        db.add(institution)
+    account.institution_id = institution.id
+    db.add(account)
+    await db.flush()
+    return {"account_id": account.id, "institution_id": institution.id}
+
+
+async def institution_describe(
+    db: AsyncSession, payload: InstitutionPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    from app.services.finance.domains.ledger.queries.accounts import institution_by_id
+    from app.services.finance.domains.ledger.subjects import institution_of
+
+    account, party = await _account_and_contact(db, payload, owner_user_id)
+    held = (
+        await institution_by_id(db, account.institution_id)
+        if account.institution_id
+        else None
+    )
+    rows = [
+        ChangeDisplayRow(label="Account", value=account.name),
+        ChangeDisplayRow(
+            label="Held with", value=f"{held.name if held else '-'} → {party.name}"
+        ),
+    ]
+    # Say when a bank record is being MADE: reusing one is the quiet
+    # case, and creating a second body for one bank is the mistake this
+    # change type exists to avoid.
+    if await institution_of(db, payload.party_id) is None:
+        rows.append(ChangeDisplayRow(label="Bank record", value="new"))
+    if payload.routing_number:
+        rows.append(ChangeDisplayRow(label="Routing", value=payload.routing_number))
+    return rows

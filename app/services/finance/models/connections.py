@@ -78,6 +78,11 @@ class FinanceInstitution(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     owner_user_id: int | None = Field(default=None)
+    # The bank's routing number, here rather than on each account,
+    # because every account at this bank shares it and a per-account
+    # copy is two copies that can disagree. Not a secret: it is printed
+    # on every cheque.
+    routing_number: str | None = Field(default=None, max_length=9)
     provider: str = Field(max_length=16, index=True)
     # Plaid ins_xxx / SnapTrade brokerage id — provider taxonomy, plain text.
     provider_institution_id: str | None = Field(default=None)

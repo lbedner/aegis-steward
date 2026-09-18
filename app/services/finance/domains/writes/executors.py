@@ -215,6 +215,15 @@ register(
         describe=insurance.claim_paid_describe,
     )
 )
+register(
+    ChangeExecutor(
+        change_type="account.institution",
+        title="Say which bank an account is held with",
+        payload_model=accounts.InstitutionPayload,
+        execute=accounts.institution_execute,
+        describe=accounts.institution_describe,
+    )
+)
 
 # A document's own metadata is read off its pages and approved like any
 # other claim: extraction proposes, nothing extracted becomes truth.

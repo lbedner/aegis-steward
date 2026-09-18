@@ -1,0 +1,17 @@
+{# The account's own number: four digits, and the rest only when asked.
+
+   Answers with this whole row (pattern 2), so a revealed number is on
+   screen until the next swap takes it away rather than sitting in a
+   listing somebody screenshots. #}
+{% from "components/macros/form.html" import action %}
+<div id="account-number" class="flex items-baseline justify-between gap-4 py-2 text-sm" data-number>
+  <span class="text-aegis-muted shrink-0">Account number</span>
+  <span class="min-w-0 text-right">
+    {%- if revealed %}
+    <span class="font-mono text-aegis-text select-all" data-revealed>{{ revealed }}</span>
+    {%- else %}
+    <span class="font-mono text-aegis-text">••••{{ account.mask }}</span>
+    {{ action("Show", hx_swap("/accounts/" ~ account.id ~ "/number/reveal", "#account-number", "post")) }}
+    {%- endif %}
+  </span>
+</div>

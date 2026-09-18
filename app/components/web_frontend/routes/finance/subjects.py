@@ -150,10 +150,12 @@ async def who_and_where(
             if subject.id == account.subject_id and subject.party_id:
                 subject_party_id = subject.party_id
     held_party_id: int | None = None
+    routing: str | None = None
     if account is not None and account.institution_id:
         for bank in await service.list_institutions(owner_user_id=owner_user_id):
             if bank.id == account.institution_id:
                 held_party_id = bank.party_id
+                routing = bank.routing_number
     for role, party_id in (
         ("Whose money", subject_party_id),
         ("Held with", held_party_id),
@@ -182,6 +184,10 @@ async def who_and_where(
                 # The way IN, named but never opened here: the password
                 # lives one deliberate click away, on the party.
                 "signins": [drawn(one) for one in rows],
+                # The bank's own number, printed on every cheque, and
+                # only ever under the bank: it belongs to them, not to
+                # the account looking at them.
+                "routing": routing if role == "Held with" else None,
                 "note": party.note or "",
             }
         )
