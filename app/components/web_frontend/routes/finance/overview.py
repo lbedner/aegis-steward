@@ -31,6 +31,7 @@ from app.services.finance.schemas import (
     SpendingCategory,
 )
 from app.services.finance.service import FinanceService
+from app.services.matters.deadlines import due_soon
 
 SECTION = section("overview")
 router = APIRouter()
@@ -260,6 +261,9 @@ async def page(
             "recent": overview.recent_transactions.items,
             "uncategorized": overview.uncategorized.items,
             "pending_count": len(pending),
+            # What a matter is owed, where the reader already looks. The
+            # sidebar's dot only ever appeared once the day had passed.
+            "deadlines_count": len(await due_soon(service.db)),
             "txn_columns": TXN_COLUMNS,
             "payee_columns": PAYEE_COLUMNS,
             "bill_columns": BILL_COLUMNS,

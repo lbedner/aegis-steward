@@ -1,8 +1,22 @@
-{# The Overview's "changes awaiting review" banner. Always rendered with
-   its id (hidden at zero) so an approval elsewhere can re-send it out of
-   band and land wherever it is on the page. #}
-<a id="pending-changes" {% if banner_oob %}hx-swap-oob="outerHTML"{% endif %} {% if not pending_count %}hidden{% endif %}
-   href="/review" hx-get="/review" hx-target="#app-content" hx-push-url="true" role="status"
-   class="block mb-6 px-4 py-3 rounded-lg border border-aegis-amber/40 bg-aegis-amber/5 text-sm text-aegis-text hover:border-aegis-amber transition-colors">
-  {{ pending_count }} change{{ "s" if pending_count != 1 }} awaiting your review
-</a>
+{# What is waiting on the reader, at the top of the Overview.
+
+   Always rendered with its id (hidden at zero) so an approval elsewhere
+   can re-send it out of band and land wherever it is on the page.
+
+   Two notices, one shape: the changes to approve, and the deadlines
+   coming up. A second anchor pasted here would have been the same six
+   attributes typed twice, and the day one of them changed they would
+   have drifted. #}
+{% from "components/macros/feedback.html" import notice %}
+{{ notice("pending-changes", pending_count, "/review",
+          pending_count ~ " change" ~ ("s" if pending_count != 1 else "") ~ " awaiting your review",
+          oob=banner_oob) }}
+{#- Only the notice that CHANGED is re-sent out of band. An approval
+    that also posted the deadlines line would be swapping an element
+    nothing asked about into whatever page the reader is on - and an
+    out-of-band element with no target lands as stray content. -#}
+{% if not banner_oob %}
+{{ notice("matter-deadlines", deadlines_count, "/matters",
+          deadlines_count ~ " request" ~ ("s" if deadlines_count != 1 else "") ~ " due soon or already late",
+          tone="rose") }}
+{% endif %}

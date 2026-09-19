@@ -258,3 +258,40 @@ class TestPendingChangesBanner:
         assert banner.get("hidden") is None
         assert text(banner) == "1 change awaiting your review"
         assert banner.get("href") == "/review"
+
+
+class TestTheDeadlineNotice:
+    """ST-09: a deadline nags before it is late, where the reader already
+    looks. The sidebar's dot only ever appeared once the day had passed,
+    which is a post-mortem rather than a warning."""
+
+    def test_nothing_due_draws_nothing(self, client: TestClient) -> None:
+        page = client.get("/overview").text
+        assert one(page, "#matter-deadlines").get("hidden") is not None
+
+    @pytest.mark.asyncio
+    async def test_a_deadline_in_the_window_is_on_the_overview(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        """Written through the session the overview reads. In the app
+        that is one database; in a web test the matters routes open their
+        own, so a request filed over HTTP is invisible here."""
+        from datetime import timedelta
+
+        from app.services.matters.matters import MatterService
+        from app.services.matters.requests import RequestService
+
+        matter = await MatterService(async_db_session).open(
+            title="Medicaid renewal", reference="OV-DUE-1"
+        )
+        await RequestService(async_db_session).record(
+            matter_id=matter.id,
+            due_on=current_date() + timedelta(days=3),
+            items=[{"asked": "Proof of gross monthly income"}],
+        )
+        await async_db_session.flush()
+
+        notice = one(client.get("/overview").text, "#matter-deadlines")
+        assert notice.get("hidden") is None
+        assert notice.get("href") == "/matters"
+        assert "1 request" in text(notice)
