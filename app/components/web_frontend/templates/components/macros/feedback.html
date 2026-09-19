@@ -87,3 +87,19 @@
   </p>
 </div>
 {% endmacro %}
+
+
+{# One thing waiting on the reader, at the top of a page: a count, what
+   it is, and where to go and do it. Always rendered and hidden at zero,
+   so an out-of-band swap has something to land on however the count got
+   there - a notice that only exists while it is non-zero cannot be
+   re-sent to say it is finished. #}
+{% macro notice(id, count, href, text, tone="amber", oob=False) %}
+{% set colour = {"amber": "border-aegis-amber/40 bg-aegis-amber/5 hover:border-aegis-amber",
+                 "rose": "border-aegis-rose/40 bg-aegis-rose/5 hover:border-aegis-rose"} %}
+<a id="{{ id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %} {% if not count %}hidden{% endif %}
+   href="{{ href }}" hx-get="{{ href }}" hx-target="#app-content" hx-push-url="true" role="status"
+   class="block mb-6 px-4 py-3 rounded-lg border text-sm text-aegis-text transition-colors {{ colour.get(tone, colour["amber"]) }}">
+  {{ text }}
+</a>
+{% endmacro %}

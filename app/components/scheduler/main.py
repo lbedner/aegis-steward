@@ -29,6 +29,7 @@ from app.services.finance.jobs import (
     finance_recompute_snapshots_job,
     finance_sync_connections_job,
 )
+from app.services.matters.jobs import matters_deadline_nag_job
 from app.services.scheduler.execution_log import (
     cancel_stale_running_rows,
     prune_executions,
@@ -298,6 +299,21 @@ def create_scheduler() -> AsyncIOScheduler:
         minute=0,
         id="finance_bill_due_email",
         name="Finance: Email Bills Coming Due",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+
+    # Early, before the day's work: a deadline you hear about in the
+    # morning is one you can still do something about, and the sidebar's
+    # dot only ever appeared once the day had passed.
+    scheduler.add_job(
+        matters_deadline_nag_job,
+        trigger="cron",
+        hour=6,
+        minute=30,
+        id="matters_deadline_nag",
+        name="Matters: Nag Approaching Deadlines",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
