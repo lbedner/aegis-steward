@@ -12,6 +12,7 @@ from app.services.finance.models import (
     FinanceImportBatchRow,
 )
 from app.services.finance.service.base import FinanceServiceBase
+from app.services.system.jobs import SetLabel
 
 
 class ImportsMixin(FinanceServiceBase):
@@ -69,6 +70,7 @@ class ImportsMixin(FinanceServiceBase):
         file_name: str | None,
         file_bytes: bytes,
         account_id: int | None = None,
+        on_label: SetLabel | None = None,
     ) -> imports.ImportResult:
         return await imports.import_file(
             self.db,
@@ -76,4 +78,5 @@ class ImportsMixin(FinanceServiceBase):
             file_name=file_name,
             file_bytes=file_bytes,
             account_id=account_id,
+            on_label=on_label,
         )

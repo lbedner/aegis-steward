@@ -18,7 +18,7 @@ from typing import Any
 
 from app.core.db import get_async_session
 from app.core.log import logger
-from app.services.system.jobs import JobHandle, get_job_runner
+from app.services.system.jobs import JobHandle, SetLabel, get_job_runner
 
 
 async def run_import(
@@ -27,14 +27,26 @@ async def run_import(
     file_name: str,
     account_id: int | None,
     owner_user_id: int | None,
+    on_label: SetLabel | None = None,
 ) -> dict[str, Any]:
-    """The import itself, in its own session, wherever it is running."""
+    """The import itself, in its own session, wherever it is running.
+
+    ``on_label`` is how the run narrates itself to whoever is watching.
+    Both lanes have somewhere to put a label already - the worker's shared
+    job store and the in-process runner's ``JobHandle`` - and the SSE
+    follower renders whichever it finds, so the ingest is handed one
+    callable and never learns which lane it is in.
+    """
     from app.components.backend.api.finance.imports import _import_result_payload
     from app.core.storage import get_storage
 
     data = await get_storage().get(storage_key)
     if data is None:
         raise ValueError("The uploaded file is no longer there.")
+    # First line the worker writes for this file. Paired with
+    # ``finance.import.finished``, a run with only this one is a run whose
+    # process died - which is how the 2026-09-19 OOM went unread.
+    logger.info("finance.import.started", file_name=file_name, bytes=len(data))
     from app.services.finance.service import FinanceService
 
     async with get_async_session() as session:
@@ -43,6 +55,7 @@ async def run_import(
             file_name=file_name,
             file_bytes=data,
             account_id=account_id,
+            on_label=on_label,
         )
         await session.commit()
     return _import_result_payload(result)
@@ -65,6 +78,7 @@ def start_import_in_process(
             file_name=file_name,
             account_id=account_id,
             owner_user_id=owner_user_id,
+            on_label=handle.label_writer(),
         )
 
     return get_job_runner().start(
@@ -174,6 +188,7 @@ async def run_import_job(
             file_name=file_name,
             account_id=account_id,
             owner_user_id=owner_user_id,
+            on_label=store.label_writer(job_id),
         )
         await store.finish(job_id, result)
         return result

@@ -222,3 +222,47 @@ class TestAStoreThatIsDown:
         count, ghost = asyncio.run(scenario())
 
         assert count == 1 and ghost is None
+
+
+class TestOneWayToNarrate:
+    """Long work should not learn which lane it is running in. Both places
+    a label can live hand out the same ``SetLabel``, so a job takes one
+    callable and the SSE follower renders whichever wrote it. Written when
+    the finance import needed progress and the alternative was a wrapper
+    closure per lane, which is two homes for one idea."""
+
+    def test_the_store_hands_out_a_writer_for_one_job(self, store) -> None:
+        asyncio.run(store.create("j1", "finance-import:x.csv", "Queued..."))
+
+        write = store.label_writer("j1")
+        asyncio.run(write("Importing 4,000 of 18,607 - 12 added"))
+
+        snapshot = asyncio.run(store.get("j1"))
+        assert snapshot is not None
+        assert snapshot.label == "Importing 4,000 of 18,607 - 12 added"
+
+    def test_the_in_process_handle_hands_out_the_same_shape(self) -> None:
+        runner = JobRunner()
+        seen: list[str] = []
+
+        async def work(handle) -> dict[str, Any]:
+            # The point of the exercise: work takes a SetLabel, not a handle
+            # and not a store, and cannot tell which one it got.
+            await _narrate(handle.label_writer())
+            return {}
+
+        async def _narrate(write) -> None:
+            await write("Checking 18,607 rows against your ledger...")
+            seen.append(runner.get(job_id).label)  # type: ignore[union-attr]
+
+        async def main() -> None:
+            nonlocal job_id
+            job_id = runner.start("finance-import:x.csv", work)
+            for _ in range(50):
+                if runner.get(job_id).status != "running":  # type: ignore[union-attr]
+                    return
+                await asyncio.sleep(0.01)
+
+        job_id = ""
+        asyncio.run(main())
+        assert seen == ["Checking 18,607 rows against your ledger..."]

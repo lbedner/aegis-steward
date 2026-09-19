@@ -139,11 +139,17 @@ services:
       - WORKER_TIMEOUT_SECONDS=${SYSTEM_WORKER_TIMEOUT:-1800}
       - WORKER_MAX_TRIES=${SYSTEM_WORKER_MAX_TRIES:-5}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    # Not a maintenance worker any more: finance_import_task and
+    # extract_document_task both run here. An 18,618-row import was
+    # SIGKILLed twelve seconds in on 256M (2026-09-19) - the container
+    # idles near 110 MiB before the finance service is imported, and the
+    # plan holds every existing transaction and every planned row at
+    # once. 0.25 CPU is what made it slow on top of dead.
     deploy:
       resources:
         limits:
-          memory: 256M
-          cpus: '0.25'
+          memory: 1G
+          cpus: '1.0'
     profiles:
       - dev
       - prod
