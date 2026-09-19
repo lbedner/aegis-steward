@@ -73,7 +73,17 @@ def static_url(path: str) -> str:
     built = _get_manifest().get(path)
     if built is not None:
         return f"/static/{built}"
-    return f"/static/{path}"
+    # No build: stamp the source's own mtime onto the URL. /static is
+    # cached for an hour, so without this an edited app.js went on being
+    # the old app.js until the hour was up - and the symptom is a feature
+    # that "does nothing" while its code is plainly right there
+    # (2026-09-18). A stat() per render, the same price the manifest
+    # check already pays.
+    try:
+        stamp = int((STATIC_DIR / path).stat().st_mtime)
+    except OSError:
+        return f"/static/{path}"
+    return f"/static/{path}?v={stamp}"
 
 
 # ---------------------------------------------------------------------------

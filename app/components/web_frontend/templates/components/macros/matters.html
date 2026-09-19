@@ -213,6 +213,16 @@
     {% else %}
     <p class="text-sm text-aegis-text" data-value>{{ fact.text_value }}</p>
     {% endif %}
+    {#- The verbs. Both routes shipped with ST-06 and neither had a
+        control, so the checked dot above could never be turned on and a
+        figure typed twice stood forever. A route nobody can reach from
+        the page is a route that does not exist. -#}
+    <div class="flex items-center justify-end gap-3 mt-1">
+      <button type="button" data-verify hx-post="{{ path }}/facts/{{ fact.id }}/verify" hx-swap="none"
+              class="text-xs text-aegis-muted hover:text-aegis-text transition-colors">{{ "Uncheck" if fact.verified else "Checked" }}</button>
+      <button type="button" data-forget {{ hx_dialog(path ~ "/facts/" ~ fact.id ~ "/forget") }}
+              class="text-xs text-aegis-muted hover:text-error transition-colors">Remove</button>
+    </div>
   </div>
 </li>
 {% endmacro %}
@@ -228,4 +238,48 @@
   {% endif %}
   {% if matter_id %}{{ action(word("add_fact"), hx_dialog(path ~ "/" ~ matter_id ~ "/facts/new")) }}{% endif %}
 </div>
+{% endmacro %}
+
+{# The matter's identity, the same on every face of it.
+
+   Three pages drew their own: the case with kind and reference, the
+   answer sheet with the due date, the timeline with neither - so
+   cycling a case's own tabs redrew the title block each time and the
+   reader re-read it to check they were still on the same case. The
+   accounts detail settled this already (``account_header``, asserted
+   identical on all three faces).
+
+   The back link and the sub-nav are print:hidden; the identity is not,
+   because the answer sheet is read beside a paper form and a sheet that
+   does not say which case it is about is a sheet about nothing.
+
+   ``{% call %}`` supplies the right-hand side (the timeline's "Add what
+   happened"), which lands left of the status badge. #}
+{% macro matter_header(matter, section, path) %}
+<header data-matter class="flex flex-wrap items-start justify-between gap-4 border-b border-aegis-border pb-3">
+  <div class="min-w-0">
+    {#- The way back. A page you navigate TO needs one: the sidebar takes
+        you to the section, not to the list you came from with its
+        filters. -#}
+    <a href="{{ path }}" {{ hx_page(path) }} data-back
+       class="print:hidden inline-flex items-center gap-1 text-xs text-aegis-muted hover:text-aegis-text transition-colors">
+      <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+      </svg>
+      {{ section.label }}
+    </a>
+    <h1 class="text-lg font-semibold text-aegis-text mt-1">{{ matter.title }}</h1>
+    <p data-facts class="text-xs text-aegis-muted mt-1">
+      {%- set meta = [] -%}
+      {%- if matter.kind %}{% set _ = meta.append(matter.kind|title) %}{% endif -%}
+      {%- if matter.reference %}{% set _ = meta.append("Their ref " ~ matter.reference) %}{% endif -%}
+      {%- if matter.opened_on %}{% set _ = meta.append("opened " ~ matter.opened_on|short_date) %}{% endif -%}
+      {{ meta|join(" · ") }}
+    </p>
+  </div>
+  <div class="flex items-center gap-3">
+    {{ caller() if caller is defined else "" }}
+    {{ badge(matter.status, "ok" if matter.status == "open" else "muted") }}
+  </div>
+</header>
 {% endmacro %}

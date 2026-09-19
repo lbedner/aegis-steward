@@ -1,0 +1,6 @@
+{# Ask before losing a row nothing can derive back: a typed event, a
+   figure somebody read off a page. One partial for both, because two
+   confirm dialogs that differ only in their wording is one dialog and a
+   parameter. #}
+{% from "components/macros/layout.html" import confirm %}
+{{ confirm(title, body, url, label="Remove", method=method) }}

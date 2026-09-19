@@ -21,6 +21,7 @@ from uuid import uuid4
 import pytest
 
 from tests.web.dom import none, one, select, text
+from tests.web.matters import forget_matter, matter_referenced
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ def renewal(client: Any) -> Any:
             "note": "",
         },
     )
-    matter_id = _matter_referenced(client, reference)
+    matter_id = matter_referenced(client, reference)
     client.post(
         f"/matters/{matter_id}/requests/new",
         data={
@@ -118,59 +119,7 @@ def renewal(client: Any) -> Any:
     # Put the shared database back. The app-owned engine is SESSION
     # scoped, so a matter left behind is a matter every later test sees -
     # and "no matters yet" is an assertion somebody else already wrote.
-    _forget(client, matter_id)
-
-
-def _forget(client: Any, matter_id: int) -> None:
-    """Remove what this fixture made, straight through the engine the
-    app writes to. There is no delete route for a matter, deliberately:
-    a case is not something the UI should make easy to lose."""
-    import asyncio
-
-    from sqlalchemy import text as sql
-
-    from app.core.db import AsyncSessionLocal
-
-    async def clean() -> None:
-        async with AsyncSessionLocal() as db:
-            await db.execute(
-                sql(
-                    "delete from evidence_link where request_item_id in "
-                    "(select ri.id from request_item ri join request r "
-                    " on r.id = ri.request_id where r.matter_id = :m)"
-                ),
-                {"m": matter_id},
-            )
-            await db.execute(
-                sql(
-                    "delete from request_item where request_id in "
-                    "(select id from request where matter_id = :m)"
-                ),
-                {"m": matter_id},
-            )
-            for table in ("request", "fact", "matter_participant"):
-                await db.execute(
-                    sql(f"delete from {table} where matter_id = :m"), {"m": matter_id}
-                )
-            await db.execute(sql("delete from matter where id = :m"), {"m": matter_id})
-            await db.commit()
-
-    asyncio.run(clean())
-
-
-def _matter_referenced(client: Any, reference: str) -> int:
-    """The id of the matter carrying this reference.
-
-    By POSITION against the rows, because the app-owned database is
-    session scoped and every earlier test's matter is still listed.
-    """
-    page = client.get("/matters").text
-    rows = select(page, "#matters tbody tr")
-    opens = select(page, "#matters tbody [data-open]")
-    for row, open_ in zip(rows, opens, strict=False):
-        if reference in text(row):
-            return int(open_.get("hx-get").rsplit("/", 1)[-1])
-    raise AssertionError(f"no matter referenced {reference}")
+    forget_matter(matter_id)
 
 
 def _item_ids(client: Any, matter_id: int) -> list[int]:
@@ -242,9 +191,14 @@ class TestWhatTheSheetSays:
         self, client: Any, renewal: dict[str, Any]
     ) -> None:
         """A sheet beside a form needs the case number the county files
-        it under, or it is a page about nothing in particular."""
+        it under, or it is a page about nothing in particular.
+
+        It reads off the header every face of the matter wears, not a
+        line of this page's own: the sheet had its own copy, so the same
+        case announced itself one way here and another on the case page.
+        """
         page = client.get(f"/matters/{renewal['matter_id']}/answers").text
-        assert renewal["reference"] in text(one(page, "[data-reference]"))
+        assert renewal["reference"] in text(one(page, "header[data-matter] [data-facts]"))
 
     def test_it_says_how_many_are_still_outstanding(
         self, client: Any, renewal: dict[str, Any]

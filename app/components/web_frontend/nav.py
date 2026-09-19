@@ -186,10 +186,11 @@ def settings_nav(current: str) -> dict[str, Any]:
 
 
 def matter_tabs(matter_id: int, current: str, outstanding: int = 0) -> dict[str, Any]:
-    """A matter's two faces, through the sub-nav every section uses.
+    """A matter's three faces, through the sub-nav every section uses.
 
-    The case is where the work happens; the answer sheet is what leaves
-    the building. Two pages rather than one because the sheet is read
+    The case is where the work happens; the timeline is that same case
+    read back as a sequence; the answer sheet is what leaves the
+    building. Two pages rather than one because the sheet is read
     beside a paper form, with the app's own chrome dropped out of print,
     and a page that is both is a page that prints badly.
 
@@ -203,6 +204,7 @@ def matter_tabs(matter_id: int, current: str, outstanding: int = 0) -> dict[str,
         "current_tab": current,
         "sub_nav": [
             {"key": "case", "label": "The case", "href": base},
+            {"key": "timeline", "label": "Timeline", "href": f"{base}/timeline"},
             {
                 "key": "answers",
                 "label": "Answer sheet",
