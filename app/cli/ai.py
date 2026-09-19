@@ -995,10 +995,10 @@ def record(
                         speech_request = SpeechRequest(text=tts_text)
                         speech_result = await ai_service.tts.synthesize(speech_request)
 
-                    # Save and play audio
-                    speech_path = Path(tempfile.mktemp(suffix=".mp3"))
-                    with open(speech_path, "wb") as f:
-                        f.write(speech_result.audio)
+                    # NamedTemporaryFile, not mktemp: a name nobody holds is a race.
+                    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fh:
+                        fh.write(speech_result.audio)
+                    speech_path = Path(fh.name)
 
                     # Try to play audio
                     played = False
