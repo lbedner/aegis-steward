@@ -1,0 +1,14 @@
+{# Reading a document, followed while it happens (pattern 5).
+
+   Six pages of a scan is a model call each, and the answer used to be a
+   204: the dialog sat there looking broken while the work ran, and
+   there was no way to tell a job that had started from one that had
+   not. The route had the job id all along. #}
+{% from "components/macros/feedback.html" import sse_job %}
+{% if job_id %}
+{{ sse_job(job_id, "Reading " ~ title ~ "...") }}
+{% else %}
+{#- No worker is a normal install, not an error: the read happened in
+    the request, so there is nothing to follow and it is already done. -#}
+<p class="text-sm text-aegis-muted" data-done>Read {{ title }}.</p>
+{% endif %}

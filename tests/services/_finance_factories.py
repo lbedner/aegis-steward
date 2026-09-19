@@ -179,3 +179,24 @@ async def declare_bill(
         )
     ).first()
     return stream, txns
+
+
+async def seed_merchant(db: Any, name: str, owner_user_id: int | None = None):
+    """A payee the ledger already knows, which is one of the directories
+    a letterhead is matched against.
+
+    NULL-owner by default, because that is how this app stores them -
+    every one of the 103 payees on the real ledger is global, and an
+    owned row is invisible to the query that reads them.
+    """
+    from app.services.finance.models import FinanceMerchant
+
+    row = FinanceMerchant(
+        owner_user_id=owner_user_id,
+        name=name,
+        normalized_name=name.casefold(),
+        source="user",
+    )
+    db.add(row)
+    await db.flush()
+    return row

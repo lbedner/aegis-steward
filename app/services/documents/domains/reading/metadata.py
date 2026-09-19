@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 import re
 
-from app.services.documents.domains.reading.findings import Finding, Page
+from app.services.documents.domains.reading.findings import Finding, Page, mostly
 from app.services.documents.domains.reading.patterns import find_date, has_date
 
 # How far in to look. A document introduces itself immediately or not at
@@ -106,23 +106,10 @@ def _kind(lines: list[tuple[int, str]]) -> Finding | None:
         if len(line) <= HEADING_CHARS and not has_date(line):
             if marker := _MARKER.search(line):
                 said = marker.group(1).lower()
-                if _mostly(line, said):
+                if mostly(line, said):
                     kind = next(k for m, k in KIND_MARKERS if m == said)
                     return Finding("kind", kind, page, line)
     return None
-
-
-def _mostly(line: str, marker: str) -> bool:
-    """True when the line IS the kind rather than mentioning it.
-
-    Measured in words left over once the marker is taken out, because
-    that is the difference a reader sees: a heading carries a qualifier
-    or two, a sentence carries a subject, a verb and an object.
-    """
-    rest = re.sub(re.escape(marker), " ", line, flags=re.I)
-    return len([word for word in rest.split() if word.strip(":-·|")]) <= (
-        HEADING_EXTRA_WORDS
-    )
 
 
 def read_document(pages: Iterable[Page]) -> list[Finding]:

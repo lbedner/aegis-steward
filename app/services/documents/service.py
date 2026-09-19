@@ -110,6 +110,8 @@ class DocumentService:
         document = Document(
             owner_user_id=owner_user_id,
             title=display,
+            # What it arrived as, kept whatever it is renamed to later.
+            filename=display,
             kind=kind,
             storage_key=stored_key,
             storage_backend=storage.backend_name,

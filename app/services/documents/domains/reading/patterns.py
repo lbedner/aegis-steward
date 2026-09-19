@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 import re
 
-_MONTHS = {
+MONTHS = {
     m: n
     for n, names in enumerate(
         (
@@ -31,7 +31,10 @@ _MONTHS = {
     )
     for m in names
 }
-_MONTH_WORDS = "|".join(sorted(_MONTHS, key=len, reverse=True))
+# Named, not private: a filename made of a month is the same
+# vocabulary read for a different question (2026-09-19).
+_MONTHS = MONTHS
+_MONTH_WORDS = "|".join(sorted(MONTHS, key=len, reverse=True))
 
 # Each pattern yields (year, month, day) through ``_BUILDERS``. A shape
 # nobody writes deliberately is left out: two-digit years are read as

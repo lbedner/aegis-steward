@@ -33,6 +33,7 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "auth_tokens": ("table", "refresh_token"),
     "blog": ("table", "blog_post"),
     "documents": ("table", "document"),
+    "document_filename": ("column", "document", "filename"),
     "evidence_link": ("table", "evidence_link"),
     "matter_event": ("table", "matter_event"),
     # Had a model and no migration for months; create_all built it at

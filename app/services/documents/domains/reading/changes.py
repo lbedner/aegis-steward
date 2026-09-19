@@ -64,15 +64,41 @@ class MetadataPayload(BaseModel):
     # and the letter carrying the county's own address was attached to
     # nothing (2026-09-18).
     sender: ReadValue | None = None
+    # WHICH CASE it belongs to, as a matters() id in ``value``. A letter
+    # that quotes a case number belongs to that case, and saying so when
+    # the paper lands is the difference between a shelf and a pile. A
+    # tag, like the sender: a document can sit on a matter and be from
+    # somebody at the same time.
+    matter: ReadValue | None = None
+    # WHICH ACCOUNT it is about, as an accounts() id in ``value``. A
+    # statement prints the account it is for - "Account ending 3639" -
+    # and the household stores that last four already, so the paper can
+    # land on the account without anybody choosing from a list.
+    account: ReadValue | None = None
 
     @model_validator(mode="after")
     def _says_something_it_can_mean(self) -> MetadataPayload:
-        if not self.fields() and self.sender is None:
+        if (
+            not self.fields()
+            and self.sender is None
+            and self.matter is None
+            and self.account is None
+        ):
             raise ValueError("Nothing to change.")
         if self.sender is not None and not self.sender.value.strip().isdigit():
             raise ValueError(
                 "The sender is a parties() id, not a name: a name typed here "
                 "is a second directory nobody can join to the first."
+            )
+        if self.matter is not None and not self.matter.value.strip().isdigit():
+            raise ValueError(
+                "The matter is a matters() id, not a title: two cases can "
+                "share a title and only the id says which."
+            )
+        if self.account is not None and not self.account.value.strip().isdigit():
+            raise ValueError(
+                "The account is an accounts() id, not a name: two cards can "
+                "end in the same four digits and only the id says which."
             )
         if self.kind is not None:
             require_one_of(self.kind.value, DOCUMENT_KINDS)
@@ -112,14 +138,16 @@ def still_applies(document: Any, payload: MetadataPayload) -> dict[str, ReadValu
     overwrite a person's word with a machine's, silently, which is what
     this did before anybody asked (2026-09-19).
     """
-    from app.services.documents.domains.reading.titles import looks_like_a_filename
+    from app.services.documents.domains.reading.titles import still_unnamed
 
     still = {}
     for name, read in payload.fields().items():
         standing = getattr(document, name, None)
         if str(standing or "") == str(read.value):
             continue
-        if name == "title" and not looks_like_a_filename(str(standing or "")):
+        if name == "title" and not still_unnamed(
+            str(standing or ""), getattr(document, "filename", None)
+        ):
             continue
         still[name] = read
     return still
@@ -150,7 +178,8 @@ async def metadata_execute(
     db: AsyncSession, payload: MetadataPayload, owner_user_id: int | None
 ) -> dict[str, Any]:
     from app.services.documents.service import DocumentService
-    from app.services.matters.models import party_tag
+    from app.services.finance.constants import account_tag
+    from app.services.matters.models import matter_tag, party_tag
 
     document = await _document(db, payload.document_id)
     party = await _sender(db, payload)
@@ -163,12 +192,40 @@ async def metadata_execute(
     if party is not None:
         # ``tag`` is idempotent, so re-reading a document files it once.
         await service.tag(payload.document_id, party_tag(party.id))
+    if case := await _matter_of(db, payload):
+        await service.tag(payload.document_id, matter_tag(case.id))
+    if held := await _account_of(db, payload):
+        await service.tag(payload.document_id, account_tag(held.id))
     await db.flush()
     return {
         "document_id": payload.document_id,
         "read": list(fields),
         "sender_party_id": party.id if party else None,
     }
+
+
+async def _matter_of(db: AsyncSession, payload: MetadataPayload) -> Any:
+    """The case this card would file the document on, or None."""
+    from app.services.matters.matters import MatterService
+
+    if payload.matter is None:
+        return None
+    found = await MatterService(db).get(int(payload.matter.value))
+    if found is None:
+        raise ValueError(f"No matter with id {payload.matter.value}")
+    return found
+
+
+async def _account_of(db: AsyncSession, payload: MetadataPayload) -> Any:
+    """The account this card would file the document on, or None."""
+    from app.services.finance.domains.ledger.queries.accounts import account_by_id
+
+    if payload.account is None:
+        return None
+    found = await account_by_id(db, int(payload.account.value))
+    if found is None:
+        raise ValueError(f"No account with id {payload.account.value}")
+    return found
 
 
 async def metadata_describe(
@@ -193,7 +250,32 @@ async def metadata_describe(
         )
         for name, read in still.items()
     )
-    if not still and payload.sender is None:
+    # Where it belongs, by NAME: an id on a card is a number somebody
+    # has to go and look up before they can say yes.
+    if (case := await _matter_of(db, payload)) is not None:
+        rows.append(
+            ChangeDisplayRow(
+                label="Filed on",
+                value=f"{case.title} · {payload.matter.cited()}",
+                document_id=payload.document_id,
+                page=payload.matter.page,
+            )
+        )
+    if (held := await _account_of(db, payload)) is not None:
+        rows.append(
+            ChangeDisplayRow(
+                label="About",
+                value=f"{held.name} · {payload.account.cited()}",
+                document_id=payload.document_id,
+                page=payload.account.page,
+            )
+        )
+    if (
+        not still
+        and payload.sender is None
+        and payload.matter is None
+        and payload.account is None
+    ):
         raise ValueError(
             f"This would change nothing about {document.title}: it reads that "
             "way already, or somebody has named it since."

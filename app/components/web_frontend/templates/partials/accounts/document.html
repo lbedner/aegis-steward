@@ -56,7 +56,15 @@
   {% else %}
   <form {{ hx_dialog_post(post) }} class="space-y-4" data-details>
     {{ error_banner(errors) }}
-    {% call field("Title") %}{{ text_input("title", document.title, required=True) }}{% endcall %}
+    {% call field("Title") %}{{ text_input("title", document.title, required=True) }}
+    {#- What it arrived as, under the name we gave it: the same shape as
+        a register row keeping its raw bank descriptor under the payee.
+        Only when they differ - the filename under a title that IS the
+        filename is the same word twice. -#}
+    {% if document.filename and document.filename != document.title %}
+    <p class="mt-1 text-xs text-aegis-muted" data-arrived>Arrived as {{ document.filename }}</p>
+    {% endif %}
+    {% endcall %}
     {% call field("Kind") %}{{ select("kind", kinds|as_options, document.kind, blank=None, block=True) }}{% endcall %}
     {% call field("Dated (the period it covers, not the day it arrived)") %}{{ date_input("document_date", document.document_date, block=True) }}{% endcall %}
     {# Where it is filed: a contact, a matter, an account, any number.
@@ -73,9 +81,16 @@
   {# Read again: the pages are read on the worker and the text below
      refreshes on the next open. A page already read is read again
      too - that is what "again" is for. Not offered read-only: reading
-     again is what MAKES the card that is waiting. #}
-  {% if not read_only %}{{ action("Read again", 'hx-post="' ~ reread ~ '" hx-swap="none"') }}{% endif %}
+     again is what MAKES the card that is waiting.
+
+     It swaps its PROGRESS in beside it: six pages of a scan is a model
+     call each, and a button that answers with nothing is a button
+     somebody presses twice. #}
+  {% if not read_only %}
+  {{ action("Read again", 'hx-post="' ~ reread ~ '" hx-target="#reading-progress" hx-swap="innerHTML"') }}
+  {% endif %}
   <span class="micro-label text-aegis-muted">{{ pages|length }} page{{ "s" if pages|length != 1 }}{% if not pages %} - not read yet{% endif %}</span>
+  <span id="reading-progress" class="text-sm"></span>
 </div>
 {% if pages %}
 <details class="mt-2 group/text">

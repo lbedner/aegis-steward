@@ -25,7 +25,7 @@ from collections.abc import Iterable
 from datetime import date
 import re
 
-from app.services.documents.domains.reading.findings import Finding, Page, flat
+from app.services.documents.domains.reading.findings import Finding, Page, flat, mostly
 from app.services.documents.domains.reading.metadata import OPENING_PAGES
 
 # As long as a person would write, and no longer: a title is read in a
@@ -46,6 +46,19 @@ _UNTITLED_KINDS = frozenset({"other"})
 _EXTENSION = re.compile(r"\.[a-z0-9]{2,5}$", re.I)
 
 
+def still_unnamed(title: str, filename: str | None) -> bool:
+    """True when nobody has named this document yet.
+
+    Exact where it can be: a title that IS the filename it arrived as is
+    a document nobody has named. The heuristic below is the fallback for
+    rows that predate the filename column - their original is gone, and
+    a shelf of them must still be nameable.
+    """
+    if filename:
+        return flat(title) == flat(filename)
+    return looks_like_a_filename(title)
+
+
 def looks_like_a_filename(title: str) -> bool:
     """True when the title is what the FILE was called rather than what
     the document IS - the only case worth proposing a name for.
@@ -61,7 +74,13 @@ def looks_like_a_filename(title: str) -> bool:
     said = (title or "").strip()
     if not said:
         return True
-    return " " not in _EXTENSION.sub("", said).strip()
+    stem = _EXTENSION.sub("", said).strip()
+    if " " not in stem:
+        return True
+    # A DATE with a space in it is still what the bank called the file:
+    # "September 07.pdf" is nobody's idea of a name, and reading it as
+    # one left the document unnamed on the real shelf (2026-09-19).
+    return _is_mostly_a_date(stem)
 
 
 def whose_letterhead(pages: Iterable[Page], names: Iterable[str]) -> Finding | None:
@@ -73,6 +92,10 @@ def whose_letterhead(pages: Iterable[Page], names: Iterable[str]) -> Finding | N
     party to something, not the sender of this. Within a line the
     longest name wins, so "Hudson Valley Credit Union" beats a shorter
     row that is a prefix of it.
+
+    And the line has to BE the name. A directory of a hundred payees
+    will match somebody in the prose of any long document - "Your Target
+    Date Fund 2045 allocation changed" is not a letter from Target.
 
     Only the opening pages, for the reason the date is read off the
     front: page nine of a policy naming an insurer is boilerplate.
@@ -87,11 +110,24 @@ def whose_letterhead(pages: Iterable[Page], names: Iterable[str]) -> Finding | N
         {n.strip() for n in names if n and n.strip()}, key=len, reverse=True
     )
     for page, line in front:
-        said = flat(line)
         for name in on_file:
-            if flat(name) in said:
+            if _names(line, name) and mostly(line, name):
                 return Finding("sender", name, page, line)
     return None
+
+
+def _names(line: str, name: str) -> bool:
+    """True when the LINE names this organization, not merely contains
+    its letters.
+
+    "Chase" was read off "Purchases +$0.00" and offered as a contact,
+    twice. A directory of a hundred short brands finds itself inside
+    ordinary words all day, so the match is at word boundaries
+    (2026-09-19).
+    """
+    edge = r"(?<![0-9a-z])" if name[:1].isalnum() else ""
+    tail = r"(?![0-9a-z])" if name[-1:].isalnum() else ""
+    return re.search(edge + re.escape(flat(name)) + tail, flat(line)) is not None
 
 
 def _names_the_same(organization: str, descriptor: str) -> bool:
@@ -128,8 +164,29 @@ def _descriptor(kind: Finding | str | None) -> str:
         return "" if kind in _UNTITLED_KINDS else kind
     if str(kind.value) in _UNTITLED_KINDS:
         return ""
-    heading = " ".join(str(kind.because or "").split()).strip(" :-·|")
+    heading = _without_identifiers(str(kind.because or ""))
     return heading if heading and len(heading) <= _MAX_HEADING else str(kind.value)
+
+
+# What a heading says that nobody would read aloud: "Application ID:
+# 1903014447". The identifier is the one part of a name that cannot be
+# recognised in a list, and it is exactly the part a filename was full
+# of (2026-09-19).
+# Either the number SAYS it is one ("ID: 1903014447", "#00123456") or it
+# is long enough to be nothing else. A bare four digits is a year, and
+# "plan year 2026" keeps its year.
+_IDENTIFIER = re.compile(
+    r"\s*(?:\b(?:id|no|num|number|ref|reference|account|acct)\b\s*[:#]?\s*\d[\d\s-]{3,}"
+    r"|[:#]\s*\d[\d\s-]{3,}"
+    r"|\b\d[\d\s-]{4,})$",
+    re.I,
+)
+
+
+def _without_identifiers(heading: str) -> str:
+    """A heading with its trailing number taken off."""
+    said = " ".join((heading or "").split())
+    return _IDENTIFIER.sub("", said).strip(" :-·|,")
 
 
 def compose(
@@ -169,3 +226,56 @@ def compose(
     if not said or len(said) > MAX_TITLE:
         return None
     return Finding("title", said, letterhead.page, letterhead.because)
+
+
+# A case number is quoted, not described: the county prints
+# "Case MA258760XX" on every page it sends. Short references are not
+# matched at all - a three-character one appears in prose by accident,
+# and a document filed on the wrong case is worse than one filed on
+# none.
+MIN_REFERENCE = 5
+
+
+def quotes_reference(
+    pages: Iterable[Page], references: Iterable[tuple[int, str]]
+) -> tuple[int, Finding] | None:
+    """The case whose reference this paper quotes, of the ones on file.
+
+    Exact, and therefore checkable: the agency's own number appears in
+    the text or it does not. Nothing is inferred from a name, a date or
+    a subject - two cases about one person are two cases, and only the
+    number says which (2026-09-19).
+    """
+    front = [
+        (page["page"], line.strip())
+        for page in list(pages)[:OPENING_PAGES]
+        for line in (page["text"] or "").splitlines()
+        if line.strip()
+    ]
+    on_file = sorted(
+        ((matter_id, ref.strip()) for matter_id, ref in references if ref and ref.strip()),
+        key=lambda pair: len(pair[1]),
+        reverse=True,
+    )
+    for page, line in front:
+        said = flat(line)
+        for matter_id, reference in on_file:
+            if len(reference) >= MIN_REFERENCE and flat(reference) in said:
+                return matter_id, Finding("matter", reference, page, line)
+    return None
+
+
+def _is_mostly_a_date(stem: str) -> bool:
+    """True when the stem is nothing but a date written out.
+
+    Not the date PARSER: "September 07" and "Aug 2026" are half a date
+    each and neither parses, but both are what a bank calls a download
+    rather than what a person calls a document. Months and numbers and
+    nothing else is the test.
+    """
+    from app.services.documents.domains.reading.patterns import MONTHS
+
+    words = [word.strip("-_.,") for word in stem.split() if word.strip("-_.,")]
+    return bool(words) and all(
+        word.isdigit() or word.casefold() in MONTHS for word in words
+    )

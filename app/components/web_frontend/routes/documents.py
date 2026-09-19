@@ -26,6 +26,7 @@ from app.components.web_frontend.rendering import (
     dialog_done,
     or_404,
     render,
+    templates,
     where_from,
     with_toast,
 )
@@ -80,10 +81,14 @@ async def page(
         documents, _total = await DocumentService(db).list_documents(
             owner_user_id=owner_user_id, kind=kind or None, page_size=200
         )
-        # ponytail: the title match is in Python over one page of 200;
-        # a search column on the query when the shelf outgrows a page.
+        # ponytail: the match is in Python over one page of 200; a
+        # search column on the query when the shelf outgrows a page.
+        #
+        # The title AND what it arrived as: a renamed document is still
+        # looked for by the name the bank gave the download, and that is
+        # half the point of keeping it.
         if q:
-            documents = [d for d in documents if q.lower() in d.title.lower()]
+            documents = [d for d in documents if _matches(d, q)]
         tags = await queries.tags_for_many(db, [d.id for d in documents])
         filed = await filed_under(db, tags)
         return render(
@@ -99,6 +104,14 @@ async def page(
                 "kinds": DOCUMENT_KINDS,
             },
         )
+
+
+def _matches(document: Any, q: str) -> bool:
+    """A document the reader means by this word."""
+    said = q.casefold()
+    return said in (document.title or "").casefold() or said in (
+        document.filename or ""
+    ).casefold()
 
 
 async def _filed(db: Any, document_id: int) -> Any:
@@ -193,10 +206,22 @@ async def save(
 
 @router.post("/{document_id:int}/read", include_in_schema=False)
 async def read_again(request: Request, document_id: int) -> Response:
-    """Read every page again, on the worker. Nothing swaps: the dialog
-    stays open, the toast says it is happening, and the text is there
-    the next time the document is opened."""
+    """Read every page again, and SHOW it happening.
+
+    Six pages of a scan is a model call each. This answered with a 204
+    and a toast, so the dialog sat there looking broken while the work
+    ran and there was no way to tell a job that had started from one
+    that had not - while the job id it needed was in hand and pattern 5
+    was built for exactly this (2026-09-19).
+    """
     async with get_async_session() as db:
         found = await _filed(db, document_id)
-    await start_extraction(document_id, owner_user_id=None, force=True)
-    return with_toast(Response(status_code=204), f"Reading {found.title} again")
+    job_id = await start_extraction(document_id, owner_user_id=None, force=True)
+    return with_toast(
+        templates.TemplateResponse(
+            request=request,
+            name="partials/documents/reading.html",
+            context={"job_id": job_id, "title": found.title},
+        ),
+        f"Reading {found.title} again",
+    )

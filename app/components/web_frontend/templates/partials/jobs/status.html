@@ -12,6 +12,16 @@
 {#- ``data-import-retry``: both outcomes put the file picker back, since
     picking the file again is the next thing either way. -#}
 <div data-import-retry>{{ error_banner([job.error or "The job failed."]) }}</div>
+{% elif job.name and job.name.startswith("documents-extract") %}
+{#- A finished READ, said where the reader is standing: inside the
+    document's own dialog. It takes nobody anywhere - the import's frame
+    did, and a finished read landing somebody on Accounts is how this
+    was found (2026-09-19). -#}
+<p class="text-sm text-aegis-muted" data-job-done>
+  {% set read = (job.result or {}).get("read") or 0 %}
+  {% if read %}Read {{ read }} page{{ "s" if read != 1 }}. The text is below when you re-open this.
+  {% else %}Every page was already read.{% endif %}
+</p>
 {% else %}
 <section id="import-summary" class="space-y-4">
   <h3 class="text-sm font-semibold text-aegis-text">Import complete</h3>

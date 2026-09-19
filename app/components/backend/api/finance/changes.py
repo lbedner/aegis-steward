@@ -5,6 +5,8 @@ app user - never in a tool. A proposal that fails execution stays
 pending with its error in the payload the card renders.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.formatting import payee_label
@@ -82,11 +84,25 @@ async def _marks(
                     "category": item.category_name,
                 }
 
+    # Paper wears its file's mark. A card about a document showed the
+    # first letter of its filename - "2026-08-17.pdf" came out a grey
+    # "2", which is not a mark, it is the absence of one where every
+    # neighbour has one (2026-09-19).
+    by_document = await document_marks(
+        service.db, [_key(row, "document_id") for row in rows]
+    )
+
     marks: dict[int, dict[str, str | None]] = {}
     for row in rows:
         if row.id is None:
             continue
+        if paper := by_document.get(_key(row, "document_id") or -1):
+            marks[row.id] = paper
+            continue
         txn_id, stream_id = _key(row, "transaction_id"), _key(row, "stream_id")
+        if paper := by_document.get(_key(row, "document_id") or -1):
+            marks[row.id] = paper
+            continue
         own = by_txn.get(txn_id) if txn_id else None
         borrowed = by_stream.get(stream_id) if stream_id else None
         # The payment's own payee wins when it has one; otherwise the bill's.
@@ -266,3 +282,32 @@ async def reject_batch(
     summary = await service.reject_batch(batch_id, owner_user_id=owner_user_id)
     await service.db.commit()
     return BatchResolveResponse(**summary)
+
+
+async def document_marks(
+    db: Any, document_ids: list[int | None]
+) -> dict[int, dict[str, str | None]]:
+    """``{document_id: mark}`` - the face a card about paper wears.
+
+    The file's own type mark, which the shelf already draws beside every
+    row of its table: one home for "what this kind of file looks like",
+    and a format nobody knows gets the plain sheet rather than a guess.
+
+    One query for the queue, never one per card.
+    """
+    from app.components.web_frontend.glyphs import file_badge
+    from app.services.documents.service import DocumentService
+
+    wanted = [one for one in document_ids if one]
+    if not wanted:
+        return {}
+    return {
+        document_id: {
+            "payee": document.title,
+            "icon_url": file_badge(document.media_type, document.title)["icon"],
+            "category": None,
+        }
+        for document_id, document in (
+            await DocumentService(db).get_many(wanted)
+        ).items()
+    }
