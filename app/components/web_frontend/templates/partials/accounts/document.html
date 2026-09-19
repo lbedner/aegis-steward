@@ -38,6 +38,22 @@
     {% endif %}
   </div>
 
+  {#- Read-only when the dialog was opened FROM a card that proposes
+      changes to these very fields. Editing the title behind a pending
+      rename is two answers to one question, and the one you typed would
+      be the one that looks like it worked - the card is approved
+      afterwards and wins (2026-09-19). -#}
+  {% if read_only %}
+  <dl class="space-y-2 text-sm" data-details data-read-only>
+    <div><dt class="micro-label text-aegis-muted">Title</dt><dd>{{ document.title }}</dd></div>
+    <div><dt class="micro-label text-aegis-muted">Kind</dt><dd>{{ document.kind or "-" }}</dd></div>
+    <div><dt class="micro-label text-aegis-muted">Dated</dt><dd>{{ dated or "-" }}</dd></div>
+    {% if filed_chips %}
+    <div><dt class="micro-label text-aegis-muted">Filed under</dt><dd>{{ filed_chips|map(attribute="name")|join(", ") }}</dd></div>
+    {% endif %}
+    <p class="text-xs text-aegis-muted pt-1">A card is waiting on these. Decide it there.</p>
+  </dl>
+  {% else %}
   <form {{ hx_dialog_post(post) }} class="space-y-4" data-details>
     {{ error_banner(errors) }}
     {% call field("Title") %}{{ text_input("title", document.title, required=True) }}{% endcall %}
@@ -50,13 +66,15 @@
     {% call field("Note") %}{{ textarea("note", document.note or "", rows=3) }}{% endcall %}
     {{ primary_button("Save", type="submit") }}
   </form>
+  {% endif %}
 </div>
 
 <div class="mt-4 flex items-center gap-3">
   {# Read again: the pages are read on the worker and the text below
      refreshes on the next open. A page already read is read again
-     too - that is what "again" is for. #}
-  {{ action("Read again", 'hx-post="' ~ reread ~ '" hx-swap="none"') }}
+     too - that is what "again" is for. Not offered read-only: reading
+     again is what MAKES the card that is waiting. #}
+  {% if not read_only %}{{ action("Read again", 'hx-post="' ~ reread ~ '" hx-swap="none"') }}{% endif %}
   <span class="micro-label text-aegis-muted">{{ pages|length }} page{{ "s" if pages|length != 1 }}{% if not pages %} - not read yet{% endif %}</span>
 </div>
 {% if pages %}

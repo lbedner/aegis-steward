@@ -496,3 +496,95 @@ async def _an_ask_and_a_document(db: AsyncSession) -> tuple[Any, Any]:
     db.add(document)
     await db.flush()
     return item, document
+
+
+class TestACardDecidedLaterThanItWasMade:
+    """A card sits in the queue for as long as it takes somebody to get
+    to it, and the document is not frozen meanwhile."""
+
+    @pytest.mark.asyncio
+    async def test_a_name_somebody_gave_it_survives_approval(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The title proposal exists BECAUSE the document was still named
+        after a file. Name it yourself and the premise is gone - applying
+        it anyway overwrites a person's word with a machine's, silently,
+        which is what it did before anybody asked (2026-09-19)."""
+        from app.services.documents.domains.reading.changes import (
+            MetadataPayload,
+            metadata_describe,
+            metadata_execute,
+        )
+        from app.services.documents.models import Document
+
+        document = Document(
+            title="statements-0007.pdf",
+            storage_key="testcase/stale.pdf",
+            media_type="application/pdf",
+            content_hash="testcase-stale-1",
+            size_bytes=11,
+        )
+        async_db_session.add(document)
+        await async_db_session.flush()
+        payload = MetadataPayload(
+            document_id=document.id,
+            title={
+                "value": "Chase statement, August 2026",
+                "page": 1,
+                "because": "JPMorgan Chase Bank, N.A.",
+            },
+            kind={"value": "statement", "page": 1, "because": "Account Summary"},
+        )
+
+        # Somebody gets there first.
+        document.title = "Dad's August bank statement"
+        async_db_session.add(document)
+        await async_db_session.flush()
+
+        # The card stops offering to rename it, and still offers the rest.
+        said = {
+            row.label: row.value
+            for row in await metadata_describe(async_db_session, payload, None)
+        }
+        assert not any("Chase statement" in value for value in said.values())
+
+        await metadata_execute(async_db_session, payload, None)
+        await async_db_session.flush()
+        assert document.title == "Dad's August bank statement"
+        assert document.kind == "statement"
+
+    @pytest.mark.asyncio
+    async def test_a_card_with_nothing_left_to_do_says_so(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.changes import (
+            MetadataPayload,
+            metadata_describe,
+        )
+        from app.services.documents.models import Document
+
+        document = Document(
+            title="Dad's August bank statement",
+            kind="statement",
+            storage_key="testcase/stale2.pdf",
+            media_type="application/pdf",
+            content_hash="testcase-stale-2",
+            size_bytes=11,
+        )
+        async_db_session.add(document)
+        await async_db_session.flush()
+
+        with pytest.raises(ValueError, match="nothing"):
+            await metadata_describe(
+                async_db_session,
+                MetadataPayload(
+                    document_id=document.id,
+                    title={
+                        "value": "Chase statement",
+                        "page": 1,
+                        "because": "JPMorgan Chase Bank, N.A.",
+                    },
+                    kind={"value": "statement", "page": 1, "because": "Account Summary"},
+                ),
+                None,
+            )

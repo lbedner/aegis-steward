@@ -88,14 +88,41 @@ class MetadataPayload(BaseModel):
             if (read := getattr(self, name)) is not None
         }
 
-    def stored(self) -> dict[str, Any]:
+    def stored(self, fields: dict[str, ReadValue] | None = None) -> dict[str, Any]:
         """What the document service is asked to write."""
         return {
             name: date.fromisoformat(read.value)
             if name == "document_date"
             else read.value
-            for name, read in self.fields().items()
+            for name, read in (self.fields() if fields is None else fields).items()
         }
+
+
+def still_applies(document: Any, payload: MetadataPayload) -> dict[str, ReadValue]:
+    """The proposed fields that would still change something.
+
+    A card sits in the queue for as long as it takes somebody to get to
+    it, and the document is not frozen meanwhile. Two ways a reading
+    goes stale, and a person is right in both:
+
+    A field somebody has since set to the same value is nothing to
+    decide. And a TITLE proposal exists BECAUSE the document was still
+    named after a file - if somebody has given it a name of their own,
+    the premise is gone and their name stands. Applying it anyway would
+    overwrite a person's word with a machine's, silently, which is what
+    this did before anybody asked (2026-09-19).
+    """
+    from app.services.documents.domains.reading.titles import looks_like_a_filename
+
+    still = {}
+    for name, read in payload.fields().items():
+        standing = getattr(document, name, None)
+        if str(standing or "") == str(read.value):
+            continue
+        if name == "title" and not looks_like_a_filename(str(standing or "")):
+            continue
+        still[name] = read
+    return still
 
 
 async def _document(db: AsyncSession, document_id: int) -> Any:
@@ -125,18 +152,21 @@ async def metadata_execute(
     from app.services.documents.service import DocumentService
     from app.services.matters.models import party_tag
 
-    await _document(db, payload.document_id)
+    document = await _document(db, payload.document_id)
     party = await _sender(db, payload)
     service = DocumentService(db)
-    if payload.fields():
-        await service.update(payload.document_id, payload.stored())
+    # What it would STILL change. A card is decided later than it was
+    # made, and a person who named the document in between has said
+    # something this must not undo.
+    if fields := still_applies(document, payload):
+        await service.update(payload.document_id, payload.stored(fields))
     if party is not None:
         # ``tag`` is idempotent, so re-reading a document files it once.
         await service.tag(payload.document_id, party_tag(party.id))
     await db.flush()
     return {
         "document_id": payload.document_id,
-        "read": list(payload.fields()),
+        "read": list(fields),
         "sender_party_id": party.id if party else None,
     }
 
@@ -149,6 +179,11 @@ async def metadata_describe(
     document = await _document(db, payload.document_id)
     labels = dict(FIELDS)
     rows = [ChangeDisplayRow(label="Document", value=document.title)]
+    # Only what it would still do. A reading that has been overtaken -
+    # by the same value arriving another way, or by somebody naming the
+    # document themselves - is not a decision anybody should be asked
+    # to make.
+    still = still_applies(document, payload)
     rows.extend(
         ChangeDisplayRow(
             label=labels[name],
@@ -156,8 +191,13 @@ async def metadata_describe(
             document_id=payload.document_id,
             page=read.page,
         )
-        for name, read in payload.fields().items()
+        for name, read in still.items()
     )
+    if not still and payload.sender is None:
+        raise ValueError(
+            f"This would change nothing about {document.title}: it reads that "
+            "way already, or somebody has named it since."
+        )
     # The sender by NAME. An id on a card is a number somebody has to go
     # and look up before they can say yes.
     if (party := await _sender(db, payload)) is not None:

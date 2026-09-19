@@ -121,6 +121,13 @@ class TestTheCardShowsWhatItCites:
         )
 
         document = await _paper(async_db_session)
+        # Still named after the file it arrived as: a rename proposed
+        # for a document somebody has already named is refused, and
+        # rightly - see test_document_changes.
+        document.title = "nyslrs-08-2026.pdf"
+        async_db_session.add(document)
+        await async_db_session.flush()
+
         rows = await metadata_describe(
             async_db_session,
             MetadataPayload(

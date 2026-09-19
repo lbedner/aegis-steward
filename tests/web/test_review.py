@@ -260,11 +260,18 @@ class TestACardShowsWhatItCites:
 
         # And it is a door: a thumbnail answers "which paper is this",
         # and the next question is always "what else does it say".
+        # READING, not editing: somebody checking a proposed title
+        # against the letterhead must not be able to type a different
+        # one behind the card that is about to overwrite it.
+        #
         # The address only: the documents section opens its own session
         # against the app-owned engine, so a document written to this
         # test's session is not there to be fetched. Its own tests cover
         # that the route answers.
-        assert shown.getparent().get("hx-get") == f"/documents/{document_id}"
+        assert (
+            shown.getparent().get("hx-get")
+            == f"/documents/{document_id}?reading=1"
+        )
 
     @pytest.mark.asyncio
     async def test_a_card_citing_no_page_draws_none(

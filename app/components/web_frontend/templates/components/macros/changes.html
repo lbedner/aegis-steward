@@ -39,7 +39,7 @@
     the next question is always "what else does it say". The document
     dialog has the original beside the text read off every page, so the
     preview is the door to it rather than a picture of one. -#}
-<button type="button" {{ hx_dialog("/documents/" ~ cited.document_id) }}
+<button type="button" {{ hx_dialog("/documents/" ~ cited.document_id ~ "?reading=1") }}
         aria-label="Open the document at page {{ cited.page }}"
         class="block w-full text-left">
 {#- The intrinsic size is the RENDERED page's, so the box holds its

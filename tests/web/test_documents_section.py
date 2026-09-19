@@ -263,3 +263,28 @@ class TestManyPlacesFold:
         assert len(select(row, "a[href^='/contacts/']")) == 4
         assert text(one(row, "[data-more]")) == "+2 more"
         assert len(select(row, "[x-show='all']")) == 2
+
+
+class TestReadingRatherThanEditing:
+    """``?reading=1`` is how an approval card opens the paper it read."""
+
+    def test_the_form_is_gone_and_the_pages_are_not(
+        self, client: TestClient
+    ) -> None:
+        filed = _file(client, "reading.pdf")
+        editing = client.get(f"/documents/{filed}").text
+        one(editing, "form[data-details]")
+
+        reading = client.get(f"/documents/{filed}?reading=1").text
+        assert none(reading, "form[data-details]") is None
+        one(reading, "[data-details][data-read-only]")
+        # The half worth opening it for is still there.
+        one(reading, "[data-original]")
+
+    def test_read_again_is_not_offered(self, client: TestClient) -> None:
+        """Reading again is what MAKES the card that is waiting."""
+        filed = _file(client, "reading-again.pdf")
+        reading = client.get(f"/documents/{filed}?reading=1").text
+        assert not [
+            el for el in select(reading, "[hx-post]") if "/read" in (el.get("hx-post") or "")
+        ]
