@@ -146,3 +146,19 @@ def moment_tone(kind: str) -> str:
     """The tone a timeline moment wears. Unknown kinds stay quiet rather
     than picking a colour that would mean something it does not."""
     return MOMENT_TONES.get(kind, "muted")
+
+
+def fact_attributes() -> tuple[tuple[str, str], ...]:
+    """What a fact can be ABOUT, for the forms that offer the choice.
+
+    A function rather than a bound constant, and read from the models
+    rather than restated: an ask names one of these, and the only thing
+    that reads ``item.ask`` compares it to ``fact.attribute``. The two
+    dialogs used to offer a free text box whose placeholder taught
+    "fact:gross_income", which matches nothing - so the field that
+    decides whether a figure ever meets an ask could be filled in
+    carefully and still do nothing (2026-09-18).
+    """
+    from app.services.matters.models import FACT_ATTRIBUTES
+
+    return FACT_ATTRIBUTES

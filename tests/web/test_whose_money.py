@@ -474,3 +474,63 @@ def test_the_menu_says_both_things_the_dialog_does(client: TestClient) -> None:
     page = client.get(f"{base}/overview").text
 
     assert "Name and number" in [text(li) for li in select(page, "#manage-menu li")]
+
+
+class TestItCanBeChangedAfterwards:
+    """Whose money it is was asked once, at creation, and never again.
+
+    Every account that arrived by IMPORT therefore reads as ours, which
+    is how a father's checking account sat in a household total while
+    the county was asking what he holds - and the only ways to fix it
+    were to delete the account and retype it, or to write SQL
+    (2026-09-18).
+    """
+
+    def _selected(self, form: str) -> list[str]:
+        return [
+            el.get("value")
+            for el in select(form, 'select[name="whose"] option')
+            if el.get("selected") is not None
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_account_can_be_put_in_somebody_elses_name(
+        self, client: TestClient, person: Any, ledger: Any
+    ) -> None:
+        james = await person("James Afterwards")
+
+        form = client.get(f"/accounts/{ledger.checking}/rename").text
+        assert james in [
+            el.get("value") for el in select(form, 'select[name="whose"] option')
+        ]
+        assert self._selected(form) == []
+
+        client.post(
+            f"/accounts/{ledger.checking}/rename",
+            data={"name": "Checking", "whose": james},
+        )
+
+        assert self._selected(
+            client.get(f"/accounts/{ledger.checking}/rename").text
+        ) == [james]
+
+    @pytest.mark.asyncio
+    async def test_it_can_be_handed_back_to_the_household(
+        self, client: TestClient, person: Any, ledger: Any
+    ) -> None:
+        """An upsert both ways. A field that can be set and not cleared
+        is a mistake nobody can take back."""
+        james = await person("James Handed Back")
+        client.post(
+            f"/accounts/{ledger.savings}/rename",
+            data={"name": "Savings", "whose": james},
+        )
+
+        client.post(
+            f"/accounts/{ledger.savings}/rename",
+            data={"name": "Savings", "whose": ""},
+        )
+
+        assert (
+            self._selected(client.get(f"/accounts/{ledger.savings}/rename").text) == []
+        )

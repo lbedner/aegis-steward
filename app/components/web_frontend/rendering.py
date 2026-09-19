@@ -54,6 +54,7 @@ templates.env.globals["file_badge_table"] = file_badge_table
 # module, so a status spelled in a template cannot drift from the same
 # status spelled in another.
 from app.services.matters.words import (  # noqa: E402
+    fact_attributes,
     item_status,
     item_verb,
     moment_tone,
@@ -62,10 +63,15 @@ from app.services.matters.words import (  # noqa: E402
 )
 
 templates.env.globals["word"] = word
+templates.env.globals["fact_attributes"] = fact_attributes
 templates.env.filters["role_label"] = role_label
 templates.env.filters["item_status"] = item_status
 templates.env.filters["item_verb"] = item_verb
 templates.env.filters["moment_tone"] = moment_tone
+
+from app.services.matters.facts import rate_suffix  # noqa: E402
+
+templates.env.filters["rate_suffix"] = rate_suffix
 templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.

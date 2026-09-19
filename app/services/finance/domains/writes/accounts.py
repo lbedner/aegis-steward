@@ -324,3 +324,85 @@ async def institution_describe(
     if payload.routing_number:
         rows.append(ChangeDisplayRow(label="Routing", value=payload.routing_number))
     return rows
+
+
+class WhosePayload(BaseModel):
+    """Whose money an account holds, said after the fact.
+
+    ``account.create`` asks it once, which every IMPORTED account skips -
+    so a father's checking account reads as the household's, stays in
+    its totals, and cannot answer the county asking what he holds. A
+    CONTACT id, the way account.create takes it; the ledger subject is
+    found or made from it.
+
+    ``whose_party_id`` of None hands the account back to the household.
+    A field that can be set and not cleared is a mistake nobody can take
+    back.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int
+    whose_party_id: int | None = None
+
+
+async def _account_and_holder(
+    db: AsyncSession, payload: WhosePayload
+) -> tuple[Any, str, str]:
+    """The account, who it would be held for, and who it is held for now."""
+    from app.services.finance.domains.ledger.queries.accounts import account_by_id
+    from app.services.finance.domains.ledger.subjects import get_subject
+    from app.services.matters.service import PartyService
+
+    account = await account_by_id(db, payload.account_id)
+    if account is None:
+        raise ValueError(f"No account with id {payload.account_id}")
+
+    parties = PartyService(db)
+    now = "Ours"
+    if account.subject_id:
+        subject = await get_subject(db, account.subject_id)
+        held = await parties.get(subject.party_id) if subject else None
+        now = held.name if held else (subject.name if subject else "Ours")
+
+    would = "Ours"
+    if payload.whose_party_id is not None:
+        party = await parties.get(payload.whose_party_id)
+        if party is None:
+            raise ValueError(f"No contact with id {payload.whose_party_id}")
+        would = party.name
+    return account, would, now
+
+
+async def whose_execute(
+    db: AsyncSession, payload: WhosePayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.finance.domains.ledger.subjects import (
+        assign_subject,
+        subject_for_party,
+    )
+    from app.services.matters.service import PartyService
+
+    account, would, _now = await _account_and_holder(db, payload)
+    subject_id = None
+    if payload.whose_party_id is not None:
+        party = await PartyService(db).get(payload.whose_party_id)
+        subject = await subject_for_party(
+            db, payload.whose_party_id, name=party.name, owner_user_id=owner_user_id
+        )
+        subject_id = subject.id
+    await assign_subject(db, account.id, subject_id, owner_user_id=owner_user_id)
+    return {"account_id": account.id, "held_for": would}
+
+
+async def whose_describe(
+    db: AsyncSession, payload: WhosePayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    account, would, now = await _account_and_holder(db, payload)
+    return [
+        ChangeDisplayRow(label="Account", value=account.name),
+        ChangeDisplayRow(label="Held for", value=would),
+        # What it WAS, because "held for James" reads as a confirmation
+        # of something already true unless the card says otherwise.
+        ChangeDisplayRow(label="Was", value=now),
+    ]

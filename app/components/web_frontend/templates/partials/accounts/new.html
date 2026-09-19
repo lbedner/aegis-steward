@@ -1,5 +1,6 @@
 {# Dialog body: a new manual account. Posts back to itself; a 422
    re-renders here, success closes the dialog and opens the account. #}
+{% from "components/macros/accounts.html" import whose_field %}
 {% from "components/macros/form.html" import field, text_input, select, pick_or_add, money_input, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
@@ -14,7 +15,7 @@
       question with one answer. -#}
   <p class="text-xxs text-aegis-muted">For a card or loan, enter what you owe.</p>
   {% if people %}
-  {% call field("Whose money") %}{{ pick_or_add("whose", people, whose, blank="Ours", new_field="new_whose", hint="or name whose it is") }}{% endcall %}
+  {{ whose_field(people, whose) }}
   <p class="text-xxs text-aegis-muted">Somebody else's money stays out of our totals, forecast and budget.</p>
   {% endif %}
   {{ primary_button("Add account", type="submit") }}

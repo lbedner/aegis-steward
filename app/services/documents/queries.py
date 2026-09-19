@@ -37,6 +37,25 @@ async def document_by_id(
     return (await db.exec(query)).first()
 
 
+async def documents_by_ids(
+    db: AsyncSession, document_ids: list[int], *, owner_user_id: int | None = None
+) -> dict[int, Document]:
+    """Several documents by id, in one query, keyed by id.
+
+    ``document_by_id`` asked one at a time, which is a query per SOURCE
+    on a matter's answer sheet - and a sheet cites a statement per ask
+    (2026-09-18). Missing or deleted ids are simply absent from the map.
+    """
+    if not document_ids:
+        return {}
+    query = select(Document).where(
+        Document.id.in_(set(document_ids)), Document.deleted_at.is_(None)
+    )
+    if owner_user_id is not None:
+        query = query.where(Document.owner_user_id == owner_user_id)
+    return {row.id: row for row in (await db.exec(query)).all() if row.id is not None}
+
+
 async def documents_page(
     db: AsyncSession,
     *,

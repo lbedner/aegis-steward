@@ -57,6 +57,19 @@ register(
         describe=accounts.create_account_describe,
     )
 )
+# Whose money an account holds, said after the fact. account.create asks
+# it once, which every imported account skips - and an account that
+# cannot be put in somebody's name is an account that stays in the wrong
+# total and cannot answer the agency asking what they hold.
+register(
+    ChangeExecutor(
+        change_type="account.whose",
+        title="Whose account this is",
+        payload_model=accounts.WhosePayload,
+        execute=accounts.whose_execute,
+        describe=accounts.whose_describe,
+    )
+)
 register(
     ChangeExecutor(
         change_type="account.valuation",

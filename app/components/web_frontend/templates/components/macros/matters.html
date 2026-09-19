@@ -202,13 +202,13 @@
   <div class="shrink-0 text-right">
     {% if fact.value_cents is not none %}
     <p class="text-sm text-aegis-text tabular-nums" data-value>
-      {{ fact.value_cents|money }}{% if fact.period != "once" %} <span class="text-aegis-muted">a {{ fact.period }}</span>{% endif %}
+      {{ fact.value_cents|money }}{% if fact.period|rate_suffix %} <span class="text-aegis-muted">{{ fact.period|rate_suffix }}</span>{% endif %}
     </p>
     {#- A rate read as a month, because the county asks for a month and
         the portal quotes a day. Said as arithmetic, never as a
         quotation. -#}
     {% if fact.period not in ("once", "month") and fact.monthly_cents is not none %}
-    <p class="micro-label text-aegis-muted" data-monthly title="{{ fact.value_cents|money }} a {{ fact.period }}, over an average month">about {{ fact.monthly_cents|money }} a month</p>
+    <p class="micro-label text-aegis-muted" data-monthly title="{{ fact.value_cents|money }} {{ fact.period|rate_suffix }}, over an average month">about {{ fact.monthly_cents|money }} a month</p>
     {% endif %}
     {% else %}
     <p class="text-sm text-aegis-text" data-value>{{ fact.text_value }}</p>

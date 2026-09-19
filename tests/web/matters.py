@@ -12,6 +12,7 @@ paper on its shelf (2026-09-18).
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 from typing import Any
 
 from tests.web.dom import select, text
@@ -72,3 +73,49 @@ def forget_matter(matter_id: int) -> None:
             await db.commit()
 
     asyncio.run(clean())
+
+
+def account_held_by(
+    party_id: int, name: str, posted: list[tuple[date, int]]
+) -> int:
+    """An account in somebody's name, with a register that says something.
+
+    Written to the app-owned engine rather than through /accounts/new,
+    because the two are different DATABASES in a web test: finance
+    routes take the per-test session through ``get_async_db``, matters
+    routes open their own against the app-owned engine, and the answer
+    sheet reads the second. An account created through the dialog is
+    invisible to the page under test.
+
+    The dialog would not do it anyway: it writes a STATED balance
+    (``current_balance``), and what the county asks for is a balance on
+    a DATE, which only posted rows carry.
+    """
+    ids: dict[str, int] = {}
+
+    async def make() -> None:
+        from app.core.db import AsyncSessionLocal
+        from app.services.finance.domains.ledger.subjects import (
+            assign_subject,
+            subject_for_party,
+        )
+        from app.services.finance.service import FinanceService
+        from app.services.matters.service import PartyService
+
+        async with AsyncSessionLocal() as db:
+            svc = FinanceService(db)
+            account = await svc.create_manual_account(
+                name=name, account_type="checking", classification="asset"
+            )
+            party = await PartyService(db).get(party_id)
+            subject = await subject_for_party(db, party_id, name=party.name)
+            await assign_subject(db, account.id, subject.id)
+            for on, cents in posted:
+                await svc.create_transaction(
+                    account_id=account.id, amount=cents, txn_date=on, name="Testcase"
+                )
+            await db.commit()
+            ids["account"] = account.id
+
+    asyncio.run(make())
+    return ids["account"]

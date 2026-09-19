@@ -91,6 +91,15 @@ the name again is how a website lands on one row and a logo on the \
 other. Propose contact.create for the bank first when parties() has no \
 row for it. The routing number is the BANK's - every account there \
 shares it - so send it here and never as an account's own number.
+- `account.whose` - payload {"account_id": int (accounts()), \
+"whose_party_id": int (parties()) or null}: whose money an account \
+holds, said AFTER it exists. account.create asks this once and every \
+IMPORTED account skips it, so a parent's checking account reads as the \
+household's - it sits in our totals and cannot answer an agency asking \
+what THEY hold. null hands it back to us. Only propose this when the \
+user has told you whose it is: which accounts belong to a person is not \
+something a register can be read for, and getting it wrong misstates \
+somebody's resources to an agency.
 - `account.create` - payload {"name": str, "account_type": one of \
 checking/savings/cash/credit_card/loan/brokerage/crypto/property/\
 vehicle/other_asset/other_liability, optional "current_balance" \

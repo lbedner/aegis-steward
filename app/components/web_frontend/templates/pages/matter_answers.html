@@ -65,8 +65,23 @@
       </p>
       {% endfor %}
 
+      {#- What the register says, where nothing proves it yet. Amber
+          and the word "unverified" together, because this sheet is
+          printed and read beside a paper form in black and white: a
+          figure told apart from a proven one by colour alone is a
+          figure somebody transcribes as though it were proven. -#}
+      {% for offer in answer.unproven %}
+      <p class="mt-1 ml-6 text-sm" data-unproven>
+        <span class="font-medium text-aegis-amber">{{ offer.value_cents|money }}</span>
+        <span class="text-aegis-muted">· unverified · {{ offer.account }}, from the register as of {{ offer.as_of|short_date }}</span>
+      </p>
+      {% endfor %}
+
       {% if answer.state == "missing" %}
-      <p class="mt-1 ml-6 text-xs text-aegis-rose" data-todo>Nothing filed against this yet.</p>
+      <p class="mt-1 ml-6 text-xs text-aegis-rose" data-todo>
+        {% if answer.unproven %}No statement on file proves this yet.
+        {% else %}Nothing filed against this yet.{% endif %}
+      </p>
       {% elif answer.state == "waived" and answer.resolution %}
       <p class="mt-1 ml-6 text-xs text-aegis-muted" data-why>{{ answer.resolution }}</p>
       {% endif %}
