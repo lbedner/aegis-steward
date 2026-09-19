@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, TypedDict
+
+
+def flat(text: str | None) -> str:
+    """Text with its whitespace collapsed and its case dropped, so a
+    quote is compared by what it SAYS rather than how it wrapped.
+
+    Here rather than in either reader: a PDF's text layer breaks lines
+    where the page does, and every reader that checks a claim against a
+    page needs the same answer to "is this line on it".
+    """
+    return re.sub(r"\s+", " ", text or "").strip().casefold()
 
 
 class Page(TypedDict):

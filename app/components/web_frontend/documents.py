@@ -68,6 +68,7 @@ async def document_dialog(
     post: str,
     status_code: int = 200,
     errors: list[str] | None = None,
+    read_only: bool = False,
 ) -> Response:
     """The document beside what we say about it, in the one modal.
 
@@ -99,6 +100,7 @@ async def document_dialog(
         places=await places(db),
         kinds=DOCUMENT_KINDS,
         post=post,
+        read_only=read_only,
         # Read again lives with the document, wherever the dialog opened.
         reread=f"/documents/{document.id}/read",
         errors=errors or [],

@@ -140,12 +140,24 @@ async def upload(
 
 
 @router.get("/{document_id:int}", include_in_schema=False)
-async def document(request: Request, document_id: int) -> Response:
-    """The original beside its details and the text read off each page."""
+async def document(
+    request: Request, document_id: int, reading: bool = False
+) -> Response:
+    """The original beside its details and the text read off each page.
+
+    ``?reading=1`` drops the form. It is how an approval card opens the
+    paper it read: somebody checking a proposed title against the
+    letterhead must not be able to type a different one behind the card
+    that is about to overwrite it.
+    """
     async with get_async_session() as db:
         found = await _filed(db, document_id)
         return await document_dialog(
-            request, db, found, f"{SECTION.path}/{document_id}"
+            request,
+            db,
+            found,
+            f"{SECTION.path}/{document_id}",
+            read_only=reading,
         )
 
 

@@ -28,7 +28,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.schema import known, require_one_of
 from app.services.finance.schemas import ChangeDisplayRow
-from app.services.matters.facts import ATTRIBUTE_KEYS, LABELS, monthly_cents
+from app.services.matters.facts import (
+    ATTRIBUTE_KEYS,
+    LABELS,
+    monthly_cents,
+    said_value,
+)
 from app.services.matters.models import (
     FACT_PERIODS,
     FACT_PROVENANCE,
@@ -151,9 +156,7 @@ async def record_fact_describe(
         ),
     ]
     if payload.value_cents is not None:
-        said = format_usd(payload.value_cents)
-        if payload.period != "once":
-            said = f"{said} a {payload.period}"
+        said = said_value(payload.value_cents, payload.period)
         monthly = monthly_cents(payload.value_cents, payload.period)
         if monthly is not None and payload.period not in ("once", "month"):
             said = f"{said} (about {format_usd(monthly)} a month)"
@@ -169,7 +172,16 @@ async def record_fact_describe(
             source = f"{source} · {place.name}"
     if payload.source_note:
         source = f"{source} · {payload.source_note}"
-    rows.append(ChangeDisplayRow(label="How it is known", value=source))
+    # The page it was read off, carried with the line that cites it: a
+    # card saying "page 2" asks for trust in a reading nobody can see.
+    rows.append(
+        ChangeDisplayRow(
+            label="How it is known",
+            value=source,
+            document_id=payload.document_id,
+            page=payload.page,
+        )
+    )
     if already := await _already_said(db, payload):
         rows.append(ChangeDisplayRow(label="Already on file", value=already))
     return rows

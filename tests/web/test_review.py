@@ -9,6 +9,7 @@ Attention lists the new insights with a dismiss.
 import json
 
 from fastapi.testclient import TestClient
+import pytest
 
 from tests.web.conftest import REGISTER, Ledger, Review
 from tests.web.dom import none, one, oob, select, table_rows, text, triggers
@@ -195,3 +196,86 @@ class TestAttention:
 
     def test_unknown_insight_is_404(self, client: TestClient, ledger: Ledger) -> None:
         assert client.post("/review/insights/999999/dismiss").status_code == 404
+
+
+class TestACardShowsWhatItCites:
+    """A citation proves where text came from, not that the reading was
+    right - and the moment somebody is deciding is the one moment they
+    could check it. A card that cites a page draws that page."""
+
+    async def _proposal(self, finance, async_db_session) -> tuple[int, int]:
+        from app.services.documents.models import Document, DocumentPage
+        from app.services.matters.matters import MatterService
+        from app.services.matters.requests import RequestService
+
+        document = Document(
+            title="NYSLRS Monthly Statement",
+            storage_key="testcase/nyslrs.pdf",
+            media_type="application/pdf",
+            content_hash="testcase-card-hash",
+            size_bytes=17,
+        )
+        async_db_session.add(document)
+        await async_db_session.flush()
+        async_db_session.add(
+            DocumentPage(
+                document_id=document.id,
+                page_number=2,
+                status="read",
+                method="text",
+                text="Monthly Pension Benefit: $2,178.94",
+                image_key="testcase/nyslrs-2.png",
+            )
+        )
+        matter = await MatterService(async_db_session).open(
+            title="Medicaid renewal", reference="CARD-1"
+        )
+        request = await RequestService(async_db_session).record(
+            matter_id=matter.id, items=[{"asked": "Proof of gross monthly income"}]
+        )
+        items = await RequestService(async_db_session).items(request.id)
+        change = await finance.propose_change(
+            "document.evidence_link",
+            {
+                "document_id": document.id,
+                "request_item_id": items[0].id,
+                "page": 2,
+                "because": "Monthly Pension Benefit: $2,178.94",
+            },
+            owner_user_id=None,
+            proposed_by_agent="steward",
+        )
+        await async_db_session.flush()
+        return change.id, document.id
+
+    @pytest.mark.asyncio
+    async def test_the_page_is_drawn_beside_the_claim(
+        self, client: TestClient, finance, async_db_session, review: Review
+    ) -> None:
+        change_id, document_id = await self._proposal(finance, async_db_session)
+
+        card = one(client.get("/review").text, f"#change-{change_id}")
+        shown = one(card, "[data-page]")
+        assert shown.get("src") == f"/api/v1/documents/{document_id}/pages/2/image"
+
+        # And it is a door: a thumbnail answers "which paper is this",
+        # and the next question is always "what else does it say".
+        # READING, not editing: somebody checking a proposed title
+        # against the letterhead must not be able to type a different
+        # one behind the card that is about to overwrite it.
+        #
+        # The address only: the documents section opens its own session
+        # against the app-owned engine, so a document written to this
+        # test's session is not there to be fetched. Its own tests cover
+        # that the route answers.
+        assert (
+            shown.getparent().get("hx-get")
+            == f"/documents/{document_id}?reading=1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_card_citing_no_page_draws_none(
+        self, client: TestClient, review: Review
+    ) -> None:
+        card = one(client.get("/review").text, f"#change-{review.change}")
+        assert none(card, "[data-page]") is None

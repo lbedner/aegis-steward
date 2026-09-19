@@ -14,6 +14,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.documents.domains.reading.findings import Page
 from app.services.documents.domains.reading.metadata import read_document
+from app.services.documents.domains.reading.titles import (
+    compose,
+    looks_like_a_filename,
+    whose_letterhead,
+)
 
 if TYPE_CHECKING:
     from app.services.documents.domains.reading.letters import LetterReading
@@ -58,7 +63,8 @@ async def propose_reading(
     request = await _propose_demands(
         db, document_id, owner_user_id=owner_user_id, read_letter=read_letter
     )
-    return await _propose_metadata(db, document_id, owner_user_id) or request
+    metadata = await _propose_metadata(db, document_id, owner_user_id)
+    return metadata or request
 
 
 async def _propose_demands(
@@ -122,9 +128,10 @@ async def _propose_metadata(
         return None
     pages = await pages_for(db, document_id)
     payload: dict[str, Any] = {"document_id": document_id}
-    for found in read_document(
+    findings = read_document(
         [{"page": page.page_number, "text": page.text} for page in pages]
-    ):
+    )
+    for found in findings:
         # A card that changes nothing wastes a decision.
         standing = getattr(document, found.field, None)
         if str(standing or "") == str(found.value):
@@ -134,6 +141,8 @@ async def _propose_metadata(
             "page": found.page,
             "because": found.because,
         }
+    if title := await _proposed_title(db, document, pages, payload, findings):
+        payload["title"] = title
     if len(payload) == 1:
         return None
     return await propose(
@@ -143,3 +152,44 @@ async def _propose_metadata(
         owner_user_id=owner_user_id,
         proposed_by_agent=PROPOSED_BY,
     )
+
+
+async def _proposed_title(
+    db: AsyncSession,
+    document: Any,
+    pages: list[Any],
+    payload: dict[str, Any],
+    findings: list[Any],
+) -> dict[str, Any] | None:
+    """A name for a document that arrived with a filename for one.
+
+    Only then: a title somebody typed is not ours to improve. Built from
+    what this same card already carries - the kind and the date read off
+    the front - plus the organization on the letterhead, which has to be
+    one already in the address book. Nothing is invented, and nothing
+    costs a model call: a title is prose, but every part of it is a
+    reading somebody could check.
+    """
+    from app.services.matters.service import PartyService
+
+    if not looks_like_a_filename(document.title):
+        return None
+    read: list[Page] = [
+        {"page": page.page_number, "text": page.text} for page in pages
+    ]
+    organizations = [
+        party.name for party in await PartyService(db).find(kind="organization")
+    ]
+    # The kind FINDING, not just its value: the heading it was read from
+    # is what tells two documents of one kind apart.
+    said = compose(
+        whose_letterhead(read, organizations),
+        next((f for f in findings if f.field == "kind"), None) or document.kind,
+        (payload.get("document_date") or {}).get("value") or document.document_date,
+    )
+    if said is None or said.value == document.title:
+        return None
+    # The page it was read from and the line on it: the same citation
+    # every other reading owes, and what makes the name checkable rather
+    # than one to take on faith.
+    return {"value": str(said.value), "page": said.page, "because": said.because}

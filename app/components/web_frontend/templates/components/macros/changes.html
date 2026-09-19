@@ -25,6 +25,33 @@
    own line (every executor puts it first, by convention), then each
    proposed fact as a short sentence. The labels stay for the reader who
    wants them, quieter than the values. #}
+{# The page a card's claim was READ OFF, drawn beside it.
+
+   A citation proves where text came from, not that the reading was
+   right, and the moment somebody is deciding is the one moment they
+   could check it - "page 2" on a card asks for trust in something
+   nobody can see. Lazy-loaded: a queue of forty cards must not fetch
+   forty page images to show the first screen. #}
+{% macro cited_page(rows) %}
+{% set cited = rows | selectattr("page") | first %}
+{% if cited %}
+{#- Clickable, because a thumbnail answers "which paper is this" and
+    the next question is always "what else does it say". The document
+    dialog has the original beside the text read off every page, so the
+    preview is the door to it rather than a picture of one. -#}
+<button type="button" {{ hx_dialog("/documents/" ~ cited.document_id ~ "?reading=1") }}
+        aria-label="Open the document at page {{ cited.page }}"
+        class="block w-full text-left">
+{#- The intrinsic size is the RENDERED page's, so the box holds its
+    place before the image lands; the CSS still governs what is drawn. -#}
+<img data-page loading="lazy" width="1275" height="1650"
+     src="/api/v1/documents/{{ cited.document_id }}/pages/{{ cited.page }}/image"
+     alt="Page {{ cited.page }}, the page this was read from"
+     class="mt-2 w-full max-h-64 object-contain object-top rounded border border-aegis-border bg-aegis-bg hover:border-aegis-teal transition-colors">
+</button>
+{% endif %}
+{% endmacro %}
+
 {% macro display(change) %}
 {% set rows = change.display %}
 {% if rows %}
@@ -40,6 +67,7 @@
   {% for row in rows[1:] %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}</li>{% endfor %}
 </ul>
 {% endif %}
+{{ cited_page(rows) }}
 {% endif %}
 {% if change.error %}<p class="text-xs text-error">{{ change.error }}</p>{% endif %}
 {% endmacro %}
