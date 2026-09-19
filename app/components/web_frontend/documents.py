@@ -17,6 +17,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
 from app.components.web_frontend.rendering import dialog
+from app.core.log import logger
+from app.services.documents.domains.extraction.dispatch import start_extraction
 
 # The API route that serves the bytes. One place, because the viewer,
 # the "open the original" link and the fallback all point at it.
@@ -58,7 +60,29 @@ async def file_upload(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     for tag in tags:
         await documents.tag(int(document.id), tag)
+    await _read_it(int(document.id), owner_user_id)
     return document
+
+
+async def _read_it(document_id: int, owner_user_id: int | None) -> None:
+    """Read the pages, on the worker, without anybody asking.
+
+    Nothing did. A read only happened if somebody clicked "Read again",
+    called the API, or asked her - so paper landed on the shelf saying
+    nothing about itself, and the card that would name it, date it and
+    say what kind it is was never made (2026-09-19).
+
+    Never forced: a page is read once, and re-filing a document already
+    on the shelf must not pay to read it twice.
+
+    Guarded, because the BYTES are the valuable thing here. A worker
+    that is down loses the reading, never the document - and the reading
+    is offered again from the dialog whenever somebody wants it.
+    """
+    try:
+        await start_extraction(document_id, owner_user_id=owner_user_id, force=False)
+    except Exception:
+        logger.exception("Could not start reading document %s", document_id)
 
 
 async def document_dialog(

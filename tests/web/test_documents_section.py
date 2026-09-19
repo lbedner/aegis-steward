@@ -4,6 +4,7 @@ Both render paths, selectors not substrings.
 """
 
 from fastapi.testclient import TestClient
+import pytest
 
 from tests._pdf import pdf_bytes
 from tests.web.dom import none, one, select, text, triggers
@@ -91,11 +92,15 @@ class TestTheDialog:
         document_id = _file(client)
         dialog = client.get(f"/documents/{document_id}").text
         button = one(dialog, f'button[hx-post="/documents/{document_id}/read"]')
-        assert button.get("hx-swap") == "none"
+        # The progress lands beside the button rather than nowhere: this
+        # answered 204 and the dialog sat there looking broken while six
+        # pages were read (2026-09-19).
+        assert button.get("hx-swap") == "innerHTML"
+        assert button.get("hx-target") == "#reading-progress"
 
         answer = client.post(f"/documents/{document_id}/read")
 
-        assert answer.status_code == 204
+        assert answer.status_code == 200
         assert queued == [(document_id, True)]
         assert "toast" in triggers(answer)
 
@@ -288,3 +293,153 @@ class TestReadingRatherThanEditing:
         assert not [
             el for el in select(reading, "[hx-post]") if "/read" in (el.get("hx-post") or "")
         ]
+
+
+class TestPaperIsReadWhenItArrives:
+    """Nothing read an uploaded document. A read only happened if
+    somebody clicked "Read again", called the API, or asked her - so
+    paper landed on the shelf saying nothing about itself, and the card
+    that would name it was never made (2026-09-19).
+    """
+
+    def test_uploading_starts_the_read(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.components.web_frontend import documents as web_documents
+
+        started: list[tuple[int, bool]] = []
+
+        async def fake(document_id: int, *, owner_user_id=None, force=False) -> str:
+            started.append((document_id, force))
+            return "job-1"
+
+        monkeypatch.setattr(web_documents, "start_extraction", fake)
+        document_id = _file(client, "arrives.pdf")
+
+        # Not forced: a page is read once, and an upload of a document
+        # already on the shelf must not pay to read it twice.
+        assert started == [(document_id, False)]
+
+    def test_a_read_that_will_not_start_still_files_the_paper(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The bytes are the valuable thing. A worker that is down loses
+        the reading, never the document."""
+        from app.components.web_frontend import documents as web_documents
+
+        async def broken(document_id: int, *, owner_user_id=None, force=False) -> str:
+            raise RuntimeError("no worker today")
+
+        monkeypatch.setattr(web_documents, "start_extraction", broken)
+        document_id = _file(client, "no-worker.pdf")
+
+        row = one(client.get("/documents").text, f"tr#document-{document_id}")
+        assert "no-worker.pdf" in text(row)
+
+
+class TestReadingAgainShowsItself:
+    """Reading a document is worker work: six pages of a scan is a model
+    call each. It answered with a 204 and a toast, so the dialog sat
+    there looking broken while the pages were being read - and there was
+    no way to tell a job that had started from one that had not
+    (2026-09-19).
+
+    Pattern 5 exists for exactly this and extraction is its most obvious
+    user: the route had the job id and threw it away.
+    """
+
+    def test_it_hands_back_a_live_job(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.components.web_frontend.routes import documents as routes
+
+        async def fake(document_id, *, owner_user_id=None, force=False) -> str:
+            return "job-42"
+
+        monkeypatch.setattr(routes, "start_extraction", fake)
+        document_id = _file(client, "again.pdf")
+
+        answer = client.post(f"/documents/{document_id}/read")
+
+        assert answer.status_code == 200
+        following = one(answer.text, "[sse-connect]")
+        assert following.get("sse-connect") == "/jobs/job-42/events"
+        # And it says what it is doing while it does it.
+        assert "again.pdf" in text(following)
+
+    def test_the_button_has_somewhere_to_put_it(self, client: TestClient) -> None:
+        """A follower nobody swaps in is a 204 with extra steps."""
+        document_id = _file(client, "target.pdf")
+        dialog = client.get(f"/documents/{document_id}").text
+
+        button = one(dialog, f'[hx-post="/documents/{document_id}/read"]')
+        assert button.get("hx-target") == "#reading-progress"
+        one(dialog, "#reading-progress")
+
+    def test_a_read_that_runs_inline_still_answers(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No worker is a normal install, not an error: the read happens
+        in the request and the answer says it is done."""
+        from app.components.web_frontend.routes import documents as routes
+
+        async def inline(document_id, *, owner_user_id=None, force=False) -> None:
+            return None
+
+        monkeypatch.setattr(routes, "start_extraction", inline)
+        document_id = _file(client, "inline-again.pdf")
+
+        answer = client.post(f"/documents/{document_id}/read")
+
+        assert answer.status_code == 200
+        assert none(answer.text, "[sse-connect]") is None
+        assert "inline-again.pdf" in answer.text
+
+
+class TestTheNameItArrivedWith:
+    """Renaming a document must not lose what the bank called it: six
+    months later somebody searches for the download's own name."""
+
+    def test_the_shelf_still_finds_it_by_its_filename(
+        self, client: TestClient
+    ) -> None:
+        document_id = _file(client, "AP_DRTNY107_2354889.pdf")
+        client.post(
+            f"/documents/{document_id}",
+            data={
+                "title": "Delta Dental Application",
+                "kind": "form",
+                "document_date": "",
+                "note": "",
+            },
+        )
+
+        page = client.get("/documents", params={"q": "AP_DRTNY107"}).text
+        row = one(page, f"tr#document-{document_id}")
+        assert "Delta Dental Application" in text(row)
+
+    def test_the_dialog_says_what_it_arrived_as(self, client: TestClient) -> None:
+        """Quietly, under the name we gave it - the way a register row
+        keeps its raw descriptor under the payee."""
+        document_id = _file(client, "scan0007.pdf")
+        client.post(
+            f"/documents/{document_id}",
+            data={
+                "title": "Dad's POA",
+                "kind": "other",
+                "document_date": "",
+                "note": "",
+            },
+        )
+
+        dialog = client.get(f"/documents/{document_id}").text
+        assert "scan0007.pdf" in text(one(dialog, "[data-arrived]"))
+
+    def test_a_document_nobody_renamed_says_it_once(
+        self, client: TestClient
+    ) -> None:
+        """The filename under a title that IS the filename is the same
+        word twice."""
+        document_id = _file(client, "untouched.pdf")
+        dialog = client.get(f"/documents/{document_id}").text
+        assert none(dialog, "[data-arrived]") is None

@@ -89,6 +89,13 @@ class Document(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     owner_user_id: int | None = Field(default=None)
     title: str = Field(max_length=255)
+    # What it was CALLED when it arrived, never touched afterwards. The
+    # same shape as a transaction's raw descriptor beside its curated
+    # payee: renaming a document used to overwrite the only copy of the
+    # bank's own filename, and the storage key is a content hash, so
+    # "enrollee-notices-flyer.pdf" stopped existing anywhere
+    # (2026-09-19). Null on rows that predate the column.
+    filename: str | None = Field(default=None, max_length=255)
     kind: str = Field(default="other", max_length=32)
     # Where the bytes are. The key is content-derived, so it is portable
     # across backends; the backend name is recorded so a half-migrated

@@ -23,6 +23,7 @@ from app.services.documents.domains.extraction.pages import (
     how_read,
 )
 from app.services.documents.domains.extraction.vision import vision_reader
+from app.services.documents.domains.reading.proposals import read_and_propose
 from app.services.documents.models import DocumentPage
 from app.services.documents.queries import page_for, pages_for
 from app.services.documents.service import DocumentService
@@ -93,6 +94,10 @@ async def extract(
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
             ) from None
+        # The same second half the worker's job does: reading a document
+        # and never saying what it read is half a read.
+        await read_and_propose(service.db, document_id, owner_user_id=owner_user_id)
+        await service.db.commit()
         return JSONResponse(result.as_dict())
 
     job_id = await start_extraction(

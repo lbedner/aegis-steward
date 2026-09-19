@@ -379,3 +379,45 @@ class TestExtractionProposes:
         ]
         assert len(cards) == 1
         assert cards[0].payload["kind"]["value"] == "statement"
+
+
+class TestBothDoorsPropose:
+    """Reading a document and never saying what it read is half a read.
+
+    The worker's job proposed; the API's inline extract did not - so the
+    same document read one way named itself and read the other way went
+    quiet, and three documents on the real shelf were read with nothing
+    to show for it (2026-09-19).
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_inline_read_proposes_too(
+        self, svc, async_db_session: AsyncSession
+    ) -> None:
+        from app.components.backend.api.documents.pages import extract
+        from app.services.finance.domains.writes.queue import list_changes
+
+        doc = await svc.ingest(
+            pdf_bytes(["Mortgage Interest Statement", "Statement Date: March 3, 2026"]),
+            title="inline-2026.pdf",
+            media_type="application/pdf",
+        )
+        await svc.db.flush()
+
+        # The owner is a FastAPI dependency; called in-process it has to
+        # be passed like any other argument.
+        await extract(
+            int(doc.id),
+            background=False,
+            force=False,
+            service=svc,
+            owner_user_id=None,
+        )
+
+        cards = [
+            c
+            for c in await list_changes(async_db_session, status="pending")
+            if c.change_type == "document.metadata"
+            and c.payload["document_id"] == doc.id
+        ]
+        assert len(cards) == 1
