@@ -142,7 +142,11 @@ Spanish line, a number from abroad, a claims fax, a case worker's \
 direct line - one labelled line each, and the label is what the paper \
 calls it. A reach detail belongs in "also", never in "note": a number \
 buried in a sentence is a number nobody can ring. The note is for what \
-is true of them that is not a way to reach them at all.
+is true of them that is not a way to reach them at all. A routing \
+number is not a way to reach anybody: it belongs to the bank and goes \
+on `account.institution` - never in "also", and never written out in \
+the note either. Do not give a labelled line a number the phone, email, \
+address or website field already carries word for word.
 - `contact.amend` - payload {"party_id": int (parties()), and any of \
 "name", "sort_name", "address", "phone", "email", "website", "also", \
 "note", plus "sources" ({field: where you read it})}: correct a \
