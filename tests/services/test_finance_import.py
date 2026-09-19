@@ -1688,3 +1688,206 @@ async def test_a_known_payee_beats_the_files_own_category(
     rows, _ = await svc.list_transactions(owner_user_id=1, account_id=account.id)
     landed = next(t for t in rows if t.date_ == date(2026, 9, 11))
     assert landed.category_id == productivity.id
+
+
+class TestTheImportSaysWhatItIsDoing:
+    """A 18,618-row re-import was SIGKILLed twelve seconds in (OOM, 2026-09-19)
+    and the only trace was the worker's exit code: the ingest logged nothing
+    at all, so there was no way to tell a killed job from a slow one."""
+
+    @pytest.mark.asyncio
+    async def test_ingest_narrates_its_stages(
+        self, svc: FinanceService, async_db_session: AsyncSession, csv_profiles: None
+    ) -> None:
+        import structlog
+
+        account = await _account(async_db_session)
+        with structlog.testing.capture_logs() as entries:
+            await imports.ingest_transactions(
+                async_db_session,
+                owner_user_id=1,
+                source_type="qfx",
+                file_name="sample_chase.qfx",
+                file_bytes=_qfx(),
+                parsed=parse_ofx(_qfx(), source="qfx"),
+                default_account_id=account.id,
+            )
+        by_event = {e["event"]: e for e in entries}
+
+        planned = by_event["finance.import.planned"]
+        assert planned["rows_total"] == 6
+        assert planned["file_name"] == "sample_chase.qfx"
+
+        done = by_event["finance.import.finished"]
+        assert done["inserted"] == 6
+        assert done["duplicate"] == 0
+        assert done["batch_id"] is not None
+        # Elapsed is what separates "still working" from "died": a stage
+        # line without it cannot answer the question the incident asked.
+        assert done["elapsed_s"] >= 0
+
+
+class TestTheImportSaysSoWhereTheUserIsWatching:
+    """The SSE follower already renders ``job.label`` on every frame
+    (partials/jobs/status.html), and the job store already takes a new one
+    at any time. The ingest just never spoke: an 18,607-row file sat on
+    "Importing ..." for its whole run, which is indistinguishable from the
+    worker being dead - and on 2026-09-19 it WAS dead."""
+
+    @pytest.mark.asyncio
+    async def test_progress_reaches_the_label_the_follower_renders(
+        self,
+        svc: FinanceService,
+        async_db_session: AsyncSession,
+        csv_profiles: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(imports, "PROGRESS_EVERY_ROWS", 2)
+        account = await _account(async_db_session)
+        said: list[str] = []
+
+        async def on_label(text: str) -> None:
+            said.append(text)
+
+        await imports.ingest_transactions(
+            async_db_session,
+            owner_user_id=1,
+            source_type="qfx",
+            file_name="sample_chase.qfx",
+            file_bytes=_qfx(),
+            parsed=parse_ofx(_qfx(), source="qfx"),
+            default_account_id=account.id,
+            on_label=on_label,
+        )
+
+        # Planning is the expensive half and runs before any row is written,
+        # so it has to speak first or the wait looks like nothing happening.
+        assert any("6" in t and "ledger" in t for t in said), said
+        # Six rows at every-2 gives progress that counts up and names what
+        # it has done, not a percentage with no units.
+        counting = [t for t in said if " of 6" in t]
+        assert len(counting) == 3, said
+        assert "2 of 6" in counting[0] and "added" in counting[0]
+        assert "6 of 6" in counting[-1]
+        assert said[-1].startswith("Reconciling")
+
+    @pytest.mark.asyncio
+    async def test_no_callback_is_the_normal_case(
+        self, svc: FinanceService, async_db_session: AsyncSession, csv_profiles: None
+    ) -> None:
+        # preview_file and every direct caller pass nothing; the ingest must
+        # not care whether anybody is watching.
+        account = await _account(async_db_session)
+        result = await imports.ingest_transactions(
+            async_db_session,
+            owner_user_id=1,
+            source_type="qfx",
+            file_name="c.qfx",
+            file_bytes=_qfx(),
+            parsed=parse_ofx(_qfx(), source="qfx"),
+            default_account_id=account.id,
+        )
+        assert result.rows_inserted == 6
+
+
+class TestPlanningDoesNotHydrateTheLedger:
+    """The dedup preload read every live row on the touched accounts as a
+    full ORM entity. Measured against the real ledger on 2026-09-19: 79 MiB
+    to import the app, 130 after parsing 18,607 rows, and 253 after
+    planning them - a pure read, before a single write, against a 256M cap.
+    18,571 FinanceTransaction instances were built to compare eight scalar
+    columns, and 18,571 of 18,607 rows were duplicates, so none of those
+    objects was ever touched again.
+
+    ``test_ingest_query_count_is_flat_in_row_count`` guards the count of
+    queries against the size of the FILE. This guards the count of objects
+    against the size of the LEDGER, which is the axis that ran out of
+    memory: the same import gets more expensive every month, on a file
+    that has not changed.
+    """
+
+    @staticmethod
+    def _hydration_counter() -> tuple[dict[str, int], Any, Any]:
+        from sqlalchemy import event
+        from sqlalchemy.orm import Session as SyncSession
+
+        from app.services.finance.models import FinanceTransaction
+
+        seen = {"n": 0}
+
+        def _on_load(session: Any, instance: Any) -> None:
+            if isinstance(instance, FinanceTransaction):
+                seen["n"] += 1
+
+        event.listen(SyncSession, "loaded_as_persistent", _on_load)
+        return seen, SyncSession, _on_load
+
+    @pytest.mark.asyncio
+    async def test_hydration_is_flat_in_ledger_size(
+        self, svc: FinanceService, async_db_session: AsyncSession, csv_profiles: None
+    ) -> None:
+        from datetime import date
+
+        from sqlalchemy import event
+
+        from app.services.finance.adapters.importers import plan as planner
+        from app.services.finance.adapters.importers.base import ParsedTransaction
+
+        account = await _account(async_db_session)
+
+        async def _grow_ledger_to(total: int) -> None:
+            have = (await svc.list_transactions(owner_user_id=1, account_id=account.id))[1]
+            for i in range(have, total):
+                await svc.create_transaction(
+                    owner_user_id=1,
+                    account_id=account.id,
+                    amount=-1000 - i,
+                    txn_date=date(2025, 1, 1),
+                    name=f"Old {i}",
+                    source="ofx",
+                    external_id=f"old-{i}",
+                    external_id_source="fitid",
+                )
+            await async_db_session.flush()
+
+        def _incoming() -> list[ParsedTransaction]:
+            # Three rows that match nothing: all inserts, so the plan has no
+            # edit target and needs no existing row as an object at all.
+            return [
+                ParsedTransaction(
+                    date=date(2026, 6, 1),
+                    amount=-500 - i,
+                    source="ofx",
+                    external_id=f"new-{i}",
+                    external_id_source="fitid",
+                    name=f"New {i}",
+                )
+                for i in range(3)
+            ]
+
+        async def _plan_and_count(ledger: int) -> int:
+            await _grow_ledger_to(ledger)
+            async_db_session.expunge_all()
+            seen, cls, fn = self._hydration_counter()
+            try:
+                result = await planner.plan_transactions(
+                    async_db_session,
+                    owner_user_id=1,
+                    parsed=_incoming(),
+                    default_account_id=account.id,
+                )
+                assert result.count("inserted") == 3
+                return seen["n"]
+            finally:
+                event.remove(cls, "loaded_as_persistent", fn)
+
+        small = await _plan_and_count(10)
+        large = await _plan_and_count(120)
+
+        # Twelve times the ledger must not mean twelve times the objects.
+        # The lanes compare eight scalar columns; only a row the plan means
+        # to EDIT is worth building, and here there are none.
+        assert large <= small + 5, (
+            f"planning hydrated the ledger: {small} objects at 10 rows, "
+            f"{large} at 120 - this is what ran out of memory at 18,571"
+        )
