@@ -25,10 +25,11 @@ from app.components.web_frontend.rendering import (
 )
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
+from app.services.matters.drawing import asked_lines
+from app.services.matters.drawing import drawn as drawn_request
 from app.services.matters.matters import MatterService
 from app.services.matters.models import ITEM_KINDS, matter_tag
-from app.services.matters.requests import RequestService, asked_lines
-from app.services.matters.requests import drawn as drawn_request
+from app.services.matters.requests import RequestService
 from app.services.matters.service import PartyService, party_or_new
 
 SECTION = section("matters")

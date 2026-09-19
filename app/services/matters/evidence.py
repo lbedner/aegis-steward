@@ -155,6 +155,33 @@ async def satisfied_by(
     )
 
 
+async def satisfied_by_many(
+    db: AsyncSession, item_ids: list[int]
+) -> dict[int, list[EvidenceLink]]:
+    """Everything filed against each of these asks, in one query.
+
+    ``satisfied_by`` asked per item, which is fine from an item's own
+    page and is a query per row anywhere that draws a whole matter - the
+    answer sheet did exactly that, and so would the timeline if it had
+    not written its own copy of this (2026-09-18).
+    """
+    from sqlmodel import col, select
+
+    if not item_ids:
+        return {}
+    found: dict[int, list[EvidenceLink]] = {item_id: [] for item_id in item_ids}
+    links = (
+        await db.exec(
+            select(EvidenceLink)
+            .where(col(EvidenceLink.request_item_id).in_(item_ids))
+            .order_by(col(EvidenceLink.id))
+        )
+    ).all()
+    for link in links:
+        found.setdefault(link.request_item_id, []).append(link)
+    return found
+
+
 async def answers_for(db: AsyncSession, document_id: int) -> list[EvidenceLink]:
     """The asks this document answers. The same relation, read from the
     other end: the document view shows what it satisfies, the request

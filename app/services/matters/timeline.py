@@ -152,36 +152,24 @@ async def _asked(db: AsyncSession, matter_id: int) -> list[dict[str, Any] | None
     Monday and its second page on Friday is one ask answered on Monday,
     not an ask that keeps being answered.
     """
-    from app.services.matters.models import EvidenceLink, RequestItem
+    from app.services.matters.evidence import satisfied_by_many
     from app.services.matters.requests import RequestService
 
-    requests = await RequestService(db).for_matter(matter_id)
+    service = RequestService(db)
+    requests = await service.for_matter(matter_id)
     if not requests:
         return []
     ids = [r.id for r in requests]
-    items = list(
-        (
-            await db.exec(
-                select(RequestItem).where(col(RequestItem.request_id).in_(ids))
-            )
-        ).all()
-    )
-    links = list(
-        (
-            await db.exec(
-                select(EvidenceLink).where(
-                    col(EvidenceLink.request_item_id).in_([i.id for i in items] or [0])
-                )
-            )
-        ).all()
-    )
-    first: dict[int, datetime] = {}
-    for link in links:
-        at = first.get(link.request_item_id)
-        if at is None or link.created_at < at:
-            first[link.request_item_id] = link.created_at
+    items_of = await service.items_of(ids)
+    items = [item for request_items in items_of.values() for item in request_items]
+    links_of = await satisfied_by_many(db, [item.id for item in items])
+    first = {
+        item_id: min(link.created_at for link in links)
+        for item_id, links in links_of.items()
+        if links
+    }
 
-    counted = {one: sum(i.request_id == one for i in items) for one in ids}
+    counted = {one: len(items_of.get(one, [])) for one in ids}
     moments = []
     for request in requests:
         asks = counted.get(request.id, 0)

@@ -29,11 +29,11 @@ from app.services.documents.domains.extraction.dispatch import (
 )
 from app.services.documents.service import DocumentService
 from app.services.finance.utils import current_date
+from app.services.matters.drawing import titles as paper_titles
 from app.services.matters.facts import FactService, monthly_cents
 from app.services.matters.matters import MatterService
 from app.services.matters.models import FACT_ATTRIBUTES, PARTY_TAG_PREFIX, party_tag
 from app.services.matters.requests import RequestService, overdue, standing
-from app.services.matters.requests import titles as paper_titles
 from app.services.matters.service import PartyService
 
 ATTRIBUTE_LABELS = dict(FACT_ATTRIBUTES)

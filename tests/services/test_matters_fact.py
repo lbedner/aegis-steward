@@ -6,6 +6,7 @@ showing its source, with the document-derived one verified.
 """
 
 from datetime import date
+from typing import Any
 
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -392,3 +393,164 @@ class TestTheSameFigureTwice:
             )
         }
         assert "Already on file" not in said
+
+
+class TestWhatTheRegisterSays:
+    """ST-09: an ask that wants a balance gets offered the register's own
+    number, clearly NOT proven.
+
+    The county asked for the balance as of 1 August 2026. The register
+    has 762 imported transactions summing to $3,137.44 and no statement
+    covers that date, so the sheet said "nothing filed against this yet"
+    while the app plainly knew a number. The gap between what the
+    register believes and what a statement proves is the thing to make
+    visible, not to hide and not to pass off as an answer.
+    """
+
+    @pytest.mark.asyncio
+    async def test_it_offers_the_subjects_accounts_as_of_the_date(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.ledger_figures import unproven_figures
+
+        made = await _a_matter_asking_for_a_balance(async_db_session)
+        offers = await unproven_figures(
+            async_db_session, made["matter_id"], made["item"]
+        )
+
+        assert [(one["account"], one["value_cents"]) for one in offers] == [
+            ("CHECKING (TESTCASE)", 313744)
+        ]
+        # The whole point: not an answer, and it says why.
+        assert offers[0]["proven"] is False
+        assert offers[0]["as_of"] == date(2026, 8, 1)
+
+    @pytest.mark.asyncio
+    async def test_it_stops_at_the_date_it_was_asked_about(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A balance is only an answer on the date it is asked about, so
+        anything posted after it is not in the number."""
+        from app.services.finance.domains.ledger.accounts import (
+            register_balance_as_of,
+        )
+        from app.services.matters.ledger_figures import unproven_figures
+        from tests.services._finance_factories import seed_txn
+
+        made = await _a_matter_asking_for_a_balance(async_db_session)
+        await seed_txn(
+            made["svc"], made["account_id"], 50000, date(2026, 8, 15), name="Later"
+        )
+
+        offers = await unproven_figures(
+            async_db_session, made["matter_id"], made["item"]
+        )
+        assert offers[0]["value_cents"] == 313744
+        assert (
+            await register_balance_as_of(
+                async_db_session, made["account_id"], date(2026, 8, 31)
+            )
+            == 363744
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_ask_about_something_else_is_offered_nothing(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.matters.ledger_figures import unproven_figures
+
+        made = await _a_matter_asking_for_a_balance(async_db_session)
+        made["item"].ask = "gross_income"
+        assert await unproven_figures(
+            async_db_session, made["matter_id"], made["item"]
+        ) == []
+
+    @pytest.mark.asyncio
+    async def test_an_account_whose_register_is_empty_says_nothing(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A "$0.00, unverified" line beside an ask is worse than
+        silence: it reads as an answer somebody checked."""
+        from app.services.matters.ledger_figures import unproven_figures
+        from tests.services._finance_factories import seed_account
+
+        made = await _a_matter_asking_for_a_balance(async_db_session)
+        from app.services.finance.domains.ledger.subjects import (
+            assign_subject,
+            subject_for_party,
+        )
+        from app.services.matters.matters import MatterService
+
+        matter = await MatterService(async_db_session).get(made["matter_id"])
+        empty = await seed_account(made["svc"], name="EMPTY (TESTCASE)")
+        subject = await subject_for_party(
+            async_db_session, matter.subject_party_id, name="James Testcase"
+        )
+        await assign_subject(async_db_session, empty.id, subject.id)
+
+        offers = await unproven_figures(
+            async_db_session, made["matter_id"], made["item"]
+        )
+        assert [one["account"] for one in offers] == ["CHECKING (TESTCASE)"]
+
+    @pytest.mark.asyncio
+    async def test_an_ask_with_no_date_is_offered_nothing(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """"As of when" is the question. A running total with no date on
+        it is not an answer to anything the county asked."""
+        from app.services.matters.ledger_figures import unproven_figures
+
+        made = await _a_matter_asking_for_a_balance(async_db_session)
+        made["item"].as_of = None
+        assert await unproven_figures(
+            async_db_session, made["matter_id"], made["item"]
+        ) == []
+
+
+async def _a_matter_asking_for_a_balance(db: AsyncSession) -> dict[str, Any]:
+    """A case whose subject holds one account, and an ask wanting its
+    balance on a date no statement covers.
+
+    Through the finance service's own factories: an account row typed by
+    hand here would be the eighteenth copy of one, which is what
+    ``_finance_factories`` exists to stop.
+    """
+    from app.services.finance.domains.ledger.subjects import (
+        assign_subject,
+        subject_for_party,
+    )
+    from app.services.finance.service import FinanceService
+    from app.services.matters.matters import MatterService
+    from app.services.matters.requests import RequestService
+    from tests.services._finance_factories import seed_account, seed_txn
+
+    james = await PartyService(db).create(name="James Testcase", kind="person")
+    await db.flush()
+    matter = await MatterService(db).open(
+        title="Medicaid renewal", reference="LF-1", subject_party_id=james.id
+    )
+    svc = FinanceService(db)
+    account = await seed_account(svc, name="CHECKING (TESTCASE)")
+    subject = await subject_for_party(db, james.id, name=james.name)
+    await assign_subject(db, account.id, subject.id)
+    await seed_txn(svc, account.id, 313744, date(2026, 7, 30), name="Opening")
+
+    request = await RequestService(db).record(
+        matter_id=matter.id,
+        items=[
+            {
+                "asked": "Resource values as of 1 August 2026",
+                "kind": "figure",
+                "ask": "account_balance",
+                "as_of": date(2026, 8, 1),
+            }
+        ],
+    )
+    items = await RequestService(db).items(request.id)
+    return {
+        "matter_id": matter.id,
+        "item": items[0],
+        "account_id": account.id,
+        "svc": svc,
+    }

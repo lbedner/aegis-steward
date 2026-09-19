@@ -19,7 +19,16 @@ from app.services.finance.domains.ledger.queries.accounts import EVERYONE, HOUSE
 from app.services.finance.domains.ledger.subjects import subject_filter
 from app.services.finance.service import FinanceService
 
-__all__ = ["EVERYONE", "HOUSEHOLD", "chips", "people", "in_someone_elses_name", "whose"]
+__all__ = [
+    "EVERYONE",
+    "HOUSEHOLD",
+    "chips",
+    "held_by",
+    "holder",
+    "people",
+    "in_someone_elses_name",
+    "whose",
+]
 
 # What the URL says. ``?whose=ours`` is the default and the household's
 # own; ``?whose=all`` is everybody's; a number is one subject.
@@ -45,9 +54,28 @@ async def in_someone_elses_name(
     owner_user_id: int | None = None,
 ) -> None:
     """Point an account at the person whose money it holds."""
+    await held_by(service, account_id, party_id, owner_user_id)
+
+
+async def held_by(
+    service: FinanceService,
+    account_id: int,
+    party_id: int | None,
+    owner_user_id: int | None = None,
+) -> None:
+    """Whose money this account holds, said as many times as needed.
+
+    ``None`` hands it back to the household. It was only ever asked once,
+    when the account was created - which every IMPORTED account skips, so
+    a father's checking account read as ours and nothing but SQL could
+    say otherwise (2026-09-18).
+    """
     from app.services.finance.domains.ledger.subjects import subject_for_party
     from app.services.matters.service import PartyService
 
+    if party_id is None:
+        await service.assign_subject(account_id, None, owner_user_id=owner_user_id)
+        return
     party = await PartyService(service.db).get(party_id)
     if party is None:
         return
@@ -55,6 +83,22 @@ async def in_someone_elses_name(
         service.db, party_id, name=party.name, owner_user_id=owner_user_id
     )
     await service.assign_subject(account_id, subject.id, owner_user_id=owner_user_id)
+
+
+async def holder(service: FinanceService, account: Any) -> int | str:
+    """The party whose money this account holds, as the picker's value.
+
+    An INT, because the select compares it to the option's own id and a
+    string that looks like one is not equal to it - a picker that
+    silently shows "Ours" for an account already in somebody's name is
+    worse than no picker.
+    """
+    from app.services.finance.domains.ledger.subjects import get_subject
+
+    if not account.subject_id:
+        return ""
+    subject = await get_subject(service.db, account.subject_id)
+    return subject.party_id if subject and subject.party_id else ""
 
 
 def whose(value: str | None) -> int | None:

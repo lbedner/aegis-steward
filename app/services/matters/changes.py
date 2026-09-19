@@ -26,7 +26,7 @@ from pydantic import (
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.schema import known
+from app.core.schema import known, require_one_of
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.matters.facts import ATTRIBUTE_KEYS, LABELS, monthly_cents
 from app.services.matters.models import (
@@ -224,6 +224,16 @@ async def _already_said(db: AsyncSession, payload: RecordFactPayload) -> str | N
 ITEM_KIND_KEYS = tuple(key for key, _label in ITEM_KINDS)
 
 
+def known_attribute(cls: Any, value: str | None) -> str | None:
+    """What an ask may name, for every payload that carries one: an
+    attribute a fact can be about, spelled the way the matcher spells
+    it. ``ATTRIBUTE_KEYS`` is the same tuple ``fact.record`` validates
+    against, so the two ends of the match cannot drift apart."""
+    if value is None or not value.strip():
+        return None
+    return require_one_of(value, ATTRIBUTE_KEYS)
+
+
 def known_item_kind(value: str | None) -> str | None:
     """The one rule for what an ask's ``kind`` may be, for every payload
     that carries one."""
@@ -241,10 +251,16 @@ class AmendAskPayload(BaseModel):
     item_id: int
     asked: str | None = None
     kind: str | None = None
+    # What a figure must be ABOUT to answer this ask. The only thing
+    # that reads it compares it to fact.attribute, so it is one of those
+    # and nothing else: an ask nobody mapped is an ask no recorded
+    # figure can ever meet.
+    ask: str | None = None
     as_of: date | None = None
     reason: str | None = None
 
     _kind_is_known = field_validator("kind")(known_item_kind)
+    _ask_is_known = field_validator("ask")(known_attribute)
 
 
 class AddAskPayload(BaseModel):
@@ -256,10 +272,12 @@ class AddAskPayload(BaseModel):
     request_id: int
     asked: str
     kind: str = "document"
+    ask: str | None = None
     as_of: date | None = None
     reason: str | None = None
 
     _kind_is_known = field_validator("kind")(known_item_kind)
+    _ask_is_known = field_validator("ask")(known_attribute)
 
 
 async def amend_ask_execute(
@@ -268,7 +286,11 @@ async def amend_ask_execute(
     from app.services.matters.requests import RequestService
 
     item = await RequestService(db).amend(
-        payload.item_id, asked=payload.asked, kind=payload.kind, as_of=payload.as_of
+        payload.item_id,
+        asked=payload.asked,
+        kind=payload.kind,
+        ask=payload.ask,
+        as_of=payload.as_of,
     )
     if item is None:
         raise ValueError(f"No ask with id {payload.item_id}")
@@ -289,6 +311,10 @@ async def amend_ask_describe(
         rows.append(ChangeDisplayRow(label="Would read", value=payload.asked))
     if payload.kind is not None:
         rows.append(ChangeDisplayRow(label="Kind", value=item_kind(payload.kind)))
+    if payload.ask is not None:
+        rows.append(
+            ChangeDisplayRow(label="Answered by", value=LABELS.get(payload.ask, payload.ask))
+        )
     if payload.as_of is not None:
         rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))
     if payload.reason:
@@ -302,7 +328,11 @@ async def add_ask_execute(
     from app.services.matters.requests import RequestService
 
     item = await RequestService(db).add_item(
-        payload.request_id, asked=payload.asked, kind=payload.kind, as_of=payload.as_of
+        payload.request_id,
+        asked=payload.asked,
+        kind=payload.kind,
+        ask=payload.ask,
+        as_of=payload.as_of,
     )
     await db.flush()
     return {"item_id": item.id, "asked": item.asked}
@@ -325,6 +355,10 @@ async def add_ask_describe(
         ChangeDisplayRow(label="Ask", value=payload.asked),
         ChangeDisplayRow(label="Kind", value=item_kind(payload.kind)),
     ]
+    if payload.ask is not None:
+        rows.append(
+            ChangeDisplayRow(label="Answered by", value=LABELS.get(payload.ask, payload.ask))
+        )
     if payload.as_of is not None:
         rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))
     if payload.reason:

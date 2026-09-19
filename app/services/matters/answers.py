@@ -26,6 +26,8 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.matters.requests import SETTLED
+
 # The three states an ask can be in on the sheet. "waived" and
 # "not_applicable" are SETTLED, not missing: somebody said the county
 # did not ask for this, and printing it as outstanding sends them
@@ -35,8 +37,14 @@ MISSING = "missing"
 WAIVED = "waived"
 
 
+# Settled WITHOUT being answered, derived from the one list of settled
+# statuses rather than typed out again: a fourth settled status would
+# otherwise read as missing here and settled everywhere else.
+NOT_ASKED_FOR = tuple(status for status in SETTLED if status != "satisfied")
+
+
 def _state(status: str, has_evidence: bool) -> str:
-    if status in ("waived", "not_applicable"):
+    if status in NOT_ASKED_FOR:
         return WAIVED
     return ANSWERED if has_evidence or status == "satisfied" else MISSING
 
@@ -49,9 +57,9 @@ async def answer_sheet(db: AsyncSession, matter_id: int) -> dict[str, Any]:
     nothing in particular - the asks in the order they were asked, and
     a count of what is still outstanding.
     """
-    from app.services.finance.domains.detection.insights.formatting import format_usd
-    from app.services.matters.evidence import satisfied_by
-    from app.services.matters.facts import LABELS, FactService
+    from app.services.matters.evidence import satisfied_by_many
+    from app.services.matters.facts import FactService
+    from app.services.matters.ledger_figures import unproven_figures
     from app.services.matters.matters import MatterService
     from app.services.matters.requests import RequestService
 
@@ -64,13 +72,22 @@ async def answer_sheet(db: AsyncSession, matter_id: int) -> dict[str, Any]:
     answers: list[dict[str, Any]] = []
     due: Any = None
 
-    for request in await requests.for_matter(matter_id):
+    # The whole matter in a handful of queries, never one per row: a
+    # renewal with four letters and twenty asks was walked request by
+    # request, item by item, link by link, and then document by document
+    # for the sources (2026-09-18).
+    letters = await requests.for_matter(matter_id)
+    items_of = await requests.items_of([one.id for one in letters])
+    links_of = await satisfied_by_many(
+        db, [item.id for items in items_of.values() for item in items]
+    )
+    for request in letters:
         # The nearest deadline governs the sheet: a person holding it
         # wants the date they are working to, not a list of them.
         if request.due_on and (due is None or request.due_on < due):
             due = request.due_on
-        for item in await requests.items(request.id):
-            links = await satisfied_by(db, item.id)
+        for item in items_of.get(request.id, []):
+            links = links_of.get(item.id, [])
             state = _state(item.status, bool(links))
             answers.append(
                 {
@@ -79,8 +96,17 @@ async def answer_sheet(db: AsyncSession, matter_id: int) -> dict[str, Any]:
                     "kind": item.kind,
                     "state": state,
                     "as_of": item.as_of,
-                    "value": _figure(item, facts, format_usd, LABELS),
+                    "value": _figure(item, facts, links),
                     "sources": await _sources(db, links),
+                    # What the register says, when nothing proves it yet.
+                    # Offered, never counted: an item with only this
+                    # against it stays missing, because a number our own
+                    # ledger believes is not a number a statement proves.
+                    "unproven": (
+                        await unproven_figures(db, matter_id, item)
+                        if state == MISSING
+                        else []
+                    ),
                     "resolution": item.resolution,
                 }
             )
@@ -94,26 +120,47 @@ async def answer_sheet(db: AsyncSession, matter_id: int) -> dict[str, Any]:
     }
 
 
-def _figure(
-    item: Any, facts: list[Any], money: Any, labels: dict[str, str]
-) -> str | None:
+def _figure(item: Any, facts: list[Any], links: list[Any]) -> str | None:
     """The figure that answers this ask, said the way a form wants it.
 
-    Matched on the ask's own ``ask`` key where it has one, because an
-    item that names an attribute is an item somebody already decided the
-    meaning of. Nothing is guessed from the sentence: a figure put
-    against the wrong question is worse on a form than a blank.
+    A figure prints against an ask only when something TIES the two: it
+    is filed as that ask's evidence, or it was read off the paper that
+    is. The county asked for gross monthly income twice - once for a
+    pension, once for Social Security - and both mean gross_income, so
+    matching on the attribute alone printed the pension's figure against
+    the Social Security ask. A wrong number on a benefits form is worse
+    than the blank it replaced (2026-09-18).
+
+    A figure recorded but filed against nothing prints nowhere. That is
+    not a gap: the ask is still shown as missing, and where the register
+    can speak to it, ``unproven_figures`` says what it says and marks it
+    unverified. Both are better than a number sitting under a question
+    nobody joined it to.
+
+    Two tied figures that say the same thing are one answer; two that
+    disagree are a question for a person, not a number for a form.
     """
+    from app.services.matters.facts import LABELS, said_value
+
     if not item.ask:
         return None
-    for fact in facts:
-        if fact.attribute != item.ask or fact.value_cents is None:
-            continue
-        said = money(fact.value_cents)
-        if fact.period and fact.period != "once":
-            said = f"{said} a {fact.period}"
-        return f"{said} ({labels.get(fact.attribute, fact.attribute)})"
-    return None
+    candidates = [
+        fact
+        for fact in facts
+        if fact.attribute == item.ask and fact.value_cents is not None
+    ]
+    filed = {link.fact_id for link in links if link.fact_id}
+    papers = {link.document_id for link in links if link.document_id}
+    tied = [
+        fact
+        for fact in candidates
+        if fact.id in filed or (fact.document_id and fact.document_id in papers)
+    ]
+    said = {(fact.value_cents, fact.period) for fact in tied}
+    if len(said) != 1:
+        return None
+    value_cents, period = said.pop()
+    return f"{said_value(value_cents, period)} ({LABELS.get(item.ask, item.ask)})"
 
 
 async def _sources(db: AsyncSession, links: list[Any]) -> list[dict[str, Any]]:
@@ -124,20 +171,17 @@ async def _sources(db: AsyncSession, links: list[Any]) -> list[dict[str, Any]]:
     """
     from app.services.documents.service import DocumentService
 
-    documents = DocumentService(db)
-    said: list[dict[str, Any]] = []
-    for one in links:
-        if one.document_id is None:
-            continue
-        document = await documents.get(one.document_id)
-        if document is None:
-            continue
-        said.append(
-            {
-                "document_id": one.document_id,
-                "title": document.title,
-                "page": one.page,
-                "note": one.note,
-            }
-        )
-    return said
+    wanted = [link.document_id for link in links if link.document_id]
+    if not wanted:
+        return []
+    documents = await DocumentService(db).get_many(wanted)
+    return [
+        {
+            "document_id": link.document_id,
+            "title": documents[link.document_id].title,
+            "page": link.page,
+            "note": link.note,
+        }
+        for link in links
+        if link.document_id and link.document_id in documents
+    ]

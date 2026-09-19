@@ -304,6 +304,32 @@ def drawn(
 assert set(PER_MONTH) <= set(FACT_PERIODS)
 
 
+def rate_suffix(period: str | None) -> str:
+    """"a month", or nothing at all when the figure is a one-off.
+
+    The rule lived in three places - here, and twice in the fact row's
+    markup, where a template decided for itself that "once" means no
+    suffix. A phrase computed in Python and again in Jinja is the same
+    bug as one computed in Python and again in JS (2026-09-18).
+    """
+    return "" if not period or period == "once" else f"a {period}"
+
+
+def said_value(value_cents: int | None, period: str = "once", text: str = "") -> str:
+    """A figure the way a person says it: "$50.00 a day".
+
+    One home, because the timeline, the remove dialog and the answer
+    sheet each had their own copy of the period suffix, and three
+    renderings of one number agree by coincidence rather than by
+    construction.
+    """
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+
+    if value_cents is None:
+        return text or ""
+    return " ".join(part for part in (format_usd(value_cents), rate_suffix(period)) if part)
+
+
 def one_line(fact: Fact) -> str:
     """One fact as a single line: what it is, and what it says.
 
@@ -311,16 +337,12 @@ def one_line(fact: Fact) -> str:
     asks before removing one - and a figure that reads two ways is two
     figures to the person deciding which of the duplicates to take off.
     """
-    from app.services.finance.domains.detection.insights.formatting import format_usd
-
     said = drawn(fact)
-    value = (
-        format_usd(fact.value_cents)
-        if fact.value_cents is not None
-        else (fact.text_value or "")
-    )
-    if value and fact.period not in ("once", ""):
-        value = f"{value} a {fact.period}"
     return " · ".join(
-        part for part in (said["label"] or said["attribute_label"], value) if part
+        part
+        for part in (
+            said["label"] or said["attribute_label"],
+            said_value(fact.value_cents, fact.period, fact.text_value or ""),
+        )
+        if part
     )

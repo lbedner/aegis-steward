@@ -9,6 +9,7 @@ from fastapi import APIRouter
 
 from app.components.web_frontend.routes.finance import (
     account_manage,
+    account_naming,
     accounts,
     bills,
     bills_match,
@@ -30,6 +31,7 @@ router = APIRouter()
 router.include_router(overview.router)
 router.include_router(accounts.router)
 router.include_router(account_manage.router)
+router.include_router(account_naming.router)
 router.include_router(cover.router)
 router.include_router(documents.router)
 router.include_router(imports.router)

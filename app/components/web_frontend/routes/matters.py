@@ -29,10 +29,10 @@ from app.components.web_frontend.routes.matter_papers import matter_papers
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.answers import answer_sheet
+from app.services.matters.drawing import drawn as drawn_request
 from app.services.matters.matters import MatterService, summarised
 from app.services.matters.models import PARTICIPANT_ROLES
 from app.services.matters.requests import RequestService
-from app.services.matters.requests import drawn as drawn_request
 from app.services.matters.service import PartyService, party_or_new
 
 SECTION = section("matters")

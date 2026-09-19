@@ -185,3 +185,14 @@
 </p>
 {% endfor %}
 {% endmacro %}
+
+
+{# Whose money an account holds, asked the same way wherever it is asked:
+   when the account is created, and afterwards from its naming dialog.
+   Blank is the household's own - and it is a real answer, not a missing
+   one, which is why it is the blank LABEL rather than an empty option
+   nobody would pick on purpose. #}
+{% macro whose_field(people, whose=None) %}
+{% from "components/macros/form.html" import field, pick_or_add %}
+{% call field("Whose money") %}{{ pick_or_add("whose", people, whose, blank="Ours", new_field="new_whose", hint="or name whose it is") }}{% endcall %}
+{% endmacro %}

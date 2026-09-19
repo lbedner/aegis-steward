@@ -1129,6 +1129,79 @@ def test_every_dialog_on_a_matter_renders(client: TestClient) -> None:
         none(answer.text, "html")
 
 
+class TestWhatWouldSatisfyAnAsk:
+    """``ask`` is the attribute a figure has to carry to answer this
+    item, and the ONLY thing that reads it compares it to
+    ``fact.attribute``. Both dialogs offered a free text box whose
+    placeholder taught "fact:gross_income", which matches nothing - so
+    the field that decides whether a recorded figure ever meets an ask
+    could be filled in correctly and still do nothing (2026-09-18)."""
+
+    def test_it_is_picked_from_the_attributes_a_fact_can_carry(
+        self, client: TestClient
+    ) -> None:
+        from app.services.matters.models import FACT_ATTRIBUTES
+
+        page = _matter(client, "MA-ASK-1")
+        client.post(
+            page + "/requests/new",
+            data={
+                "asked": "Proof of gross monthly income",
+                "due_on": "",
+                "received_on": "",
+                "requester_party_id": "",
+                "new_requester": "",
+            },
+        )
+        item_id = one(client.get(page).text, "#matter-requests [data-item]").get(
+            "data-item"
+        )
+
+        form = client.get(f"/matters/requests/items/{item_id}/edit").text
+        offered = {
+            el.get("value") for el in select(form, 'select[name="ask"] option')
+        }
+        assert offered == {""} | {key for key, _label in FACT_ATTRIBUTES}
+
+    def test_what_it_saves_is_spelled_the_way_a_fact_spells_it(
+        self, client: TestClient
+    ) -> None:
+        """The saved value has to BE an attribute key, because that is
+        what it is compared against. It comes back selected, so the next
+        reader sees what this ask is taken to mean."""
+        page = _matter(client, "MA-ASK-2")
+        client.post(
+            page + "/requests/new",
+            data={
+                "asked": "Proof of gross monthly income",
+                "due_on": "",
+                "received_on": "",
+                "requester_party_id": "",
+                "new_requester": "",
+            },
+        )
+        item_id = one(client.get(page).text, "#matter-requests [data-item]").get(
+            "data-item"
+        )
+        client.post(
+            f"/matters/requests/items/{item_id}/edit",
+            data={
+                "asked": "Proof of gross monthly income",
+                "kind": "figure",
+                "ask": "gross_income",
+                "as_of": "",
+            },
+        )
+
+        form = client.get(f"/matters/requests/items/{item_id}/edit").text
+        chosen = [
+            el.get("value")
+            for el in select(form, 'select[name="ask"] option')
+            if el.get("selected") is not None
+        ]
+        assert chosen == ["gross_income"]
+
+
 class TestTheVerbsOnAnAsk:
     """Two rows: what you do to the ask, and what you mark it as. The
     words come from one place, and they are the generic ones."""

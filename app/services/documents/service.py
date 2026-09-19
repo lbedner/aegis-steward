@@ -142,6 +142,14 @@ class DocumentService:
             self.db, document_id, owner_user_id=owner_user_id
         )
 
+    async def get_many(
+        self, document_ids: list[int], *, owner_user_id: int | None = None
+    ) -> dict[int, Document]:
+        """Several documents by id, keyed by id - one query, not one each."""
+        return await queries.documents_by_ids(
+            self.db, document_ids, owner_user_id=owner_user_id
+        )
+
     async def content(
         self, document_id: int, *, owner_user_id: int | None = None
     ) -> bytes | None:

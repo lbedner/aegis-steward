@@ -11,7 +11,7 @@
 <form {{ hx_dialog_post(post) }} class="space-y-4">
   {% call field("The sentence") %}{{ textarea("asked", typed.asked, rows=3) }}{% endcall %}
   {% call field("What kind of work") %}{{ select("kind", kinds|as_options, typed.kind or "document", blank=None, block=True) }}{% endcall %}
-  {% call field("What would satisfy it") %}{{ text_input("ask", typed.ask, placeholder="document:poa, fact:gross_income") }}{% endcall %}
+  {% call field("What would satisfy it") %}{{ select("ask", fact_attributes()|as_options, typed.ask, blank="Nothing in particular", block=True) }}{% endcall %}
   {% call field("As of") %}{{ date_input("as_of", typed.as_of, block=True) }}{% endcall %}
   {% call field("Instead of") %}{{ select("alternative_to", siblings, none, blank="A separate ask of its own", block=True) }}{% endcall %}
   {{ primary_button("Add", type="submit") }}
