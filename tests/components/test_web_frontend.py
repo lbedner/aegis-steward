@@ -35,9 +35,39 @@ class TestStaticUrl:
     def test_falls_back_to_source_path_without_manifest(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """Dev renders with no build step, so a missing manifest is normal."""
+        """Dev renders with no build step, so a missing manifest is normal.
+
+        The source path, plus the stamp that makes an edit reach the
+        browser before its hour of cache is up."""
         monkeypatch.setattr(web_assets, "MANIFEST_PATH", tmp_path / "absent.json")
-        assert web_assets.static_url("css/app.css") == "/static/css/app.css"
+        assert web_assets.static_url("css/app.css").startswith("/static/css/app.css")
+
+    def test_the_unbuilt_path_changes_when_the_file_does(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Dev has no manifest, and /static is cached for an hour, so an
+        edited app.js kept serving the old one until the hour was up or
+        somebody thought to hard-reload. A stamp off the file's own mtime
+        is what makes a reload pick the edit up (2026-09-18)."""
+        monkeypatch.setattr(web_assets, "MANIFEST_PATH", tmp_path / "absent.json")
+        asset = tmp_path / "app.js"
+        asset.write_text("one")
+        monkeypatch.setattr(web_assets, "STATIC_DIR", tmp_path)
+
+        first = web_assets.static_url("app.js")
+        assert first.startswith("/static/app.js?v=")
+
+        import os
+
+        os.utime(asset, (asset.stat().st_atime, asset.stat().st_mtime + 10))
+        assert web_assets.static_url("app.js") != first
+
+    def test_a_missing_source_file_still_renders(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(web_assets, "MANIFEST_PATH", tmp_path / "absent.json")
+        monkeypatch.setattr(web_assets, "STATIC_DIR", tmp_path)
+        assert web_assets.static_url("nope.js") == "/static/nope.js"
 
     def test_resolves_hashed_path_from_manifest(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -64,7 +94,7 @@ class TestStaticUrl:
         manifest = tmp_path / "manifest.json"
         manifest.write_text("{not json")
         monkeypatch.setattr(web_assets, "MANIFEST_PATH", manifest)
-        assert web_assets.static_url("css/app.css") == "/static/css/app.css"
+        assert web_assets.static_url("css/app.css").startswith("/static/css/app.css")
 
     def test_rebuilt_manifest_is_picked_up(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -281,8 +311,30 @@ class TestBaseLayout:
 
     def test_app_js_is_loaded(self, page: str) -> None:
         """Either the source path or, once a build has run, its
-        fingerprinted twin - the test must not depend on a stale dist/."""
-        assert re.search(r'src="/static/(dist/)?js/app(-[0-9a-f]{8})?\.js"', page)
+        fingerprinted twin - the test must not depend on a stale dist/.
+
+        The unbuilt form carries a ``?v=`` mtime stamp, which is what
+        makes an edited asset reach a browser holding an hour of cache.
+        A checkout with a dist/ never renders that branch, so this only
+        ever failed on CI (2026-09-18).
+        """
+        assert re.search(
+            r'src="/static/(dist/)?js/app(-[0-9a-f]{8})?\.js(\?v=\d+)?"', page
+        )
+
+    def test_the_shell_renders_with_no_build(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A checkout with a dist/ never renders the unbuilt branch, so
+        CI was the only place that ran it - and CI is where the ?v=
+        stamp broke the assertion above. This runs it everywhere."""
+        from app.integrations.main import create_integrated_app
+
+        monkeypatch.setattr(web_assets, "MANIFEST_PATH", tmp_path / "absent.json")
+        with TestClient(create_integrated_app()) as client:
+            page = client.get("/overview").text
+        assert re.search(r'src="/static/js/app\.js\?v=\d+"', page)
+        assert re.search(r'href="/static/css/app\.css\?v=\d+"', page)
 
     def test_favicon_is_served(self) -> None:
         from app.integrations.main import create_integrated_app

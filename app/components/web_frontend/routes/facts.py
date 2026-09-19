@@ -25,7 +25,7 @@ from app.components.web_frontend.rendering import (
 )
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
-from app.services.matters.facts import FactService, drawn, place_book
+from app.services.matters.facts import FactService, drawn, one_line, place_book
 from app.services.matters.matters import MatterService
 from app.services.matters.models import (
     FACT_ATTRIBUTES,
@@ -33,6 +33,7 @@ from app.services.matters.models import (
     FACT_PROVENANCE,
 )
 from app.services.matters.service import PartyService, party_or_new
+from app.services.matters.words import word
 
 SECTION = section("matters")
 router = APIRouter(prefix=SECTION.path)
@@ -225,6 +226,23 @@ async def verify(request: Request, fact_id: int) -> Response:
     return dialog_done(
         where_from(request, f"{SECTION.path}/{matter_id or ''}"),
         "Verified" if not fact.verified else "Unverified",
+    )
+
+
+@router.get(FACT + "/forget", include_in_schema=False)
+async def forget_confirm(request: Request, fact_id: int) -> Response:
+    """Ask first. There is no undo, and the row beside it looks identical
+    when the duplicate is what you came to remove."""
+    async with get_async_session() as db:
+        fact = or_404(await FactService(db).get(fact_id))
+        said = one_line(fact)
+    return dialog(
+        request,
+        "partials/matters/forget.html",
+        title=f"Remove this {word('fact')}?",
+        body=said,
+        url=f"{SECTION.path}{FACT.split('{')[0]}{fact_id}/forget",
+        method="post",
     )
 
 

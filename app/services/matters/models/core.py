@@ -380,3 +380,53 @@ class SignIn(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     deleted_at: datetime | None = Field(default=None)
+
+
+# What a matter does that leaves no paper. Four kinds and not a
+# workflow: a call, something posted, somebody visited, and a note for
+# the rest. A fixed list because these are TYPED by a person in a hurry
+# and a free-text kind is a column that reads "phone", "Phone call",
+# "called" and sorts as three things.
+MATTER_EVENT_KINDS = ("call", "mailed", "visit", "note")
+
+
+class MatterEvent(SQLModel, table=True):
+    """Something that happened on a case and left nothing behind.
+
+    The rest of a matter's story is already dated rows - a request came
+    in, a figure is as of a date, a paper answered an ask - and the
+    timeline is derived from those so it can never disagree with them.
+    This table is only the part nothing else records: "called DSS,
+    confirmed receipt", "mailed the POA". Three years on, that sequence
+    is the difference between a case and a pile of paper (ST-10).
+
+    Documents do NOT attach to events and events do not own documents.
+    Both attach to the matter; the timeline is the join, not a
+    container. ``document_id`` and ``party_id`` are here to say what a
+    call was ABOUT and who it was WITH, which is a different claim.
+
+    Deleted for real rather than marked deleted: nothing points at an
+    event, and a line somebody typed by mistake should leave.
+    """
+
+    __tablename__ = "matter_event"
+    __table_args__ = (
+        CheckConstraint(one_of("kind", MATTER_EVENT_KINDS), name="ck_matter_event_kind"),
+        Index("ix_matter_event_matter", "matter_id"),
+        Index("ix_matter_event_occurred", "occurred_at"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None)
+    matter_id: int = Field()
+
+    # The day it happened, not the day it was typed: somebody enters
+    # Tuesday's call on Friday, and Friday is not where it belongs.
+    occurred_at: date = Field()
+    kind: str = Field(default="note", max_length=16)
+    summary: str = Field()
+
+    document_id: int | None = Field(default=None)
+    party_id: int | None = Field(default=None)
+
+    created_at: datetime = Field(default_factory=utcnow)

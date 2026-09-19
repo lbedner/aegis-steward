@@ -424,6 +424,70 @@ class TestWhatWeCanSay:
             "$2,180.40",
         }
 
+    def test_a_figure_can_be_taken_off_again(self, client: TestClient) -> None:
+        """``FactService.forget`` and its route shipped with ST-06 and
+        nothing on the page ever called them, so a figure recorded by
+        mistake - or the second of two identical ones - stood forever.
+        A record you can fill and cannot empty accumulates every mistake
+        ever made in it."""
+        page = _matter(client, "MA-FACT-4")
+        subject = self._party(client, "Fact Subject Four")
+        client.post(
+            page + "/facts/new",
+            data={
+                "subject_party_id": subject,
+                "attribute": "gross_income",
+                "label": "Typed twice",
+                "amount": "2178.94",
+                "period": "month",
+                "provenance": "stated",
+            },
+        )
+        row = one(client.get(page).text, "#matter-facts [data-fact]")
+
+        # The control asks first: there is no undo, and the row beside it
+        # looks identical when the duplicate is what you are removing.
+        asked = client.get(one(row, "[data-forget]").get("hx-get"))
+        assert asked.status_code == 200
+        assert "Typed twice" in asked.text
+        # In the app's own word for the thing. It said "figure", which is
+        # what a fact CARRIES, on the page that calls them facts.
+        from app.services.matters.words import word
+
+        assert word("fact") in text(one(asked.text, "h2, h3, [data-dialog-title]"))
+        # And it asks in a column: a question with six words in it drawn
+        # across a 4xl dialog is a line the eye has to travel.
+        one(asked.text, "[data-narrow]")
+
+        gone = client.post(one(asked.text, "[hx-post]").get("hx-post"))
+        assert gone.status_code == 200
+        assert select(client.get(page).text, "#matter-facts [data-fact]") == []
+
+    def test_a_reading_can_be_marked_as_checked(self, client: TestClient) -> None:
+        """A citation proves where text came from, not that the reading
+        was right. The dot that says somebody went and looked had no
+        control to turn it on."""
+        page = _matter(client, "MA-FACT-5")
+        subject = self._party(client, "Fact Subject Five")
+        client.post(
+            page + "/facts/new",
+            data={
+                "subject_party_id": subject,
+                "attribute": "gross_income",
+                "label": "Checked by hand",
+                "amount": "100.00",
+                "period": "month",
+                "provenance": "stated",
+            },
+        )
+        row = one(client.get(page).text, "#matter-facts [data-fact]")
+        assert text(one(row, "[data-verify]")) == "Checked"
+
+        client.post(one(row, "[data-verify]").get("hx-post"))
+
+        after = one(client.get(page).text, "#matter-facts [data-fact]")
+        assert text(one(after, "[data-verify]")) == "Uncheck"
+
     def test_a_fact_with_nothing_in_it_is_refused(self, client: TestClient) -> None:
         page = _matter(client, "MA-FACT-3")
         subject = self._party(client, "Fact Subject Three")

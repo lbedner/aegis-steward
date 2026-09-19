@@ -19,7 +19,7 @@ from app.services.finance.domains.writes import (
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
 from app.services.insurance import changes as insurance
 from app.services.matters import changes as matters
-from app.services.matters import contacts
+from app.services.matters import contacts, timeline
 
 register(
     ChangeExecutor(
@@ -167,6 +167,18 @@ register(
         payload_model=matters.AttachAskPayload,
         execute=matters.attach_ask_execute,
         describe=matters.attach_ask_describe,
+    )
+)
+# The part of a case's story that leaves no paper. She hears it rather
+# than reads it - "I called DSS this morning" - and without this the
+# telling goes nowhere and the timeline has a hole where the call was.
+register(
+    ChangeExecutor(
+        change_type="matter.event",
+        title="Record what happened",
+        payload_model=timeline.RecordEventPayload,
+        execute=timeline.record_event_execute,
+        describe=timeline.record_event_describe,
     )
 )
 register(

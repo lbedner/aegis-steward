@@ -131,6 +131,17 @@ you remember; read the page first.
 - `ask.add` - payload {"request_id": int (requests()), "asked", "kind", \
 optional "as_of", "reason"}: an ask the letter makes that the record is \
 missing. One card per ask.
+- `matter.event` - payload {"matter_id": int, "occurred_at": \
+"YYYY-MM-DD", "kind": call/mailed/visit/note, "summary", optional \
+"party_id" (parties()), "document_id"}: what happened on a case that \
+left NO paper - a phone call, a packet posted, an office visit. The \
+rest of a matter's timeline is derived from rows that already exist, so \
+this is the only part of the story with nowhere else to live, and being \
+told it is the only way it ever gets recorded. "occurred_at" is the day \
+it HAPPENED, never today: somebody tells you on Friday about Tuesday's \
+call, and filing it under Friday puts the story out of order. Do not \
+propose one for something that already has a row - a letter that \
+arrived is a document, an ask is an ask, a figure is a fact.
 - `contact.create` - payload {"name", "kind" (person/organization), \
 optional "address", "phone", "email", "website", "also" (a list of \
 {"label", "value"}), "note"}: a person or an organization not yet in \

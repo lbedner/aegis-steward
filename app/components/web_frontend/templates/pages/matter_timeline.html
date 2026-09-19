@@ -1,0 +1,57 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import LINK, badge %}
+{% from "components/macros/feedback.html" import empty_state %}
+{% from "components/macros/matters.html" import matter_header %}
+
+{% block title %}Timeline - {{ matter.title }} - {{ project_name }}{% endblock %}
+
+{# The case as a sequence. Three years from now the papers will still be
+   there and the story will not: "Aug 27 the county asked, Sep 1 the POA
+   was executed, Sep 1 the packet went out."
+
+   Every line here except an event is DERIVED from a dated row some other
+   page owns, so this page can never disagree with them - and nothing on
+   it is editable for the same reason. The one thing it adds is the part
+   that leaves no paper. #}
+{% block app_content %}
+<section id="timeline" class="space-y-6">
+
+  {% call matter_header(matter, section, path) %}
+  <button type="button" {{ hx_dialog(path ~ "/" ~ matter_id ~ "/events/new") }} data-add-event
+          class="text-xs {{ LINK }}">Add what happened</button>
+  {% endcall %}
+
+  {% include "components/sub_nav.html" %}
+
+  <ol class="space-y-3">
+    {% for moment in moments %}
+    <li data-moment data-kind="{{ moment.kind }}"
+        {% if moment.event_id %}data-event="{{ moment.event_id }}"{% endif %}
+        {% if moment.request_id %}data-request="{{ moment.request_id }}"{% endif %}
+        {% if moment.item_id %}data-item="{{ moment.item_id }}"{% endif %}
+        {% if moment.fact_id %}data-fact="{{ moment.fact_id }}"{% endif %}
+        {% if moment.document_id %}data-document="{{ moment.document_id }}"{% endif %}
+        class="flex items-baseline gap-3 text-sm">
+      {#- The date leads, because the question this page answers is
+          "when", and a date in the middle of a sentence is a date
+          somebody has to hunt for down the column. -#}
+      <span class="w-24 shrink-0 text-xs text-aegis-muted tabular-nums" data-on>{{ moment.on|short_date }}</span>
+      <span class="w-20 shrink-0">{{ badge(moment.kind, moment.kind|moment_tone) }}</span>
+      <span class="min-w-0 text-aegis-text" data-what>
+        {% if moment.url %}<a href="{{ moment.url }}" {{ hx_page(moment.url) }}
+           class="{{ LINK }}">{{ moment.what }}</a>
+        {% else %}{{ moment.what }}{% endif %}
+      </span>
+      {% if moment.event_id %}
+      <button type="button" data-forget
+              {{ hx_dialog(path ~ "/" ~ matter_id ~ "/events/" ~ moment.event_id ~ "/forget") }}
+              class="ml-auto shrink-0 text-xs text-aegis-muted hover:text-error transition-colors">Remove</button>
+      {% endif %}
+    </li>
+    {% endfor %}
+    {% if not moments %}
+    <li>{{ empty_state("Nothing dated yet", "A case starts a story the day it opens.") }}</li>
+    {% endif %}
+  </ol>
+</section>
+{% endblock %}

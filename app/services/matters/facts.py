@@ -302,3 +302,25 @@ def drawn(
 
 
 assert set(PER_MONTH) <= set(FACT_PERIODS)
+
+
+def one_line(fact: Fact) -> str:
+    """One fact as a single line: what it is, and what it says.
+
+    The timeline draws a figure this way and so does the dialog that
+    asks before removing one - and a figure that reads two ways is two
+    figures to the person deciding which of the duplicates to take off.
+    """
+    from app.services.finance.domains.detection.insights.formatting import format_usd
+
+    said = drawn(fact)
+    value = (
+        format_usd(fact.value_cents)
+        if fact.value_cents is not None
+        else (fact.text_value or "")
+    )
+    if value and fact.period not in ("once", ""):
+        value = f"{value} a {fact.period}"
+    return " · ".join(
+        part for part in (said["label"] or said["attribute_label"], value) if part
+    )

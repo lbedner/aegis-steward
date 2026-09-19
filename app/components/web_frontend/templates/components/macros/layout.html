@@ -12,6 +12,13 @@
    value, a dot or a cell is coloured by what it means. #}
 {% set TONE_TEXT = {"ok": "text-aegis-teal", "warn": "text-aegis-amber", "error": "text-error", "muted": "text-aegis-muted", "accent": "text-aegis-accent"} %}
 
+{# What a link to somewhere else in the app LOOKS like. Teal, because
+   that is what every other door in this app is, and a door drawn in the
+   text colour is a door nobody knows is there - the timeline's rows
+   were clickable for a day before anybody found out. One string, so the
+   next door cannot be drawn slightly differently. #}
+{% set LINK = "text-aegis-teal hover:underline transition-colors" %}
+
 {# The app's mark and its name, the lockup Pulse carries in the same
    place: the glyph in brand teal, the name in the text colour so it
    holds in both modes.
@@ -317,7 +324,7 @@
    named draws it through this, so a name is never plain text in one
    card and a dialog in another. #}
 {% macro contact_link(party_id, name) -%}
-<a href="/contacts/{{ party_id }}" {{ hx_page("/contacts/" ~ party_id) }} class="text-aegis-teal hover:underline transition-colors" data-contact="{{ party_id }}">{{ name }}</a>
+<a href="/contacts/{{ party_id }}" {{ hx_page("/contacts/" ~ party_id) }} class="{{ LINK }}" data-contact="{{ party_id }}">{{ name }}</a>
 {%- endmacro %}
 
 {# Several places, each a door, read as a list: "Filed under NYSLRS, Renewal".
@@ -328,7 +335,7 @@
 {% set folded = show is not none and places|length > show %}
 <span {% if folded %}x-data="{ all: false }"{% endif %} class="inline-flex flex-wrap items-baseline gap-x-1">
 {%- for place in places -%}
-<span {% if folded and loop.index > show %}x-show="all" x-cloak{% endif %}><a href="{{ place.url }}" {{ hx_page(place.url) }} class="text-aegis-teal hover:underline transition-colors">{{ place.label }}</a>{% if not loop.last %}, {% endif %}</span>
+<span {% if folded and loop.index > show %}x-show="all" x-cloak{% endif %}><a href="{{ place.url }}" {{ hx_page(place.url) }} class="{{ LINK }}">{{ place.label }}</a>{% if not loop.last %}, {% endif %}</span>
 {%- endfor -%}
 {%- if folded %}<button type="button" x-show="!all" @click="all = true" class="text-xs text-aegis-muted hover:text-aegis-text whitespace-nowrap" data-more>+{{ places|length - show }} more</button>{% endif -%}
 </span>
@@ -413,10 +420,16 @@
    action's response closes the dialog and navigates or swaps as it sees
    fit; nothing swaps here (hx-swap="none"). #}
 {% macro confirm(title, body, url, label="Remove", method="delete") %}
+{#- ``data-narrow`` because a confirmation is always a question and two
+    buttons. The dialog sizes itself from its BODY, and without the mark
+    a six-word question was drawn across the full 4xl - a line the eye
+    has to travel to read "Remove this?". -#}
+<div data-narrow>
 {{ dialog_title(title, body) }}
 <div class="flex items-center gap-3">
   <button type="button" {% if method == "delete" %}hx-delete="{{ url }}"{% else %}hx-post="{{ url }}"{% endif %} hx-swap="none"
           class="px-4 py-2 rounded text-sm border border-aegis-error/40 text-error hover:border-aegis-error transition-colors">{{ label }}</button>
   <button type="button" @click="$el.closest('dialog').close()" class="text-xs text-aegis-muted hover:text-aegis-text">Cancel</button>
+</div>
 </div>
 {% endmacro %}

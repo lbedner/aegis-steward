@@ -120,3 +120,29 @@ def item_kind(kind: str) -> str:
 
 def item_verb(status: str) -> str:
     return ITEM_VERBS.get(status, item_status(status))
+
+
+# What a moment on a matter's timeline MEANS, in the app's five tones.
+# One rule rather than a colour per kind: AMBER is what can still bite
+# you, TEAL is what we settled or did, ACCENT is what arrived from
+# outside, and the case's own opening and closing stay quiet. A page
+# where everything is coloured is a page where nothing is.
+MOMENT_TONES = {
+    "due": "warn",
+    "answered": "ok",
+    "call": "ok",
+    "mailed": "ok",
+    "visit": "ok",
+    "note": "ok",
+    "asked": "accent",
+    "paper": "accent",
+    "figure": "accent",
+    "opened": "muted",
+    "closed": "muted",
+}
+
+
+def moment_tone(kind: str) -> str:
+    """The tone a timeline moment wears. Unknown kinds stay quiet rather
+    than picking a colour that would mean something it does not."""
+    return MOMENT_TONES.get(kind, "muted")

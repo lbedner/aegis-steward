@@ -116,3 +116,4 @@ for (const type of ['focusin', 'pointerdown']) {
     fillOptions(event.target.closest?.('select[data-options]'));
   });
 }
+
