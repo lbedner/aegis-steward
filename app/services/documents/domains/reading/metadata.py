@@ -38,6 +38,12 @@ _LABEL = re.compile(r"\b(" + "|".join(DATE_LABELS) + r")\b\s*:?", re.I)
 # A heading that names the kind. Only the kinds a heading can be trusted
 # to mean: "other" is never proposed, because it is the default already
 # and a card that changes nothing wastes a decision.
+#
+# The words come off real paper. Four documents sat unnamed on the shelf
+# saying "Application", "Welcome to Delta Dental" and "Combined Contract
+# and Disclosure Form" in their first line - unread because this
+# vocabulary knew two kinds out of seven, not because the paper was
+# silent (2026-09-19).
 KIND_MARKERS: tuple[tuple[str, str], ...] = (
     ("statement", "statement"),
     ("explanation of benefits", "statement"),
@@ -45,7 +51,22 @@ KIND_MARKERS: tuple[tuple[str, str], ...] = (
     ("amortization schedule", "schedule"),
     ("payment schedule", "schedule"),
     ("payment plan", "schedule"),
+    ("application", "form"),
+    ("enrollment form", "form"),
+    ("disclosure form", "form"),
+    ("claim form", "form"),
+    # What somebody writes TO you when you join: prose with a greeting,
+    # which is a letter however the sender brands it.
+    ("welcome to", "letter"),
 )
+
+# How much a heading may say BESIDES the kind. "Combined Contract and
+# Disclosure Form" is a heading; "Did you know this statement is
+# available electronically" is marketing prose that happens to contain
+# the word - and it filed a Delta Dental claim statement correctly by
+# luck, which is the failure this surface exists to avoid. A heading IS
+# the kind; a sentence only mentions it.
+HEADING_EXTRA_WORDS = 3
 _MARKER = re.compile(
     r"\b(" + "|".join(re.escape(m) for m, _ in KIND_MARKERS) + r")\b", re.I
 )
@@ -85,9 +106,23 @@ def _kind(lines: list[tuple[int, str]]) -> Finding | None:
         if len(line) <= HEADING_CHARS and not has_date(line):
             if marker := _MARKER.search(line):
                 said = marker.group(1).lower()
-                kind = next(k for m, k in KIND_MARKERS if m == said)
-                return Finding("kind", kind, page, line)
+                if _mostly(line, said):
+                    kind = next(k for m, k in KIND_MARKERS if m == said)
+                    return Finding("kind", kind, page, line)
     return None
+
+
+def _mostly(line: str, marker: str) -> bool:
+    """True when the line IS the kind rather than mentioning it.
+
+    Measured in words left over once the marker is taken out, because
+    that is the difference a reader sees: a heading carries a qualifier
+    or two, a sentence carries a subject, a verb and an object.
+    """
+    rest = re.sub(re.escape(marker), " ", line, flags=re.I)
+    return len([word for word in rest.split() if word.strip(":-·|")]) <= (
+        HEADING_EXTRA_WORDS
+    )
 
 
 def read_document(pages: Iterable[Page]) -> list[Finding]:

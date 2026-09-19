@@ -39,6 +39,15 @@ class ChangeDisplayRow(BaseModel):
     label: str
     value: str
     amount: int | None = None
+    # The page this row was READ OFF, when it was read off one. A card
+    # that says "page 2" asks somebody to trust a reading they cannot
+    # see, and the moment they are deciding is the one moment they could
+    # check it - so the card draws the page beside the claim
+    # (2026-09-18). Ids rather than a URL: these rows are frozen into
+    # the audit column as plain JSON, and a route that moves would
+    # rewrite history.
+    document_id: int | None = None
+    page: int | None = None
     # ISO, not a date: these rows are frozen into the audit column as
     # plain JSON when a change resolves, and ISO sorts the way a date
     # does anyway.

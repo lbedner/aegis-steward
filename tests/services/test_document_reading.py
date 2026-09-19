@@ -91,10 +91,41 @@ class TestWhatKindOfPaperItIs:
             f for f in read_document(_pages("Page 1 of 1")) if f.field == "kind"
         ] == []
 
+    def test_a_heading_says_the_kind_and_a_sentence_only_mentions_it(
+        self,
+    ) -> None:
+        """Live: a Delta Dental claim statement was filed as a statement
+        on the strength of "Did you know this statement is available
+        electronically" - marketing prose, not a heading. The reading was
+        right by luck, and a citation that proves nothing is the failure
+        this whole surface exists to avoid (2026-09-19).
+        """
+        prose = "Did you know this statement is available electronically"
+        assert [f for f in read_document(_pages(prose)) if f.field == "kind"] == []
+
+        heading = "Claim Statement"
+        found = {f.field: f for f in read_document(_pages(heading))}
+        assert found["kind"].value == "statement"
+
+    def test_the_papers_that_name_themselves(self) -> None:
+        """Three of the four unnamed documents on the real shelf say what
+        they are in their first line. They were unread because the
+        vocabulary knew two kinds out of seven, not because the paper was
+        silent."""
+        for heading, kind in (
+            ("Application", "form"),
+            ("Combined Contract and Disclosure Form", "form"),
+            ("Welcome to Delta Dental", "letter"),
+            ("Explanation of Benefits", "statement"),
+        ):
+            found = {f.field: f for f in read_document(_pages(heading))}
+            assert found["kind"].value == kind, heading
+            assert found["kind"].because == heading
+
     def test_every_kind_read_is_one_the_shelf_allows(self) -> None:
         from app.services.documents.models import DOCUMENT_KINDS
 
-        for text in (NYSLRS, MORTGAGE, LETTER):
+        for text in (NYSLRS, MORTGAGE, LETTER, "Application", "Welcome to Us"):
             for finding in read_document(_pages(text)):
                 if finding.field == "kind":
                     assert finding.value in DOCUMENT_KINDS

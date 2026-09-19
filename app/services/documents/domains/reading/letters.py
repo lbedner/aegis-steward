@@ -15,11 +15,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-import re
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.services.documents.domains.reading.findings import Page
+from app.services.documents.domains.reading.findings import Page, flat
 from app.services.matters.changes import ITEM_KIND_KEYS
 
 SURFACE = "documents:read-letter"
@@ -88,12 +87,6 @@ class LetterReading(BaseModel):
     )
 
 
-def _flat(text: str) -> str:
-    """Text with its whitespace collapsed and its case dropped, so a
-    quote is compared by what it SAYS rather than how it wrapped."""
-    return re.sub(r"\s+", " ", text).strip().casefold()
-
-
 @dataclass(frozen=True)
 class Checked:
     """What survived checking, and how much did not.
@@ -120,14 +113,14 @@ def checked(reading: LetterReading, pages: list[Page]) -> Checked | None:
     reading whose every item failed, are the same answer - propose
     nothing and let somebody read the page.
     """
-    said = {page["page"]: _flat(page["text"] or "") for page in pages}
+    said = {page["page"]: flat(page["text"] or "") for page in pages}
     kept: list[ReadItem] = []
     seen: set[str] = set()
     dropped = 0
     for item in reading.items:
         asked = " ".join(item.asked.split())
-        quote = _flat(item.quote)
-        if _flat(asked) in seen:
+        quote = flat(item.quote)
+        if flat(asked) in seen:
             continue
         if not asked or not quote:
             dropped += 1
@@ -138,7 +131,7 @@ def checked(reading: LetterReading, pages: list[Page]) -> Checked | None:
         if quote not in said.get(item.page, ""):
             dropped += 1
             continue
-        seen.add(_flat(asked))
+        seen.add(flat(asked))
         kept.append(
             item.model_copy(
                 update={

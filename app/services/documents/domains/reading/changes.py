@@ -153,6 +153,8 @@ async def metadata_describe(
         ChangeDisplayRow(
             label=labels[name],
             value=f"{getattr(document, name) or '-'} → {read.value} · {read.cited()}",
+            document_id=payload.document_id,
+            page=read.page,
         )
         for name, read in payload.fields().items()
     )
@@ -161,7 +163,10 @@ async def metadata_describe(
     if (party := await _sender(db, payload)) is not None:
         rows.append(
             ChangeDisplayRow(
-                label="From", value=f"{party.name} · {payload.sender.cited()}"
+                label="From",
+                value=f"{party.name} · {payload.sender.cited()}",
+                document_id=payload.document_id,
+                page=payload.sender.page,
             )
         )
     return rows
@@ -250,9 +255,15 @@ async def request_describe(
     for label, when in (("Received", payload.received_on), ("Due", payload.due_on)):
         if when:
             rows.append(ChangeDisplayRow(label=label, value=when.isoformat()))
+    # Each demand cites its own page, and the card draws the FIRST of
+    # them: a letter's demands are usually on one page, and a card that
+    # draws five pages is a card nobody scrolls to the verbs of.
     rows.extend(
         ChangeDisplayRow(
-            label=item_kind(ask.kind), value=f"{ask.asked} · {ask.cited()}"
+            label=item_kind(ask.kind),
+            value=f"{ask.asked} · {ask.cited()}",
+            document_id=payload.document_id,
+            page=ask.page,
         )
         for ask in payload.items
     )
@@ -340,5 +351,11 @@ async def evidence_describe(
     return [
         ChangeDisplayRow(label="Document", value=document.title),
         ChangeDisplayRow(label="Answers", value=item.asked),
-        ChangeDisplayRow(label="Because", value=payload.cited()),
+        # The page itself, beside the line it is quoted from.
+        ChangeDisplayRow(
+            label="Because",
+            value=payload.cited(),
+            document_id=payload.document_id,
+            page=payload.page,
+        ),
     ]
