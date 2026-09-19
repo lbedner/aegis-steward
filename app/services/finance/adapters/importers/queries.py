@@ -11,6 +11,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
+from app.services.finance.adapters.importers.base import DeletedLaneRow, LaneRow
 from app.services.finance.models import (
     FinanceAccount,
     FinanceImportBatch,
@@ -68,41 +69,54 @@ async def account_ref(db: AsyncSession, account_id: int) -> FinanceAccount | Non
     return await db.get(FinanceAccount, account_id)
 
 
-async def live_transactions_for_accounts(
+async def live_transaction_lane_rows(
     db: AsyncSession, account_ids: list[int] | set[int]
-) -> list[FinanceTransaction]:
-    """Every live row on the touched accounts - the dedup-lane preload."""
+) -> list[LaneRow]:
+    """Every live row on the touched accounts, as lane keys.
+
+    Columns, not entities. This is the preload that grows with the
+    LEDGER rather than the file, so it is the one read in the pipeline
+    that must never hydrate: see ``LaneRow``.
+    """
     if not account_ids:
         return []
-    return list(
-        (
-            await db.exec(
-                select(FinanceTransaction).where(
-                    FinanceTransaction.account_id.in_(account_ids),
-                    FinanceTransaction.deleted_at.is_(None),
-                )
-            )
-        ).all()
+    rows = await db.exec(
+        select(
+            FinanceTransaction.id,
+            FinanceTransaction.account_id,
+            FinanceTransaction.source,
+            FinanceTransaction.external_id,
+            FinanceTransaction.external_id_source,
+            FinanceTransaction.import_hash,
+            FinanceTransaction.date_,
+            FinanceTransaction.amount,
+        ).where(
+            FinanceTransaction.account_id.in_(account_ids),
+            FinanceTransaction.deleted_at.is_(None),
+        )
     )
+    return [LaneRow(*row) for row in rows.all()]
 
 
-async def deleted_transactions_for_accounts(
+async def deleted_transaction_lane_rows(
     db: AsyncSession, account_ids: list[int] | set[int]
-) -> list[FinanceTransaction]:
+) -> list[DeletedLaneRow]:
     """Soft-deleted rows on the touched accounts - their lane keys refuse
-    resurrection on re-import."""
+    resurrection on re-import. Four columns; nothing reads the row."""
     if not account_ids:
         return []
-    return list(
-        (
-            await db.exec(
-                select(FinanceTransaction).where(
-                    FinanceTransaction.account_id.in_(account_ids),
-                    FinanceTransaction.deleted_at.is_not(None),
-                )
-            )
-        ).all()
+    rows = await db.exec(
+        select(
+            FinanceTransaction.account_id,
+            FinanceTransaction.source,
+            FinanceTransaction.external_id,
+            FinanceTransaction.import_hash,
+        ).where(
+            FinanceTransaction.account_id.in_(account_ids),
+            FinanceTransaction.deleted_at.is_not(None),
+        )
     )
+    return [DeletedLaneRow(*row) for row in rows.all()]
 
 
 async def tag_links_for_transaction(
