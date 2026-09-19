@@ -1,9 +1,15 @@
-"""Shared import primitives used by the OFX/QFX, QIF, and CSV importers.
+"""The shapes every stage of the import pipeline shares.
 
-Parsers produce ``ParsedTransaction`` records; ``imports`` ingests them
-(batch bookkeeping + two-lane dedup). House rule: amounts are integer minor
-units and **negative means an outflow**. ``amount`` is sign-normalized while
-``raw_amount`` / ``raw_sign_convention`` preserve the source's original form.
+Two of them, and the pipeline is the line between: parsers produce
+``ParsedTransaction`` records, ``plan`` decides each one's outcome as a
+``PlannedRow`` in an ``ImportPlan``, and ``imports`` executes that plan.
+The plan shapes live here rather than beside the planner because the
+preview endpoint, the declare endpoint and the service facade all read
+them without ever calling it.
+
+House rule: amounts are integer minor units and **negative means an
+outflow**. ``amount`` is sign-normalized while ``raw_amount`` /
+``raw_sign_convention`` preserve the source's original form.
 """
 
 from __future__ import annotations
@@ -11,9 +17,11 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 import hashlib
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
+from app.services.finance.models import FinanceTransaction
 from app.services.finance.utils import normalize_payee
 
 
@@ -168,3 +176,188 @@ def _parse_by_extension(
     raise UnsupportedFileTypeError(
         f"Unsupported file type '.{extension}'. Supported: .ofx, .qfx, .qif, .csv."
     )
+
+
+_ACCOUNT_KIND_RULES: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (("savings",), "savings", "asset"),
+    (("checking", "chequing"), "checking", "asset"),
+    (("mortgage", "conventional", "fha", "heloc"), "loan", "liability"),
+    (("readi cash", "line of credit", " loc ", "loc "), "loan", "liability"),
+    (("loan",), "loan", "liability"),
+    (
+        (
+            "amex",
+            "american express",
+            "visa",
+            "mastercard",
+            "discover",
+            "card",
+            "credit",
+        ),
+        "credit_card",
+        "liability",
+    ),
+    (("401", "403b", "ira", "roth", "pension", "retirement"), "investment", "asset"),
+    (("brokerage", "fund", "invest", "etf"), "brokerage", "asset"),
+    (("hsa", "fsa"), "other_asset", "asset"),
+    (("house", "home", "property", "condo", "real estate"), "property", "asset"),
+)
+
+
+def infer_account_kind(name: str) -> tuple[str, str]:
+    """(account_type, classification) guessed from an account name.
+
+    Conservative: only high-confidence keywords match; anything else falls back
+    to a generic asset for the user to reclassify. Padded with spaces so short
+    tokens like ``loc`` don't match inside unrelated words.
+    """
+    lowered = f" {(name or '').lower()} "
+    for keywords, account_type, classification in _ACCOUNT_KIND_RULES:
+        if any(keyword in lowered for keyword in keywords):
+            return account_type, classification
+    return "other_asset", "asset"
+
+
+def _is_posted(txn: ParsedTransaction, today: date) -> bool:
+    """Money that has moved. A row the source flags as scheduled, or one
+    dated in the future, has not — two signals because neither alone is
+    enough: Quicken's "Overdue" scheduled rows are dated in the PAST, and
+    a source with no scheduled column can still carry future rows."""
+    return not (txn.is_scheduled or (txn.date is not None and txn.date > today))
+
+
+_SKIP_SCHEDULED_REASON = (
+    "scheduled: not yet posted. It imports normally once the payment actually clears."
+)
+_SKIP_REMOVED_REASON = "account was removed"
+_SKIP_DELETED_REASON = "transaction was deleted"
+# Skip reasons that mean "the user decided this stays out" - counted as
+# ignored (not merely skipped) by ingest and the preview payload alike.
+IGNORED_REASONS = (_SKIP_REMOVED_REASON, _SKIP_DELETED_REASON)
+
+# The batch-row reason recorded when the LANE-3 edit path would have
+# re-categorized a transaction the USER categorized. The user's curation
+# outranks the source app's label — see plan's category_action.
+CATEGORY_KEPT_NOTE = "category kept (user-set)"
+
+
+class LaneRow(NamedTuple):
+    """One existing transaction, as the dedup lanes actually read it.
+
+    Eight scalar columns, not the entity. The lanes compare ints and
+    strings to decide insert/duplicate/update; building a full
+    ``FinanceTransaction`` to do that cost 5,345 bytes a row against a
+    NamedTuple's 294, and 18,571 of them - 95 MiB - is what took the
+    import worker out (2026-09-19). Only a row the plan means to EDIT is
+    worth having as a model, and the planner loads exactly those, by id,
+    once it knows which they are.
+
+    Built positionally, so the select must ask for exactly these columns
+    in exactly this order - which is why it does not say them at all:
+    ``lane_columns`` reads them off the field names below.
+    """
+
+    id: int
+    account_id: int
+    source: str
+    external_id: str | None
+    external_id_source: str | None
+    import_hash: str | None
+    date_: date
+    amount: int
+
+
+class DeletedLaneRow(NamedTuple):
+    """A soft-deleted transaction's lane keys, and nothing else.
+
+    Its own shape rather than a ``LaneRow`` with four dead fields: a
+    column that is always None is a question every later reader has to
+    answer again.
+    """
+
+    account_id: int
+    source: str
+    external_id: str | None
+    import_hash: str | None
+
+
+def lane_columns(shape: type[LaneRow] | type[DeletedLaneRow]) -> list[Any]:
+    """The model columns a lane shape is built from, in its own order.
+
+    One home for that order. ``LaneRow(*row)`` binds positionally, so a
+    column added to the select and not the shape - or the two put in
+    different orders - would bind the wrong value to the right name and
+    say nothing about it. The field names ARE the column names, so the
+    select can be derived rather than repeated.
+    """
+    return [getattr(FinanceTransaction, name) for name in shape._fields]
+
+
+class PlannedRow(BaseModel):
+    """One parsed row's decided outcome. Computed without writing."""
+
+    row_number: int
+    txn: ParsedTransaction
+    status: str  # 'inserted' | 'updated' | 'duplicate' | 'skipped' | 'error'
+    account_key: str | None = None
+    # Negative ids are placeholders for accounts the commit would create
+    # (see ImportPlan.new_accounts) — planning cannot mint real rows.
+    account_id: int | None = None
+    reason: str | None = None
+    matched_transaction_id: int | None = None
+    # An in-file duplicate of a planned INSERT: the matched transaction id
+    # does not exist yet, so the reference is the earlier row's number.
+    duplicate_of_row: int | None = None
+    # -- 'updated' rows only ------------------------------------------------
+    # (field, current, incoming) for the plain label fields.
+    field_changes: list[tuple[str, Any, Any]] = Field(default_factory=list)
+    # What happens to the category — decided HERE, in one place, so the
+    # preview and the commit cannot disagree:
+    #   'set'  -> overwrite from the source's category hint
+    #   'kept' -> the source disagrees but category_source == 'user';
+    #             the user's own categorization is never overwritten
+    #   'none' -> no hint, or it resolves to the current category
+    category_action: str = "none"
+    # The hint resolves (or would create) a category — stamp
+    # category_source='rule' on a row that was 'unset', matching the
+    # insert path's convention.
+    category_stamps_rule: bool = False
+    # Resolve-only preview of the category change; None + a hint on the
+    # txn means the commit would CREATE the category.
+    category_current_id: int | None = None
+    category_new_id: int | None = None
+    tags_changed: bool = False
+
+
+class ImportPlan(BaseModel):
+    """A read-only classification of parsed rows against the ledger."""
+
+    rows: list[PlannedRow]
+    parsed: list[ParsedTransaction]
+    account_by_key: dict[str | None, int | None]
+    # Account name -> inferred (account_type, classification), for accounts
+    # a commit would create (multi-account files only).
+    new_accounts: dict[str, tuple[str, str]]
+    # Category hints with no alias — a commit creates these (the user's own
+    # source-side curation; dropping them silently would discard it).
+    new_category_hints: list[str]
+    # The rows the plan means to EDIT, keyed by id, and only those: the
+    # commit mutates these very objects, so they have to be entities.
+    # Matching itself reads ``LaneRow`` columns and holds nothing, which
+    # is why this is empty on a re-import of a file already in the ledger.
+    existing_by_id: dict[int, FinanceTransaction]
+    file_name: str | None = None
+    # Account names the file carries that match a REMOVED account - their
+    # rows plan as skipped; deleting an account is a standing decision.
+    removed_accounts: list[str] = Field(default_factory=list)
+    rows_total: int = 0
+    # Set when the exact file bytes were already imported: nothing to do.
+    identical_batch_id: int | None = None
+    # A single-account layout previewed with no target: the client asks
+    # which account the statement belongs to, then previews again.
+    needs_account: bool = False
+    layout: str | None = None
+    account_name: str | None = None
+
+    def count(self, status: str) -> int:
+        return sum(1 for row in self.rows if row.status == status)
