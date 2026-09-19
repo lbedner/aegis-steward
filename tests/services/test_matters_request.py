@@ -652,3 +652,131 @@ class TestClearingAFieldThatShouldNotBeThere:
                 AmendContactPayload(party_id=party.id, website=""),
                 None,
             )
+
+
+class TestARoutingNumberOnAContact:
+    """#179 put the routing number on the BANK - one row, shared by every
+    account held there. A labelled line called "Routing" is a second home
+    for the same number, and Illiana filed one off a credit union's
+    contact page because nothing in the code knew what she was looking at
+    (2026-09-18)."""
+
+    def test_a_new_contact_will_not_carry_one(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.contacts import CreateContactPayload
+
+        with pytest.raises(ValidationError, match="account.institution"):
+            CreateContactPayload(
+                name="Hudson Valley Credit Union",
+                kind="organization",
+                also=[{"label": "Routing number", "value": "221979363"}],
+            )
+
+    def test_an_amendment_will_not_add_one(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.contacts import AmendContactPayload
+
+        with pytest.raises(ValidationError, match="account.institution"):
+            AmendContactPayload(
+                party_id=1, also=[{"label": "ABA #", "value": "221979363"}]
+            )
+
+    def test_the_other_ways_it_is_printed_are_refused_too(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.matters.contacts import CreateContactPayload
+
+        for label in ("Routing", "ABA", "RTN", "ABA/Routing"):
+            with pytest.raises(ValidationError, match="account.institution"):
+                CreateContactPayload(
+                    name="X", kind="organization",
+                    also=[{"label": label, "value": "221979363"}],
+                )
+
+    def test_a_fax_is_still_a_way_to_reach_somebody(self) -> None:
+        from app.services.matters.contacts import CreateContactPayload
+
+        payload = CreateContactPayload(
+            name="X",
+            kind="organization",
+            also=[{"label": "Claims fax", "value": "800-000-0001"}],
+        )
+        assert payload.reach()["also"][0]["label"] == "Claims fax"
+
+    def test_the_note_will_not_carry_one_either(self) -> None:
+        """The label guard sent her round the side door: she left "also"
+        clean and wrote the number into the note in a sentence, which is
+        the same second home in prose (2026-09-18)."""
+        from pydantic import ValidationError
+
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            CreateContactPayload,
+        )
+
+        note = (
+            "Federally insured by the NCUA. Routing number 221979363 will be "
+            "attached to the account institution record, not the contact."
+        )
+        with pytest.raises(ValidationError, match="account.institution"):
+            CreateContactPayload(
+                name="Hudson Valley Credit Union", kind="organization", note=note
+            )
+        with pytest.raises(ValidationError, match="account.institution"):
+            AmendContactPayload(party_id=1, note=note)
+
+    def test_a_note_that_only_mentions_one_is_fine(self) -> None:
+        """Nothing is duplicated until the number itself is written down."""
+        from app.services.matters.contacts import CreateContactPayload
+
+        payload = CreateContactPayload(
+            name="X",
+            kind="organization",
+            note="The routing number is on the institution record.",
+        )
+        assert payload.note
+
+
+class TestALabelledLineThatRepeatsAField:
+    def test_a_line_saying_what_the_field_above_says_is_refused(self) -> None:
+        """She filed "International calls" with the main phone number
+        typed into it a second time. Two copies of one number is one
+        copy somebody will correct and one they will not (2026-09-18)."""
+        from pydantic import ValidationError
+
+        from app.services.matters.contacts import (
+            AmendContactPayload,
+            CreateContactPayload,
+        )
+
+        with pytest.raises(ValidationError, match="Phone"):
+            CreateContactPayload(
+                name="Hudson Valley Credit Union",
+                kind="organization",
+                phone="845.463.3011 / 800.468.3011",
+                also=[
+                    {
+                        "label": "International calls",
+                        "value": "845.463.3011 / 800.468.3011",
+                    }
+                ],
+            )
+        with pytest.raises(ValidationError, match="Website"):
+            AmendContactPayload(
+                party_id=1,
+                website="hvcu.org",
+                also=[{"label": "Online", "value": "hvcu.org"}],
+            )
+
+    def test_a_line_that_says_something_new_is_kept(self) -> None:
+        from app.services.matters.contacts import CreateContactPayload
+
+        payload = CreateContactPayload(
+            name="X",
+            kind="organization",
+            phone="845.463.3011",
+            also=[{"label": "TDD for Hearing Impaired", "value": "845.463.1709"}],
+        )
+        assert payload.reach()["also"][0]["value"] == "845.463.1709"

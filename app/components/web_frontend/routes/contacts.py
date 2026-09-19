@@ -30,7 +30,12 @@ from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import web_address
 from app.services.matters.models import PARTY_KINDS, party_tag
-from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES, reach_lines
+from app.services.matters.reach import (
+    CONTACT_FIELDS,
+    CONTACT_LINES,
+    one_home,
+    reach_lines,
+)
 from app.services.matters.service import PartyService
 
 SECTION = section("contacts")
@@ -180,6 +185,10 @@ async def save_party(
     async with get_async_session() as db:
         parties = PartyService(db)
         try:
+            # The same rule the two contact cards obey: the form is the
+            # third way into this column, and a rule two writers of three
+            # enforce is a rule with a door left open.
+            one_home(contact, note)
             if party_id is None:
                 party = await parties.create(
                     name=name,

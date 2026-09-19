@@ -72,6 +72,31 @@ class TestOnTheForm:
         # And the one the app asks questions of is still its own field.
         assert one(form, 'input[name="phone"]').get("value") == "1-800-935-9935"
 
+    def test_a_routing_number_is_refused_here_too(self, client: TestClient) -> None:
+        """The form is the THIRD writer of the contact block, beside the
+        two cards, and a rule only the cards enforce is a rule with a
+        door left open."""
+        party_id = _contact(client, "Routing Form Bank", "organization")
+        said = {
+            "name": "Routing Form Bank",
+            "kind": "organization",
+            "sort_name": "",
+            "note": "",
+        }
+        refused = client.post(
+            f"/contacts/{party_id}",
+            data={
+                **said,
+                "line_label": ["Routing number"],
+                "line_value": ["221979363"],
+            },
+        )
+        assert refused.status_code == 422
+        assert "account.institution" in refused.text
+
+        page = client.get(f"/contacts/{party_id}").text
+        assert "221979363" not in page
+
     def test_emptying_a_line_removes_it(self, client: TestClient) -> None:
         party_id = _contact(client, "Emptied Bank", "organization")
         said = {

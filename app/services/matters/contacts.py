@@ -22,7 +22,12 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.schema import known
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.matters.models import PARTY_KINDS
-from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES, reach_lines
+from app.services.matters.reach import (
+    CONTACT_FIELDS,
+    CONTACT_LINES,
+    one_home,
+    reach_lines,
+)
 
 
 class CreateContactPayload(BaseModel):
@@ -45,6 +50,11 @@ class CreateContactPayload(BaseModel):
     note: str | None = None
 
     _known_kind = field_validator("kind")(known(PARTY_KINDS))
+
+    @model_validator(mode="after")
+    def _one_home(self) -> CreateContactPayload:
+        one_home(self.reach(), self.note)
+        return self
 
     @field_validator("name")
     @classmethod
@@ -161,6 +171,11 @@ class AmendContactPayload(BaseModel):
         before working out it was never about anything."""
         if not self.sent():
             raise ValueError("An amendment has to name at least one field to change.")
+        return self
+
+    @model_validator(mode="after")
+    def _one_home(self) -> AmendContactPayload:
+        one_home(self.sent(), self.note)
         return self
 
     def sent(self) -> dict[str, Any]:
