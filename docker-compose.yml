@@ -1,6 +1,12 @@
 
 x-app: &app
-  image: ${AEGIS_STACK_TAG:-aegis-stack:latest}
+  # The tag names THIS project. It used to default to the shared
+  # ``aegis-stack:latest``, which four stacks on one machine all claimed,
+  # so whichever built last re-pointed the image the others ran - see
+  # tests/test_the_image_tag_names_this_project.py for what that cost.
+  # aegis-stack fixed this upstream by defaulting to the project slug;
+  # steward was generated before that.
+  image: ${AEGIS_STACK_TAG:-aegis-steward:latest}
   build:
     context: .
     args:
