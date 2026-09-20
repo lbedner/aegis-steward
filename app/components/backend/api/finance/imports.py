@@ -28,6 +28,7 @@ from app.services.finance.schemas import (
     ImportBatchSummary,
     ImportPreviewResponse,
     ImportResultResponse,
+    import_result_payload,
 )
 from app.services.finance.service import FinanceService
 
@@ -35,20 +36,6 @@ router = APIRouter()
 
 
 # -- Imports -----------------------------------------------------------------
-
-
-def _import_result_payload(result: imports.ImportResult) -> dict:
-    """The ImportResultResponse fields, as the dict both contracts share."""
-    return ImportResultResponse(
-        batch_id=result.batch_id,
-        rows_total=result.rows_total,
-        rows_inserted=result.rows_inserted,
-        rows_updated=result.rows_updated,
-        rows_duplicate=result.rows_duplicate,
-        rows_error=result.rows_error,
-        rows_skipped=result.rows_skipped,
-        rows_ignored=result.rows_ignored,
-    ).model_dump()
 
 
 @router.post("/import", response_model=None)
@@ -118,7 +105,7 @@ async def import_file(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    return ImportResultResponse(**_import_result_payload(result))
+    return ImportResultResponse(**import_result_payload(result))
 
 
 @router.post("/import/preview", response_model=ImportPreviewResponse)

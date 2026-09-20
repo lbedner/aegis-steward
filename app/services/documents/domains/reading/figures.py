@@ -77,7 +77,7 @@ def balances(pages: Iterable[Page]) -> list[Balance]:
     thing. The first printing wins, because a statement leads with what
     it is about.
     """
-    from app.components.web_frontend.filters import money_to_cents
+    from app.services.finance.utils import money_to_cents
 
     for page in list(pages)[:OPENING_PAGES]:
         for line in (page["text"] or "").splitlines():

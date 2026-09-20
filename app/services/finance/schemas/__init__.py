@@ -112,6 +112,7 @@ from app.services.finance.schemas.imports import (
     InvestmentImportPosition,
     InvestmentImportPreviewResponse,
     InvestmentImportResultResponse,
+    import_result_payload,
 )
 from app.services.finance.schemas.investments import (
     HoldingCreate,
@@ -241,6 +242,7 @@ __all__ = [
     "ImportPreviewEdit",
     "ImportPreviewResponse",
     "ImportResultResponse",
+    "import_result_payload",
     "InsightListResponse",
     "InsightResponse",
     "InvestmentImportPosition",

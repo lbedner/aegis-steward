@@ -8,7 +8,7 @@ Money fields are integer minor units (cents); the frontend formats them.
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, computed_field
 
@@ -32,6 +32,26 @@ class ImportResultResponse(BaseModel):
     rows_skipped: int = 0
     # Rows for accounts the user removed - never written, never resurrected.
     rows_ignored: int = 0
+
+
+def import_result_payload(result: Any) -> dict[str, Any]:
+    """An ``ImportResult`` as the dict both contracts share.
+
+    Here rather than in the API router it used to live in: the worker
+    needs the same dict and importing a router to get it brought FastAPI
+    and five more backend modules into a process that serves no HTTP -
+    8 MiB, measured 2026-09-19. A shape belongs with the shapes.
+    """
+    return ImportResultResponse(
+        batch_id=result.batch_id,
+        rows_total=result.rows_total,
+        rows_inserted=result.rows_inserted,
+        rows_updated=result.rows_updated,
+        rows_duplicate=result.rows_duplicate,
+        rows_error=result.rows_error,
+        rows_skipped=result.rows_skipped,
+        rows_ignored=result.rows_ignored,
+    ).model_dump()
 
 
 class ImportPreviewEdit(BaseModel):
