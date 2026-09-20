@@ -20,13 +20,12 @@ async def check_ai_service_health() -> ComponentStatus:
         ComponentStatus indicating AI service health
     """
     try:
-        # Import the shared AI service instance from the API router
-        # This ensures health checks reflect actual API conversation state
-        from app.components.backend.api.ai.router import ai_service
-
+        # The same instance the API serves from, so the numbers here are
+        # the live conversation state rather than a second service's.
         # Read FRESH config for provider/model (not cached from server startup)
         from app.core.config import settings
         from app.services.ai.config import get_ai_config
+        from app.services.ai.deps import ai_service
 
         current_config = get_ai_config(settings)
 

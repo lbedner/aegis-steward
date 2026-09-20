@@ -18,12 +18,14 @@ from app.services.finance.deps import (
     get_finance_service,
     get_owner_user_id,
 )
-from app.services.finance.models import FinanceTransaction, FinanceTransactionSplit
+from app.services.finance.domains.ledger.hydrate import (  # noqa: F401 — re-export; the web routes and API siblings say register.hydrate_transactions
+    hydrate_transactions,
+    split_line,
+)
 from app.services.finance.schemas import (
     CategorySuggestionListResponse,
     SimilarTransaction,
     SimilarTransactionListResponse,
-    SplitLineResponse,
     SplitListResponse,
     SuggestCategoriesRequest,
     TagAssign,
@@ -41,75 +43,6 @@ from app.services.finance.schemas import (
 from app.services.finance.service import FinanceService
 
 router = APIRouter()
-
-
-def _split_line(
-    split: FinanceTransactionSplit, names: dict[int, str]
-) -> SplitLineResponse:
-    """A split row as its response shape, category name resolved."""
-    return SplitLineResponse(
-        id=split.id,
-        amount=split.amount,
-        category_id=split.category_id,
-        category=names.get(split.category_id),
-        memo=split.memo,
-    )
-
-
-# -- Transactions ------------------------------------------------------------
-
-
-async def hydrate_transactions(
-    service: FinanceService, transactions: list[FinanceTransaction]
-) -> list[TransactionResponse]:
-    """Rows -> API items with category and payee names, icons, tags and
-    split lines attached. Every surface that shows a transaction (the
-    register, the uncategorized queue, a single re-rendered row) reads the
-    same shape from here."""
-    splits_by_txn = await service.transaction_splits(
-        [t.id for t in transactions if t.is_split and t.id is not None]
-    )
-    names = await service.category_names(
-        {t.category_id for t in transactions if t.category_id is not None}
-        | {
-            s.category_id
-            for lines in splits_by_txn.values()
-            for s in lines
-            if s.category_id is not None
-        }
-    )
-    payees = await service.merchant_names(
-        {t.merchant_id for t in transactions if t.merchant_id is not None}
-    )
-    from app.services.finance.domains.ledger.merchant_icon import payee_icons
-
-    # Payee first: the raw descriptor is a bank string, the payee is the
-    # thing with a brand.
-    icons = await payee_icons(
-        service.db,
-        [(t.merchant_id, payees.get(t.merchant_id) or t.name) for t in transactions],
-    )
-    tags_by_txn = await service.transaction_tags(
-        {t.id for t in transactions if t.id is not None}
-    )
-    usual = await service.merchant_usual_categories(
-        {t.merchant_id for t in transactions if t.merchant_id is not None}
-    )
-    items = []
-    for txn in transactions:
-        item = TransactionResponse.from_row(txn)
-        item.category = names.get(txn.category_id)
-        item.merchant = payees.get(txn.merchant_id)
-        item.payee_category = usual.get(txn.merchant_id)
-        if icon := icons.get(item.merchant or txn.name):
-            item.icon_url, item.icon_b64 = icon.url, icon.b64
-        item.tags = [
-            TagRef(id=t.id, name=t.name, color=t.color)
-            for t in tags_by_txn.get(txn.id, [])
-        ]
-        item.splits = [_split_line(s, names) for s in splits_by_txn.get(txn.id, [])]
-        items.append(item)
-    return items
 
 
 @router.get("/transactions", response_model=TransactionListResponse)
@@ -249,7 +182,7 @@ async def split_transaction(
     names = await service.category_names(
         {s.category_id for s in lines if s.category_id is not None}
     )
-    return SplitListResponse(items=[_split_line(s, names) for s in lines])
+    return SplitListResponse(items=[split_line(s, names) for s in lines])
 
 
 @router.delete("/transactions/{transaction_id}/split", response_model=UnsplitResponse)

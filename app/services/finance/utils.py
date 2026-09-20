@@ -175,6 +175,33 @@ def suggested_payee_name(key: str, sample: str | None) -> str:
     return " ".join(word.capitalize() for word in key.split())
 
 
+def money_to_cents(raw: str | None) -> int | None:
+    """What a PERSON typed, as cents. ``"$1,200.50"`` / ``"3,000"`` /
+    ``" 12 "`` -> cents; blank -> 0; anything else -> ``None`` (the caller
+    decides that is a 422).
+
+    Here rather than among the frontend's jinja filters, where it lived:
+    the finance and documents services both parse typed money too, and
+    reaching up into ``app.components.web_frontend`` for it made a
+    service depend on a delivery layer - module-level, in
+    ``writes/terms.py``, so the frontend loaded whenever finance did.
+
+    Distinct from ``to_cents`` below, which takes a number and raises.
+    This takes what a form submitted, currency symbols and all, and
+    answers None rather than throwing. Worth noting the float: ``to_cents``
+    uses Decimal, which is the right answer for money, and unifying them
+    would change rounding at the half-cent - a change with its own test,
+    not a rename.
+    """
+    cleaned = (raw or "").replace("$", "").replace(",", "").strip()
+    if not cleaned:
+        return 0
+    try:
+        return round(float(cleaned) * 100)
+    except ValueError:
+        return None
+
+
 def to_cents(amount: Decimal | float | int | str) -> int:
     """Convert a decimal money amount to signed integer minor units (cents)."""
     return int((Decimal(str(amount)) * 100).to_integral_value())

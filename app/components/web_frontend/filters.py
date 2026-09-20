@@ -13,6 +13,10 @@ from markupsafe import Markup
 
 from app.core.formatting import format_date_range, format_money
 
+# Re-exported: the routes and templates here have always said
+# ``filters.money_to_cents``, and it now lives with the money.
+from app.services.finance.utils import money_to_cents as money_to_cents
+
 
 def _utc_today() -> date:
     """Today in UTC, the clock the rest of the app stamps rows with.
@@ -316,18 +320,6 @@ def parse_date(raw: str | None) -> date | None:
     """A form's date field: ``YYYY-MM-DD`` or blank. Anything else raises
     the same ValueError the services raise, for the same 422."""
     return date.fromisoformat(raw) if raw else None
-
-
-def money_to_cents(raw: str | None) -> int | None:
-    """``"$1,200.50"`` / ``"3,000"`` / ``" 12 "`` -> cents; blank -> 0;
-    anything else -> ``None`` (the caller decides that is a 422)."""
-    cleaned = (raw or "").replace("$", "").replace(",", "").strip()
-    if not cleaned:
-        return 0
-    try:
-        return round(float(cleaned) * 100)
-    except ValueError:
-        return None
 
 
 # A settled assistant message is markdown from a model. marko renders it

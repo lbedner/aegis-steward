@@ -33,7 +33,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.components.web_frontend.filters import money_to_cents
 from app.core.formatting import format_date
 from app.core.schema import known
 from app.services.finance.domains.detection.insights.formatting import (
@@ -42,6 +41,7 @@ from app.services.finance.domains.detection.insights.formatting import (
 )
 from app.services.finance.models.accounts import FinanceLiabilityDetail
 from app.services.finance.schemas import ChangeDisplayRow
+from app.services.finance.utils import money_to_cents
 
 # The fields this change may set, in the order the card lists them:
 # what is owed, what it costs, what is due, then where it came from.

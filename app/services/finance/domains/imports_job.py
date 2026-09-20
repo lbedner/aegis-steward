@@ -37,8 +37,8 @@ async def run_import(
     follower renders whichever it finds, so the ingest is handed one
     callable and never learns which lane it is in.
     """
-    from app.components.backend.api.finance.imports import _import_result_payload
     from app.core.storage import get_storage
+    from app.services.finance.schemas import import_result_payload
 
     data = await get_storage().get(storage_key)
     if data is None:
@@ -58,7 +58,7 @@ async def run_import(
             on_label=on_label,
         )
         await session.commit()
-    return _import_result_payload(result)
+    return import_result_payload(result)
 
 
 def start_import_in_process(

@@ -262,7 +262,7 @@ async def transactions(
     two years of rows to find three. ``ledger`` is for the SHAPE of
     spending; this is for the rows.
     """
-    from app.components.backend.api.finance.register import hydrate_transactions
+    from app.services.finance.domains.ledger.hydrate import hydrate_transactions
     from app.services.finance.service import FinanceService
 
     def _date(raw: str | None) -> date | None:
