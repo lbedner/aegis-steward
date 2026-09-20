@@ -66,7 +66,14 @@ services:
       resources:
         limits:
           memory: 768M
-          cpus: '0.5'
+          # A ceiling the kernel enforces by FREEZING the process when it
+          # is reached, and this one was reached constantly: 1,515 stalls
+          # in 12,803 periods, 83s frozen (cpu.stat, 2026-09-20). One
+          # async loop serves every page, every htmx fragment, Flet's
+          # Overseer and Illiana's streamed replies, so each freeze stops
+          # all of it at once. 16 cores on the host; this costs nothing
+          # until it is needed.
+          cpus: '2.0'
     profiles:
       - dev
       - prod
@@ -87,7 +94,9 @@ services:
       resources:
         limits:
           memory: 256M
-          cpus: '0.25'
+          # 231 throttles in 4,164 periods on 0.25 - its jobs touch the
+          # same database and services everything else does.
+          cpus: '0.5'
     profiles:
       - dev
       - prod
@@ -114,6 +123,11 @@ services:
       resources:
         limits:
           memory: 256M
+          # Left at a whole core deliberately. It looked wrong sitting
+          # above the webserver's 0.5, but the webserver was the thing
+          # that was wrong - and a ceiling costs nothing until it is hit,
+          # so lowering this reclaimed nothing. It would only throttle the
+          # harness during the load test it exists to run.
           cpus: '1.0'
     profiles:
       - dev
