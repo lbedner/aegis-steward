@@ -129,9 +129,7 @@ class TestWhatAPageOffers:
     def test_a_real_site_beside_an_email_still_reads(self) -> None:
         from app.services.matters.lookup import found_in
 
-        found = found_in(
-            "See www.dutchessny.gov/dcfs or mail Traver@dutchessny.gov."
-        )
+        found = found_in("See www.dutchessny.gov/dcfs or mail Traver@dutchessny.gov.")
         assert found["website"] == "www.dutchessny.gov/dcfs"
         assert found["email"] == "Traver@dutchessny.gov"
 
@@ -262,9 +260,7 @@ class TestWhatToProposeForAParty:
         # The fax is already a line on the record, so only the examiner's
         # number is new - and the letterhead's own number is a main
         # field, not a line.
-        assert [(o["label"], o["value"]) for o in lines] == [
-            ("phone", "845-486-3345")
-        ]
+        assert [(o["label"], o["value"]) for o in lines] == [("phone", "845-486-3345")]
         assert lines[0]["document_id"] == document.id
         assert lines[0]["page"] == 1
 

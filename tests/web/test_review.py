@@ -10,6 +10,7 @@ import json
 
 from fastapi.testclient import TestClient
 import pytest
+import pytest_asyncio
 
 from tests.web.conftest import REGISTER, Ledger, Review
 from tests.web.dom import none, one, oob, select, table_rows, text, triggers
@@ -37,6 +38,19 @@ class TestNav:
 
     def test_fragment_has_no_shell(self, hx: TestClient, review: Review) -> None:
         none(hx.get("/review").text, "html")
+
+    def test_the_sidebar_fetches_a_mark_while_cards_are_waiting(
+        self, client: TestClient, review: Review
+    ) -> None:
+        """The same hook Matters uses for an overdue deadline: a card
+        nobody has answered is the thing a person opening the app should
+        see before they go looking (2026-09-21)."""
+        nav = one(
+            client.get("/review").text, '[data-attention][hx-get="/review/waiting"]'
+        )
+        assert nav.get("hx-get") == "/review/waiting"
+        mark = one(client.get("/review/waiting").text, "[data-dot]")
+        assert text(mark).strip().endswith("to review")
 
 
 class TestApprovals:
@@ -91,6 +105,80 @@ class TestApprovals:
 
     def test_empty_queue_says_so(self, client: TestClient, ledger: Ledger) -> None:
         assert "Nothing waiting" in text(one(client.get("/review").text, "#approvals"))
+
+
+class TestEdit:
+    """A card that came off a From header says "Optum" because that is
+    the domain; the person reading it knows it is Optum Financial. The
+    card is a proposal, and a proposal can be corrected before it is
+    approved - for the types that opt in, through the one dialog, with
+    every field prefilled (2026-09-21)."""
+
+    @pytest_asyncio.fixture
+    async def offered(self, finance, async_db_session) -> int:
+        row = await finance.propose_change(
+            "contact.create",
+            {
+                "name": "Optum",
+                "kind": "organization",
+                "email": "of-service@of.optum.com",
+            },
+            owner_user_id=None,
+            proposed_by_agent="mail",
+        )
+        await async_db_session.commit()
+        return int(row.id)
+
+    def test_an_editable_card_offers_edit_and_others_do_not(
+        self, client: TestClient, review: Review, offered: int
+    ) -> None:
+        page = client.get("/review").text
+        opener = one(page, f"#change-{offered} [data-edit]")
+        assert opener.get("hx-get") == f"/review/changes/{offered}/edit"
+        none(page, f"#change-{review.change} [data-edit]")
+
+    def test_the_dialog_is_prefilled_from_the_card(
+        self, client: TestClient, offered: int
+    ) -> None:
+        dialog = client.get(f"/review/changes/{offered}/edit").text
+        assert one(dialog, 'input[name="name"]').get("value") == "Optum"
+        assert (
+            one(dialog, 'input[name="email"]').get("value") == "of-service@of.optum.com"
+        )
+        kind = one(dialog, 'select[name="kind"] option[selected]')
+        assert kind.get("value") == "organization"
+        form = one(dialog, "form")
+        assert form.get("hx-post") == f"/review/changes/{offered}/edit"
+
+    def test_saving_puts_your_words_on_the_card(
+        self, client: TestClient, offered: int
+    ) -> None:
+        answer = client.post(
+            f"/review/changes/{offered}/edit",
+            data={
+                "name": "Optum Financial",
+                "kind": "organization",
+                "email": "of-service@of.optum.com",
+            },
+            headers={"HX-Current-URL": "http://t/review"},
+        )
+        assert answer.status_code == 200
+        assert "dialog:close" in triggers(answer)
+        card = one(client.get("/review").text, f"#change-{offered}")
+        assert text(one(card, "[data-subject]")).strip() == "Optum Financial"
+
+    def test_a_bad_revision_comes_back_with_the_error(
+        self, client: TestClient, offered: int
+    ) -> None:
+        answer = client.post(
+            f"/review/changes/{offered}/edit", data={"name": "", "kind": "organization"}
+        )
+        assert answer.status_code == 422
+        one(answer.text, "[role=alert]")
+        assert (
+            one(answer.text, 'select[name="kind"] option[selected]').get("value")
+            == "organization"
+        )
 
 
 class TestUncategorized:
@@ -268,10 +356,7 @@ class TestACardShowsWhatItCites:
         # against the app-owned engine, so a document written to this
         # test's session is not there to be fetched. Its own tests cover
         # that the route answers.
-        assert (
-            shown.getparent().get("hx-get")
-            == f"/documents/{document_id}?reading=1"
-        )
+        assert shown.getparent().get("hx-get") == f"/documents/{document_id}?reading=1"
 
     @pytest.mark.asyncio
     async def test_a_card_citing_no_page_draws_none(

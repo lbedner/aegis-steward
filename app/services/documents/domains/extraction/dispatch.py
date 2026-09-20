@@ -115,3 +115,23 @@ async def wait_for_extraction(
         return "running"
     finally:
         await store.aclose()
+
+
+async def read_quietly(document_id: int, *, owner_user_id: int | None) -> None:
+    """Read the pages on the worker without anybody asking, and never let
+    that fail the thing that filed the document.
+
+    Never forced: a page is read once, and re-filing paper already on the
+    shelf must not pay to read it twice. Guarded, because the BYTES are
+    the valuable thing - a worker that is down loses the reading, never
+    the document, and the reading is offered again from the dialog.
+
+    One home. The upload door and the mail reader both file paper and
+    both want this; a service cannot reach into the web layer for it.
+    """
+    from app.core.log import logger
+
+    try:
+        await start_extraction(document_id, owner_user_id=owner_user_id, force=False)
+    except Exception:
+        logger.exception("Could not start reading document %s", document_id)

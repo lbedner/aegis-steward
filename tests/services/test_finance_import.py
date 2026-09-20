@@ -1836,7 +1836,9 @@ class TestPlanningDoesNotHydrateTheLedger:
         account = await _account(async_db_session)
 
         async def _grow_ledger_to(total: int) -> None:
-            have = (await svc.list_transactions(owner_user_id=1, account_id=account.id))[1]
+            have = (
+                await svc.list_transactions(owner_user_id=1, account_id=account.id)
+            )[1]
             for i in range(have, total):
                 await svc.create_transaction(
                     owner_user_id=1,

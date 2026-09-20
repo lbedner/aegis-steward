@@ -153,9 +153,7 @@ def corroborates(page: str, known: set[str] | None) -> bool:
         return True
     text = _TAGS.sub(" ", page or "").casefold()
     digits = re.sub(r"\D", "", text)
-    return any(
-        (mark in digits if mark.isdigit() else mark in text) for mark in marks
-    )
+    return any((mark in digits if mark.isdigit() else mark in text) for mark in marks)
 
 
 async def confirm(

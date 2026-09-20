@@ -97,6 +97,11 @@ from app.services.finance.models import (  # noqa: F401
 
 # Import matter models to register them with SQLModel metadata
 from app.services.insurance.models import InsuranceClaim, InsurancePolicy  # noqa: F401
+from app.services.mail.models import (  # noqa: F401
+    MailAttachment,
+    MailBatch,
+    MailMessage,
+)
 from app.services.matters.models import (  # noqa: F401
     DocumentParty,
     Fact,

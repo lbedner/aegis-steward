@@ -174,9 +174,7 @@ class TestTheLockIsTakenUpFront:
 
         offenders = []
         for path in Path("app").rglob("*.py"):
-            for number, line in enumerate(
-                path.read_text().splitlines(), start=1
-            ):
+            for number, line in enumerate(path.read_text().splitlines(), start=1):
                 if re.search(r"""exec_driver_sql\(\s*["']BEGIN["']""", line):
                     offenders.append(f"{path}:{number}")
         assert not offenders, f"bare BEGIN: {offenders}"

@@ -33,6 +33,10 @@
     </object>
     {% elif document.media_type and document.media_type.startswith("image/") %}
     <img src="{{ content }}" alt="{{ document.title }}" width="1000" height="1400" class="w-full h-auto rounded-lg border border-aegis-border" data-original>
+    {% elif document.media_type == "text/plain" and pages and pages[0].read %}
+    {#- A letter that arrived as text (a message from a mail export) IS
+        its page text; that is the original, not a reading of it. -#}
+    <pre class="w-full max-h-[70vh] overflow-auto rounded-lg border border-aegis-border bg-aegis-bg p-4 text-sm whitespace-pre-wrap text-aegis-text" data-original>{{ pages[0].text }}</pre>
     {% else %}
     <p class="text-sm text-aegis-muted" data-original>No preview for {{ document.media_type or "this file" }}. <a href="{{ content }}" class="text-aegis-teal hover:underline">Open the original</a>.</p>
     {% endif %}
@@ -88,6 +92,13 @@
      somebody presses twice. #}
   {% if not read_only %}
   {{ action("Read again", 'hx-post="' ~ reread ~ '" hx-target="#reading-progress" hx-swap="innerHTML"') }}
+  {#- Delete is the whole thing: the row, its pages, its labels, every
+      pointer at it, and the bytes when nothing else holds them. Not
+      offered for a protected document - that asks for its exact title
+      typed back, and a confirm has no field for one; the API door does. -#}
+  {% if not document.protected %}
+  {{ action("Delete", hx_dialog(delete) ~ ' data-delete', tone="danger") }}
+  {% endif %}
   {% endif %}
   <span class="micro-label text-aegis-muted">{{ pages|length }} page{{ "s" if pages|length != 1 }}{% if not pages %} - not read yet{% endif %}</span>
   <span id="reading-progress" class="text-sm"></span>

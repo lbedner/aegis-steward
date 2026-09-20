@@ -17,9 +17,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 async def _doc(db: AsyncSession, title: str, kind: str = "other") -> Any:
     from app.services.documents.models import Document
 
-    document = Document(
-        title=title, kind=kind, storage_key=title, content_hash=title
-    )
+    document = Document(title=title, kind=kind, storage_key=title, content_hash=title)
     db.add(document)
     await db.flush()
     return document
@@ -59,9 +57,7 @@ class TestTheShelf:
 
         tagged = await _doc(async_db_session, "Filed Already.pdf")
         await _doc(async_db_session, "Nobody Owns This.pdf")
-        async_db_session.add(
-            DocumentTag(document_id=tagged.id, label=party_tag(7))
-        )
+        async_db_session.add(DocumentTag(document_id=tagged.id, label=party_tag(7)))
         await async_db_session.flush()
 
         titles = [d["title"] for d in await shelf(async_db_session, unattributed=True)]

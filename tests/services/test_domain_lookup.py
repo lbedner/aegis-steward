@@ -71,9 +71,7 @@ class TestConfirmingADomain:
     async def test_a_site_carrying_the_name_is_confirmed(self, site: str) -> None:
         from app.services.matters.domain_lookup import confirm
 
-        found = await confirm(
-            "Delta Dental of New York, Inc.", [site], scheme="http"
-        )
+        found = await confirm("Delta Dental of New York, Inc.", [site], scheme="http")
         assert found == site
 
     @pytest.mark.asyncio
@@ -136,9 +134,7 @@ class TestCorroboratingAgainstWhatIsAlreadyKnown:
     """
 
     @pytest.mark.asyncio
-    async def test_a_page_missing_a_known_postcode_is_refused(
-        self, site: str
-    ) -> None:
+    async def test_a_page_missing_a_known_postcode_is_refused(self, site: str) -> None:
         from app.services.matters.domain_lookup import confirm
 
         # The site says "Delta Dental of New York" but nothing in Hyde
@@ -152,9 +148,7 @@ class TestCorroboratingAgainstWhatIsAlreadyKnown:
         assert found is None
 
     @pytest.mark.asyncio
-    async def test_a_page_carrying_a_known_detail_is_confirmed(
-        self, site: str
-    ) -> None:
+    async def test_a_page_carrying_a_known_detail_is_confirmed(self, site: str) -> None:
         from app.services.matters.domain_lookup import confirm
 
         found = await confirm(
@@ -182,9 +176,7 @@ class TestCorroboratingAgainstWhatIsAlreadyKnown:
         assert found == f"{site}/contact"
 
     @pytest.mark.asyncio
-    async def test_with_nothing_known_the_name_still_decides(
-        self, site: str
-    ) -> None:
+    async def test_with_nothing_known_the_name_still_decides(self, site: str) -> None:
         """A contact with an empty record has nothing to corroborate
         against. That is the weaker check, and it is the one the card
         has to be read carefully for."""
@@ -225,9 +217,7 @@ class TestReadingTheContactPage:
         assert fields["phone"]["url"].endswith("/contact")
 
     @pytest.mark.asyncio
-    async def test_a_site_with_no_contact_page_offers_nothing(
-        self, site: str
-    ) -> None:
+    async def test_a_site_with_no_contact_page_offers_nothing(self, site: str) -> None:
         from app.services.matters.domain_lookup import contact_page
 
         assert await contact_page(site, scheme="http", paths=("/nope",)) == []

@@ -144,5 +144,3 @@ class RequestItem(SQLModel, table=True):
     document_id: int | None = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
-
-

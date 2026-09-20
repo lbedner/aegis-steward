@@ -1234,3 +1234,69 @@ class TestACardWhoseTypeIsGone:
         assert len(listed) == 1
         # It names itself with the only thing left: its own type.
         assert "document.something_retired" in listed[0].title
+
+
+class TestRevise:
+    """A card is a proposal; the person answering it can put their own
+    words on it before saying yes. The payload is re-validated by the
+    same contract propose used, so a revised card is as safe to approve
+    as a fresh one. Only types that opt in (``editable``) offer it."""
+
+    @pytest.mark.asyncio
+    async def test_the_payload_is_replaced_and_the_card_stays_pending(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.writes.queue import propose, revise
+
+        row = await propose(
+            async_db_session,
+            "contact.create",
+            {
+                "name": "Optum",
+                "kind": "organization",
+                "email": "of-service@of.optum.com",
+            },
+        )
+        revised = await revise(
+            async_db_session,
+            int(row.id),
+            {
+                "name": "Optum Financial",
+                "kind": "organization",
+                "email": "of-service@of.optum.com",
+            },
+        )
+        assert revised.status == "pending"
+        assert revised.payload["name"] == "Optum Financial"
+
+    @pytest.mark.asyncio
+    async def test_a_bad_revision_is_refused_and_the_card_is_untouched(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.writes.queue import propose, revise
+
+        row = await propose(
+            async_db_session,
+            "contact.create",
+            {"name": "Optum", "kind": "organization"},
+        )
+        with pytest.raises(ValueError):
+            await revise(
+                async_db_session, int(row.id), {"name": "Optum", "kind": "robot"}
+            )
+        assert row.payload["kind"] == "organization"
+
+    @pytest.mark.asyncio
+    async def test_only_a_pending_card_of_an_editable_type_can_be_revised(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.writes.queue import propose, revise
+        from app.services.finance.domains.writes.registry import executor_for
+
+        assert executor_for("contact.create").editable
+        assert not executor_for("transaction.categorize").editable
+
+        row = await propose(async_db_session, "contact.create", {"name": "Optum"})
+        row.status = "rejected"
+        with pytest.raises(ValueError):
+            await revise(async_db_session, int(row.id), {"name": "Optum"})

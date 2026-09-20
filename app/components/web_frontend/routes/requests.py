@@ -39,7 +39,13 @@ ITEM = "/requests/items/{item_id:int}"
 # What a letter arrives as. The same shapes the chat attachment path
 # already reads, because a scan of the power of attorney is a scan
 # whichever door it comes through.
-ACCEPTS = "application/pdf,image/png,image/jpeg,image/webp,image/heic,image/tiff"
+# Mail exports too: a Takeout .mbox or a saved .eml goes through the
+# same door and becomes a job rather than a document (MI-00). Named by
+# suffix as well as type, because browsers disagree on the MIME.
+ACCEPTS = (
+    "application/pdf,image/png,image/jpeg,image/webp,image/heic,image/tiff,"
+    ".mbox,.eml,message/rfc822"
+)
 
 
 async def _parties(db: AsyncSession) -> list[dict[str, Any]]:

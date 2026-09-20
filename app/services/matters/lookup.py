@@ -207,9 +207,11 @@ def lines_in(text: str, besides: set[str] | None = None) -> list[tuple[str, str]
         if match is None:
             continue
         label, value = match.group(1).strip(), match.group(2).strip()
-        if not label or value in taken or _digits(value) in {
-            _digits(one) for one in taken
-        }:
+        if (
+            not label
+            or value in taken
+            or _digits(value) in {_digits(one) for one in taken}
+        ):
             continue
         found.append((label, value))
     return found

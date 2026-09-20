@@ -123,14 +123,20 @@ async def _to_response(
     # tolerance describe_pending_change already has for a payload that
     # no longer validates.
     try:
-        title = writes.executor_for(row.change_type).title
+        executor = writes.executor_for(row.change_type)
+        title, editable = executor.title, executor.editable
     except ValueError:
         title = f"{row.change_type} (no longer a change this app makes)"
+        editable = False
     display = await service.describe_pending_change(row)
     if marks is None:
         marks = await _marks(service, [row])
     return PendingChangeResponse.from_row(
-        row, title=title, display=display, mark=marks.get(row.id or 0)
+        row,
+        title=title,
+        display=display,
+        mark=marks.get(row.id or 0),
+        editable=editable and row.status == "pending",
     )
 
 

@@ -166,7 +166,9 @@ class TestTheEventsThatLeaveNoPaper:
             },
         )
         page = client.get(f"/matters/{matter_id}/timeline").text
-        event_id = select(page, "[data-moment][data-kind='mailed']")[0].get("data-event")
+        event_id = select(page, "[data-moment][data-kind='mailed']")[0].get(
+            "data-event"
+        )
 
         client.delete(f"/matters/{matter_id}/events/{event_id}")
 
