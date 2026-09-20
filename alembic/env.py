@@ -125,13 +125,28 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
+        # Every option goes through one dict, and
+        # ``config.attributes["configure"]`` is the contract callers use to
+        # override them - ``app.cli.migrate_gen`` sets ``include_object``,
+        # ``compare_type`` and ``render_as_batch`` that way, and a caller's
+        # value wins.
+        #
+        # Without this merge the generator's options were silently dropped,
+        # and ``render_as_batch`` with them: autogenerate then emitted
+        # ``ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL``, which SQLite
+        # has no syntax for, so every generated revision was unusable
+        # (found adding auth, 2026-09-20). Assign defaults into ``options``
+        # below, never as a second keyword on ``context.configure`` - that
+        # raises ``TypeError: got multiple values`` the moment a caller
+        # sets the same option.
+        options: dict[str, object] = {
+            "target_metadata": target_metadata,
             # include_schemas so autogenerate sees tables in non-public
             # schemas (e.g. the scheduler component's ``scheduler`` schema).
-            include_schemas=True,
-        )
+            "include_schemas": True,
+        }
+        options.update(config.attributes.get("configure", {}))
+        context.configure(connection=connection, **options)
 
         with context.begin_transaction():
             context.run_migrations()
