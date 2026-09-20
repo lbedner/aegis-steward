@@ -121,6 +121,11 @@ async def finance_analyst_note_job() -> None:
     from app.services.finance.domains.detection.analyst import run_analyst_note
 
     try:
+        # Two short transactions per owner, not one long one for all of
+        # them. The owners query is its own; ``run_analyst_note`` opens
+        # what it needs and lets go around the model call, which is the
+        # whole point - this job used to hold the write lock across every
+        # model call it made, and SQLite has one writer (2026-09-20).
         async with get_async_session() as session:
             owners = (
                 await session.exec(
@@ -129,11 +134,13 @@ async def finance_analyst_note_job() -> None:
                     .distinct()
                 )
             ).all()
-            written = 0
-            for owner_user_id in owners:
-                note = await run_analyst_note(session, owner_user_id=owner_user_id)
-                written += 1 if note is not None else 0
-            await session.commit()
+
+        written = 0
+        for owner_user_id in owners:
+            note = await run_analyst_note(
+                get_async_session, owner_user_id=owner_user_id
+            )
+            written += 1 if note is not None else 0
         logger.info(
             "Finance: analyst notes ready for %d of %d owner(s)",
             written,

@@ -12,7 +12,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
-from app.core.db import get_async_session as _job_session
+from app.core.db import get_async_session
 from app.services.finance.deps import (
     get_finance_service,
     get_owner_user_id,
@@ -76,11 +76,9 @@ async def run_analyst(
 
         async def work(handle: JobHandle) -> dict:
             handle.set_label("Writing today's note...")
-            async with _job_session() as session:
-                note = await run_analyst_note(
-                    session, owner_user_id=owner_user_id, today=today
-                )
-                await session.commit()
+            note = await run_analyst_note(
+                get_async_session, owner_user_id=owner_user_id, today=today
+            )
             if note is None:
                 raise RuntimeError(_ANALYST_UNAVAILABLE)
             return InsightResponse.from_row(note).model_dump(mode="json")
@@ -90,7 +88,14 @@ async def run_analyst(
         )
         return JSONResponse({"job_id": job_id}, status_code=status.HTTP_202_ACCEPTED)
 
-    note = await run_analyst_note(service.db, owner_user_id=owner_user_id, today=today)
+    # Its own session, not the request's: the run waits on a model and
+    # must not hold the write lock while it does. Anything pending on the
+    # request session has to be committed before this, as ``force`` above
+    # already is - the note's session cannot see it otherwise.
+    await service.db.commit()
+    note = await run_analyst_note(
+        get_async_session, owner_user_id=owner_user_id, today=today
+    )
     if note is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

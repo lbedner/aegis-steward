@@ -1,5 +1,7 @@
 """The nightly note: dedup, lookup, and the run path."""
 
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import date
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -29,6 +31,15 @@ from app.services.finance.domains.detection.insights import create_insight_if_ne
 from app.services.finance.models import FinanceInsight
 from app.services.finance.utils import current_date
 
+# How the note gets a database, rather than being handed one that is
+# already open. SQLite has a single writer and ``core.db`` opens every
+# transaction with BEGIN IMMEDIATE, so an open session IS the write lock
+# for the whole application - and this run waits on a model in the
+# middle. Taking the database twice, briefly, costs nothing; holding it
+# across the model call stops every other writer (2026-09-20: the
+# nightly job blocked a webserver request AND its own record_usage).
+OpenSession = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+
 
 async def existing_note(
     db: AsyncSession, *, owner_user_id: int | None, today: date
@@ -45,9 +56,15 @@ async def existing_note(
 
 
 async def run_analyst_note(
-    db: AsyncSession, *, owner_user_id: int | None, today: date | None = None
+    open_session: OpenSession, *, owner_user_id: int | None, today: date | None = None
 ) -> FinanceInsight | None:
-    """Write today's note for one owner. Writes; the caller commits.
+    """Write today's note for one owner. Opens and commits its own sessions.
+
+    Takes a way to GET a database rather than an open one, because the run
+    waits on a model in the middle and must not be inside a transaction
+    while it does - see ``OpenSession``. Three phases: read everything the
+    model needs, ask it while holding nothing, then write. The database is
+    held for the first and the last, and the lock with it.
 
     Returns the note - the one just written, or the one already there. Returns
     None when there is nothing to say (no accounts), nobody to say it (the
@@ -59,68 +76,76 @@ async def run_analyst_note(
     model is touched, so a re-run is free rather than merely idempotent.
     """
     today = today or current_date()
-    already = await existing_note(db, owner_user_id=owner_user_id, today=today)
-    if already is not None:
-        logger.info(
-            "Analyst note already written for today", owner_user_id=owner_user_id
+
+    # ---- read what the model needs, then let the database go ----------
+    async with open_session() as db:
+        already = await existing_note(db, owner_user_id=owner_user_id, today=today)
+        if already is not None:
+            logger.info(
+                "Analyst note already written for today", owner_user_id=owner_user_id
+            )
+            return already
+
+        context = await load_report_context(
+            db, owner_user_id=owner_user_id, today=today
         )
-        return already
+        if not context.accounts:
+            logger.info(
+                "Analyst note skipped: owner has no accounts",
+                owner_user_id=owner_user_id,
+            )
+            return None
 
-    context = await load_report_context(db, owner_user_id=owner_user_id, today=today)
-    if not context.accounts:
-        logger.info(
-            "Analyst note skipped: owner has no accounts", owner_user_id=owner_user_id
+        from pydantic_ai import Agent as PydanticAgent
+        from pydantic_ai.settings import ModelSettings
+
+        from app.core.config import settings
+        from app.services.ai.config import AIServiceConfig
+        from app.services.ai.domains.chat.agent_loader import resolve_agent
+        from app.services.ai.domains.llm import active_model
+        from app.services.ai.domains.llm.providers import model_for
+        from app.services.ai.usage_recording import extract_usage, record_usage
+
+        agent_config = await resolve_agent(ANALYST_AGENT_SLUG, session=db)
+        if agent_config.slug != ANALYST_AGENT_SLUG:
+            # resolve_agent falls back to the default agent when the row is missing
+            # or inactive, and the default agent has no idea what a ledger is.
+            logger.warning(
+                "Analyst note skipped: agent is not registered or is inactive",
+                agent_slug=ANALYST_AGENT_SLUG,
+            )
+            return None
+
+        # The stored selection first: this runs in a worker or a
+        # scheduled job, which never serves the request that would
+        # otherwise adopt it. An agent's own model_id still wins below.
+        await active_model.sync_from_db(settings)
+        service_config = AIServiceConfig.from_settings(settings)
+        update: dict[str, object] = {
+            "temperature": agent_config.temperature,
+            "max_tokens": agent_config.max_tokens,
+        }
+        if agent_config.model_id:
+            update["model"] = agent_config.model_id
+        service_config = service_config.model_copy(update=update)
+
+        facts = await build_report_facts(db, owner_user_id=owner_user_id, context=context)
+        snapshot = await build_finance_snapshot(
+            db, owner_user_id=owner_user_id, today=today, context=context, facts=facts
         )
-        return None
-
-    from pydantic_ai import Agent as PydanticAgent
-    from pydantic_ai.settings import ModelSettings
-
-    from app.core.config import settings
-    from app.services.ai.config import AIServiceConfig
-    from app.services.ai.domains.chat.agent_loader import resolve_agent
-    from app.services.ai.domains.llm import active_model
-    from app.services.ai.domains.llm.providers import model_for
-    from app.services.ai.usage_recording import extract_usage, record_usage
-
-    agent_config = await resolve_agent(ANALYST_AGENT_SLUG, session=db)
-    if agent_config.slug != ANALYST_AGENT_SLUG:
-        # resolve_agent falls back to the default agent when the row is missing
-        # or inactive, and the default agent has no idea what a ledger is.
-        logger.warning(
-            "Analyst note skipped: agent is not registered or is inactive",
-            agent_slug=ANALYST_AGENT_SLUG,
-        )
-        return None
-
-    # The stored selection first: this runs in a worker or a
-    # scheduled job, which never serves the request that would
-    # otherwise adopt it. An agent's own model_id still wins below.
-    await active_model.sync_from_db(settings)
-    service_config = AIServiceConfig.from_settings(settings)
-    update: dict[str, object] = {
-        "temperature": agent_config.temperature,
-        "max_tokens": agent_config.max_tokens,
-    }
-    if agent_config.model_id:
-        update["model"] = agent_config.model_id
-    service_config = service_config.model_copy(update=update)
-
-    facts = await build_report_facts(db, owner_user_id=owner_user_id, context=context)
-    snapshot = await build_finance_snapshot(
-        db, owner_user_id=owner_user_id, today=today, context=context, facts=facts
-    )
-    if snapshot is None:
-        return None
-    # The report's own delta lines. The snapshot the model reads carries the
-    # same comparison as prose context (see ``_changes_section``); this is
-    # the code-owned copy that renders, so the two can never disagree.
-    baseline = await snapshot_before(db, owner_user_id=owner_user_id, day=today)
-    if baseline is not None:
-        since, previous = baseline
-        facts = facts.model_copy(
-            update={"changes": diff_facts(previous, facts, since=since)}
-        )
+        if snapshot is None:
+            return None
+        # The report's own delta lines. The snapshot the model reads carries the
+        # same comparison as prose context (see ``_changes_section``); this is
+        # the code-owned copy that renders, so the two can never disagree.
+        baseline = await snapshot_before(db, owner_user_id=owner_user_id, day=today)
+        if baseline is not None:
+            since, previous = baseline
+            facts = facts.model_copy(
+                update={"changes": diff_facts(previous, facts, since=since)}
+            )
+    # The database is not needed again until the note is written, and
+    # what follows waits on a model. Let go of it here.
 
     try:
         model, model_name = model_for(service_config, settings)
@@ -159,26 +184,31 @@ async def run_analyst_note(
         )
         return None
 
-    note = await create_insight_if_new(
-        db,
-        owner_user_id=0 if owner_user_id is None else owner_user_id,
-        insight_type=ANALYST_NOTE_INSIGHT_TYPE,
-        dedup_key=note_dedup_key(today),
-        severity="info",
-        title=f"Analyst note - {today.isoformat()}",
-        body=render_report(facts, commentary),
-    )
-    if note is None:  # written concurrently; the other one stands
-        return await existing_note(db, owner_user_id=owner_user_id, today=today)
-    note.metadata_ = {
-        "model_name": model_name,
-        "commentary": commentary.model_dump(),
-    }
-    db.add(note)
-    # Today's figures become tomorrow's baseline. Written only after the note
-    # itself succeeded, so a failed model run leaves no snapshot and the next
-    # note diffs against the last good day rather than against a day nobody
-    # ever read.
-    await save_snapshot(db, owner_user_id=owner_user_id, day=today, facts=facts)
-    await db.flush()
+    # ---- take the database back, just to write ------------------------
+    async with open_session() as db:
+        note = await create_insight_if_new(
+            db,
+            owner_user_id=0 if owner_user_id is None else owner_user_id,
+            insight_type=ANALYST_NOTE_INSIGHT_TYPE,
+            dedup_key=note_dedup_key(today),
+            severity="info",
+            title=f"Analyst note - {today.isoformat()}",
+            body=render_report(facts, commentary),
+        )
+        if note is None:  # written concurrently; the other one stands
+            return await existing_note(db, owner_user_id=owner_user_id, today=today)
+        note.metadata_ = {
+            "model_name": model_name,
+            "commentary": commentary.model_dump(),
+        }
+        db.add(note)
+        # Today's figures become tomorrow's baseline. Written only after the
+        # note itself succeeded, so a failed model run leaves no snapshot and
+        # the next note diffs against the last good day rather than against a
+        # day nobody ever read.
+        await save_snapshot(db, owner_user_id=owner_user_id, day=today, facts=facts)
+        # The session commits on the way out, but flush first so the note
+        # has its id - and so a caller whose factory does not commit (a
+        # test holding one session open) still sees it.
+        await db.flush()
     return note

@@ -42,6 +42,14 @@ def analyst_ready(monkeypatch):
             yield session
 
         monkeypatch.setattr(module_context, "get_async_session", _session)
+        # The route hands ``run_analyst_note`` a way to OPEN a database
+        # rather than an open one, so it can drop the write lock around
+        # the model call. In a test that means handing back this session.
+        from app.components.backend.api.finance import (
+            analyst as finance_analyst_module,
+        )
+
+        monkeypatch.setattr(finance_analyst_module, "get_async_session", _session)
 
         calls: list[str] = []
 
@@ -253,7 +261,10 @@ async def test_background_run_writes_the_note_as_a_job(
     async def _session():
         yield async_db_session
 
-    monkeypatch.setattr(finance_analyst_module, "_job_session", _session)
+    # The alias is gone: both the background job and the direct path now
+    # take ``get_async_session`` itself, because each opens and closes its
+    # own short transactions around the model call.
+    monkeypatch.setattr(finance_analyst_module, "get_async_session", _session)
 
     response = authenticated_client.post(RUN_URL, params={"background": "true"})
     assert response.status_code == 202
