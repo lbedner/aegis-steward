@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.db import db_session, engine, init_database
 from app.core.log import logger
 from app.services.ai.jobs import analyze_sentiment_job, sync_llm_catalog_job
+from app.services.documents.domains.reading.joins import join_arrivals_job
 from app.services.finance.jobs import (
     finance_analyst_note_job,
     finance_bill_due_email_job,
@@ -191,6 +192,22 @@ def create_scheduler() -> AsyncIOScheduler:
         minute=0,
         id="database_backup",
         name="Daily Database Backup",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+
+    # After the day's post has been read: what arrived is joined to the
+    # asks it answers, as cards. Late in the evening because a document
+    # read at 6pm should be joined the same night, and idempotent, so a
+    # missed run simply catches up.
+    scheduler.add_job(
+        join_arrivals_job,
+        trigger="cron",
+        hour=23,
+        minute=0,
+        id="join_arrivals",
+        name="Join The Day's Arrivals",
         max_instances=1,
         coalesce=True,
         replace_existing=True,
