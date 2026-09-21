@@ -116,9 +116,7 @@ class TestOneAskNeedingSeveralDocuments:
         await async_db_session.flush()
 
         found = await satisfied_by(async_db_session, income.id)
-        assert sorted(one.document_id for one in found) == sorted(
-            p.id for p in papers
-        )
+        assert sorted(one.document_id for one in found) == sorted(p.id for p in papers)
 
     @pytest.mark.asyncio
     async def test_it_stays_answered_until_the_last_one_goes(

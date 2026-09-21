@@ -1158,9 +1158,7 @@ class TestWhatWouldSatisfyAnAsk:
         )
 
         form = client.get(f"/matters/requests/items/{item_id}/edit").text
-        offered = {
-            el.get("value") for el in select(form, 'select[name="ask"] option')
-        }
+        offered = {el.get("value") for el in select(form, 'select[name="ask"] option')}
         assert offered == {""} | {key for key, _label in FACT_ATTRIBUTES}
 
     def test_what_it_saves_is_spelled_the_way_a_fact_spells_it(
@@ -1260,7 +1258,9 @@ class TestOverdueIsRed:
     def test_the_sidebar_fetches_a_mark_that_is_red_only_when_late(
         self, client: TestClient
     ) -> None:
-        nav = one(client.get("/matters").text, "[data-attention]")
+        nav = one(
+            client.get("/matters").text, '[data-attention][hx-get="/matters/attention"]'
+        )
         assert nav.get("hx-get") == "/matters/attention"
         assert "load" in (nav.get("hx-trigger") or "")
         # Inside a boosted link, so it must override what it would inherit.

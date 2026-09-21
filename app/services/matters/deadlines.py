@@ -32,7 +32,9 @@ def _key(request_id: int, due_on: date, late: bool) -> str:
     """One alert per request and deadline, and a DIFFERENT one once the
     day passes: "due in 9 days" and "9 days late" are not the same fact,
     and the reader must not be left looking at the first."""
-    return f"{INSIGHT_TYPE}:{request_id}:{due_on.isoformat()}:{'late' if late else 'soon'}"
+    return (
+        f"{INSIGHT_TYPE}:{request_id}:{due_on.isoformat()}:{'late' if late else 'soon'}"
+    )
 
 
 def _said(

@@ -1,8 +1,8 @@
-{% from "components/macros/form.html" import button_classes %}
 {# One job snapshot, as the SSE follower swaps it in. Running: the label.
    Done: the result, rendered by what the job was. Failed: the error. #}
 {% from "components/macros/feedback.html" import error_banner %}
-{% from "components/macros/imports.html" import count_cells, count_dots %}
+{% from "components/macros/imports.html" import count_cells, count_dots, job_done %}
+{% from "components/macros/layout.html" import stats_strip %}
 {% if job.status == "running" %}
 <p class="flex items-center gap-2 text-sm text-aegis-muted">
   <span class="w-3 h-3 border-2 border-aegis-teal border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
@@ -22,6 +22,23 @@
   {% if read %}Read {{ read }} page{{ "s" if read != 1 }}. The text is below when you re-open this.
   {% else %}Every page was already read.{% endif %}
 </p>
+{% elif job.name and job.name.startswith("mail-import") %}
+{#- A file of mail, read. What landed is paper on the shelf, so that is
+    where Done goes - not to Accounts, which is where the finance
+    import's frame goes and where this one went before it had its own. -#}
+<section id="mail-summary" class="space-y-4">
+  <h3 class="text-sm font-semibold text-aegis-text">Mail read</h3>
+  {% if job.result and job.result.messages_total is defined %}
+  {% set r = job.result %}
+  {{ stats_strip([
+       {"label": "Messages", "value": "{:,}".format(r.messages_total), "caption": "{:,} new, {:,} already filed".format(r.messages_new, r.messages_duplicate)},
+       {"label": "Letters filed", "value": "{:,}".format(r.letters_filed or 0), "caption": "The message itself, as paper", "tone": "ok" if r.letters_filed else none},
+       {"label": "Attachments filed", "value": "{:,}".format(r.attachments_filed), "caption": "Now on the shelf", "tone": "ok" if r.attachments_filed else none},
+       {"label": "Already had", "value": "{:,}".format(r.attachments_duplicate), "caption": "Left alone"},
+     ], id="mail-counts") }}
+  {% endif %}
+  {{ job_done("/documents") }}
+</section>
 {% else %}
 <section id="import-summary" class="space-y-4">
   <h3 class="text-sm font-semibold text-aegis-text">Import complete</h3>
@@ -31,7 +48,6 @@
   {{ count_cells(job.result, [("Added", "Now in your ledger"), ("Updated", "Changed in place"), ("Already had", "Left alone")]) }}
   {{ count_dots(job.result) }}
   {% endif %}
-  <button type="button" hx-get="/accounts" hx-target="#app-content" hx-push-url="true" @click="$el.closest('dialog').close()"
-          class="{{ button_classes() }}">Done</button>
+  {{ job_done("/accounts") }}
 </section>
 {% endif %}

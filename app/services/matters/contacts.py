@@ -90,6 +90,12 @@ async def create_contact_execute(
         note=payload.note,
     )
     await db.flush()
+    # Mail already on the shelf from this address is theirs now. Lazy:
+    # matters does not otherwise know mail exists, and the queue runs
+    # this in the same transaction as the create.
+    from app.services.mail.ingest import adopt_sender
+
+    await adopt_sender(db, int(party.id), payload.email)
     return {"party_id": party.id, "name": party.name}
 
 
@@ -183,9 +189,7 @@ class AmendContactPayload(BaseModel):
         fields = ("name", "sort_name", "note", *[k for k, _ in CONTACT_FIELDS])
         # ``is not None`` is the whole test: "" is SENT and means clear.
         found: dict[str, Any] = {
-            key: value
-            for key in fields
-            if (value := getattr(self, key)) is not None
+            key: value for key in fields if (value := getattr(self, key)) is not None
         }
         if self.also is not None:
             found[CONTACT_LINES] = [

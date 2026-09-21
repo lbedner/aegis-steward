@@ -109,8 +109,8 @@ async def attention(request: Request) -> Response:
         count = len(await RequestService(db).overdue())
     return templates.TemplateResponse(
         request=request,
-        name="partials/matters/attention.html",
-        context={"count": count},
+        name="partials/attention.html",
+        context={"count": count, "tone": "error", "label": "overdue"},
     )
 
 

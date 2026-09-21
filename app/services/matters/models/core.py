@@ -411,7 +411,9 @@ class MatterEvent(SQLModel, table=True):
 
     __tablename__ = "matter_event"
     __table_args__ = (
-        CheckConstraint(one_of("kind", MATTER_EVENT_KINDS), name="ck_matter_event_kind"),
+        CheckConstraint(
+            one_of("kind", MATTER_EVENT_KINDS), name="ck_matter_event_kind"
+        ),
         Index("ix_matter_event_matter", "matter_id"),
         Index("ix_matter_event_occurred", "occurred_at"),
     )

@@ -50,10 +50,18 @@ elif [ "$run_command" = "worker" ]; then
     # Build the module path for the queue
     worker_module="app.components.worker.queues.${queue_type}.WorkerSettings"
 
-    # Development mode auto-reload (APP_ENV from .env or WORKER_WATCH override)
-    if [ "$APP_ENV" = "dev" ] || [ "$WORKER_WATCH" = "true" ]; then
+    # Development mode auto-reload (APP_ENV from .env or WORKER_WATCH override).
+    #
+    # NOT arq's own watch flag: that closes the worker and calls async_run()
+    # again in the same process, with the same already-imported modules.
+    # It prints "files changed, reloading arq worker..." and runs the old
+    # code. watchfiles restarts the process, as the scheduler branch does,
+    # so a job runs the code on disk.
+    if { [ "$APP_ENV" = "dev" ] || [ "$WORKER_WATCH" = "true" ]; } \
+        && uv run python -c "import watchfiles" 2>/dev/null; then
         echo "Starting ${queue_type} worker with auto-reload..."
-        exec uv run python -m arq "${worker_module}" --watch /code/app "$@"
+        exec uv run watchfiles --filter python \
+            "python -m arq ${worker_module} $*" /code/app
     else
         echo "Starting ${queue_type} worker..."
         exec uv run python -m arq "${worker_module}" "$@"

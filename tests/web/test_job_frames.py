@@ -50,7 +50,9 @@ class TestAFinishedRead:
             _request(), _snapshot("documents-extract:12", {"read": 2})
         )
         assert not [
-            el for el in select(html, "[hx-get]") if "/accounts" in (el.get("hx-get") or "")
+            el
+            for el in select(html, "[hx-get]")
+            if "/accounts" in (el.get("hx-get") or "")
         ]
 
     def test_a_read_that_found_nothing_new_says_so(self) -> None:

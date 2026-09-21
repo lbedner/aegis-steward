@@ -231,6 +231,9 @@ _FILE_BADGES: dict[str, tuple[str, str]] = {
     "gif": ("IMG", "img"),
     "txt": ("TXT", "file"),
     "zip": ("ZIP", "file"),
+    # Not a format: how it arrived. A message filed as a letter is
+    # text/plain, and "TXT" beside a blank sheet says nothing about it.
+    "mail": ("MAIL", "mail"),
 }
 
 # Served, not inlined: one request per format, cached by the browser for
@@ -252,17 +255,22 @@ _UNKNOWN_FILE = ("FILE", "file")
 
 
 def file_badge(
-    media_type: str | None = None, filename: str | None = None
+    media_type: str | None = None,
+    filename: str | None = None,
+    source: str | None = None,
 ) -> dict[str, str]:
     """``{label, icon}`` for a stored file's type mark.
 
-    The media type first, because it is what the store recorded; the
-    filename's extension is the fallback for anything uploaded without
-    one. An unknown format gets the plain sheet of paper rather than a
-    guess: a wrong mark is worse than a neutral one, because it is read
-    as a fact about the file.
+    Mail first: a message filed as a letter is marked by how it came,
+    not by its bytes. Then the media type, because it is what the
+    store recorded; the filename's extension is the fallback for
+    anything uploaded without one. An unknown format gets the plain
+    sheet of paper rather than a guess: a wrong mark is worse than a
+    neutral one, because it is read as a fact about the file.
     """
-    key = _BY_MEDIA_TYPE.get((media_type or "").lower())
+    key = "mail" if source == "mail" else None
+    if key is None:
+        key = _BY_MEDIA_TYPE.get((media_type or "").lower())
     if key is None and media_type and media_type.lower().startswith("image/"):
         key = media_type.lower().split("/", 1)[1]
     if key is None and filename and "." in filename:

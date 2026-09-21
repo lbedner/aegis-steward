@@ -32,8 +32,11 @@ from app.components.web_frontend.rendering import (
 )
 from app.components.web_frontend.routes.requests import ACCEPTS
 from app.core.db import get_async_session
+from app.core.storage import get_storage
 from app.services.documents.domains.extraction.dispatch import start_extraction
 from app.services.finance.deps import get_owner_user_id
+from app.services.mail.jobs import start_mail_import
+from app.services.mail.parse import is_mail_export
 
 SECTION = section("documents")
 router = APIRouter(prefix=SECTION.path)
@@ -56,7 +59,9 @@ def _row(document: Any, filed: list[dict[str, str]]) -> dict[str, Any]:
         "title": {
             "label": document.title,
             "url": f"{SECTION.path}/{document.id}",
-            "badge": file_badge(document.media_type, document.title),
+            "badge": file_badge(
+                document.media_type, document.title, source=document.source
+            ),
         },
         "kind": document.kind,
         "at": short_date(document.document_date or document.received_at),
@@ -109,9 +114,10 @@ async def page(
 def _matches(document: Any, q: str) -> bool:
     """A document the reader means by this word."""
     said = q.casefold()
-    return said in (document.title or "").casefold() or said in (
-        document.filename or ""
-    ).casefold()
+    return (
+        said in (document.title or "").casefold()
+        or said in (document.filename or "").casefold()
+    )
 
 
 async def _filed(db: Any, document_id: int) -> Any:
@@ -144,7 +150,25 @@ async def upload(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """File a document that belongs to nothing yet. Tagging it to a
-    matter or an account is done from there."""
+    matter or an account is done from there.
+
+    A mailbox export is not a document: it is a job that files many.
+    The bytes go to storage and the answer is the follower (pattern 5),
+    exactly as the finance import answers - the messages are read on
+    the worker, and each attachment lands on this shelf.
+    """
+    if file is not None and is_mail_export(file.filename):
+        storage_key = await get_storage().put(
+            await file.read(), content_type=file.content_type
+        )
+        job_id = await start_mail_import(
+            storage_key, file_name=str(file.filename), owner_user_id=owner_user_id
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/imports/started.html",
+            context={"job_id": job_id, "file_name": file.filename},
+        )
 
     async with get_async_session() as db:
         document = await file_upload(db, file, owner_user_id=owner_user_id, kind=kind)
@@ -202,6 +226,42 @@ async def save(
             )
         await db.commit()
     return dialog_done(where_from(request, SECTION.path), "Saved")
+
+
+@router.get("/{document_id:int}/delete", include_in_schema=False)
+async def delete_confirm(request: Request, document_id: int) -> Response:
+    """Ask first: there is no undo, and the bytes go with it."""
+    async with get_async_session() as db:
+        found = await _filed(db, document_id)
+    return dialog(
+        request,
+        "partials/matters/forget.html",
+        title=f"Delete {found.title}?",
+        body="The document, the text read off it, and its labels all go. "
+        "Anything filed against it lets go of it. There is no undo.",
+        url=f"{SECTION.path}/{document_id}",
+        method="delete",
+    )
+
+
+@router.delete("/{document_id:int}", include_in_schema=False)
+async def delete(
+    request: Request,
+    document_id: int,
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The rows in one transaction; the bytes after it commits, so a
+    crash between the two leaves an orphan blob and never a row that
+    names paper that is gone."""
+    from app.services.documents.domains.shelf.destroy import destroy
+
+    async with get_async_session() as db:
+        orphaned = or_404(await destroy(db, document_id, owner_user_id=owner_user_id))
+        await db.commit()
+    storage = get_storage()
+    for key in orphaned:
+        await storage.delete(key)
+    return dialog_done(where_from(request, SECTION.path), "Deleted")
 
 
 @router.post("/{document_id:int}/read", include_in_schema=False)

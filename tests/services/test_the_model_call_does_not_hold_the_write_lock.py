@@ -169,9 +169,7 @@ async def test_another_writer_can_work_while_the_model_is_thinking(
     def _model_for(config: Any, settings: Any) -> tuple[Any, str]:
         return FunctionModel(_respond), "test-model"
 
-    monkeypatch.setattr(
-        "app.services.ai.domains.llm.providers.model_for", _model_for
-    )
+    monkeypatch.setattr("app.services.ai.domains.llm.providers.model_for", _model_for)
     monkeypatch.setattr(analyst.note, "current_date", lambda: date(2026, 7, 20))
 
     from app.services.finance.jobs import finance_analyst_note_job

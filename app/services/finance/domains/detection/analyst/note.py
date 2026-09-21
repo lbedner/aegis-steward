@@ -1,11 +1,10 @@
 """The nightly note: dedup, lookup, and the run path."""
 
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
 from datetime import date
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.db import OpenSession
 from app.core.log import logger
 from app.services.finance.constants import ANALYST_NOTE_INSIGHT_TYPE
 from app.services.finance.domains.detection import queries
@@ -30,15 +29,6 @@ from app.services.finance.domains.detection.analyst.shared import (
 from app.services.finance.domains.detection.insights import create_insight_if_new
 from app.services.finance.models import FinanceInsight
 from app.services.finance.utils import current_date
-
-# How the note gets a database, rather than being handed one that is
-# already open. SQLite has a single writer and ``core.db`` opens every
-# transaction with BEGIN IMMEDIATE, so an open session IS the write lock
-# for the whole application - and this run waits on a model in the
-# middle. Taking the database twice, briefly, costs nothing; holding it
-# across the model call stops every other writer (2026-09-20: the
-# nightly job blocked a webserver request AND its own record_usage).
-OpenSession = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 
 async def existing_note(
@@ -129,7 +119,9 @@ async def run_analyst_note(
             update["model"] = agent_config.model_id
         service_config = service_config.model_copy(update=update)
 
-        facts = await build_report_facts(db, owner_user_id=owner_user_id, context=context)
+        facts = await build_report_facts(
+            db, owner_user_id=owner_user_id, context=context
+        )
         snapshot = await build_finance_snapshot(
             db, owner_user_id=owner_user_id, today=today, context=context, facts=facts
         )

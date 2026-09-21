@@ -243,7 +243,12 @@ async def _read_with_vision(
 # What each method reads as to a person. Every surface that says how a
 # page was read - the document dialog, the API, the dashboard's page
 # panel - says it through ``how_read``, so the words have one home.
-READ_LABELS = {"text_layer": "Text layer", "ocr": "OCR", "vision": "Model"}
+READ_LABELS = {
+    "text_layer": "Text layer",
+    "ocr": "OCR",
+    "vision": "Model",
+    "mail": "Email",
+}
 
 
 def how_read(page: DocumentPage) -> str:

@@ -59,6 +59,34 @@ async def propose(
     return row
 
 
+async def revise(
+    db: AsyncSession,
+    change_id: int,
+    payload: dict[str, Any],
+    *,
+    owner_user_id: int | None = None,
+) -> FinancePendingChange:
+    """Put the reader's own words on a pending card.
+
+    The same contract ``propose`` validated against validates again, so
+    a revised card is as safe to approve as a fresh one; a bad revision
+    dies here and the card is untouched. Only a type that opted in
+    (``ChangeExecutor.editable``) and only while the card is pending.
+    """
+    row = _require_pending(await get_change(db, change_id, owner_user_id=owner_user_id))
+    executor = executor_for(row.change_type)
+    if not executor.editable:
+        raise ValueError(f"a {row.change_type} card is answered, not edited")
+    try:
+        model = executor.payload_model(**payload)
+    except ValidationError as e:
+        raise ValueError(f"invalid {row.change_type} payload: {e}") from None
+    row.payload = model.model_dump(mode="json")
+    db.add(row)
+    await db.flush()
+    return row
+
+
 MAX_BATCH_SIZE = 100
 
 

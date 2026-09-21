@@ -114,9 +114,7 @@ class TestWhatItCites:
     def test_one_hit_per_thing(self) -> None:
         """A phone printed in the header and again in the footer is one
         sender, not two."""
-        found = identify(
-            _pages("(845) 486-3000", "Questions? (845) 486-3000"), [DSS]
-        )
+        found = identify(_pages("(845) 486-3000", "Questions? (845) 486-3000"), [DSS])
         assert len(found) == 1
 
 
@@ -155,9 +153,10 @@ class TestWhatTheAppAlreadyKnows:
         async_db_session.add(bank)
         await async_db_session.flush()
 
-        index = {(one.kind, one.how, one.value) for one in await known_strings(
-            async_db_session
-        )}
+        index = {
+            (one.kind, one.how, one.value)
+            for one in await known_strings(async_db_session)
+        }
 
         assert ("account", "mask", "3639") in index
         assert ("party", "domain", "https://www.deltadentalins.com") in index
@@ -177,6 +176,48 @@ class TestWhatTheAppAlreadyKnows:
         await async_db_session.flush()
 
         assert not [
-            one for one in await known_strings(async_db_session)
+            one
+            for one in await known_strings(async_db_session)
             if one.kind == "party" and one.target == party.id
         ]
+
+
+ADDRESS = Known(kind="party", target=7, how="email", value="claims@deltadentalins.com")
+
+
+class TestTheSenderByTheirAddress:
+    """The strongest identifier the mail hands over, and for free: an
+    address is exact where a phone is fuzzy and a domain is shared."""
+
+    def test_the_address_on_a_letters_first_line(self) -> None:
+        found = identify(
+            _pages("From: Delta Dental <Claims@DeltaDentalIns.com>"), [ADDRESS]
+        )
+        assert [(k.kind, k.target) for k, _ in found] == [("party", 7)]
+
+    def test_case_is_the_senders_and_nobodys_to_match_on(self) -> None:
+        assert identify(_pages("CLAIMS@DELTADENTALINS.COM"), [ADDRESS])
+
+    def test_a_different_mailbox_at_the_same_company_is_not_this_one(self) -> None:
+        assert identify(_pages("billing@deltadentalins.com"), [ADDRESS]) == []
+
+    @pytest.mark.asyncio
+    async def test_addresses_on_file_are_known_strings(self, async_db_session) -> None:
+        from app.services.documents.domains.reading.identity import known_strings
+        from app.services.matters.service import PartyService
+
+        county = await PartyService(async_db_session).create(
+            name="Dutchess County DSS",
+            kind="organization",
+            contact={
+                "email": "DSS@dutchessny.gov",
+                "also": [{"label": "caseworker", "value": "jdoe@dutchessny.gov"}],
+            },
+        )
+        known = await known_strings(async_db_session)
+        addresses = {
+            k.value
+            for k in known
+            if k.kind == "party" and k.how == "email" and k.target == county.id
+        }
+        assert addresses == {"dss@dutchessny.gov", "jdoe@dutchessny.gov"}

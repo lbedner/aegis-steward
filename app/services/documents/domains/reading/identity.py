@@ -70,7 +70,35 @@ def _domain(value: str) -> str:
     return said.removeprefix("www.").split("/", 1)[0].strip()
 
 
+def _addresses(contact: dict[str, Any]) -> list[str]:
+    """Every email address a contact block carries, lower-cased once."""
+    from app.services.matters.reach import reach_lines
+
+    found: list[str] = []
+    for value in (contact.get("email"), *[v for _, v in reach_lines(contact)]):
+        address = str(value or "").strip().lower()
+        if "@" in address and address not in found:
+            found.append(address)
+    return found
+
+
+async def parties_by_email(db: Any) -> dict[str, int]:
+    """Every address on file to the contact it belongs to. What the mail
+    reader matches a From header against - read once per file and
+    matched in memory, one query rather than one per message."""
+    from app.services.matters.service import PartyService
+
+    known: dict[str, int] = {}
+    for party in await PartyService(db).find():
+        for address in _addresses(party.contact or {}):
+            if party.id is not None:
+                known.setdefault(address, party.id)
+    return known
+
+
 def _hit(known: Known, line: str) -> bool:
+    if known.how == "email":
+        return known.value in flat(line)
     if known.how == "mask":
         labelled = any(
             digits == known.value
@@ -140,7 +168,11 @@ async def known_strings(db: Any) -> list[Known]:
     known: list[Known] = []
 
     accounts, _total = await queries.accounts_page(
-        db, owner_user_id=None, include_hidden=True, page=1, page_size=500,
+        db,
+        owner_user_id=None,
+        include_hidden=True,
+        page=1,
+        page_size=500,
         subject_id=queries.EVERYONE,
     )
     known.extend(
@@ -153,9 +185,20 @@ async def known_strings(db: Any) -> list[Known]:
         contact = party.contact or {}
         if website := contact.get("website"):
             known.append(Known("party", party.id, "domain", str(website)))
+        # An address is the strongest of the set: exact where a phone is
+        # fuzzy and a domain is shared. The main one and every labelled
+        # reach line that is one - a county office prints its caseworker's
+        # address as readily as its main one (MI-05).
+        known.extend(
+            Known("party", party.id, "email", address)
+            for address in _addresses(contact)
+        )
         # The main number AND the labelled ones: a county office prints
         # its caseworker's direct line as readily as its switchboard.
-        numbers = [contact.get("phone"), *[value for _label, value in reach_lines(contact)]]
+        numbers = [
+            contact.get("phone"),
+            *[value for _label, value in reach_lines(contact)],
+        ]
         known.extend(
             Known("party", party.id, "phone", str(number))
             for number in numbers

@@ -27,6 +27,7 @@ def create_web_frontend_app() -> APIRouter:
     )
     from app.components.web_frontend.routes.icons import router as icons_router
     from app.components.web_frontend.routes.jobs import router as jobs_router
+    from app.components.web_frontend.routes.mail import router as mail_router
     from app.components.web_frontend.routes.matter_papers import (
         router as papers_router,
     )
@@ -57,6 +58,7 @@ def create_web_frontend_app() -> APIRouter:
     router.include_router(positions_router)
     router.include_router(contacts_router)
     router.include_router(documents_router)
+    router.include_router(mail_router)
     router.include_router(icons_router)
     router.include_router(chat_router)
 

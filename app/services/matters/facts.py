@@ -305,7 +305,7 @@ assert set(PER_MONTH) <= set(FACT_PERIODS)
 
 
 def rate_suffix(period: str | None) -> str:
-    """"a month", or nothing at all when the figure is a one-off.
+    """ "a month", or nothing at all when the figure is a one-off.
 
     The rule lived in three places - here, and twice in the fact row's
     markup, where a template decided for itself that "once" means no
@@ -327,7 +327,9 @@ def said_value(value_cents: int | None, period: str = "once", text: str = "") ->
 
     if value_cents is None:
         return text or ""
-    return " ".join(part for part in (format_usd(value_cents), rate_suffix(period)) if part)
+    return " ".join(
+        part for part in (format_usd(value_cents), rate_suffix(period)) if part
+    )
 
 
 def one_line(fact: Fact) -> str:

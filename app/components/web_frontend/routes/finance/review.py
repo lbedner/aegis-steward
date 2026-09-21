@@ -93,6 +93,27 @@ async def counts(service: FinanceService, owner_user_id: int | None) -> dict[str
     }
 
 
+@router.get("/waiting", include_in_schema=False)
+async def waiting(
+    request: Request,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The sidebar's mark: a dot while any card is waiting, nothing
+    otherwise. Fetched by the nav on load, so a page that never touches
+    Review still shows what mail or a reading proposed."""
+    waiting = len(
+        await service.list_pending_changes(
+            owner_user_id=owner_user_id, status="pending"
+        )
+    )
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/attention.html",
+        context={"count": waiting, "tone": "ok", "label": "to review"},
+    )
+
+
 async def nav_context(
     service: FinanceService, owner_user_id: int | None, current: str
 ) -> dict[str, Any]:

@@ -74,7 +74,7 @@ class RecordFactPayload(BaseModel):
 
     @model_validator(mode="after")
     def _a_document_fact_says_where(self) -> RecordFactPayload:
-        """"provenance: document" is not provenance. It is a claim that
+        """ "provenance: document" is not provenance. It is a claim that
         provenance exists somewhere.
 
         The service already refused a document-derived fact with no
@@ -92,9 +92,7 @@ class RecordFactPayload(BaseModel):
         if self.document_id is None:
             raise ValueError("A document-derived fact needs the document.")
         if self.page is None:
-            raise ValueError(
-                "A document-derived fact needs the page it was read from."
-            )
+            raise ValueError("A document-derived fact needs the page it was read from.")
         if not (self.source_note or "").strip():
             raise ValueError(
                 "A document-derived fact needs the line it was read from: a "
@@ -325,7 +323,9 @@ async def amend_ask_describe(
         rows.append(ChangeDisplayRow(label="Kind", value=item_kind(payload.kind)))
     if payload.ask is not None:
         rows.append(
-            ChangeDisplayRow(label="Answered by", value=LABELS.get(payload.ask, payload.ask))
+            ChangeDisplayRow(
+                label="Answered by", value=LABELS.get(payload.ask, payload.ask)
+            )
         )
     if payload.as_of is not None:
         rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))
@@ -369,7 +369,9 @@ async def add_ask_describe(
     ]
     if payload.ask is not None:
         rows.append(
-            ChangeDisplayRow(label="Answered by", value=LABELS.get(payload.ask, payload.ask))
+            ChangeDisplayRow(
+                label="Answered by", value=LABELS.get(payload.ask, payload.ask)
+            )
         )
     if payload.as_of is not None:
         rows.append(ChangeDisplayRow(label="As of", value=payload.as_of.isoformat()))

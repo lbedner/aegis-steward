@@ -260,9 +260,9 @@ class TestAdoptionStopsAtAGap:
                 ]
 
         monkeypatch.setattr(
-            migrations, "_pending", lambda script, current: FakeScript().walk_revisions(
-                "base", "heads"
-            )[::-1]
+            migrations,
+            "_pending",
+            lambda script, current: FakeScript().walk_revisions("base", "heads")[::-1],
         )
         monkeypatch.setattr(migrations, "already_applied", lambda i, s: True)
 

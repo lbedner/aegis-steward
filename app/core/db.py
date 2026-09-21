@@ -6,8 +6,8 @@ This module provides SQLite database connectivity using SQLModel and SQLAlchemy.
 Includes proper session management with transaction handling and foreign key support.
 """
 
-from collections.abc import AsyncGenerator, Generator
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import AsyncGenerator, Callable, Generator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -216,6 +216,14 @@ SessionLocal = sessionmaker(
 )
 
 # Configure async session factory using SQLModel's AsyncSession
+# How work that must NOT hold the write lock across something slow gets a
+# database: a way to OPEN one, rather than one already open. SQLite has a
+# single writer and every transaction here begins IMMEDIATE, so an open
+# session IS the application-wide write lock - and a model call or a file
+# parse in the middle of one stops every other writer (#210, 2026-09-20).
+# Take the database twice, briefly; hold it for nothing else.
+OpenSession = Callable[[], AbstractAsyncContextManager[AsyncSession]]
+
 AsyncSessionLocal = async_sessionmaker(
     async_engine,
     class_=AsyncSession,

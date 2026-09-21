@@ -63,6 +63,11 @@ from app.services.finance.models import (  # noqa: E402,F401
 
 
 from app.services.insurance.models import InsuranceClaim, InsurancePolicy  # noqa: E402,F401
+from app.services.mail.models import (  # noqa: E402,F401
+    MailAttachment,
+    MailBatch,
+    MailMessage,
+)
 from app.services.scheduler.models import JobExecution  # noqa: E402,F401
 
 

@@ -312,7 +312,9 @@ class TestWhoSentIt:
                 async_db_session,
                 MetadataPayload(
                     document_id=document.id,
-                    sender=ReadValue(value=str(sender.id), page=1, because="letterhead"),
+                    sender=ReadValue(
+                        value=str(sender.id), page=1, because="letterhead"
+                    ),
                 ),
                 None,
             )
@@ -584,7 +586,11 @@ class TestACardDecidedLaterThanItWasMade:
                         "page": 1,
                         "because": "JPMorgan Chase Bank, N.A.",
                     },
-                    kind={"value": "statement", "page": 1, "because": "Account Summary"},
+                    kind={
+                        "value": "statement",
+                        "page": 1,
+                        "because": "Account Summary",
+                    },
                 ),
                 None,
             )
