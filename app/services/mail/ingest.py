@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
@@ -335,20 +335,38 @@ def letter_text(message: parse.ParsedMessage) -> str:
     return "\n".join([*head, "", body])
 
 
-async def _strangers_already_offered(db: AsyncSession) -> set[str]:
-    """Addresses with a contact.create card waiting or refused. A second
-    export from the same stranger does not offer them twice, and a
-    rejected card was an answer: no means no."""
+async def cards_by_address(db: AsyncSession) -> dict[str, str]:
+    """The status of the contact.create card offering each address, by
+    the latest card for it.
+
+    One home, because two questions are the same question: ingest asks
+    "have we already offered this stranger?" and the intake page asks
+    "what happened to the card for this message?". Not filtered by who
+    proposed it - a card the letterhead reader raised off a PDF is
+    still an unanswered question about this address, and asking it
+    again from mail is asking twice.
+    """
     rows = (
         await db.exec(
-            select(FinancePendingChange).where(
-                FinancePendingChange.change_type == "contact.create",
-                FinancePendingChange.status.in_(("pending", "rejected")),
-            )
+            select(FinancePendingChange)
+            .where(FinancePendingChange.change_type == "contact.create")
+            .order_by(col(FinancePendingChange.id))
         )
     ).all()
     return {
-        str(row.payload["email"]).lower() for row in rows if row.payload.get("email")
+        str(row.payload["email"]).lower(): row.status
+        for row in rows
+        if row.payload.get("email")
+    }
+
+
+async def _strangers_already_offered(db: AsyncSession) -> set[str]:
+    """Addresses nobody needs asked about again: a card is waiting, or a
+    rejected one already answered - no means no."""
+    return {
+        address
+        for address, status in (await cards_by_address(db)).items()
+        if status in ("pending", "rejected")
     }
 
 

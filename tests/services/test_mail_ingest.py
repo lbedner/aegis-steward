@@ -408,6 +408,30 @@ class TestAStrangerIsOfferedAsAContact:
         assert len(await _cards(async_db_session)) == 1
 
     @pytest.mark.asyncio
+    async def test_a_card_somebody_else_proposed_counts_too(
+        self, async_db_session: AsyncSession, open_session: Any, dispatched: list[int]
+    ) -> None:
+        """The letterhead reader proposed this address off a PDF and the
+        card is still waiting. Mail offering a second one is asking the
+        same question twice - it does not matter who asked first."""
+        from app.services.finance.domains.writes.queue import propose
+
+        await propose(
+            async_db_session,
+            "contact.create",
+            {
+                "name": "Optum Financial",
+                "kind": "organization",
+                "email": "of-service@of.optum.com",
+            },
+            proposed_by_agent="steward",
+        )
+        data = eml_bytes(message(sender="of-service@of.optum.com"))
+        await ingest.ingest_mail(open_session, data=data, file_name="x.eml")
+
+        assert len(await _cards(async_db_session)) == 1
+
+    @pytest.mark.asyncio
     async def test_no_display_name_means_the_domain_is_the_name(
         self, async_db_session: AsyncSession, open_session: Any, dispatched: list[int]
     ) -> None:
