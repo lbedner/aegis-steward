@@ -126,7 +126,7 @@ class TestWhichDoorAnnounces:
 
         told: list[list[object]] = []
 
-        async def fake(rows: list[object]) -> None:
+        async def fake(db: object, rows: list[object]) -> None:
             told.append(rows)
 
         monkeypatch.setattr(endpoints, "announce", fake)
@@ -156,7 +156,7 @@ class TestWhichDoorAnnounces:
 
         told: list[list[object]] = []
 
-        async def fake(rows: list[object]) -> None:
+        async def fake(db: object, rows: list[object]) -> None:
             told.append(rows)
 
         monkeypatch.setattr(endpoints, "announce", fake)
@@ -176,3 +176,41 @@ class TestWhichDoorAnnounces:
         )
 
         assert told == []
+
+
+class TestTheSenderDoesNotWaitOnItself:
+    """Approve committed, then announced. Touching the expired row
+    re-opened a transaction on the request's session - the write lock -
+    and the sender opened a SECOND session to look up the conversation:
+    ``BEGIN IMMEDIATE`` waiting on ``BEGIN IMMEDIATE`` in one request.
+    Every other request queued behind it for the full busy timeout, the
+    app read as frozen, and the announce was dropped (2026-09-21)."""
+
+    @pytest.mark.asyncio
+    async def test_the_sender_uses_the_session_it_was_handed(
+        self, async_db_session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.finance.domains.writes import announce as module
+
+        def second_session():
+            raise AssertionError("opened a second session while holding the first")
+
+        monkeypatch.setattr("app.core.db.get_async_session", second_session)
+        queued: list[tuple] = []
+
+        class Pool:
+            async def enqueue_job(self, *args, **kwargs) -> None:
+                queued.append(args)
+
+        async def pool(name: str):
+            return Pool(), name
+
+        monkeypatch.setattr("app.components.worker.pools.get_queue_pool", pool)
+
+        await module.on_the_worker(async_db_session, "conv-1", "I approved: x.")
+
+        assert queued and queued[0][:3] == (
+            "announce_approval_task",
+            "conv-1",
+            "I approved: x.",
+        )

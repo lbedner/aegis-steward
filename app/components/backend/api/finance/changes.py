@@ -221,7 +221,7 @@ async def approve_change(
     await service.db.commit()
     # AFTER the commit, never before: she reads the message, calls
     # parties(), and the row has to be there.
-    await announce([row])
+    await announce(service.db, [row])
     return response
 
 
@@ -269,7 +269,7 @@ async def approve_batch(
     await service.db.commit()
     # One message for the batch, after the commit: six filings are a
     # sentence to her, not six turns.
-    await announce(await approved_in_batch(service.db, batch_id))
+    await announce(service.db, await approved_in_batch(service.db, batch_id))
     return BatchResolveResponse(**summary)
 
 
