@@ -135,10 +135,15 @@ def _paper_on(client: Any, matter_id: int) -> int:
     page = client.get(f"/matters/{matter_id}").text
     opens = [
         el.get("href") or el.get("hx-get") or ""
-        for el in select(page, f'[href*="/matters/{matter_id}/documents/"], '
-        f'[hx-get*="/matters/{matter_id}/documents/"]')
+        for el in select(
+            page,
+            f'[href*="/matters/{matter_id}/documents/"], '
+            f'[hx-get*="/matters/{matter_id}/documents/"]',
+        )
     ]
-    ids = [int(one.rsplit("/", 1)[-1]) for one in opens if one.rsplit("/", 1)[-1].isdigit()]
+    ids = [
+        int(one.rsplit("/", 1)[-1]) for one in opens if one.rsplit("/", 1)[-1].isdigit()
+    ]
     assert ids, "no paper on the matter"
     return max(ids)
 
@@ -208,9 +213,7 @@ class TestWhatTheSheetSays:
         assert len(select(page, '[data-answer][data-state="waived"]')) == 1
         assert len(select(page, '[data-answer][data-state="missing"]')) == 1
 
-    def test_the_reference_is_on_it(
-        self, client: Any, renewal: dict[str, Any]
-    ) -> None:
+    def test_the_reference_is_on_it(self, client: Any, renewal: dict[str, Any]) -> None:
         """A sheet beside a form needs the case number the county files
         it under, or it is a page about nothing in particular.
 
@@ -219,7 +222,9 @@ class TestWhatTheSheetSays:
         case announced itself one way here and another on the case page.
         """
         page = client.get(f"/matters/{renewal['matter_id']}/answers").text
-        assert renewal["reference"] in text(one(page, "header[data-matter] [data-facts]"))
+        assert renewal["reference"] in text(
+            one(page, "header[data-matter] [data-facts]")
+        )
 
     def test_it_says_how_many_are_still_outstanding(
         self, client: Any, renewal: dict[str, Any]
@@ -383,7 +388,9 @@ class TestAFigureIsNotPutAgainstTheWrongQuestion:
             ]
             for row in select(page, "[data-answer]")
         }
-        pension = next(k for k in rows if "gross monthly income" in k and "Social" not in k)
+        pension = next(
+            k for k in rows if "gross monthly income" in k and "Social" not in k
+        )
         social = next(k for k in rows if "Social Security" in k)
         assert any("$2,178.94" in v for v in rows[pension])
         assert rows[social] == []

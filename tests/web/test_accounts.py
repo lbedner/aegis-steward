@@ -896,6 +896,17 @@ class TestAFileSaysWhatItIs:
         assert file_badge(None, "Budget.xlsx")["label"] == "XLS"
         assert file_badge(None, "Letter.docx")["label"] == "DOC"
 
+    def test_a_letter_that_came_by_mail_wears_an_envelope(self) -> None:
+        """Its bytes are text/plain, and TXT beside a blank sheet says
+        nothing about it. How it ARRIVED is the mark: the same letter
+        scanned is a PDF, and mailed is a message."""
+        from app.components.web_frontend.glyphs import file_badge
+
+        badge = file_badge("text/plain", "Your statement", source="mail")
+        assert badge["label"] == "MAIL"
+        assert badge["icon"].endswith("/mail.svg")
+        assert file_badge("text/plain", "notes.txt")["label"] == "TXT"
+
     def test_an_unknown_format_is_not_guessed(self) -> None:
         """A wrong mark is worse than a neutral one: it is read as a fact
         about the file."""

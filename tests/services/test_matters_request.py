@@ -691,7 +691,8 @@ class TestARoutingNumberOnAContact:
         for label in ("Routing", "ABA", "RTN", "ABA/Routing"):
             with pytest.raises(ValidationError, match="account.institution"):
                 CreateContactPayload(
-                    name="X", kind="organization",
+                    name="X",
+                    kind="organization",
                     also=[{"label": label, "value": "221979363"}],
                 )
 

@@ -7,6 +7,7 @@
    review says what will happen, the summary says what did.
 #}
 {% from "components/macros/layout.html" import stats_strip, badge %}
+{% from "components/macros/form.html" import button_classes %}
 
 {# The three outcomes that CHANGE the ledger, as the house strip. #}
 {% macro count_cells(counts, headings) %}
@@ -50,3 +51,14 @@
 {% macro more(total, cap, noun) %}
 {% if total > cap %}<li class="text-xs text-aegis-muted">and {{ "{:,}".format(total - cap) }} more {{ noun }}</li>{% endif %}
 {% endmacro %}
+
+
+{# The way out of a finished job's frame: go somewhere, and shut the
+   dialog the follower was in. One home - the import's frame and the
+   mail import's frame both end here, and a second copy is how one of
+   them stops closing the dialog. #}
+{% macro job_done(url, label="Done") %}
+<button type="button" hx-get="{{ url }}" hx-target="#app-content" hx-push-url="true" @click="$el.closest('dialog').close()"
+        class="{{ button_classes() }}">{{ label }}</button>
+{% endmacro %}
+

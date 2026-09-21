@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from tests._pdf import pdf_bytes
-from tests.web.dom import none, one, select, text, triggers
+from tests.web.dom import location, none, one, select, text, triggers
 
 
 def _file(client: TestClient, title: str = "letter.pdf") -> int:
@@ -61,6 +61,64 @@ class TestTheShelf:
         assert not any("hay.pdf" in t for t in titles)
         form = one(page, "[data-filters]")
         assert form.get("hx-get") == "/documents"
+
+
+class TestDelete:
+    """The only delete was ``DELETE /api/v1/documents/{id}`` - soft, and
+    nothing in the frontend called it. So two logos a mail import filed
+    by mistake had no way out short of SQL (2026-09-21)."""
+
+    def test_the_dialog_offers_delete_through_a_confirm(
+        self, client: TestClient
+    ) -> None:
+        document_id = _file(client, "junk.pdf")
+        dialog = client.get(f"/documents/{document_id}").text
+        opener = one(dialog, "[data-delete]")
+        assert opener.get("hx-get") == f"/documents/{document_id}/delete"
+
+        confirm = client.get(f"/documents/{document_id}/delete").text
+        button = one(confirm, f'button[hx-delete="/documents/{document_id}"]')
+        assert button.get("hx-swap") == "none"
+
+    def test_deleting_takes_it_off_the_shelf_and_closes_the_dialog(
+        self, client: TestClient
+    ) -> None:
+        document_id = _file(client, "gone.pdf")
+
+        answer = client.delete(
+            f"/documents/{document_id}",
+            headers={"HX-Current-URL": "http://t/documents"},
+        )
+
+        assert answer.status_code == 200
+        assert "dialog:close" in triggers(answer)
+        assert location(answer) == "/documents"
+        rows = select(
+            client.get("/documents", params={"q": "gone.pdf"}).text,
+            "#documents tbody tr",
+        )
+        assert not any("gone.pdf" in text(r) for r in rows)
+        assert client.get(f"/documents/{document_id}").status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_a_protected_document_is_not_offered_it(
+        self, client: TestClient
+    ) -> None:
+        """Protection means the exact title typed back, and the confirm
+        has no field for it; the API door does. Not offering beats a
+        button that answers with an error."""
+        from app.core.db import get_async_session
+        from app.services.documents import DocumentService
+
+        document_id = _file(client, "deed.pdf")
+        # The routes open their own sessions (app-owned engine); mark it
+        # there, not on the per-test session the API would see.
+        async with get_async_session() as db:
+            await DocumentService(db).update(document_id, {"protected": True})
+            await db.commit()
+
+        dialog = client.get(f"/documents/{document_id}").text
+        none(dialog, "[data-delete]")
 
 
 class TestTheDialog:
@@ -273,9 +331,7 @@ class TestManyPlacesFold:
 class TestReadingRatherThanEditing:
     """``?reading=1`` is how an approval card opens the paper it read."""
 
-    def test_the_form_is_gone_and_the_pages_are_not(
-        self, client: TestClient
-    ) -> None:
+    def test_the_form_is_gone_and_the_pages_are_not(self, client: TestClient) -> None:
         filed = _file(client, "reading.pdf")
         editing = client.get(f"/documents/{filed}").text
         one(editing, "form[data-details]")
@@ -291,7 +347,9 @@ class TestReadingRatherThanEditing:
         filed = _file(client, "reading-again.pdf")
         reading = client.get(f"/documents/{filed}?reading=1").text
         assert not [
-            el for el in select(reading, "[hx-post]") if "/read" in (el.get("hx-post") or "")
+            el
+            for el in select(reading, "[hx-post]")
+            if "/read" in (el.get("hx-post") or "")
         ]
 
 
@@ -305,7 +363,7 @@ class TestPaperIsReadWhenItArrives:
     def test_uploading_starts_the_read(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.components.web_frontend import documents as web_documents
+        from app.services.documents.domains.extraction import dispatch
 
         started: list[tuple[int, bool]] = []
 
@@ -313,7 +371,8 @@ class TestPaperIsReadWhenItArrives:
             started.append((document_id, force))
             return "job-1"
 
-        monkeypatch.setattr(web_documents, "start_extraction", fake)
+        # The guard (read_quietly) lives in dispatch now and looks this up there.
+        monkeypatch.setattr(dispatch, "start_extraction", fake)
         document_id = _file(client, "arrives.pdf")
 
         # Not forced: a page is read once, and an upload of a document
@@ -325,12 +384,12 @@ class TestPaperIsReadWhenItArrives:
     ) -> None:
         """The bytes are the valuable thing. A worker that is down loses
         the reading, never the document."""
-        from app.components.web_frontend import documents as web_documents
+        from app.services.documents.domains.extraction import dispatch
 
         async def broken(document_id: int, *, owner_user_id=None, force=False) -> str:
             raise RuntimeError("no worker today")
 
-        monkeypatch.setattr(web_documents, "start_extraction", broken)
+        monkeypatch.setattr(dispatch, "start_extraction", broken)
         document_id = _file(client, "no-worker.pdf")
 
         row = one(client.get("/documents").text, f"tr#document-{document_id}")
@@ -400,9 +459,7 @@ class TestTheNameItArrivedWith:
     """Renaming a document must not lose what the bank called it: six
     months later somebody searches for the download's own name."""
 
-    def test_the_shelf_still_finds_it_by_its_filename(
-        self, client: TestClient
-    ) -> None:
+    def test_the_shelf_still_finds_it_by_its_filename(self, client: TestClient) -> None:
         document_id = _file(client, "AP_DRTNY107_2354889.pdf")
         client.post(
             f"/documents/{document_id}",
@@ -435,9 +492,7 @@ class TestTheNameItArrivedWith:
         dialog = client.get(f"/documents/{document_id}").text
         assert "scan0007.pdf" in text(one(dialog, "[data-arrived]"))
 
-    def test_a_document_nobody_renamed_says_it_once(
-        self, client: TestClient
-    ) -> None:
+    def test_a_document_nobody_renamed_says_it_once(self, client: TestClient) -> None:
         """The filename under a title that IS the filename is the same
         word twice."""
         document_id = _file(client, "untouched.pdf")

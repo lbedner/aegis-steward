@@ -201,6 +201,8 @@ register(
         payload_model=contacts.CreateContactPayload,
         execute=contacts.create_contact_execute,
         describe=contacts.create_contact_describe,
+        editable=True,
+        choices={"kind": contacts.PARTY_KINDS},
     )
 )
 # Correcting one she did not create. Without this a detail learned

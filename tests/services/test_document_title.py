@@ -55,7 +55,7 @@ class TestWhatCountsAsAName:
             assert looks_like_a_filename(filename)
 
     def test_a_date_for_a_name_is_still_a_download(self) -> None:
-        """"September 07.pdf" has a space in it and is nobody's idea of a
+        """ "September 07.pdf" has a space in it and is nobody's idea of a
         name: it is what the bank called the file. The stem rule read it
         as typed by a person and left the document unnamed on the real
         shelf (2026-09-19)."""
@@ -91,7 +91,7 @@ class TestWhoseLetterheadItIs:
         assert found.because == "HUDSON VALLEY CREDIT UNION"
 
     def test_the_longest_name_wins(self) -> None:
-        """"Hudson Valley" is also on file, and a shelf of documents from
+        """ "Hudson Valley" is also on file, and a shelf of documents from
         "Hudson Valley" is a shelf that lost the credit union."""
         assert whose_letterhead(PAGES, ON_FILE).value == "Hudson Valley Credit Union"
 
@@ -159,7 +159,7 @@ class TestTheNameItself:
         )
 
     def test_a_heading_that_already_names_the_sender_stands_alone(self) -> None:
-        """"Hudson Valley Credit Union Welcome to Hudson Valley Credit
+        """ "Hudson Valley Credit Union Welcome to Hudson Valley Credit
         Union" says it twice."""
         from app.services.documents.domains.reading.findings import Finding
 
@@ -168,7 +168,7 @@ class TestTheNameItself:
         assert said.value == "Welcome to Hudson Valley Credit Union"
 
     def test_an_identifier_is_not_part_of_a_name(self) -> None:
-        """"GreenSky Application ID: 1903014447" was proposed as a title.
+        """ "GreenSky Application ID: 1903014447" was proposed as a title.
         The ID is the one thing on that heading nobody would say out
         loud, and a name with a ten-digit number in it cannot be
         recognised in a list (2026-09-19)."""
@@ -206,7 +206,7 @@ class TestTheNameItself:
         assert compose(whose_letterhead(PAGES, ON_FILE), "other", None) is None
 
     def test_without_an_organization_there_is_no_name(self) -> None:
-        """"statement, August 2026" is a category, not a name - and a
+        """ "statement, August 2026" is a category, not a name - and a
         shelf of those is the filename problem in tidier clothes."""
         assert compose(None, "statement", "2026-08-26") is None
 
@@ -364,9 +364,7 @@ class TestWhichCaseItBelongsTo:
         )
         from app.services.matters.matters import MatterService
 
-        matter, document = await self._renewal(
-            async_db_session, "Case MA258760XX\n"
-        )
+        matter, document = await self._renewal(async_db_session, "Case MA258760XX\n")
         await metadata_execute(
             async_db_session,
             MetadataPayload(
@@ -446,7 +444,7 @@ class TestALetterheadNobodyHasMetYet:
     async def test_a_brand_mentioned_in_a_sentence_is_not_a_letterhead(
         self, async_db_session: AsyncSession
     ) -> None:
-        """"Target Date Fund 2045" is not a letter from Target, and a
+        """ "Target Date Fund 2045" is not a letter from Target, and a
         payee directory of a hundred brands will match somebody in the
         prose of any long document. A letterhead IS the line it is on."""
         from app.services.documents.domains.reading.proposals import propose_reading
@@ -478,9 +476,7 @@ class TestALetterheadNobodyHasMetYet:
             name="JPMorgan Chase Bank, N.A.", kind="organization"
         )
         await async_db_session.flush()
-        document = await self._paper_from(
-            async_db_session, "JPMorgan Chase Bank, N.A."
-        )
+        document = await self._paper_from(async_db_session, "JPMorgan Chase Bank, N.A.")
 
         await propose_reading(async_db_session, document.id)
         assert await _contacts_offered(async_db_session) == []

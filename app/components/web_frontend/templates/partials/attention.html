@@ -1,0 +1,6 @@
+{# A section's mark in the sidebar: a dot while ``count`` things want
+   somebody, nothing otherwise. One partial for every section that has
+   such a thing - an overdue request, a card waiting - so the mark is
+   one shape and the wording is a parameter. #}
+{% from "components/macros/layout.html" import dot %}
+{%- if count %}{{ dot(tone, count ~ " " ~ label) }}{% endif -%}

@@ -1,0 +1,19 @@
+{# Dialog body: a pending card's payload as a form, every field
+   prefilled with what was proposed. Posts back to itself; a 422
+   re-renders here with the error, success closes the dialog and the
+   card wears your words. The fields come from the change type's own
+   payload contract, so this one partial serves every editable type. #}
+{% from "components/macros/form.html" import field, text_input, select, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title(title, "Proposed by " ~ (proposed_by|assistant if proposed_by else "you") ~ ". Change what is wrong, then approve it on the card.") }}
+<form {{ hx_dialog_post(post) }} class="space-y-4">
+  {{ error_banner(errors) }}
+  {% for f in fields %}
+  {% call field(f.label) %}
+    {% if f.options %}{{ select(f.name, f.options, f.value, blank=None, block=True) }}
+    {% else %}{{ text_input(f.name, f.value, required=f.required, autofocus=loop.first) }}{% endif %}
+  {% endcall %}
+  {% endfor %}
+  {{ primary_button("Save", type="submit") }}
+</form>

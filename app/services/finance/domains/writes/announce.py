@@ -18,9 +18,12 @@ parties(), and the row has to be there.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.core.log import logger
+
+if TYPE_CHECKING:
+    from sqlmodel.ext.asyncio.session import AsyncSession
 
 Send = Callable[[str, str], Awaitable[None]]
 
@@ -98,16 +101,23 @@ async def announce_approval(rows: list[Any], *, send: Send) -> None:
             logger.exception("Could not announce approval to %s", conversation_id)
 
 
-async def on_the_worker(conversation_id: str, message: str) -> None:
+async def on_the_worker(db: AsyncSession, conversation_id: str, message: str) -> None:
     """The real sender: a turn, queued. Running a model call inside the
-    approve request would make Approve sit waiting on one."""
+    approve request would make Approve sit waiting on one.
+
+    ``db`` is the REQUEST's session, never a fresh one. Touching the
+    approved row after its commit had re-opened a transaction on that
+    session - the write lock - and a second session here waited on it:
+    one request deadlocked on itself for the whole busy timeout, and
+    every other request queued behind it (2026-09-21). The lookup is
+    released before the queue is touched.
+    """
     from app.components.worker.pools import get_queue_pool
-    from app.core.db import get_async_session
     from app.models.conversation import Conversation
 
-    async with get_async_session() as db:
-        conversation = await db.get(Conversation, conversation_id)
-        user_id = conversation.user_id if conversation else "0"
+    conversation = await db.get(Conversation, conversation_id)
+    user_id = conversation.user_id if conversation else "0"
+    await db.commit()
     pool, queue_name = await get_queue_pool("system")
     await pool.enqueue_job(
         "announce_approval_task",
@@ -118,11 +128,13 @@ async def on_the_worker(conversation_id: str, message: str) -> None:
     )
 
 
-async def announce(rows: list[Any]) -> None:
+async def announce(db: AsyncSession, rows: list[Any]) -> None:
     """Announce an approval to whoever asked for it. Never raises: an
     approval that landed must not read as failed because telling
     somebody about it did."""
+    from functools import partial
+
     try:
-        await announce_approval(rows, send=on_the_worker)
+        await announce_approval(rows, send=partial(on_the_worker, db))
     except Exception:
         logger.exception("Could not announce an approval")

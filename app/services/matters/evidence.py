@@ -119,9 +119,7 @@ async def unlink(
     """
     from sqlmodel import select
 
-    query = select(EvidenceLink).where(
-        EvidenceLink.request_item_id == request_item_id
-    )
+    query = select(EvidenceLink).where(EvidenceLink.request_item_id == request_item_id)
     if document_id is not None:
         query = query.where(EvidenceLink.document_id == document_id)
     if fact_id is not None:
@@ -138,9 +136,7 @@ async def unlink(
     return True
 
 
-async def satisfied_by(
-    db: AsyncSession, request_item_id: int
-) -> list[EvidenceLink]:
+async def satisfied_by(db: AsyncSession, request_item_id: int) -> list[EvidenceLink]:
     """Everything filed against this ask, oldest first."""
     from sqlmodel import col, select
 

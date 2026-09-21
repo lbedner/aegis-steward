@@ -71,6 +71,8 @@ class PendingChangeResponse(BaseModel):
     batch_id: str | None
     error: str | None
     note: str | None = None
+    # The reader may put their own words on it before approving.
+    editable: bool = False
     created_at: datetime
     resolved_at: datetime | None
 
@@ -82,6 +84,7 @@ class PendingChangeResponse(BaseModel):
         title: str,
         display: list[ChangeDisplayRow],
         mark: dict[str, str | None] | None = None,
+        editable: bool = False,
     ) -> PendingChangeResponse:
         if row.id is None:
             raise ValueError("pending change row has no id - flush before responding")
@@ -99,6 +102,7 @@ class PendingChangeResponse(BaseModel):
             batch_id=row.batch_id,
             error=(row.result or {}).get("error"),
             note=(row.result or {}).get("note"),
+            editable=editable,
             created_at=row.created_at,
             resolved_at=row.resolved_at,
         )

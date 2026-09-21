@@ -75,9 +75,7 @@ def forget_matter(matter_id: int) -> None:
     asyncio.run(clean())
 
 
-def account_held_by(
-    party_id: int, name: str, posted: list[tuple[date, int]]
-) -> int:
+def account_held_by(party_id: int, name: str, posted: list[tuple[date, int]]) -> int:
     """An account in somebody's name, with a register that says something.
 
     Written to the app-owned engine rather than through /accounts/new,

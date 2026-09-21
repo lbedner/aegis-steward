@@ -177,9 +177,7 @@ async def _propose_metadata(
             "page": found.page,
             "because": found.because,
         }
-    read: list[Page] = [
-        {"page": page.page_number, "text": page.text} for page in pages
-    ]
+    read: list[Page] = [{"page": page.page_number, "text": page.text} for page in pages]
     letterhead = await _letterhead(db, read)
     # What else the front page says that the app can name: the account a
     # statement is for, and the sender where only their phone or website

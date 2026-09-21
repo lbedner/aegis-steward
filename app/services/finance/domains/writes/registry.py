@@ -10,7 +10,7 @@ cannot safely approve should never exist) and again at approve time
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel
@@ -38,6 +38,14 @@ class ChangeExecutor:
     describe: Callable[
         [AsyncSession, Any, int | None], Awaitable[list[ChangeDisplayRow]]
     ]
+    # Whether the person answering the card may put their own words on
+    # it first (``queue.revise``). A card off a From header says "Optum"
+    # because that is the domain; the reader knows it is Optum Financial.
+    # Off by default: a categorize is a yes/no, not a form.
+    editable: bool = False
+    # For an editable type, the fields that are a choice rather than
+    # free text: ``{"kind": PARTY_KINDS}`` draws a select.
+    choices: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 _EXECUTORS: dict[str, ChangeExecutor] = {}

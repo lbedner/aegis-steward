@@ -461,9 +461,10 @@ class TestWhatTheRegisterSays:
 
         made = await _a_matter_asking_for_a_balance(async_db_session)
         made["item"].ask = "gross_income"
-        assert await unproven_figures(
-            async_db_session, made["matter_id"], made["item"]
-        ) == []
+        assert (
+            await unproven_figures(async_db_session, made["matter_id"], made["item"])
+            == []
+        )
 
     @pytest.mark.asyncio
     async def test_an_account_whose_register_is_empty_says_nothing(
@@ -497,15 +498,16 @@ class TestWhatTheRegisterSays:
     async def test_an_ask_with_no_date_is_offered_nothing(
         self, async_db_session: AsyncSession
     ) -> None:
-        """"As of when" is the question. A running total with no date on
+        """ "As of when" is the question. A running total with no date on
         it is not an answer to anything the county asked."""
         from app.services.matters.ledger_figures import unproven_figures
 
         made = await _a_matter_asking_for_a_balance(async_db_session)
         made["item"].as_of = None
-        assert await unproven_figures(
-            async_db_session, made["matter_id"], made["item"]
-        ) == []
+        assert (
+            await unproven_figures(async_db_session, made["matter_id"], made["item"])
+            == []
+        )
 
 
 async def _a_matter_asking_for_a_balance(db: AsyncSession) -> dict[str, Any]:

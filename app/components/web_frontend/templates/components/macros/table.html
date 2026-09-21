@@ -60,16 +60,25 @@
    It READS as a door. Drawn plain it is indistinguishable from the
    cells beside it, so the only way to discover it is to click text that
    looks like text - which is how a working control gets reported as
-   broken. #}
-<button type="button" {{ hx_dialog(value.url) }} class="inline-flex items-center gap-2 text-left text-aegis-teal hover:underline transition-colors" data-open>
-  {%- if value.badge %}{{ file_mark(value.badge) }}{% elif value.glyph %}{{ avatar(value.label, glyph=value.glyph) }}{% endif -%}
-  <span>{{ value.label }}</span>
-</button>
+   broken.
+
+   A plain string is drawn as text: a subject with no letter behind it
+   is a fact, not a door. A list is several doors, each its own record
+   (a message's attachments). #}
+{%- if value is string -%}{{ value }}{%- else -%}
+{%- for door in ([value] if value is mapping else value) -%}
+<button type="button" {{ hx_dialog(door.url) }} class="inline-flex items-center gap-2 text-left text-aegis-teal hover:underline transition-colors" data-open>
+  {%- if door.badge %}{{ file_mark(door.badge) }}{% elif door.glyph %}{{ avatar(door.label, glyph=door.glyph) }}{% endif -%}
+  <span>{{ door.label }}</span>
+</button>{% if not loop.last %}, {% endif %}
+{%- endfor -%}
+{%- endif -%}
 {%- elif col.kind == "contact" -%}
 {# A contact named in a cell: the one link everywhere a party is drawn,
    and not the row's door - a row may be a matter whose door is its
-   title while the county named beside it is a door of its own. #}
-{%- if value %}{{ contact_link(value.id, value.label) }}{% endif -%}
+   title while the county named beside it is a door of its own. A plain
+   string is a name nobody has filed yet, drawn as text. #}
+{%- if value is mapping %}{{ contact_link(value.id, value.label) }}{% else %}{{ value }}{% endif -%}
 {%- elif col.kind == "page" -%}
 {# A cell that GOES somewhere. The same door, drawn the same way, but
    for a row that is a place rather than a record you glance at: a

@@ -253,7 +253,11 @@ def quotes_reference(
         if line.strip()
     ]
     on_file = sorted(
-        ((matter_id, ref.strip()) for matter_id, ref in references if ref and ref.strip()),
+        (
+            (matter_id, ref.strip())
+            for matter_id, ref in references
+            if ref and ref.strip()
+        ),
         key=lambda pair: len(pair[1]),
         reverse=True,
     )
