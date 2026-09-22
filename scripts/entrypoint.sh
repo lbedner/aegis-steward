@@ -47,8 +47,6 @@ elif [ "$run_command" = "worker" ]; then
     queue_type="${1:-system}"  # Default to system queue if not specified
     shift
 
-    # Build the module path for the queue
-    worker_module="app.components.worker.queues.${queue_type}.WorkerSettings"
 
     # Development mode auto-reload (APP_ENV from .env or WORKER_WATCH override).
     #
@@ -57,14 +55,19 @@ elif [ "$run_command" = "worker" ]; then
     # It prints "files changed, reloading arq worker..." and runs the old
     # code. watchfiles restarts the process, as the scheduler branch does,
     # so a job runs the code on disk.
+    #
+    # Both branches run the same entrypoint, which owns its event loop.
+    # arq's CLI does not, and on Python 3.14 that is a RuntimeError -
+    # dev never saw it because the watch flag ran the worker inside
+    # asyncio.run, and nothing else ran the other branch.
     if { [ "$APP_ENV" = "dev" ] || [ "$WORKER_WATCH" = "true" ]; } \
         && uv run python -c "import watchfiles" 2>/dev/null; then
         echo "Starting ${queue_type} worker with auto-reload..."
         exec uv run watchfiles --filter python \
-            "python -m arq ${worker_module} $*" /code/app
+            "python -m app.entrypoints.worker ${queue_type}" /code/app
     else
         echo "Starting ${queue_type} worker..."
-        exec uv run python -m arq "${worker_module}" "$@"
+        exec uv run python -m app.entrypoints.worker "${queue_type}"
     fi
 elif [ "$run_command" = "build-watch" ]; then
     # Re-fingerprint web frontend assets whenever Tailwind (or a hand-edited
