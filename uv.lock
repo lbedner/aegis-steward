@@ -116,7 +116,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.12.7" },
     { name = "snaptrade-python-sdk", specifier = ">=13.0.9,<14.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.0" },
-    { name = "sqlmodel", specifier = ">=0.0.14" },
+    { name = "sqlmodel", specifier = ">=0.0.14,<0.0.45" },
     { name = "structlog", specifier = "==25.4.0" },
     { name = "twilio", specifier = ">=9.3.7" },
     { name = "ty", marker = "extra == 'dev'", specifier = "==0.0.79" },
