@@ -42,10 +42,15 @@ async def run_extraction(
             force=force,
             progress=lambda page, total: report(progress_label(page, total)),
         )
-        # Extraction PROPOSES: what the document says about itself goes
-        # in front of somebody rather than into the record.
-        await read_and_propose(session, document_id, owner_user_id=owner_user_id)
         await session.commit()
+    # Extraction PROPOSES: what the document says about itself goes in
+    # front of somebody rather than into the record.
+    #
+    # Handed a way to OPEN a database rather than this open one: reading
+    # what a letter DEMANDS is a model call, and a session held across it
+    # is the application's write lock held across it. The reading owns
+    # its own session boundaries either side of the model.
+    await read_and_propose(get_async_session, document_id, owner_user_id=owner_user_id)
     return result.as_dict()
 
 

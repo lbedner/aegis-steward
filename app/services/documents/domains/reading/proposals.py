@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.db import OpenSession
 from app.core.log import logger
 from app.services.documents.domains.reading.figures import propose_figure
 from app.services.documents.domains.reading.findings import Page
@@ -52,7 +53,7 @@ async def _already_asked(db: AsyncSession, change_type: str, document_id: int) -
 
 
 async def read_and_propose(
-    db: AsyncSession, document_id: int, *, owner_user_id: int | None = None
+    open_session: OpenSession, document_id: int, *, owner_user_id: int | None = None
 ) -> None:
     """Put what a document says about itself in front of somebody.
 
@@ -65,12 +66,16 @@ async def read_and_propose(
 
     Guarded, because the pages just read are the valuable thing: a
     reading that falls over must not take them with it.
+
+    Takes a way to OPEN a database rather than an open one: the reading
+    waits on a model in the middle, and an open session is the whole
+    app's write lock - see ``OpenSession``.
     """
     from app.services.documents.domains.reading.letters import letter_reader
 
     try:
         await propose_reading(
-            db,
+            open_session,
             document_id,
             owner_user_id=owner_user_id,
             read_letter=await letter_reader(),
@@ -80,7 +85,7 @@ async def read_and_propose(
 
 
 async def propose_reading(
-    db: AsyncSession,
+    open_session: OpenSession,
     document_id: int,
     *,
     owner_user_id: int | None = None,
@@ -89,62 +94,84 @@ async def propose_reading(
     """Read a document and put what it says in front of somebody.
 
     Two readings, and each stands on its own. What the document says
-    about ITSELF is read by pattern, always. What it DEMANDS is read by
-    a model, and only when the document is filed on a matter - a request
-    with no matter has nothing to be a request on, and a model call on
-    every scrap of paper is a bill nobody agreed to.
+    about ITSELF is read by pattern, always - one session, start to
+    finish. What it DEMANDS is read by a model, and only when the
+    document is filed on a matter - a request with no matter has nothing
+    to be a request on, and a model call on every scrap of paper is a
+    bill nobody agreed to.
+
+    Takes a way to OPEN a database rather than an open one, because the
+    second reading waits on a model and must not be inside a transaction
+    while it does - see ``OpenSession``.
     """
-    stranger = await _propose_contact(db, document_id, owner_user_id)
-    figure = await propose_figure(db, document_id, owner_user_id, asked=_already_asked)
+    async with open_session() as db:
+        stranger = await _propose_contact(db, document_id, owner_user_id)
+        figure = await propose_figure(
+            db, document_id, owner_user_id, asked=_already_asked
+        )
+        metadata = await _propose_metadata(db, document_id, owner_user_id)
     request = await _propose_demands(
-        db, document_id, owner_user_id=owner_user_id, read_letter=read_letter
+        open_session, document_id, owner_user_id=owner_user_id, read_letter=read_letter
     )
-    metadata = await _propose_metadata(db, document_id, owner_user_id)
     return metadata or stranger or figure or request
 
 
 async def _propose_demands(
-    db: AsyncSession,
+    open_session: OpenSession,
     document_id: int,
     *,
     owner_user_id: int | None,
     read_letter: LetterReader | None,
 ) -> Any | None:
-    """What the letter asks for, as one card on its matter."""
+    """What the letter asks for, as one card on its matter.
+
+    Three phases: read everything the model needs, ask it while holding
+    nothing, then write. The database is held for the first and the
+    last, and the lock with it.
+    """
     from app.services.documents.domains.reading.letters import checked
     from app.services.documents.queries import pages_for
     from app.services.finance.domains.writes.queue import propose
     from app.services.matters.matters import MatterService
     from app.services.matters.requests import RequestService
 
-    if read_letter is None or await _already_asked(db, REQUEST, document_id):
+    if read_letter is None:
         return None
-    matter_id = await MatterService(db).for_document(document_id)
-    if matter_id is None or await RequestService(db).citing(document_id):
-        return None
-    pages: list[Page] = [
-        {"page": page.page_number, "text": page.text}
-        for page in await pages_for(db, document_id)
-    ]
+
+    # ---- read what the model needs, then let the database go ----------
+    async with open_session() as db:
+        if await _already_asked(db, REQUEST, document_id):
+            return None
+        matter_id = await MatterService(db).for_document(document_id)
+        if matter_id is None or await RequestService(db).citing(document_id):
+            return None
+        pages: list[Page] = [
+            {"page": page.page_number, "text": page.text}
+            for page in await pages_for(db, document_id)
+        ]
+
     reading = checked(await read_letter(pages), pages)
     if reading is None:
         return None
-    return await propose(
-        db,
-        REQUEST,
-        {
-            "document_id": document_id,
-            "matter_id": matter_id,
-            "received_on": reading.received_on.isoformat()
-            if reading.received_on
-            else None,
-            "due_on": reading.due_on.isoformat() if reading.due_on else None,
-            "items": [item.model_dump() for item in reading.items],
-            "dropped": reading.dropped,
-        },
-        owner_user_id=owner_user_id,
-        proposed_by_agent=PROPOSED_BY,
-    )
+
+    # ---- take the database back, just to write ------------------------
+    async with open_session() as db:
+        return await propose(
+            db,
+            REQUEST,
+            {
+                "document_id": document_id,
+                "matter_id": matter_id,
+                "received_on": reading.received_on.isoformat()
+                if reading.received_on
+                else None,
+                "due_on": reading.due_on.isoformat() if reading.due_on else None,
+                "items": [item.model_dump() for item in reading.items],
+                "dropped": reading.dropped,
+            },
+            owner_user_id=owner_user_id,
+            proposed_by_agent=PROPOSED_BY,
+        )
 
 
 async def _propose_metadata(

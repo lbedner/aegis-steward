@@ -392,10 +392,17 @@ class TestBothDoorsPropose:
 
     @pytest.mark.asyncio
     async def test_the_inline_read_proposes_too(
-        self, svc, async_db_session: AsyncSession
+        self, svc, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from app.components.backend.api.documents import pages
         from app.components.backend.api.documents.pages import extract
         from app.services.finance.domains.writes.queue import list_changes
+        from tests._session import opens
+
+        # The reading opens its OWN session - it waits on a model and an
+        # open one is the write lock (#211) - so it has to land on the
+        # test's database rather than the app's.
+        monkeypatch.setattr(pages, "get_async_session", opens(async_db_session))
 
         doc = await svc.ingest(
             pdf_bytes(["Mortgage Interest Statement", "Statement Date: March 3, 2026"]),
