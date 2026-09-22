@@ -13,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.documents.service import DocumentService
 from app.services.matters.matters import MatterService
 from app.services.matters.requests import RequestService
+from tests._session import opens
 
 ASKED = "Proof of GROSS monthly income for each pension."
 
@@ -236,7 +237,9 @@ class TestALetterOnAMatterProposesItsDemands:
         await DocumentService(async_db_session).tag(document_id, matter_tag(matter_id))
         await async_db_session.flush()
 
-        await propose_reading(async_db_session, document_id, read_letter=self._reader())
+        await propose_reading(
+            opens(async_db_session), document_id, read_letter=self._reader()
+        )
         await async_db_session.commit()
 
         (card,) = await self._cards(async_db_session, document_id)
@@ -256,7 +259,9 @@ class TestALetterOnAMatterProposesItsDemands:
         _matter_id, document_id = await _letter(async_db_session)
         await self._pages(async_db_session, document_id, "Proof of GROSS monthly")
 
-        await propose_reading(async_db_session, document_id, read_letter=self._reader())
+        await propose_reading(
+            opens(async_db_session), document_id, read_letter=self._reader()
+        )
         await async_db_session.commit()
 
         assert await self._cards(async_db_session, document_id) == []
@@ -279,7 +284,7 @@ class TestALetterOnAMatterProposesItsDemands:
         await DocumentService(async_db_session).tag(document_id, matter_tag(matter_id))
         await async_db_session.flush()
 
-        await propose_reading(async_db_session, document_id, read_letter=None)
+        await propose_reading(opens(async_db_session), document_id, read_letter=None)
         await async_db_session.commit()
 
         assert await self._cards(async_db_session, document_id) == []
@@ -304,7 +309,7 @@ class TestALetterOnAMatterProposesItsDemands:
 
         for _ in range(2):
             await propose_reading(
-                async_db_session, document_id, read_letter=self._reader()
+                opens(async_db_session), document_id, read_letter=self._reader()
             )
             await async_db_session.commit()
 
@@ -331,7 +336,9 @@ class TestALetterOnAMatterProposesItsDemands:
         )
         await async_db_session.flush()
 
-        await propose_reading(async_db_session, document_id, read_letter=self._reader())
+        await propose_reading(
+            opens(async_db_session), document_id, read_letter=self._reader()
+        )
         await async_db_session.commit()
 
         assert await self._cards(async_db_session, document_id) == []

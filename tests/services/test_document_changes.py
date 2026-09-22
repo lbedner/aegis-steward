@@ -14,6 +14,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.documents.service import DocumentService
+from tests._session import opens
 
 
 async def _filed(db: AsyncSession, title: str = "Mortgage Interest Statement.pdf"):
@@ -185,7 +186,7 @@ class TestReadingADocumentProducesACard:
             "CITIZENS BANK\nMortgage Interest Statement\nStatement Date: March 3, 2026\n",
         )
 
-        assert await propose_reading(async_db_session, document_id) is not None
+        assert await propose_reading(opens(async_db_session), document_id) is not None
         await async_db_session.commit()
 
         (card,) = await self._cards(async_db_session, document_id)
@@ -205,9 +206,9 @@ class TestReadingADocumentProducesACard:
         document_id = await self._read(
             async_db_session, "Twice.pdf", "Statement\nAs of 09/16/2026\n"
         )
-        await propose_reading(async_db_session, document_id)
+        await propose_reading(opens(async_db_session), document_id)
         await async_db_session.commit()
-        assert await propose_reading(async_db_session, document_id) is None
+        assert await propose_reading(opens(async_db_session), document_id) is None
         await async_db_session.commit()
 
         assert len(await self._cards(async_db_session, document_id)) == 1
@@ -227,7 +228,7 @@ class TestReadingADocumentProducesACard:
         )
         await async_db_session.flush()
 
-        assert await propose_reading(async_db_session, document_id) is None
+        assert await propose_reading(opens(async_db_session), document_id) is None
         assert await self._cards(async_db_session, document_id) == []
 
     @pytest.mark.asyncio
@@ -240,7 +241,7 @@ class TestReadingADocumentProducesACard:
             async_db_session, "Quiet.pdf", "Page 1 of 1\nThank you for your business.\n"
         )
 
-        assert await propose_reading(async_db_session, document_id) is None
+        assert await propose_reading(opens(async_db_session), document_id) is None
         assert await self._cards(async_db_session, document_id) == []
 
 

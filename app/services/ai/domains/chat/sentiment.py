@@ -20,7 +20,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
-from app.core.db import get_async_session
+from app.core.db import OpenSession, get_async_session
 from app.core.log import logger
 from app.models.conversation import Conversation
 from app.services.ai.config import AIServiceConfig
@@ -106,19 +106,28 @@ async def _llm_score(transcript: str) -> dict[str, Any]:
 
 
 async def _score_conversation(
-    session: AsyncSession, conversation_id: str, transcript: str
+    open_session: OpenSession, conversation_id: str, transcript: str
 ) -> None:
-    """Score one conversation transcript and write its verdict row."""
+    """Score one conversation transcript and write its verdict row.
+
+    Ask the model while holding nothing, then take the database back
+    just to write: an open session is the application-wide write lock,
+    and a verdict costs a network round trip (see ``OpenSession``).
+    """
     payload = await _llm_score(transcript)
     verdict = _validate_verdict(payload)
-    session.add(
-        SentimentAnalysis(
-            conversation_id=conversation_id,
-            model_id=settings.AI_MODEL,
-            **verdict,
+    async with open_session() as session:
+        session.add(
+            SentimentAnalysis(
+                conversation_id=conversation_id,
+                model_id=settings.AI_MODEL,
+                **verdict,
+            )
         )
-    )
-    await session.commit()
+        # The session commits on the way out; flush so a caller whose
+        # factory does not commit (a test holding one session open)
+        # still sees the row.
+        await session.flush()
 
 
 async def _unscored_batch(
@@ -150,27 +159,26 @@ async def _unscored_batch(
 async def score_unscored_conversations(
     *,
     limit: int | None = None,
-    session: AsyncSession | None = None,
+    open_session: OpenSession | None = None,
 ) -> dict[str, int]:
     """Score a batch of unscored conversations.
+
+    Takes a way to OPEN a database rather than an open one, because
+    every conversation in the batch waits on a model and must not be
+    inside a transaction while it does - see ``OpenSession``. The batch
+    is read with one session, each verdict written with another, and
+    neither is held across the model call in between.
 
     Per-conversation failures (model error, unparseable reply, invalid
     verdict) are logged and counted, never fatal to the batch; failed
     conversations stay unscored and are retried by a later run.
     """
-    if session is None:
-        async with get_async_session() as owned_session:
-            return await score_unscored_conversations(
-                limit=limit, session=owned_session
-            )
+    open_session = open_session or get_async_session
+    async with open_session() as session:
+        batch = await _unscored_batch(
+            session, limit or settings.AI_SENTIMENT_BATCH_LIMIT
+        )
 
-    batch_limit = limit or settings.AI_SENTIMENT_BATCH_LIMIT
-    batch = await _unscored_batch(session, batch_limit)
-    # End the read here. The batch's shared lock would otherwise be held
-    # through the first model call, and SQLite fails the read-then-write
-    # upgrade at once under another writer. Each verdict then opens its
-    # own short transaction after its model call, not before.
-    await session.commit()
     counts = {"scored": 0, "skipped": 0, "failed": 0}
     for conversation_id, transcript in batch:
         if transcript is None:
@@ -181,7 +189,7 @@ async def score_unscored_conversations(
             counts["skipped"] += 1
             continue
         try:
-            await _score_conversation(session, conversation_id, transcript)
+            await _score_conversation(open_session, conversation_id, transcript)
             counts["scored"] += 1
         except Exception as exc:
             counts["failed"] += 1
@@ -190,7 +198,6 @@ async def score_unscored_conversations(
                 conversation_id=conversation_id,
                 error=str(exc),
             )
-            await session.rollback()
     logger.info("Sentiment batch finished", **counts)
     return counts
 

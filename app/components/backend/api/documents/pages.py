@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.core.db import get_async_session
 from app.core.storage import get_storage
 from app.services.documents.deps import get_document_service, get_owner_user_id
 from app.services.documents.domains.extraction.dispatch import start_extraction
@@ -94,10 +95,16 @@ async def extract(
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
             ) from None
+        # The pages just read are the valuable thing: they land before
+        # the reading runs, and the request's session closes with them.
+        # The reading opens its own, because it waits on a model and an
+        # open session is the whole app's write lock (#211).
+        await service.db.commit()
         # The same second half the worker's job does: reading a document
         # and never saying what it read is half a read.
-        await read_and_propose(service.db, document_id, owner_user_id=owner_user_id)
-        await service.db.commit()
+        await read_and_propose(
+            get_async_session, document_id, owner_user_id=owner_user_id
+        )
         return JSONResponse(result.as_dict())
 
     job_id = await start_extraction(

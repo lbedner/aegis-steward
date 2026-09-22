@@ -22,6 +22,7 @@ from app.services.documents.domains.reading.titles import (
     looks_like_a_filename,
     whose_letterhead,
 )
+from tests._session import opens
 
 PAGES: list[Any] = [
     {
@@ -253,7 +254,7 @@ class TestWhoSentIt:
         )
         await async_db_session.flush()
 
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
 
         # An ID, because that is what the payload takes - a name typed
         # there is a second directory nobody can join to the first.
@@ -289,7 +290,7 @@ class TestWhoSentIt:
         )
         await async_db_session.flush()
 
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
         assert change is None or change.payload.get("sender") is None
 
 
@@ -337,7 +338,7 @@ class TestWhichCaseItBelongsTo:
             "DUTCHESS COUNTY DSS\nCase MA258760XX\nRenewal of eligibility\n",
         )
 
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
         assert change.payload["matter"]["value"] == str(matter.id)
         # Cited, like every other reading on this card.
         assert "MA258760XX" in change.payload["matter"]["because"]
@@ -351,7 +352,7 @@ class TestWhichCaseItBelongsTo:
         _matter, document = await self._renewal(
             async_db_session, "DUTCHESS COUNTY DSS\nSomething else entirely\n"
         )
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
         assert change is None or change.payload.get("matter") is None
 
     @pytest.mark.asyncio
@@ -429,7 +430,7 @@ class TestALetterheadNobodyHasMetYet:
         await seed_merchant(async_db_session, "American Express")
         document = await self._paper_from(async_db_session, "American Express")
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
 
         # The queue, not the return value: reading a document proposes
         # several cards and the metadata one is what it hands back.
@@ -455,7 +456,7 @@ class TestALetterheadNobodyHasMetYet:
             async_db_session, "Your Target Date Fund 2045 allocation changed"
         )
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
         assert await _contacts_offered(async_db_session) == []
 
     @pytest.mark.asyncio
@@ -478,7 +479,7 @@ class TestALetterheadNobodyHasMetYet:
         await async_db_session.flush()
         document = await self._paper_from(async_db_session, "JPMorgan Chase Bank, N.A.")
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
         assert await _contacts_offered(async_db_session) == []
 
     @pytest.mark.asyncio
@@ -492,7 +493,7 @@ class TestALetterheadNobodyHasMetYet:
 
         document = await self._paper_from(async_db_session, "SOME BANK NOBODY HAS MET")
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
         assert await _contacts_offered(async_db_session) == []
 
     @pytest.mark.asyncio
@@ -509,7 +510,7 @@ class TestALetterheadNobodyHasMetYet:
         )
         document = await self._paper_from(async_db_session, "American Express")
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
         assert await _contacts_offered(async_db_session) == []
 
 
@@ -570,7 +571,7 @@ class TestWhatElseTheFrontPageSays:
             async_db_session, "SEPTEMBER STATEMENT", "Account ending 3639"
         )
 
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
         assert change.payload["account"]["value"] == str(account.id)
         assert "3639" in change.payload["account"]["because"]
 
@@ -627,7 +628,7 @@ class TestWhatElseTheFrontPageSays:
             async_db_session, "deltadentalins.com", "Our PPO plans are underwritten"
         )
 
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
         assert change.payload["sender"]["value"] == str(party.id)
         # The whole line, not a substring of it: a citation says which
         # line was read, so an assertion that would pass on a longer one
@@ -651,7 +652,7 @@ class TestWhatElseTheFrontPageSays:
             async_db_session, "NOTICE OF RENEWAL", "Questions? Call 845-486-3000"
         )
 
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
         assert change.payload["sender"]["value"] == str(party.id)
 
     @pytest.mark.asyncio
@@ -678,5 +679,5 @@ class TestWhatElseTheFrontPageSays:
             "Their county office: 845-486-3000",
         )
 
-        change = await propose_reading(async_db_session, document.id)
+        change = await propose_reading(opens(async_db_session), document.id)
         assert change.payload["sender"]["value"] == str(named.id)

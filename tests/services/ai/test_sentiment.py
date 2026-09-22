@@ -1,11 +1,14 @@
 """Tests for batch conversation sentiment scoring."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.db import OpenSession
 from app.models.conversation import Conversation, ConversationMessage
 import app.services.ai.domains.chat.sentiment as sentiment_module
 from app.services.ai.domains.chat.sentiment import (
@@ -14,6 +17,7 @@ from app.services.ai.domains.chat.sentiment import (
 )
 from app.services.ai.jobs import analyze_sentiment_job
 from app.services.ai.models.sentiment import SentimentAnalysis
+from tests._session import opens
 
 _GOOD_VERDICT: dict[str, Any] = {
     "overall_sentiment": "positive",
@@ -30,6 +34,13 @@ def session(async_db_session: AsyncSession) -> AsyncSession:
     test). A bare local engine cannot create this project's schema-qualified
     tables (finance, scheduler, ...)."""
     return async_db_session
+
+
+@pytest.fixture
+def open_session(async_db_session: AsyncSession) -> OpenSession:
+    """``score_unscored_conversations`` takes a way to OPEN a database.
+    Tests hand back the per-test session and never commit it."""
+    return opens(async_db_session)
 
 
 async def _add_conversation(
@@ -66,16 +77,19 @@ def _stub_llm(
 
 class TestScoreOnce:
     async def test_scores_unscored_conversations_exactly_once(
-        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+        self,
+        session: AsyncSession,
+        open_session: OpenSession,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _stub_llm(monkeypatch)
         await _add_conversation(session, "c1")
         await _add_conversation(session, "c2")
 
-        first = await score_unscored_conversations(session=session)
+        first = await score_unscored_conversations(open_session=open_session)
         assert first["scored"] == 2
 
-        second = await score_unscored_conversations(session=session)
+        second = await score_unscored_conversations(open_session=open_session)
         assert second["scored"] == 0
 
         result = await session.exec(select(SentimentAnalysis))
@@ -84,12 +98,15 @@ class TestScoreOnce:
         assert {row.overall_sentiment for row in rows} == {"positive"}
 
     async def test_conversation_without_messages_is_skipped(
-        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+        self,
+        session: AsyncSession,
+        open_session: OpenSession,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         calls = _stub_llm(monkeypatch)
         await _add_conversation(session, "empty", with_message=False)
 
-        counts = await score_unscored_conversations(session=session)
+        counts = await score_unscored_conversations(open_session=open_session)
 
         assert counts == {"scored": 0, "skipped": 1, "failed": 0}
         assert calls["count"] == 0
@@ -97,7 +114,10 @@ class TestScoreOnce:
 
 class TestFailureIsolation:
     async def test_one_failure_does_not_abort_the_batch(
-        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+        self,
+        session: AsyncSession,
+        open_session: OpenSession,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _stub_llm(monkeypatch, fail_for="poison")
         await _add_conversation(session, "good1")
@@ -109,7 +129,7 @@ class TestFailureIsolation:
         )
         await session.commit()
 
-        counts = await score_unscored_conversations(session=session)
+        counts = await score_unscored_conversations(open_session=open_session)
 
         assert counts["scored"] == 1
         assert counts["failed"] == 1
@@ -118,7 +138,10 @@ class TestFailureIsolation:
         assert [row.conversation_id for row in result.all()] == ["good1"]
 
     async def test_invalid_verdict_counts_as_failure(
-        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+        self,
+        session: AsyncSession,
+        open_session: OpenSession,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _stub_llm(
             monkeypatch,
@@ -130,7 +153,7 @@ class TestFailureIsolation:
         )
         await _add_conversation(session, "c1")
 
-        counts = await score_unscored_conversations(session=session)
+        counts = await score_unscored_conversations(open_session=open_session)
 
         assert counts == {"scored": 0, "skipped": 0, "failed": 1}
         result = await session.exec(select(SentimentAnalysis))
@@ -227,32 +250,44 @@ class TestJobGate:
         assert touched["ran"] is True
 
 
-class TestTheReadEndsBeforeTheModelCall:
-    """The batch's shared lock must not be held through the model call:
-    SQLite fails the read-then-write upgrade at once under another
-    writer, and a nightly job that trips on it scores nothing."""
+class TestTheDatabaseIsNotHeldAcrossTheModelCall:
+    """SQLite has one writer, and every transaction here begins
+    IMMEDIATE, so an open session is the application-wide write lock.
+    The batch used to keep the caller's session for the whole run and
+    commit it mid-batch to get the lock back - which bought the lock by
+    committing work the caller never asked to commit (#211).
+    """
 
-    async def test_the_first_model_call_sees_the_batch_committed(
+    async def test_the_batch_read_and_each_verdict_are_separate_sessions(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        await _add_conversation(session, "c1")
-        commits = 0
-        real_commit = session.commit
+        opened = 0
+        live = 0
 
-        async def counting_commit() -> None:
-            nonlocal commits
-            commits += 1
-            await real_commit()
+        @asynccontextmanager
+        async def _counting_open() -> AsyncIterator[AsyncSession]:
+            nonlocal opened, live
+            opened += 1
+            live += 1
+            try:
+                yield session
+            finally:
+                live -= 1
 
-        seen: list[int] = []
+        held: list[int] = []
 
         async def fake_llm_score(transcript: str) -> dict[str, Any]:
-            seen.append(commits)
+            held.append(live)
             return dict(_GOOD_VERDICT)
 
         monkeypatch.setattr(sentiment_module, "_llm_score", fake_llm_score)
-        session.commit = counting_commit  # type: ignore[method-assign]
+        await _add_conversation(session, "c1")
 
-        await sentiment_module.score_unscored_conversations(session=session)
+        counts = await sentiment_module.score_unscored_conversations(
+            open_session=_counting_open
+        )
 
-        assert seen and seen[0] >= 1
+        assert counts["scored"] == 1
+        assert held == [0], "a session was open while the model was being asked"
+        # One to read the batch, one to write the verdict, nothing in between.
+        assert opened == 2

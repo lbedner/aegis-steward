@@ -106,19 +106,6 @@ async def run_analyst_note(
             )
             return None
 
-        # The stored selection first: this runs in a worker or a
-        # scheduled job, which never serves the request that would
-        # otherwise adopt it. An agent's own model_id still wins below.
-        await active_model.sync_from_db(settings)
-        service_config = AIServiceConfig.from_settings(settings)
-        update: dict[str, object] = {
-            "temperature": agent_config.temperature,
-            "max_tokens": agent_config.max_tokens,
-        }
-        if agent_config.model_id:
-            update["model"] = agent_config.model_id
-        service_config = service_config.model_copy(update=update)
-
         facts = await build_report_facts(
             db, owner_user_id=owner_user_id, context=context
         )
@@ -138,6 +125,25 @@ async def run_analyst_note(
             )
     # The database is not needed again until the note is written, and
     # what follows waits on a model. Let go of it here.
+
+    # The stored selection first: this runs in a worker or a scheduled
+    # job, which never serves the request that would otherwise adopt it.
+    # An agent's own model_id still wins below.
+    #
+    # OUTSIDE the session above, because ``sync_from_db`` opens its OWN:
+    # asked while this run held the write lock it waited on itself for
+    # the full busy timeout, and its except-SQLAlchemyError swallowed
+    # the result - so the stall was invisible and the stored selection
+    # was silently dropped, leaving the job on the .env bootstrap model.
+    await active_model.sync_from_db(settings)
+    service_config = AIServiceConfig.from_settings(settings)
+    update: dict[str, object] = {
+        "temperature": agent_config.temperature,
+        "max_tokens": agent_config.max_tokens,
+    }
+    if agent_config.model_id:
+        update["model"] = agent_config.model_id
+    service_config = service_config.model_copy(update=update)
 
     try:
         model, model_name = model_for(service_config, settings)

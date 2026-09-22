@@ -12,6 +12,7 @@ from pydantic import (
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.db import OpenSession
 from app.core.log import logger
 from app.services.finance.domains.detection.analyst.activity import (
     _SEVERITY_ORDER,
@@ -175,9 +176,15 @@ async def build_deep_dive_context(
 
 
 async def run_deep_dive(
-    db: AsyncSession, *, owner_user_id: int | None, today: date | None = None
+    open_session: OpenSession, *, owner_user_id: int | None, today: date | None = None
 ) -> FinanceInsight | None:
-    """Write an on-request full review. Writes; the caller commits.
+    """Write an on-request full review. Opens and commits its own sessions.
+
+    Takes a way to GET a database rather than an open one, because the run
+    waits on a model in the middle and must not be inside a transaction
+    while it does - see ``OpenSession``. Three phases: read everything the
+    model needs, ask it while holding nothing, then write. The database is
+    held for the first and the last, and the lock with it.
 
     Unlike the nightly note this is NOT deduped per day - it is something a
     reader asks for, and asking twice after changing a budget should produce
@@ -198,19 +205,23 @@ async def run_deep_dive(
     from app.services.ai.domains.llm.providers import model_for
     from app.services.ai.usage_recording import extract_usage, record_usage
 
-    agent_config = await resolve_agent(DEEP_DIVE_AGENT_SLUG, session=db)
-    if agent_config.slug != DEEP_DIVE_AGENT_SLUG:
-        logger.warning(
-            "Deep dive skipped: agent is not registered or is inactive",
-            agent_slug=DEEP_DIVE_AGENT_SLUG,
-        )
-        return None
+    # ---- read what the model needs, then let the database go ----------
+    async with open_session() as db:
+        agent_config = await resolve_agent(DEEP_DIVE_AGENT_SLUG, session=db)
+        if agent_config.slug != DEEP_DIVE_AGENT_SLUG:
+            logger.warning(
+                "Deep dive skipped: agent is not registered or is inactive",
+                agent_slug=DEEP_DIVE_AGENT_SLUG,
+            )
+            return None
 
-    context = await build_deep_dive_context(
-        db, owner_user_id=owner_user_id, today=today
-    )
-    if context is None:
-        return None
+        context = await build_deep_dive_context(
+            db, owner_user_id=owner_user_id, today=today
+        )
+        if context is None:
+            return None
+    # The database is not needed again until the review is written, and
+    # what follows waits on a model. Let go of it here.
 
     # The stored selection first: this runs in a worker or a
     # scheduled job, which never serves the request that would
@@ -256,6 +267,7 @@ async def run_deep_dive(
         )
         return None
 
+    # ---- take the database back, just to write ------------------------
     note = FinanceInsight(
         owner_user_id=0 if owner_user_id is None else owner_user_id,
         insight_type=DEEP_DIVE_INSIGHT_TYPE,
@@ -265,6 +277,10 @@ async def run_deep_dive(
         body=render_deep_dive(dive),
         metadata_={"model_name": model_name, "sections": dive.model_dump()},
     )
-    db.add(note)
-    await db.flush()
+    async with open_session() as db:
+        db.add(note)
+        # The session commits on the way out, but flush first so the review
+        # has its id - and so a caller whose factory does not commit (a
+        # test holding one session open) still sees it.
+        await db.flush()
     return note

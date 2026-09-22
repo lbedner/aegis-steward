@@ -15,6 +15,7 @@ from datetime import date
 import pytest
 
 from app.services.documents.domains.reading.figures import balances
+from tests._session import opens
 
 
 def _pages(*lines: str) -> list[dict]:
@@ -140,7 +141,7 @@ class TestItReachesTheQueue:
             "Ending balance as of 08/01/26: $3,137.44",
         )
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
 
         figures = [
             change
@@ -181,7 +182,7 @@ class TestItReachesTheQueue:
             async_db_session, "Account ending 1164", "New balance: $10.00"
         )
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
 
         assert not [
             change
@@ -202,7 +203,7 @@ class TestItReachesTheQueue:
             async_db_session, "New balance as of 08/01/26: $3,137.44"
         )
 
-        await propose_reading(async_db_session, document.id)
+        await propose_reading(opens(async_db_session), document.id)
 
         assert not [
             change
