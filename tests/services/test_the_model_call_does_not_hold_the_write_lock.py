@@ -25,17 +25,12 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from datetime import date
-from pathlib import Path
-import shutil
-import tempfile
 from typing import Any
 
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 import pytest
-from sqlalchemy import event
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlmodel import SQLModel
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import SQLITE_BUSY_TIMEOUT_MS
@@ -43,6 +38,7 @@ from app.services.ai.domains.chat.agent_loader import invalidate_agent_cache
 from app.services.finance.domains.detection import analyst
 from app.services.finance.models import FinanceInsight
 from app.services.finance.seeds import demo_seed
+from tests._sqlite import IMPATIENT_BUSY_TIMEOUT_MS
 
 OWNER = 1
 HEADLINE = "One category moved. Nothing else did."
@@ -50,7 +46,6 @@ HEADLINE = "One category moved. Nothing else did."
 # Production waits 30s before giving up. A test that reproduced the wait
 # would take 30s to fail, so it waits a beat instead - the question is
 # whether the lock is HELD, not how patiently the loser waits.
-TEST_BUSY_TIMEOUT_MS = 400
 
 
 @pytest.fixture(autouse=True)
@@ -61,59 +56,18 @@ def _clean_agent_cache():
     invalidate_agent_cache()
 
 
-@pytest.fixture
-async def production_shaped_engine():
-    """A SQLite engine configured the way ``app.core.db`` configures the
-    real one: WAL, a busy timeout, and BEGIN IMMEDIATE on every
-    transaction. The suite's own ``app_owned_engine`` emits a plain
-    ``BEGIN``, which is why nothing has ever caught this."""
-    tmp_dir = Path(tempfile.mkdtemp(prefix="aegis-lock-test-"))
-    schema_names = {
-        table.schema for table in SQLModel.metadata.tables.values() if table.schema
-    }
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_dir / 'locking.sqlite'}",
-        connect_args={"check_same_thread": False},
-    )
-
-    @event.listens_for(engine.sync_engine, "connect")
-    def _pragmas(dbapi_connection: Any, record: Any) -> None:
-        dbapi_connection.isolation_level = None
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute(f"PRAGMA busy_timeout={TEST_BUSY_TIMEOUT_MS}")
-        for schema_name in schema_names:
-            cursor.execute(
-                f"ATTACH DATABASE '{tmp_dir / (schema_name + '.sqlite')}' "
-                f"AS {schema_name}"
-            )
-        cursor.close()
-
-    @event.listens_for(engine.sync_engine, "begin")
-    def _begin_immediate(conn: Any) -> None:
-        conn.exec_driver_sql("BEGIN IMMEDIATE")
-
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-
-    yield engine
-
-    await engine.dispose()
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-
-
 def test_production_waits_far_longer_than_this_test_does() -> None:
-    """Pins the relationship, so the short timeout above reads as a test
+    """Pins the relationship, so the short timeout reads as a test
     convenience rather than a different behaviour being tested."""
-    assert SQLITE_BUSY_TIMEOUT_MS > TEST_BUSY_TIMEOUT_MS
+    assert SQLITE_BUSY_TIMEOUT_MS > IMPATIENT_BUSY_TIMEOUT_MS
 
 
 @pytest.mark.asyncio
 async def test_another_writer_can_work_while_the_model_is_thinking(
-    production_shaped_engine, monkeypatch
+    impatient_engine, monkeypatch
 ) -> None:
     maker = async_sessionmaker(
-        production_shaped_engine, class_=AsyncSession, expire_on_commit=False
+        impatient_engine, class_=AsyncSession, expire_on_commit=False
     )
 
     @asynccontextmanager

@@ -38,9 +38,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-# Import AI models to register them with SQLModel metadata. The agents and
-# llm subpackages each import every model module they own, so these two
-# names pull in the whole set.
 from app.services.ai.models.agents import (  # noqa: F401
     Agent,
     AgentTool,
@@ -115,6 +112,11 @@ from app.services.matters.models import (  # noqa: F401
 
 # Import scheduler models to register them with SQLModel metadata
 from app.services.scheduler.models import JobExecution  # noqa: F401
+
+# Import AI models to register them with SQLModel metadata. The agents and
+# llm subpackages each import every model module they own, so these two
+# names pull in the whole set.
+from tests._sqlite import IMPATIENT_BUSY_TIMEOUT_MS, shape_like_production
 
 # Add project root to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -265,11 +267,8 @@ async def app_owned_engine():
         connect_args={"check_same_thread": False},
     )
 
-    @event.listens_for(engine.sync_engine, "connect")
-    def attach_schemas(dbapi_connection: Any, connection_record: Any) -> None:
-        dbapi_connection.isolation_level = None
+    def attach_schemas(dbapi_connection: Any) -> None:
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
         # Files here too, for the same reason the main database is one.
         for schema_name in schema_names:
             cursor.execute(
@@ -278,15 +277,37 @@ async def app_owned_engine():
             )
         cursor.close()
 
-    @event.listens_for(engine.sync_engine, "begin")
-    def emit_begin(conn: Any) -> None:
-        conn.exec_driver_sql("BEGIN")
+    # Production's shape, so an open session here IS the write lock and a
+    # test can see contention at all.
+    shape_like_production(engine, attach=attach_schemas)
 
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
     yield engine
 
+    await engine.dispose()
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@pytest.fixture
+async def impatient_engine():
+    """Production's shape with a timeout short enough to assert against.
+
+    A test that proves the write lock is held must not spend the real
+    thirty seconds proving it. Lives here rather than in the one test
+    that needed it first: #211 has four more sites to cover, and a
+    second copy of a test engine is the thing to avoid.
+    """
+    tmp_dir = Path(tempfile.mkdtemp(prefix="aegis-impatient-db-"))
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_dir / 'impatient.sqlite'}",
+        connect_args={"check_same_thread": False},
+    )
+    shape_like_production(engine, busy_timeout_ms=IMPATIENT_BUSY_TIMEOUT_MS)
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+    yield engine
     await engine.dispose()
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
