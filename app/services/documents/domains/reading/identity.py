@@ -167,18 +167,9 @@ async def known_strings(db: Any) -> list[Known]:
 
     known: list[Known] = []
 
-    accounts, _total = await queries.accounts_page(
-        db,
-        owner_user_id=None,
-        include_hidden=True,
-        page=1,
-        page_size=500,
-        subject_id=queries.EVERYONE,
-    )
     known.extend(
-        Known("account", account.id, "mask", account.mask)
-        for account in accounts
-        if account.mask
+        Known("account", account_id, "mask", mask)
+        for account_id, mask in await queries.account_masks(db)
     )
 
     for party in await PartyService(db).find():

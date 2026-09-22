@@ -185,6 +185,54 @@ class TestWhatTheAppAlreadyKnows:
 ADDRESS = Known(kind="party", target=7, how="email", value="claims@deltadentalins.com")
 
 
+class TestEveryAccountIsKnown:
+    """The masks came from ONE page of 500 accounts, total discarded, so
+    the 501st account's last four never reached the index and a statement
+    carrying it matched nothing - silently (#214). Invisible at 21
+    accounts; a cap, not a scale."""
+
+    @staticmethod
+    async def _masks(db) -> set[str]:
+        from app.services.documents.domains.reading.identity import known_strings
+
+        return {one.value for one in await known_strings(db) if one.how == "mask"}
+
+    @pytest.mark.asyncio
+    async def test_the_account_after_the_five_hundredth_is_known(
+        self, async_db_session
+    ) -> None:
+        from app.services.finance.service import FinanceService
+        from tests.services._finance_factories import seed_account
+
+        finance = FinanceService(async_db_session)
+        for n in range(1, 502):
+            account = await seed_account(finance, name=f"Account {n}")
+            account.mask = f"{n:04d}"
+            async_db_session.add(account)
+        await async_db_session.flush()
+
+        # All of them, not a sample: the page is ordered by name, so the one
+        # that fell off was whichever sorted last ("Account 99"), not 501.
+        missing = {f"{n:04d}" for n in range(1, 502)} - await self._masks(
+            async_db_session
+        )
+        assert not missing, f"accounts whose last four were never known: {missing}"
+
+    @pytest.mark.asyncio
+    async def test_a_deleted_account_is_not(self, async_db_session) -> None:
+        from app.core.clock import utcnow
+        from app.services.finance.service import FinanceService
+        from tests.services._finance_factories import seed_account
+
+        account = await seed_account(FinanceService(async_db_session), name="Closed")
+        account.mask = "9999"
+        account.deleted_at = utcnow()
+        async_db_session.add(account)
+        await async_db_session.flush()
+
+        assert "9999" not in await self._masks(async_db_session)
+
+
 class TestTheSenderByTheirAddress:
     """The strongest identifier the mail hands over, and for free: an
     address is exact where a phone is fuzzy and a domain is shared."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import partial
 import re
 from typing import Any
@@ -175,6 +175,13 @@ def suggested_payee_name(key: str, sample: str | None) -> str:
     return " ".join(word.capitalize() for word in key.split())
 
 
+# One rounding rule for money, both ways in. Half UP, which is what a
+# person expects (2.665 is 267): Decimal's default is banker's half-even,
+# and float adds its own error on top, so the two parsers used to
+# disagree at the half-cent (#215).
+_TO_CENTS = partial(Decimal.quantize, exp=Decimal(1), rounding=ROUND_HALF_UP)
+
+
 def money_to_cents(raw: str | None) -> int | None:
     """What a PERSON typed, as cents. ``"$1,200.50"`` / ``"3,000"`` /
     ``" 12 "`` -> cents; blank -> 0; anything else -> ``None`` (the caller
@@ -188,20 +195,25 @@ def money_to_cents(raw: str | None) -> int | None:
 
     Distinct from ``to_cents`` below, which takes a number and raises.
     This takes what a form submitted, currency symbols and all, and
-    answers None rather than throwing. Worth noting the float: ``to_cents``
-    uses Decimal, which is the right answer for money, and unifying them
-    would change rounding at the half-cent - a change with its own test,
-    not a rename.
+    answers None rather than throwing - including for "inf", which as a
+    float made ``round`` raise OverflowError and a form answer 500.
     """
     cleaned = (raw or "").replace("$", "").replace(",", "").strip()
     if not cleaned:
         return 0
     try:
-        return round(float(cleaned) * 100)
-    except ValueError:
+        amount = Decimal(cleaned)
+    except InvalidOperation:
         return None
+    if not amount.is_finite():
+        return None
+    return int(_TO_CENTS(amount * 100))
 
 
 def to_cents(amount: Decimal | float | int | str) -> int:
-    """Convert a decimal money amount to signed integer minor units (cents)."""
-    return int((Decimal(str(amount)) * 100).to_integral_value())
+    """Convert a decimal money amount to signed integer minor units (cents).
+
+    ``str()`` first, so a float arrives as the digits it prints rather than
+    its binary expansion. Rounds as ``money_to_cents`` does.
+    """
+    return int(_TO_CENTS(Decimal(str(amount)) * 100))

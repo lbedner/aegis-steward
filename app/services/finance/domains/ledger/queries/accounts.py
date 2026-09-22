@@ -76,6 +76,26 @@ async def account_names(db: AsyncSession, ids: list[int | None]) -> dict[int, st
     return {int(a.id): a.name for a in rows}
 
 
+async def account_masks(db: AsyncSession) -> list[tuple[int, str]]:
+    """``(id, last four)`` for every live account that has one.
+
+    Two columns rather than whole rows, and no page: what reads a
+    document's front needs every account's last four, and it took them
+    from one page of 500, so the 501st account was never matched and
+    nothing said so (#214).
+    """
+    rows = (
+        await db.exec(
+            select(FinanceAccount.id, FinanceAccount.mask).where(
+                col(FinanceAccount.deleted_at).is_(None),
+                col(FinanceAccount.mask).is_not(None),
+                FinanceAccount.mask != "",
+            )
+        )
+    ).all()
+    return [(int(account_id), str(mask)) for account_id, mask in rows]
+
+
 async def accounts_page(
     db: AsyncSession,
     *,
