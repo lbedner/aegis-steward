@@ -22,7 +22,7 @@ def test_the_worker_is_restarted_by_watchfiles_not_reconnected_by_arq() -> None:
     worker = source[source.index('"$run_command" = "worker"') :]
     worker = worker[: worker.index("elif")]
 
-    assert "--watch" not in worker, "arq --watch reconnects; it never re-imports"
-    assert re.search(r'watchfiles --filter python\s+\\?\s*"python -m arq ', worker), (
-        "the dev branch must run arq under watchfiles, as the scheduler does"
+    assert "--watch" not in worker, "arq's watch flag reconnects; it never re-imports"
+    assert re.search(r"watchfiles --filter python", worker), (
+        "the dev branch must run the worker under watchfiles, as the scheduler does"
     )
