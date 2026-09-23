@@ -5,7 +5,7 @@ ST-03's UI half. Both render paths, selectors not substrings.
 
 from fastapi.testclient import TestClient
 
-from tests.web.dom import none, one, select, text
+from tests.web.dom import none, one, select, text, triggers
 
 
 def _party(client: TestClient, name: str, kind: str) -> None:
@@ -1346,3 +1346,77 @@ class TestAContactSeesItsCases:
         door = one(page, f'#matter [data-party] a[data-contact="{party_id}"]')
         assert door.get("href") == f"/contacts/{party_id}"
         assert door.get("hx-get") == f"/contacts/{party_id}"
+
+
+class TestWhenTheNextLetterComes:
+    """ST-11: the matter says when its next request is due to arrive, and
+    that is set where the matter is read."""
+
+    def test_the_matter_page_offers_to_set_it(self, client: TestClient) -> None:
+        page = _matter(client, "MA-CAD-WEB-1")
+        body = client.get(page).text
+        one(body, "[data-expected]")
+        opener = one(body, "[data-expected-edit]")
+        assert opener.get("hx-get") == f"{page}/cadence"
+
+    def test_setting_it_shows_on_the_page(self, client: TestClient) -> None:
+        page = _matter(client, "MA-CAD-WEB-2")
+        dialog = client.get(f"{page}/cadence").text
+        assert one(dialog, "form").get("hx-post") == f"{page}/cadence"
+        one(dialog, 'select[name="cadence"]')
+        one(dialog, 'input[name="next_expected_on"][type="date"]')
+
+        answer = client.post(
+            f"{page}/cadence",
+            data={"cadence": "annual", "next_expected_on": "2027-08-01"},
+            headers={"HX-Current-URL": f"http://t{page}"},
+        )
+        assert answer.status_code == 200
+        assert "dialog:close" in triggers(answer)
+        line = text(one(client.get(page).text, "[data-expected]"))
+        assert "Aug 2027" in line and "annual" in line.lower()
+
+    def test_an_unknown_cadence_comes_back_with_the_error(
+        self, client: TestClient
+    ) -> None:
+        page = _matter(client, "MA-CAD-WEB-3")
+        answer = client.post(
+            f"{page}/cadence", data={"cadence": "whenever", "next_expected_on": ""}
+        )
+        assert answer.status_code == 422
+        one(answer.text, "[role=alert]")
+
+    def test_picking_a_cadence_fills_in_the_date(self, client: TestClient) -> None:
+        """The dialog re-renders from the server with the suggestion: the
+        next letter comes about a cadence after the matter opened here
+        (it has no letters yet). The date rule lives in one place."""
+        page = _matter(client, "MA-CAD-WEB-4")  # opened 2026-08-20
+        dialog = client.get(f"{page}/cadence").text
+        picker = one(dialog, "[data-cadence-picker]")
+        assert picker.get("hx-get") == f"{page}/cadence"
+        assert picker.get("hx-trigger") == "change"
+
+        from datetime import date
+
+        from app.services.finance.utils import current_date
+        from app.services.matters.matters import next_after
+
+        expected = next_after(date(2026, 8, 20), "annual")
+        while expected <= current_date():  # still right next August
+            expected = next_after(expected, "annual")
+
+        refilled = client.get(f"{page}/cadence", params={"cadence": "annual"}).text
+        date_field = one(refilled, 'input[name="next_expected_on"]')
+        assert date_field.get("value") == expected.isoformat()
+        chosen = one(refilled, 'select[name="cadence"] option[selected]')
+        assert chosen.get("value") == "annual"
+
+    def test_a_date_typed_already_is_kept(self, client: TestClient) -> None:
+        page = _matter(client, "MA-CAD-WEB-5")
+        refilled = client.get(
+            f"{page}/cadence",
+            params={"cadence": "annual", "next_expected_on": "2027-11-05"},
+        ).text
+        assert (
+            one(refilled, 'input[name="next_expected_on"]').get("value") == "2027-11-05"
+        )
