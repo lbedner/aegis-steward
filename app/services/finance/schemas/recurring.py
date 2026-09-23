@@ -301,6 +301,9 @@ class InsightResponse(BaseModel):
     related_transaction_id: int | None
     related_category_id: int | None
     status: str
+    # What it turned out to be, and in whose words (FW-09).
+    resolution: str | None = None
+    resolution_note: str | None = None
     # Analyst notes record which model wrote them here; rule findings leave it
     # empty. The Notes tab shows it so a re-tuned model is visible in the UI.
     metadata: dict[str, Any] = {}
@@ -318,6 +321,8 @@ class InsightResponse(BaseModel):
             related_transaction_id=row.related_transaction_id,
             related_category_id=row.related_category_id,
             status=row.status,
+            resolution=row.resolution,
+            resolution_note=row.resolution_note,
             metadata=row.metadata_ or {},
         )
 

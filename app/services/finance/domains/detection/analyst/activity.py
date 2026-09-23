@@ -27,6 +27,7 @@ from app.services.finance.domains.planning.goals import (
     goal_monthly_need,
     goal_progress,
 )
+from app.services.finance.models.planning import STILL_OPEN
 
 _CASHFLOW_MONTHS = 6
 
@@ -155,7 +156,18 @@ def _anomalies_section(ctx: ReportContext) -> str:
     lines = [f"OPEN ANOMALIES ({len(flagged)})"]
     for insight in shown:
         body = f" {insight.body}" if insight.body else ""
-        lines.append(f"- [{insight.severity}] {context_label(insight.title)}.{body}")
+        # The id, so a resolution can name it (insight.resolve); and the
+        # note on one under review, so the question already answered is
+        # not asked again (FW-09).
+        review = (
+            f" Under review: {insight.resolution_note}"
+            if insight.resolution == STILL_OPEN and insight.resolution_note
+            else ""
+        )
+        lines.append(
+            f"- [{insight.severity}] (insight {insight.id}) "
+            f"{context_label(insight.title)}.{body}{review}"
+        )
     remainder = len(flagged) - len(shown)
     if remainder:
         lines.append(
