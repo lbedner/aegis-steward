@@ -117,6 +117,14 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
         # The same sum the account's own cover sheet draws, so the page
         # and the answer cannot disagree in front of somebody.
         coming_by_account = await scheduled_by_account(session, subject_id=EVERYONE)
+        # What the page says beside the balance: whose money it is, who it
+        # is held with, and the number the institution prints. Asked what
+        # it knows about a pension, the honest answer was "nothing linked"
+        # while the account itself named a subject, an institution and a
+        # member id. Inside the session: read after it closed, it opened
+        # a second connection nothing returned, which held the write lock
+        # until garbage collection killed it mid-answer (#238, 2026-09-23).
+        whose, held_with = await _named(session, account_rows)
 
     upcoming_by_account = {
         account_id: [
@@ -166,12 +174,6 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
                 "market_value_cents": market_value_cents,
             }
         )
-
-    # What the page says beside the balance: whose money it is, who it
-    # is held with, and the number the institution prints. Asked what it
-    # knows about a pension, the honest answer was "nothing linked" while
-    # the account itself named a subject, an institution and a member id.
-    whose, held_with = await _named(session, account_rows)
 
     out: list[dict[str, Any]] = []
     for account in account_rows:
