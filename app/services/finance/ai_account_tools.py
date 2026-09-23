@@ -253,6 +253,10 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
         if goal_meta is not None:
             entry["goal"] = {
                 "target_cents": goal_meta.target_amount,
+                # What goal.update can change, so she reads it before proposing.
+                "target_date": goal_meta.target_date.isoformat()
+                if goal_meta.target_date
+                else None,
                 "status": goal_meta.status,
                 "monthly_contribution_cents": goal_meta.monthly_contribution,
                 "priority": goal_meta.priority,

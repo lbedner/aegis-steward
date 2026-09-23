@@ -7,10 +7,12 @@ to the matching domain module as ``module.func(self.db, ...)``.
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from app.services.finance.domains.planning import (
     allocation,
     envelopes,
+    goal_update,
     goals,
 )
 from app.services.finance.domains.planning.allocation import MonthlyFigures
@@ -135,6 +137,13 @@ class GoalsMixin(FinanceServiceBase):
             amount=amount,
             owner_user_id=owner_user_id,
             when=when,
+        )
+
+    async def update_goal(
+        self, account_id: int, changes: dict[str, Any], *, owner_user_id: int | None
+    ) -> FinanceAccount | None:
+        return await goal_update.update_goal(
+            self.db, account_id, changes, owner_user_id=owner_user_id
         )
 
     async def set_goal_status(

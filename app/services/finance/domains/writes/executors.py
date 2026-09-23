@@ -14,6 +14,7 @@ from app.services.finance.domains.writes import (
     curation,
     filing,
     findings,
+    planning,
     structure,
     terms,
 )
@@ -309,3 +310,51 @@ register(
         describe=reading.request_describe,
     )
 )
+# The plan's other half (#166): bills and income already had cards;
+# goals and envelopes change what the forecast assumes and move no money.
+for change_type, title, model, execute, describe in (
+    (
+        "goal.create",
+        "A new goal",
+        planning.GoalCreatePayload,
+        planning.goal_create_execute,
+        planning.goal_create_describe,
+    ),
+    (
+        "goal.update",
+        "Change a goal",
+        planning.GoalUpdatePayload,
+        planning.goal_update_execute,
+        planning.goal_update_describe,
+    ),
+    (
+        "envelope.create",
+        "A new envelope",
+        planning.EnvelopeCreatePayload,
+        planning.envelope_create_execute,
+        planning.envelope_create_describe,
+    ),
+    (
+        "envelope.update",
+        "Change an envelope",
+        planning.EnvelopeUpdatePayload,
+        planning.envelope_update_execute,
+        planning.envelope_update_describe,
+    ),
+    (
+        "envelope.balance",
+        "Correct what is in an envelope",
+        planning.EnvelopeBalancePayload,
+        planning.envelope_balance_execute,
+        planning.envelope_balance_describe,
+    ),
+):
+    register(
+        ChangeExecutor(
+            change_type=change_type,
+            title=title,
+            payload_model=model,
+            execute=execute,
+            describe=describe,
+        )
+    )

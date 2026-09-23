@@ -308,70 +308,11 @@ async def update_goal(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> GoalResponse:
     """Partial update of targets/status; unknown statuses die in the schema."""
-    from app.services.finance.domains.planning.goals import (
-        goal_metadata,
-        set_auto_contribute,
-        set_goal_metadata,
+    account = await service.update_goal(
+        account_id, body.model_dump(exclude_none=True), owner_user_id=owner_user_id
     )
-
-    account = await service.get_account(account_id, owner_user_id=owner_user_id)
-    meta = goal_metadata(account.metadata_) if account is not None else None
-    if account is None or meta is None:
+    if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)
-    rule = body.target_rule if body.target_rule is not None else meta.target_rule
-    factor = (
-        body.target_factor if body.target_factor is not None else meta.target_factor
-    )
-    scope = body.target_scope if body.target_scope is not None else meta.target_scope
-    if rule == "fixed":
-        factor = None
-        scope = []
-    stored_target = (
-        body.target_amount if body.target_amount is not None else meta.target_amount
-    )
-    if rule != "fixed":
-        from app.services.finance.domains.planning.allocation import target_for_rule
-
-        figures = await service.goal_month_figures(
-            owner_user_id=owner_user_id, today=datetime.now(UTC).date()
-        )
-        stored_target = (
-            target_for_rule(
-                rule=rule, factor=factor, figures=figures, scope=tuple(scope)
-            )
-            or stored_target
-        )
-    account.metadata_ = set_goal_metadata(
-        account.metadata_,
-        target_amount=stored_target,
-        target_rule=rule,
-        target_factor=factor,
-        target_scope=scope,
-        target_date=(
-            body.target_date if body.target_date is not None else meta.target_date
-        ),
-        monthly_contribution=(
-            body.monthly_contribution
-            if body.monthly_contribution is not None
-            else meta.monthly_contribution
-        ),
-        status=body.status if body.status is not None else meta.status,
-        contribution_kind=(
-            body.contribution_kind
-            if body.contribution_kind is not None
-            else meta.contribution_kind
-        ),
-        contribution_bps=(
-            body.contribution_pct_bps
-            if body.contribution_pct_bps is not None
-            else meta.contribution_bps
-        ),
-        priority=body.priority if body.priority is not None else meta.priority,
-    )
-    if body.auto_contribute is not None:
-        account.metadata_ = set_auto_contribute(account.metadata_, body.auto_contribute)
-    service.db.add(account)
-    await service.db.flush()
     return await goal_response(service, account)
 
 

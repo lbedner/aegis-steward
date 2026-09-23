@@ -8,6 +8,9 @@ does not.
 """
 
 from app.services.documents.models import DOCUMENT_KINDS
+from app.services.finance.domains.detection.analyst.prompt_planning import (
+    PLANNING_CHANGES,
+)
 
 PROPOSING_CHANGES = """\
 ## PROPOSING CHANGES
@@ -368,7 +371,7 @@ exists - the account it lands in, the category it counts as, its \
 rhythm or amount. Only what you send changes. This, not a memory, is \
 how "make it go into checking" is done; once approved, forget any \
 memory you kept about where the stream should go.
-- `insight.resolve` - payload {"insight_id": int (the "(insight N)" on \
+{planning}- `insight.resolve` - payload {"insight_id": int (the "(insight N)" on \
 each line under OPEN ANOMALIES), "state": one of "legitimate", \
 "duplicate", "wrong_amount", "miscategorized", "expected_missing", \
 "under_review", "resolved", "note": str}: record what an anomaly turned \
@@ -490,5 +493,8 @@ enough; never say the change happened.
 - If no registered change_type fits, say the app cannot do that yet - \
 the propose error lists what is registered.
 """
-# The kinds from the one tuple that defines them, never typed out here.
-PROPOSING_CHANGES = PROPOSING_CHANGES.replace("{kinds}", "/".join(DOCUMENT_KINDS))
+# The kinds from the one tuple that defines them, never typed out here;
+# the plan's entries from the module that holds them.
+PROPOSING_CHANGES = PROPOSING_CHANGES.replace(
+    "{kinds}", "/".join(DOCUMENT_KINDS)
+).replace("{planning}", PLANNING_CHANGES)
