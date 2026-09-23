@@ -322,6 +322,21 @@ class FinanceSpendingBaseline(SQLModel, table=True):
     computed_at: datetime = Field(default_factory=utcnow)
 
 
+# What an anomaly turned out to BE (FW-09), in the person's terms. Every
+# one but "under_review" settles it; that one keeps it open, now saying
+# why. The words beside the key are what a card and a list show.
+INSIGHT_RESOLUTIONS = (
+    ("legitimate", "Confirmed legitimate"),
+    ("duplicate", "A duplicate"),
+    ("wrong_amount", "The amount was wrong"),
+    ("miscategorized", "Mis-categorized"),
+    ("expected_missing", "Expected, and missing"),
+    ("under_review", "Under review"),
+    ("resolved", "Resolved"),
+)
+STILL_OPEN = "under_review"
+
+
 class FinanceInsight(SQLModel, table=True):
     """Finance-specific insight/alert rows (price_hike, duplicate_service,
     inactive_subscription, fee_charged, overspend, spending_anomaly,
@@ -354,6 +369,12 @@ class FinanceInsight(SQLModel, table=True):
         CheckConstraint(
             "status IN ('new', 'seen', 'dismissed', 'actioned')",
             name="ck_finance_insight_status",
+        ),
+        CheckConstraint(
+            "resolution IN ("
+            + ", ".join(f"'{key}'" for key, _label in INSIGHT_RESOLUTIONS)
+            + ")",
+            name="ck_finance_insight_resolution",
         ),
         {"schema": _SCHEMA},
     )
@@ -388,6 +409,12 @@ class FinanceInsight(SQLModel, table=True):
     status: str = Field(default="new", max_length=12)
     is_read: bool = Field(default=False)
     dismissed_at: datetime | None = Field(default=None)
+    # What it turned out to be, in the person's words (FW-09). Kept with
+    # the row: the dedup key already stops the same occurrence being
+    # raised again, so a resolved row IS the "we settled this".
+    resolution: str | None = Field(default=None, max_length=24)
+    resolution_note: str | None = Field(default=None)
+    resolved_at: datetime | None = Field(default=None)
     metadata_: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("metadata", JSON)
     )

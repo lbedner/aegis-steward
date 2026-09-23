@@ -50,6 +50,40 @@ async def count_new_insights(
     )
 
 
+async def resolve_insight(
+    db: AsyncSession,
+    insight_id: int,
+    *,
+    state: str,
+    note: str | None,
+    owner_user_id: int | None = None,
+) -> FinanceInsight | None:
+    """Record what an anomaly turned out to be, in the person's words.
+
+    The one home for it: the assistant's approved proposal and the
+    Attention tab's own dialog both land here. "under_review" keeps it
+    open, now saying why; every other state settles it, which takes it
+    off every reader asking for what is still new - the analyst's report
+    among them. The transaction it is about is never touched.
+    """
+    from app.core.schema import require_one_of
+    from app.services.finance.models.planning import INSIGHT_RESOLUTIONS, STILL_OPEN
+
+    require_one_of(state, tuple(key for key, _label in INSIGHT_RESOLUTIONS))
+    insight = await queries.insight_by_id(db, insight_id, owner_user_id=owner_user_id)
+    if insight is None:
+        return None
+    insight.resolution = state
+    insight.resolution_note = (note or "").strip() or None
+    if state != STILL_OPEN:
+        insight.status = "actioned"
+        insight.is_read = True
+        insight.resolved_at = datetime.now(UTC).replace(tzinfo=None)
+    db.add(insight)
+    await db.flush()
+    return insight
+
+
 async def dismiss_insight(
     db: AsyncSession, insight_id: int, *, owner_user_id: int | None = None
 ) -> FinanceInsight | None:

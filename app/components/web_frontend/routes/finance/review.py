@@ -49,6 +49,8 @@ from app.components.web_frontend.routes.finance.register import (
     uncategorized_total,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.planning import queries as planning_queries
+from app.services.finance.models.planning import INSIGHT_RESOLUTIONS
 from app.services.finance.schemas import (
     BatchResolveRequest,
     PayeeGroupAssign,
@@ -467,6 +469,10 @@ async def attention(
             "insights": [
                 (i, SEVERITY_TONE.get(i.severity, "muted")) for i in listing.items
             ],
+            "resolved": await planning_queries.resolved_insights(
+                service.db, owner_user_id=owner_user_id
+            ),
+            "readings": dict(INSIGHT_RESOLUTIONS),
         },
     )
 

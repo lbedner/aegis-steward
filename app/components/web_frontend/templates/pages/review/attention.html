@@ -17,13 +17,28 @@
     <div class="flex-1 min-w-0">
       <p class="text-sm text-aegis-text">{{ badge(insight.title, tone) }}</p>
       {% if insight.body %}<p class="mt-1 text-xs text-aegis-muted">{{ insight.body }}</p>{% endif %}
+      {% if insight.resolution == "under_review" and insight.resolution_note %}<p class="mt-1 text-xs text-aegis-text" data-review-note>Under review: {{ insight.resolution_note }}</p>{% endif %}
     </div>
+    {{ action("Resolve", hx_dialog("/review/insights/" ~ insight.id ~ "/resolve") ~ " data-resolve") }}
     {{ action("Dismiss", hx_swap("/review/insights/" ~ insight.id ~ "/dismiss", "#insight-" ~ insight.id, "post")) }}
   </li>
   {% endfor %}
 </ul>
 {% else %}
 {{ empty_state("Nothing needs attention", "Findings from the rules land here as they fire.") }}
+{% endif %}
+{#- What was settled, and what it turned out to be: a resolution leaves
+    the open list, and has to be visible somewhere it can be read. -#}
+{% if resolved %}
+<h2 class="mt-8 mb-3 text-sm font-semibold text-aegis-text">Recently resolved</h2>
+<ul class="flex flex-col gap-2">
+  {% for insight in resolved %}
+  <li id="resolved-{{ insight.id }}" class="rounded-lg border border-aegis-border/60 p-3 text-sm">
+    <p class="text-aegis-text">{{ insight.title }}</p>
+    <p class="mt-1 text-xs text-aegis-muted">{{ readings.get(insight.resolution, insight.resolution) }} · {{ insight.resolved_at|short_date }}{% if insight.resolution_note %} · {{ insight.resolution_note }}{% endif %}</p>
+  </li>
+  {% endfor %}
+</ul>
 {% endif %}
 </div>
 {% endblock %}

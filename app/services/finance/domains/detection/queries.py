@@ -351,3 +351,26 @@ async def analyst_snapshots_between(
             )
         ).all()
     )
+
+
+async def retractable_missed(
+    db: AsyncSession, store_owner: int, stream_id: int | None = None
+) -> list[FinanceInsight]:
+    """Missed-bill alerts the rule may take back: one stream's, or every
+    stream's. Never a resolved one, or one a pending card is deciding
+    (FW-09): the person's word wins over the rule's second thoughts."""
+    from app.services.finance.domains.writes.findings import awaiting_resolution
+
+    deciding = await awaiting_resolution(db)
+    rows = await insight_rows_where(
+        db,
+        [
+            FinanceInsight.owner_user_id == store_owner,
+            FinanceInsight.insight_type == "missed_recurring",
+            FinanceInsight.related_stream_id.is_not(None)
+            if stream_id is None
+            else FinanceInsight.related_stream_id == stream_id,
+            FinanceInsight.resolution.is_(None),
+        ],
+    )
+    return [row for row in rows if row.id not in deciding]

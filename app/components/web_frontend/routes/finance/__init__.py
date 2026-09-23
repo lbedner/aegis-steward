@@ -24,6 +24,7 @@ from app.components.web_frontend.routes.finance import (
     projected,
     review,
     review_edit,
+    review_resolve,
     settings,
     transactions,
 )
@@ -45,6 +46,7 @@ router.include_router(budget_goals.router)
 router.include_router(budget_envelopes.router)
 # Before review: its edit routes must beat review's verb wildcard.
 router.include_router(review_edit.router)
+router.include_router(review_resolve.router)
 router.include_router(review.router)
 router.include_router(settings.router)
 router.include_router(transactions.router)

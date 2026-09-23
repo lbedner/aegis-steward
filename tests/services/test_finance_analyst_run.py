@@ -406,16 +406,17 @@ class TestRunAnalystNote:
 
 
 class TestSchedulerRegistration:
-    """The job has to be registered, or the nightly note simply never happens."""
+    """No nightly note (Leonard, 2026-09-22: "remove all the analyst notes
+    ... yes, stop it"). Forty-six of them had piled up unread. The note is
+    still written on request; nothing writes one on a schedule."""
 
-    def test_the_nightly_note_job_is_registered_after_the_rules(self) -> None:
+    def test_the_nightly_note_is_not_scheduled(self) -> None:
         from app.components.scheduler import main as scheduler_main
 
         source = scheduler_main.__file__
         with open(source) as handle:
             text = handle.read()
-        assert "finance_analyst_note_job" in text
-        assert 'id="finance_analyst_note"' in text
+        assert 'id="finance_analyst_note"' not in text
 
 
 class TestFixturesReachTheRegistry:

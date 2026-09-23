@@ -17,7 +17,7 @@ from collections.abc import Iterable, Sequence
 from datetime import date
 
 from sqlalchemy import func
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.models import (
@@ -212,6 +212,18 @@ async def insights_list(
     if exclude_types:
         query = query.where(FinanceInsight.insight_type.notin_(list(exclude_types)))
     query = query.order_by(FinanceInsight.id.desc())
+    return list((await db.exec(query)).all())
+
+
+async def resolved_insights(
+    db: AsyncSession, *, owner_user_id: int | None = None, limit: int = 10
+) -> list[FinanceInsight]:
+    """The most recently settled anomalies, newest first (FW-09). Under
+    review is not settled, so it stays on the open list instead."""
+    query = select(FinanceInsight).where(col(FinanceInsight.resolved_at).is_not(None))
+    if owner_user_id is not None:
+        query = query.where(FinanceInsight.owner_user_id == owner_user_id)
+    query = query.order_by(col(FinanceInsight.resolved_at).desc()).limit(limit)
     return list((await db.exec(query)).all())
 
 

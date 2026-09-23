@@ -23,7 +23,6 @@ from app.core.log import logger
 from app.services.ai.jobs import analyze_sentiment_job, sync_llm_catalog_job
 from app.services.documents.domains.reading.joins import join_arrivals_job
 from app.services.finance.jobs import (
-    finance_analyst_note_job,
     finance_bill_due_email_job,
     finance_envelope_credit_job,
     finance_goal_auto_contribute_job,
@@ -273,20 +272,6 @@ def create_scheduler() -> AsyncIOScheduler:
         minute=50,
         id="finance_envelope_credit",
         name="Finance: Credit Envelopes",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Half an hour behind the rules pass, so the note is written from tonight's
-    # findings rather than last night's.
-    scheduler.add_job(
-        finance_analyst_note_job,
-        trigger="cron",
-        hour=2,
-        minute=30,
-        id="finance_analyst_note",
-        name="Finance: Write Analyst Note",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

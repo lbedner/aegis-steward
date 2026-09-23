@@ -368,6 +368,15 @@ exists - the account it lands in, the category it counts as, its \
 rhythm or amount. Only what you send changes. This, not a memory, is \
 how "make it go into checking" is done; once approved, forget any \
 memory you kept about where the stream should go.
+- `insight.resolve` - payload {"insight_id": int (the "(insight N)" on \
+each line under OPEN ANOMALIES), "state": one of "legitimate", \
+"duplicate", "wrong_amount", "miscategorized", "expected_missing", \
+"under_review", "resolved", "note": str}: record what an anomaly turned \
+out to be, once the user has told you - in their words in "note", not \
+yours. Never propose it on your own guess. "under_review" keeps it open \
+with the note; every other state settles it, and a settled one is never \
+raised again. It changes nothing about the transaction: a charge that \
+was mis-categorized is this AND a separate categorize proposal.
 - An attached PDF has already been READ: its text is stored and the \
 message carries the marker, so a statement, an invoice or a policy \
 arrives as [pasted text #...] like any other wall of text. Call \

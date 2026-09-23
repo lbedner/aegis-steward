@@ -58,6 +58,9 @@ from app.services.finance.domains.detection.insights.formatting import (
     month_start_before,
     pace_day,
 )
+from app.services.finance.domains.detection.insights.large_charges import (
+    _large_transactions,
+)
 from app.services.finance.domains.ledger import queries as ledger_queries
 from app.services.finance.domains.planning.recurring import queries as recurring_queries
 from app.services.finance.models import (
@@ -83,17 +86,6 @@ OVERSPEND_MIN_BASELINE = 5_000  # cents
 _FEE_PFC = "BANK_FEES"
 _FEE_RE = re.compile(r"FEE|INTEREST CHARGE|FINANCE CHARGE", re.IGNORECASE)
 
-# large_transaction: an outlier is judged against its OWN account, because a
-# normal charge on a grocery card and a normal charge on a mortgage account are
-# nothing alike. The floors keep a quiet account from crying wolf over an
-# ordinary purchase that happens to beat its small median.
-LARGE_TXN_WINDOW_DAYS = 35  # how far back to look for candidates
-LARGE_TXN_BASELINE_DAYS = 90  # the account's own recent norm
-LARGE_TXN_MIN_BASELINE = 10  # peers needed before the median is trusted
-LARGE_TXN_MULTIPLE = 4  # x the account's median outflow
-LARGE_TXN_CRITICAL_MULTIPLE = 10  # x the median -> critical, not warning
-LARGE_TXN_FLOOR = 20_000  # cents; never alert below this
-LARGE_TXN_THIN_FLOOR = 50_000  # cents; the only test when history is thin
 
 # Credit-card / liquidity rules. These are the "someone told the system to
 # look" checks: a card in trouble is flagged by code reading the provider's
@@ -390,90 +382,6 @@ async def _overspend(
     return created
 
 
-async def _large_transactions(
-    db: AsyncSession,
-    owner_user_id: int | None,
-    store_owner: int,
-    live_accounts,
-    today: date,
-) -> int:
-    """One charge far outside its own account's recent norm.
-
-    Recurring members are excluded on purpose: a mortgage payment is large
-    every month, and streams already have their own rule (``price_hike``).
-    Candidates are limited to a recent window so a first run against years of
-    imported history doesn't dump a hundred alerts about ancient purchases.
-    """
-    rows = await queries.transaction_rows_where(
-        db,
-        [
-            queries.owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
-            FinanceTransaction.deleted_at.is_(None),
-            FinanceTransaction.dedup_status != "duplicate",
-            FinanceTransaction.excluded_from_reports.is_(False),
-            FinanceTransaction.is_transfer.is_(False),
-            FinanceTransaction.recurring_stream_id.is_(None),
-            FinanceTransaction.amount < 0,
-            FinanceTransaction.date_ >= today - timedelta(days=LARGE_TXN_BASELINE_DAYS),
-            FinanceTransaction.account_id.in_(live_accounts),
-        ],
-    )
-
-    by_account: dict[int, list[FinanceTransaction]] = {}
-    for txn in rows:
-        by_account.setdefault(txn.account_id, []).append(txn)
-
-    candidate_start = today - timedelta(days=LARGE_TXN_WINDOW_DAYS)
-    created = 0
-    for txns in by_account.values():
-        peer_amounts = {txn.id: abs(txn.amount) for txn in txns}
-        for txn in txns:
-            if txn.date_ < candidate_start:
-                continue  # baseline only
-            amount = abs(txn.amount)
-            # A transaction is never its own baseline.
-            peers = [
-                value for txn_id, value in peer_amounts.items() if txn_id != txn.id
-            ]
-            if len(peers) >= LARGE_TXN_MIN_BASELINE:
-                median_peer = statistics.median(peers)
-                threshold = max(LARGE_TXN_FLOOR, int(median_peer * LARGE_TXN_MULTIPLE))
-                critical_at = median_peer * LARGE_TXN_CRITICAL_MULTIPLE
-                body = (
-                    f"{txn.name or 'A charge'} on {txn.date_} was {format_usd(amount)}, "
-                    f"well above the usual {format_usd(int(median_peer))} on this account."
-                )
-            else:
-                threshold = LARGE_TXN_THIN_FLOOR
-                critical_at = None
-                body = (
-                    f"{txn.name or 'A charge'} on {txn.date_} was {format_usd(amount)}, "
-                    "unusually large for this account."
-                )
-            if amount < threshold:
-                continue
-            severity = (
-                "critical"
-                if critical_at is not None and amount >= critical_at
-                else "warning"
-            )
-            if await create_insight_if_new(
-                db,
-                owner_user_id=store_owner,
-                insight_type="large_transaction",
-                dedup_key=f"large_txn:{txn.id}",
-                severity=severity,
-                title=f"Large charge: {format_usd(amount)}",
-                body=body,
-                detected_amount=txn.amount,
-                related_transaction_id=txn.id,
-                related_account_id=txn.account_id,
-                related_category_id=txn.category_id,
-            ):
-                created += 1
-    return created
-
-
 async def _missed_recurring(
     db: AsyncSession,
     store_owner: int,
@@ -513,14 +421,7 @@ async def _missed_recurring(
     # Left alone, either kind sits "new" forever, telling every reader
     # (and every AI briefing) the bill is still missed.
     fetched_by_id = {s.id: s for s in streams if s.id is not None}
-    open_alerts = await queries.insight_rows_where(
-        db,
-        [
-            FinanceInsight.owner_user_id == store_owner,
-            FinanceInsight.insight_type == "missed_recurring",
-            FinanceInsight.related_stream_id.is_not(None),
-        ],
-    )
+    open_alerts = await queries.retractable_missed(db, store_owner)
     retracted_any = False
     for alert in open_alerts:
         stream = fetched_by_id.get(alert.related_stream_id)
@@ -569,14 +470,7 @@ async def _missed_recurring(
             # land AFTER an earlier pass already alerted (a multi-file
             # import sees one leg before the other), so also retract any
             # alert that pass created - it was wrong, not merely stale.
-            stale = await queries.insight_rows_where(
-                db,
-                [
-                    FinanceInsight.owner_user_id == store_owner,
-                    FinanceInsight.insight_type == "missed_recurring",
-                    FinanceInsight.related_stream_id == stream.id,
-                ],
-            )
+            stale = await queries.retractable_missed(db, store_owner, stream.id)
             for insight in stale:
                 await db.delete(insight)
             if stale:
@@ -599,14 +493,7 @@ async def _missed_recurring(
             # sibling's). Like the transfer case above, a later pass can
             # learn this AFTER an earlier pass already alerted, so also
             # retract - the alert was wrong.
-            stale = await queries.insight_rows_where(
-                db,
-                [
-                    FinanceInsight.owner_user_id == store_owner,
-                    FinanceInsight.insight_type == "missed_recurring",
-                    FinanceInsight.related_stream_id == stream.id,
-                ],
-            )
+            stale = await queries.retractable_missed(db, store_owner, stream.id)
             for insight in stale:
                 await db.delete(insight)
             if stale:

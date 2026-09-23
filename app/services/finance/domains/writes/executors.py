@@ -13,6 +13,7 @@ from app.services.finance.domains.writes import (
     accounts,
     curation,
     filing,
+    findings,
     structure,
     terms,
 )
@@ -224,6 +225,18 @@ register(
         payload_model=structure.AmendPayload,
         execute=structure.amend_execute,
         describe=structure.amend_describe,
+    )
+)
+
+# What an anomaly turned out to be: a card, because the assistant's own
+# list keeps resolving without confirmation behind confirmation (FW-09).
+register(
+    ChangeExecutor(
+        change_type="insight.resolve",
+        title="Say what an anomaly was",
+        payload_model=findings.ResolveInsightPayload,
+        execute=findings.resolve_execute,
+        describe=findings.resolve_describe,
     )
 )
 

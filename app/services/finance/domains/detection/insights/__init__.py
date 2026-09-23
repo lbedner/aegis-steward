@@ -37,9 +37,7 @@ from app.services.finance.domains.detection.insights.formatting import (
     month_start_before,
     pace_day,
 )
-from app.services.finance.domains.detection.insights.rules import (
-    HIGH_APR_BPS,
-    HIGH_APR_MIN_BALANCE,
+from app.services.finance.domains.detection.insights.large_charges import (
     LARGE_TXN_BASELINE_DAYS,
     LARGE_TXN_CRITICAL_MULTIPLE,
     LARGE_TXN_FLOOR,
@@ -47,6 +45,10 @@ from app.services.finance.domains.detection.insights.rules import (
     LARGE_TXN_MULTIPLE,
     LARGE_TXN_THIN_FLOOR,
     LARGE_TXN_WINDOW_DAYS,
+)
+from app.services.finance.domains.detection.insights.rules import (
+    HIGH_APR_BPS,
+    HIGH_APR_MIN_BALANCE,
     MIN_PAYMENT_LOOKAHEAD_DAYS,
     OVERSPEND_MIN_BASELINE,
     OVERSPEND_MIN_ELAPSED,
