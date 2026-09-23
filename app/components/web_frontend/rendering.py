@@ -72,6 +72,11 @@ templates.env.filters["moment_tone"] = moment_tone
 from app.services.matters.facts import rate_suffix  # noqa: E402
 
 templates.env.filters["rate_suffix"] = rate_suffix
+
+from app.services.documents.models import kind_label  # noqa: E402
+
+# One label for a document's kind, in the tables and the dialog alike.
+templates.env.filters["kind_label"] = kind_label
 templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.
@@ -250,10 +255,36 @@ def dialog(
 
     The first two arguments are positional so a form's own context can
     carry any key it likes, ``name`` and ``template`` included.
+
+    Its address opened DIRECTLY - typed, pasted, a new tab - is not the
+    popup asking. That rendered the bare fragment with no page and no CSS
+    around it (2026-09-23), so it goes to its section with the dialog
+    named, and app.js opens it over the page.
     """
-    return templates.TemplateResponse(
+    # The browser's own mark on a top-level visit, rather than "no
+    # HX-Request": a script or a test asking for the fragment still
+    # gets it, and only a person arriving at the address is moved.
+    if request.headers.get("sec-fetch-dest") == "document" and not request.headers.get(
+        "HX-Request"
+    ):
+        from urllib.parse import quote
+
+        from starlette.responses import RedirectResponse
+
+        path = request.url.path
+        if request.url.query:
+            path = f"{path}?{request.url.query}"
+        # ponytail: the section root, not the exact page it was opened
+        # from; walk up to a matching page route if that ever matters.
+        section = "/" + request.url.path.strip("/").split("/")[0]
+        return RedirectResponse(f"{section}?dialog={quote(path, safe='/')}", 303)
+    response = templates.TemplateResponse(
         request=request, name=template, context=context, status_code=status_code
     )
+    # One URL, two answers: without this the browser stored the popup's
+    # fragment and handed it back to the address bar (2026-09-23).
+    response.headers["Vary"] = "HX-Request, Sec-Fetch-Dest"
+    return response
 
 
 def trigger(

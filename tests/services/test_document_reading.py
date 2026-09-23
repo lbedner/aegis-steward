@@ -131,6 +131,52 @@ class TestWhatKindOfPaperItIs:
                     assert finding.value in DOCUMENT_KINDS
 
 
+# The real Citizens 1098's text layer (2026-09-14). The form number is
+# artwork, so "1098" is nowhere in the text; box 1's caption and the
+# year are.
+CITIZENS_1098 = """20-2635739
+For calendar year
+2025
+2025 INTEREST CALCULATIONS
+Citizens Bank N.A.
+$5,691.23 PRINCIPAL APPLIED
+01/01/26
+2025 MORTGAGE INTEREST RECEIVED FROM PAYER/BORROWER(S) $7,568.77
+"""
+
+
+class TestTaxPaper:
+    def test_the_real_1098_is_tax_paper_for_its_year(self) -> None:
+        """It filed as a Statement because that was the closest of seven
+        kinds, and "statement" loses the form and the year (#138)."""
+        found = {f.field: f for f in read_document(_pages(CITIZENS_1098))}
+        assert found["kind"].value == "tax"
+        assert found["form_type"].value == "1098"
+        assert "MORTGAGE INTEREST RECEIVED" in found["form_type"].because
+        assert found["tax_year"].value == 2025
+        assert found["tax_year"].because == "For calendar year 2025"
+
+    def test_a_form_that_names_itself(self) -> None:
+        found = {
+            f.field: f
+            for f in read_document(
+                _pages("Form 1099-INT Interest Income\nTax Year: 2025")
+            )
+        }
+        assert (found["kind"].value, found["form_type"].value) == ("tax", "1099-INT")
+        assert found["tax_year"].value == 2025
+
+    def test_a_form_mentioned_in_prose_is_not_the_paper(self) -> None:
+        prose = "You will receive Form 1099-INT from us by January 31 each year"
+        assert [
+            f for f in read_document(_pages(prose)) if f.field != "document_date"
+        ] == []
+
+    def test_a_year_on_paper_that_is_not_tax_is_not_proposed(self) -> None:
+        found = {f.field for f in read_document(_pages("Statement\nPlan year 2026"))}
+        assert "tax_year" not in found
+
+
 class TestWhereItLooks:
     def test_only_the_opening_pages_are_read(self) -> None:
         """A dateline and a letterhead are at the front. Page nine of a

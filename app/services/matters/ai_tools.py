@@ -27,6 +27,7 @@ from app.services.documents.domains.extraction.dispatch import (
     start_extraction,
     wait_for_extraction,
 )
+from app.services.documents.models import DOCUMENT_KINDS
 from app.services.documents.service import DocumentService
 from app.services.finance.utils import current_date
 from app.services.matters.drawing import titles as paper_titles
@@ -319,10 +320,9 @@ async def documents(
 
     'q' matches the title, case-insensitively - "county letter", "delta
     invoice" - which is what a person actually has to go on. 'kind'
-    filters to letter/statement/schedule/form/identification/receipt/
-    other. 'unattributed=True' shows only documents NOBODY is tagged on:
-    that is the working queue, because a document with no sender is one
-    whose letterhead nothing can read.
+    filters to one of {kinds}. 'unattributed=True' shows only
+    documents NOBODY is tagged on: that is the working queue, because a
+    document with no sender is one whose letterhead nothing can read.
 
     Use it to turn a description into an id, then `paper` to read it and
     document.metadata to say what it is and who sent it.
@@ -332,6 +332,13 @@ async def documents(
     async with get_async_session() as db:
         found = await shelf(db, q=q, kind=kind, unattributed=unattributed)
     return {"documents": found}
+
+
+# The kinds from the one tuple that defines them: typed out here, the
+# list had already missed one kind by the time tax arrived (#138).
+documents.__doc__ = (documents.__doc__ or "").replace(
+    "{kinds}", ", ".join(DOCUMENT_KINDS)
+)
 
 
 register_tool(

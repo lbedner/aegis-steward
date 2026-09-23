@@ -13,6 +13,7 @@ from datetime import date as date_type
 from typing import Any
 
 from fastapi import Request
+from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
@@ -83,7 +84,7 @@ async def document_dialog(
     """
     from app.components.web_frontend.filters import short_date
     from app.services.documents.domains.extraction.pages import how_read
-    from app.services.documents.models import DOCUMENT_KINDS
+    from app.services.documents.models import DOCUMENT_KINDS, TAX_FORMS
     from app.services.documents.queries import pages_for
     from app.services.documents.service import DocumentService
 
@@ -103,6 +104,7 @@ async def document_dialog(
         ],
         places=await places(db),
         kinds=DOCUMENT_KINDS,
+        tax_forms=TAX_FORMS,
         post=post,
         read_only=read_only,
         # Read again lives with the document, wherever the dialog opened.
@@ -125,20 +127,32 @@ async def document_dialog(
     )
 
 
+class DocumentForm(BaseModel):
+    """What the document dialog posts, wherever it was opened.
+
+    One model for the three doors (the shelf, an account, a matter's
+    ask). The fields were a parameter list typed out in each route, and
+    a field added to the dialog was a field three routes had to learn.
+    """
+
+    title: str = ""
+    kind: str = "other"
+    # Tax paper only; the dialog shows them when the kind is tax.
+    form_type: str = ""
+    tax_year: str = ""
+    document_date: str = ""
+    note: str = ""
+    # Where it is filed, whole: the chips on the form. ``place_sent``
+    # says the form carried the field at all, so a form without it
+    # refiles nothing.
+    place: list[str] = []
+    place_sent: str = ""
+
+
 async def save_document(
-    db: AsyncSession,
-    document_id: int,
-    *,
-    title: str,
-    kind: str,
-    document_date: str,
-    note: str,
-    places: list[str] | None = None,
+    db: AsyncSession, document_id: int, form: DocumentForm
 ) -> list[str]:
     """Save what we SAY about a document, and give back what refused it.
-
-    ``places`` is where it is filed, whole: the chips on the form. None
-    means the form did not carry the field, and nothing is refiled.
 
     The bytes never change: a document is what arrived, and correcting
     it would make the record a lie. Errors come back as a list rather
@@ -147,29 +161,34 @@ async def save_document(
     """
     from app.services.documents.service import DocumentService
 
-    if not title.strip():
+    if not form.title.strip():
         return ["Give the document a title."]
     dated: date_type | None = None
-    if document_date:
+    if form.document_date:
         try:
-            dated = date_type.fromisoformat(document_date)
+            dated = date_type.fromisoformat(form.document_date)
         except ValueError:
             return ["That date is not a date."]
+    year = form.tax_year.strip()
+    if year and not year.isdigit():
+        return ["The tax year is a year, like 2025."]
     try:
         await DocumentService(db).update(
             document_id,
             {
-                "title": title,
-                "kind": kind,
+                "title": form.title,
+                "kind": form.kind,
+                "form_type": form.form_type or None,
+                "tax_year": int(year) if year else None,
                 "document_date": dated,
-                "note": note.strip() or None,
+                "note": form.note.strip() or None,
             },
         )
     except ValueError as exc:
         return [str(exc)]
-    if places is not None:
+    if form.place_sent:
         documents = DocumentService(db)
-        wanted = {p for p in places if place_key(p)}
+        wanted = {p for p in form.place if place_key(p)}
         current = {t for t in await documents.tags_for(document_id) if place_key(t)}
         for tag in wanted - current:
             await documents.tag(document_id, tag)
@@ -256,6 +275,7 @@ async def papers_on(db: AsyncSession, tag: str, open_base: str) -> list[dict[str
     """The paper filed under ``tag``, each row opening at ``open_base/<id>``."""
     from app.components.web_frontend.filters import short_date
     from app.components.web_frontend.glyphs import file_badge
+    from app.services.documents.models import kind_label
     from app.services.documents.service import DocumentService
 
     documents, _ = await DocumentService(db).list_documents(tag=tag)
@@ -266,7 +286,7 @@ async def papers_on(db: AsyncSession, tag: str, open_base: str) -> list[dict[str
                 "url": f"{open_base}/{d.id}",
                 "badge": file_badge(d.media_type, d.title, source=d.source),
             },
-            "kind": d.kind,
+            "kind": kind_label(d),
             "at": short_date(d.document_date or d.received_at),
             "pages": d.page_count or "",
             "import_batch_id": d.import_batch_id,

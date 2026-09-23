@@ -13,7 +13,12 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import Response
 
-from app.components.web_frontend.documents import document_dialog, save_document
+from app.components.web_frontend.documents import (
+    DocumentForm,
+    document_dialog,
+    papers_on,
+    save_document,
+)
 from app.components.web_frontend.filters import mark_new
 from app.components.web_frontend.nav import account_tabs, section
 from app.components.web_frontend.rendering import (
@@ -106,27 +111,14 @@ async def document_save(
     request: Request,
     account_id: int,
     document_id: int,
-    title: Annotated[str, Form()] = "",
-    kind: Annotated[str, Form()] = "other",
-    document_date: Annotated[str, Form()] = "",
-    note: Annotated[str, Form()] = "",
-    place: Annotated[list[str], Form()] = [],
-    place_sent: Annotated[str, Form()] = "",
+    form: Annotated[DocumentForm, Form()],
     service: FinanceService = Depends(get_finance_service),
 ) -> Response:
     """Save what we say about the document. A refusal re-renders the
     whole dialog, page beside form, so the reader never loses what they
     were looking at."""
     found = await _filed_document(service, account_id, document_id)
-    errors = await save_document(
-        service.db,
-        document_id,
-        title=title,
-        kind=kind,
-        document_date=document_date,
-        note=note,
-        places=place if place_sent else None,
-    )
+    errors = await save_document(service.db, document_id, form)
     if errors:
         return await document_dialog(
             request, service.db, found, _post(account_id, document_id), 422, errors
@@ -136,7 +128,7 @@ async def document_save(
     # you meant to go somewhere else.
     return dialog_done(
         where_from(request, f"{SECTION.path}/{account_id}/documents"),
-        f"Saved {title.strip()}",
+        f"Saved {form.title.strip()}",
     )
 
 
@@ -159,39 +151,15 @@ async def account_documents(
     framework has no business guessing - so steward's meaning is this
     one label, written in one place so nothing has to re-derive it.
     """
-    from app.services.documents.service import DocumentService
-
     # The REQUEST's session, never a second one. Every transaction takes
     # the write lock now (see ``_async_sqlite_emit_begin``), so a nested
     # session inside a request waits for a lock its own caller is
     # holding and times out as "database is locked" - a read deadlocking
     # against a read, which is the one thing the lock change made
     # possible.
-    documents, _ = await DocumentService(service.db).list_documents(
-        tag=account_tag(account_id)
+    return await papers_on(
+        service.db, account_tag(account_id), f"{SECTION.path}/{account_id}/documents"
     )
-    from app.components.web_frontend.filters import short_date
-    from app.components.web_frontend.glyphs import file_badge
-
-    # Shaped here, not in the template: Jinja has no comprehension, and
-    # a table's rows are data anyway.
-    return [
-        {
-            "title": {
-                "label": d.title,
-                "url": f"{SECTION.path}/{account_id}/documents/{d.id}",
-                "badge": file_badge(d.media_type, d.title),
-            },
-            "kind": d.kind,
-            "at": short_date(d.document_date or d.received_at),
-            "pages": d.page_count or "",
-            # What the mark reads: when this arrived, and the run that
-            # brought it if one did.
-            "import_batch_id": d.import_batch_id,
-            "created_at": d.created_at,
-        }
-        for d in documents
-    ]
 
 
 DOCUMENT_COLUMNS = (

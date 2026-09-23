@@ -84,6 +84,48 @@ class TestTheCardShowsItsWorking:
         assert filed.title == "Mortgage Interest Statement.pdf"
 
 
+class TestTaxPaperOnTheCard:
+    @pytest.mark.asyncio
+    async def test_approving_files_the_form_and_the_year(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading import (
+            MetadataPayload,
+            ReadValue,
+            metadata_describe,
+            metadata_execute,
+        )
+
+        document = await _filed(async_db_session, "1098.pdf")
+        payload = MetadataPayload(
+            document_id=int(document.id),
+            kind=ReadValue(value="tax", page=1, because="MORTGAGE INTEREST"),
+            form_type=ReadValue(value="1098", page=1, because="MORTGAGE INTEREST"),
+            tax_year=ReadValue(value="2025", page=1, because="For calendar year 2025"),
+        )
+        said = {
+            r.label: r.value
+            for r in await metadata_describe(async_db_session, payload, None)
+        }
+        assert said["Form"].startswith("- → 1098")
+        assert said["Tax year"].startswith("- → 2025")
+
+        await metadata_execute(async_db_session, payload, None)
+        filed = await DocumentService(async_db_session).get(int(document.id))
+        assert (filed.kind, filed.form_type, filed.tax_year) == ("tax", "1098", 2025)
+
+    def test_a_form_the_shelf_does_not_know(self) -> None:
+        from pydantic import ValidationError
+
+        from app.services.documents.domains.reading import MetadataPayload, ReadValue
+
+        with pytest.raises(ValidationError):
+            MetadataPayload(
+                document_id=1,
+                form_type=ReadValue(value="1040-ish", page=1, because="x"),
+            )
+
+
 class TestWhatItRefuses:
     def test_a_kind_the_shelf_does_not_allow(self) -> None:
         from pydantic import ValidationError

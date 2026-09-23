@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from starlette.responses import Response
 
 from app.components.web_frontend.documents import (
+    DocumentForm,
     document_dialog,
     file_upload,
     filed_under,
@@ -53,6 +54,7 @@ COLUMNS = (
 def _row(document: Any, filed: list[dict[str, str]]) -> dict[str, Any]:
     from app.components.web_frontend.filters import short_date
     from app.components.web_frontend.glyphs import file_badge
+    from app.services.documents.models import kind_label
 
     return {
         "id": document.id,
@@ -63,7 +65,7 @@ def _row(document: Any, filed: list[dict[str, str]]) -> dict[str, Any]:
                 document.media_type, document.title, source=document.source
             ),
         },
-        "kind": document.kind,
+        "kind": kind_label(document),
         "at": short_date(document.document_date or document.received_at),
         "pages": document.page_count or "",
         "filed": filed,
@@ -202,24 +204,11 @@ async def document(
 async def save(
     request: Request,
     document_id: int,
-    title: Annotated[str, Form()] = "",
-    kind: Annotated[str, Form()] = "other",
-    document_date: Annotated[str, Form()] = "",
-    note: Annotated[str, Form()] = "",
-    place: Annotated[list[str], Form()] = [],
-    place_sent: Annotated[str, Form()] = "",
+    form: Annotated[DocumentForm, Form()],
 ) -> Response:
     async with get_async_session() as db:
         found = await _filed(db, document_id)
-        errors = await save_document(
-            db,
-            document_id,
-            title=title,
-            kind=kind,
-            document_date=document_date,
-            note=note,
-            places=place if place_sent else None,
-        )
+        errors = await save_document(db, document_id, form)
         if errors:
             return await document_dialog(
                 request, db, found, f"{SECTION.path}/{document_id}", 422, errors

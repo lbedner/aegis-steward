@@ -7,7 +7,7 @@ change-type registry (``writes/executors.py``), the rest of the prompt
 does not.
 """
 
-from __future__ import annotations
+from app.services.documents.models import DOCUMENT_KINDS
 
 PROPOSING_CHANGES = """\
 ## PROPOSING CHANGES
@@ -207,10 +207,10 @@ did not return is one you did not read - do not propose it.
 - `document.metadata` - payload {"document_id": int (from `documents`, \
 or a party's document_ids - NEVER guess a number; `documents` turns \
 "the county letter" into an id, and documents(unattributed=True) is \
-the queue of paper whose sender nobody has recorded), and any of "title", "kind" (letter/statement/\
-schedule/form/identification/receipt/other), "document_date", and \
-"sender" (a parties() id - WHO SENT IT, read off the letterhead), each \
-as {"value", "page": int, "because": the line you read it on}}: what a \
+the queue of paper whose sender nobody has recorded), and any of "title", "kind" ({kinds}), \
+"form_type" and "tax_year" (tax paper: the year it is FOR, not the date \
+on it), "document_date", and "sender" (a parties() id - WHO SENT IT, \
+read off the letterhead), each as {"value", "page": int, "because": the line you read it on}}: what a \
 document says it IS. The citation is NOT optional - a field that \
 cannot name its page is a guess, not a reading - so read the pages \
 (paper()) and quote the line. Only what you send changes, and the \
@@ -490,3 +490,5 @@ enough; never say the change happened.
 - If no registered change_type fits, say the app cannot do that yet - \
 the propose error lists what is registered.
 """
+# The kinds from the one tuple that defines them, never typed out here.
+PROPOSING_CHANGES = PROPOSING_CHANGES.replace("{kinds}", "/".join(DOCUMENT_KINDS))

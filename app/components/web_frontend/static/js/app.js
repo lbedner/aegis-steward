@@ -81,6 +81,18 @@ document.body.addEventListener('htmx:afterSwap', (event) => {
     if (dialog && !dialog.open) dialog.showModal();
   }
 });
+// A dialog's address opened directly arrives here as ?dialog=<its path>
+// (rendering.dialog): open it over the page, and drop the param so a
+// reload does not open it again. Same-origin paths only.
+{
+  const named = new URLSearchParams(location.search).get('dialog');
+  if (named?.startsWith('/') && !named.startsWith('//')) {
+    const url = new URL(location.href);
+    url.searchParams.delete('dialog');
+    history.replaceState(history.state, '', url);
+    htmx.ajax('GET', named, '#dialog-body');
+  }
+}
 // Sent as HX-Trigger-After-Settle (rendering.close_dialog), so it lands
 // after the response's own swap has finished with #dialog-body.
 document.body.addEventListener('dialog:close', () => {

@@ -31,10 +31,51 @@ DOCUMENT_KINDS = (
     # lender's document is a kind nobody else can file anything under.
     "schedule",
     "form",
+    # Issued once a year, by a payer, for a tax year - a 1098, a W-2. The
+    # form says what its numbers mean, so it rides ``form_type`` rather
+    # than a kind per form: a kind narrow enough to name one form is the
+    # mistake ``schedule`` warns about. A Citizens 1098 filed as a
+    # Statement because nothing closer existed (#138, 2026-09-14).
+    "tax",
     "identification",
     "receipt",
     "other",
 )
+
+
+# The forms a ``tax`` document can be. Validated in the service rather
+# than by a CHECK: the list grows every time a new form arrives, and a
+# table rebuild per IRS form is a migration nobody should have to write.
+TAX_FORMS = (
+    "1098",
+    "1098-E",
+    "1098-T",
+    "1099-B",
+    "1099-DIV",
+    "1099-G",
+    "1099-INT",
+    "1099-MISC",
+    "1099-NEC",
+    "1099-R",
+    "1099-SA",
+    "SSA-1099",
+    "W-2",
+    "1095-A",
+    "1095-B",
+    "1095-C",
+    "5498",
+    "5498-SA",
+    "K-1",
+)
+
+
+def kind_label(document: Any) -> str:
+    """What a reader calls this paper: its kind, or for tax paper the
+    form and the year, which is what a tax document is looked for by."""
+    if document.kind == "tax" and document.form_type:
+        year = f" for {document.tax_year}" if document.tax_year else ""
+        return f"{document.form_type}{year}"
+    return document.kind
 
 
 def kind_check() -> str:
@@ -97,6 +138,11 @@ class Document(SQLModel, table=True):
     # (2026-09-19). Null on rows that predate the column.
     filename: str | None = Field(default=None, max_length=255)
     kind: str = Field(default="other", max_length=32)
+    # Tax paper only (``kind == "tax"``): which form, and the year it is
+    # FOR. A 1098 for 2025 is dated January 2026, so ``document_date``
+    # cannot answer "what do I have for 2025".
+    form_type: str | None = Field(default=None, max_length=16)
+    tax_year: int | None = None
     # Where the bytes are. The key is content-derived, so it is portable
     # across backends; the backend name is recorded so a half-migrated
     # store still resolves every row.

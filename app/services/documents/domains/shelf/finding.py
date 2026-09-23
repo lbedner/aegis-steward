@@ -93,6 +93,8 @@ async def shelf(
                 "id": row.id,
                 "title": row.title,
                 "kind": row.kind,
+                "form_type": row.form_type,
+                "tax_year": row.tax_year,
                 "document_date": row.document_date.isoformat()
                 if row.document_date
                 else None,

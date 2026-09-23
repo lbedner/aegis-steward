@@ -212,6 +212,47 @@ class TestUpdate:
         assert (await svc.get(doc.id, owner_user_id=1)).kind == "other"
 
     @pytest.mark.asyncio
+    async def test_a_tax_document_carries_its_form_and_its_year(self, svc) -> None:
+        """A 1098 for 2025 arrives in January 2026: the year it is filed
+        under is not the date printed on it (#138)."""
+        doc = await svc.ingest(b"1098", title="Citizens 1098", owner_user_id=1)
+
+        updated = await svc.update(
+            doc.id,
+            {"kind": "tax", "form_type": "1098", "tax_year": 2025},
+            owner_user_id=1,
+        )
+
+        assert (updated.kind, updated.form_type, updated.tax_year) == (
+            "tax",
+            "1098",
+            2025,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_form_the_shelf_does_not_know_is_refused(self, svc) -> None:
+        doc = await svc.ingest(b"1098b", title="Kept too", owner_user_id=1)
+
+        with pytest.raises(ValueError, match="form"):
+            await svc.update(
+                doc.id, {"kind": "tax", "form_type": "1040-ish"}, owner_user_id=1
+            )
+
+    @pytest.mark.asyncio
+    async def test_paper_that_stops_being_tax_lets_go_of_its_form(self, svc) -> None:
+        """A form type on a statement is a fact about nothing."""
+        doc = await svc.ingest(b"1098c", title="Refiled", owner_user_id=1)
+        await svc.update(
+            doc.id,
+            {"kind": "tax", "form_type": "1098", "tax_year": 2025},
+            owner_user_id=1,
+        )
+
+        updated = await svc.update(doc.id, {"kind": "statement"}, owner_user_id=1)
+
+        assert (updated.form_type, updated.tax_year) == (None, None)
+
+    @pytest.mark.asyncio
     async def test_someone_elses_document_is_not_yours_to_edit(self, svc) -> None:
         doc = await svc.ingest(b"theirs", title="Theirs", owner_user_id=2)
 

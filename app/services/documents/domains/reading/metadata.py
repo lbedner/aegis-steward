@@ -12,6 +12,7 @@ import re
 
 from app.services.documents.domains.reading.findings import Finding, Page, mostly
 from app.services.documents.domains.reading.patterns import find_date, has_date
+from app.services.documents.models import TAX_FORMS
 
 # How far in to look. A document introduces itself immediately or not at
 # all, and reading further is how a boilerplate date becomes a claim.
@@ -79,6 +80,26 @@ _SALUTATION = re.compile(r"^dear\b[^\n]{0,60}[:,]\s*$", re.I)
 HEADING_CHARS = 60
 
 
+# Tax paper names its form in a heading - "Form 1099-INT" - or, when the
+# form number is artwork, by a box caption only that form prints. The
+# Citizens 1098's text layer has no "1098" in it at all; box 1's caption
+# is there (#138, 2026-09-14).
+_FORM = re.compile(
+    r"\b(?:form\s+)?("
+    + "|".join(re.escape(f) for f in sorted(TAX_FORMS, key=len, reverse=True))
+    + r")(?![\w-])",
+    re.I,
+)
+FORM_CAPTIONS: tuple[tuple[str, str], ...] = (
+    ("mortgage interest received from payer/borrower", "1098"),
+)
+# The year it is FOR, which the paper labels. The label and the year can
+# sit on separate lines: "For calendar year" / "2025".
+_TAX_YEAR = re.compile(
+    r"\b(?:for\s+)?(?:tax|calendar)\s+year\s*:?\s*((?:19|20)\d{2})\b", re.I
+)
+
+
 def _lines(pages: Iterable[Page]) -> Iterable[tuple[int, str]]:
     """Every line of the opening pages, with the page it sits on."""
     for page in list(pages)[:OPENING_PAGES]:
@@ -112,8 +133,43 @@ def _kind(lines: list[tuple[int, str]]) -> Finding | None:
     return None
 
 
+def _form(lines: list[tuple[int, str]]) -> Finding | None:
+    for page, line in lines:
+        said = line.casefold()
+        for caption, form in FORM_CAPTIONS:
+            if caption in said:
+                return Finding("form_type", form, page, line)
+        if len(line) <= HEADING_CHARS and (named := _FORM.search(line)):
+            if mostly(line, named.group(0)):
+                form = next(
+                    f for f in TAX_FORMS if f.casefold() == named.group(1).casefold()
+                )
+                return Finding("form_type", form, page, line)
+    return None
+
+
+def _tax_year(pages: Iterable[Page]) -> Finding | None:
+    for page in list(pages)[:OPENING_PAGES]:
+        if found := _TAX_YEAR.search(page["text"] or ""):
+            # The label and the year quoted as one line, however it wrapped.
+            said = " ".join(found.group(0).split())
+            return Finding("tax_year", int(found.group(1)), page["page"], said)
+    return None
+
+
 def read_document(pages: Iterable[Page]) -> list[Finding]:
     """What this document says about itself, each finding carrying the
-    page and the line it was read from. Nothing certain, nothing said."""
+    page and the line it was read from. Nothing certain, nothing said.
+
+    Tax paper is known by its FORM, and only then is a year read: "plan
+    year 2026" on a benefits statement is not a tax year."""
+    pages = list(pages)
     lines = list(_lines(pages))
+    if form := _form(lines):
+        kind = Finding("kind", "tax", form.page, form.because)
+        return [
+            found
+            for found in (_dated(lines), kind, form, _tax_year(pages))
+            if found is not None
+        ]
     return [found for found in (_dated(lines), _kind(lines)) if found is not None]

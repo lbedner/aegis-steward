@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from starlette.responses import Response
 
 from app.components.web_frontend.documents import (
+    DocumentForm,
     document_dialog,
     file_upload,
     save_document,
@@ -212,25 +213,12 @@ async def document_save(
     request: Request,
     matter_id: int,
     document_id: int,
-    title: Annotated[str, Form()] = "",
-    kind: Annotated[str, Form()] = "other",
-    document_date: Annotated[str, Form()] = "",
-    note: Annotated[str, Form()] = "",
-    place: Annotated[list[str], Form()] = [],
-    place_sent: Annotated[str, Form()] = "",
+    form: Annotated[DocumentForm, Form()],
 ) -> Response:
     """Save what we say about the paper. The bytes never change."""
     async with get_async_session() as db:
         found = await _matter_document(db, matter_id, document_id)
-        errors = await save_document(
-            db,
-            document_id,
-            title=title,
-            kind=kind,
-            document_date=document_date,
-            note=note,
-            places=place if place_sent else None,
-        )
+        errors = await save_document(db, document_id, form)
         if errors:
             return await document_dialog(
                 request,
@@ -241,5 +229,6 @@ async def document_save(
                 errors,
             )
     return dialog_done(
-        where_from(request, f"{SECTION.path}/{matter_id}"), f"Saved {title.strip()}"
+        where_from(request, f"{SECTION.path}/{matter_id}"),
+        f"Saved {form.title.strip()}",
     )

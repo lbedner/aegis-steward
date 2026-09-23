@@ -162,6 +162,38 @@ class TestTheDialog:
         assert queued == [(document_id, True)]
         assert "toast" in triggers(answer)
 
+    def test_the_actions_sit_above_the_page(self, client: TestClient) -> None:
+        """Read again and Delete were under a letter-sized PDF, off the
+        bottom of the dialog where nobody found them (2026-09-23)."""
+        dialog = client.get(f"/documents/{_file(client, 'actions-top.pdf')}").text
+        actions = one(dialog, "[data-actions]")
+        original = one(dialog, "[data-original]")
+        assert actions.sourceline < original.sourceline
+        one(dialog, "[data-actions] [data-delete]")
+
+    def test_its_address_opened_directly_opens_it_over_the_page(
+        self, client: TestClient, hx: TestClient
+    ) -> None:
+        """A dialog's URL typed into the address bar rendered the bare
+        fragment, with no page and no CSS around it (2026-09-23). It is
+        the section with the dialog opened over it instead."""
+        document_id = _file(client, "direct.pdf")
+        answer = client.get(
+            f"/documents/{document_id}",
+            # What a browser sends for the address bar; htmx never does.
+            headers={"Sec-Fetch-Dest": "document"},
+            follow_redirects=False,
+        )
+        assert answer.status_code == 303
+        assert (
+            answer.headers["location"] == f"/documents?dialog=/documents/{document_id}"
+        )
+        # The popup itself still gets the fragment - and says it varies,
+        # or the browser hands its stored copy to the address bar.
+        popup = hx.get(f"/documents/{document_id}")
+        none(popup.text, "html")
+        assert "Sec-Fetch-Dest" in popup.headers["vary"]
+
     def test_saving_returns_where_you_were(self, client: TestClient) -> None:
         document_id = _file(client)
         answer = client.post(
@@ -178,6 +210,50 @@ class TestTheDialog:
         shelf = client.get("/documents", params={"q": "Renewal letter"}).text
         row = one(shelf, f"tr#document-{document_id}")
         assert "Renewal letter" in text(row)
+
+
+class TestTaxPaper:
+    """A 1098 is not a statement: it is filed by form and by the year it
+    belongs to, which is not the date printed on it (#138)."""
+
+    def test_the_dialog_asks_for_the_form_and_the_year(
+        self, client: TestClient
+    ) -> None:
+        dialog = client.get(f"/documents/{_file(client, 'tax-ask.pdf')}").text
+        one(dialog, 'select[name="kind"] option[value="tax"]')
+        one(dialog, 'select[name="form_type"] option[value="1098"]')
+        one(dialog, 'input[name="tax_year"][type="number"]')
+
+    def test_saving_files_it_by_form_and_year(self, client: TestClient) -> None:
+        document_id = _file(client, "tax-save.pdf")
+        answer = client.post(
+            f"/documents/{document_id}",
+            data={
+                "title": "Citizens 1098",
+                "kind": "tax",
+                "form_type": "1098",
+                "tax_year": "2025",
+                "document_date": "2026-01-01",
+                "note": "",
+            },
+        )
+        assert answer.status_code == 200, answer.text[-1500:]
+        shelf = client.get("/documents", params={"q": "Citizens 1098"}).text
+        row = one(shelf, f"tr#document-{document_id}")
+        assert "1098 for 2025" in text(row)
+        dialog = client.get(f"/documents/{document_id}").text
+        chosen = one(dialog, 'select[name="form_type"] option[selected]')
+        assert chosen.get("value") == "1098"
+        assert one(dialog, 'input[name="tax_year"]').get("value") == "2025"
+
+    def test_a_year_that_is_not_a_year_is_refused(self, client: TestClient) -> None:
+        document_id = _file(client, "tax-bad.pdf")
+        answer = client.post(
+            f"/documents/{document_id}",
+            data={"title": "Bad year", "kind": "tax", "tax_year": "last year"},
+        )
+        assert answer.status_code == 422
+        one(answer.text, "form[data-details]")
 
 
 class TestWhereItWasFiled:

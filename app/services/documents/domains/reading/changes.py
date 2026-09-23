@@ -18,13 +18,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.schema import require_one_of
-from app.services.documents.models import DOCUMENT_KINDS
+from app.services.documents.models import DOCUMENT_KINDS, TAX_FORMS
 from app.services.finance.schemas import ChangeDisplayRow
 
 # The fields a reading may propose, and how the card labels them.
 FIELDS: tuple[tuple[str, str], ...] = (
     ("title", "Title"),
     ("kind", "Kind"),
+    ("form_type", "Form"),
+    ("tax_year", "Tax year"),
     ("document_date", "Dated"),
 )
 
@@ -52,6 +54,8 @@ class MetadataPayload(BaseModel):
     document_id: int
     title: ReadValue | None = None
     kind: ReadValue | None = None
+    form_type: ReadValue | None = None
+    tax_year: ReadValue | None = None
     document_date: ReadValue | None = None
     # WHO SENT IT, as a ``parties()`` id in ``value``. Not a column on
     # the document but a tag, because a document can involve several
@@ -102,6 +106,10 @@ class MetadataPayload(BaseModel):
             )
         if self.kind is not None:
             require_one_of(self.kind.value, DOCUMENT_KINDS)
+        if self.form_type is not None:
+            require_one_of(self.form_type.value, TAX_FORMS)
+        if self.tax_year is not None:
+            int(self.tax_year.value)
         if self.document_date is not None:
             date.fromisoformat(self.document_date.value)
         return self
@@ -116,10 +124,9 @@ class MetadataPayload(BaseModel):
 
     def stored(self, fields: dict[str, ReadValue] | None = None) -> dict[str, Any]:
         """What the document service is asked to write."""
+        typed = {"document_date": date.fromisoformat, "tax_year": int}
         return {
-            name: date.fromisoformat(read.value)
-            if name == "document_date"
-            else read.value
+            name: typed.get(name, str)(read.value)
             for name, read in (self.fields() if fields is None else fields).items()
         }
 

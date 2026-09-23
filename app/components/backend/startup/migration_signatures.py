@@ -34,6 +34,7 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "blog": ("table", "blog_post"),
     "documents": ("table", "document"),
     "document_filename": ("column", "document", "filename"),
+    "tax_documents": ("column", "document", "tax_year"),
     "evidence_link": ("table", "evidence_link"),
     "matter_event": ("table", "matter_event"),
     "mail": ("table", "mail_batch"),

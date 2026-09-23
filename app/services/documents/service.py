@@ -17,12 +17,28 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.storage import content_key, get_storage
 from app.services.documents import queries
-from app.services.documents.models import DOCUMENT_KINDS, Document, DocumentTag, utcnow
+from app.services.documents.models import (
+    DOCUMENT_KINDS,
+    TAX_FORMS,
+    Document,
+    DocumentTag,
+    utcnow,
+)
 
 # The columns a client may change after the fact. Storage, hash, size and
 # provenance describe the bytes and are fixed by them.
 _EDITABLE = frozenset(
-    {"title", "kind", "document_date", "note", "channel", "supersedes_id", "protected"}
+    {
+        "title",
+        "kind",
+        "form_type",
+        "tax_year",
+        "document_date",
+        "note",
+        "channel",
+        "supersedes_id",
+        "protected",
+    }
 )
 
 
@@ -209,9 +225,18 @@ class DocumentService:
             raise ValueError("A document needs a title.")
         if "protected" in fields and not isinstance(fields["protected"], bool):
             raise ValueError("protected must be true or false.")
+        if fields.get("form_type") not in (None, *TAX_FORMS):
+            raise ValueError(
+                f"Unknown tax form {fields['form_type']!r}; expected one of "
+                f"{', '.join(TAX_FORMS)}."
+            )
         document = await self.get(document_id, owner_user_id=owner_user_id)
         if document is None:
             return None
+        # A form type on a statement is a fact about nothing, so paper
+        # that is not (or stops being) tax lets go of both.
+        if fields.get("kind", document.kind) != "tax":
+            fields = {**fields, "form_type": None, "tax_year": None}
         if fields.get("supersedes_id") is not None:
             await self._check_supersedes(
                 document_id, int(fields["supersedes_id"]), owner_user_id=owner_user_id
