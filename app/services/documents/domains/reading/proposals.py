@@ -40,13 +40,17 @@ REQUEST = "document.request"
 PROPOSED_BY = "reading"
 
 
-async def _already_asked(db: AsyncSession, change_type: str, document_id: int) -> bool:
+async def _already_asked(
+    db: AsyncSession, change_type: str, document_id: int, *, key: str = "document_id"
+) -> bool:
     """A pending card for this document is the answer already waiting.
-    Reading again must not stack a second one on top of it."""
+    Reading again must not stack a second one on top of it. ``key`` is
+    the payload field that names the thing asked about, for a card that
+    is about an account rather than the paper."""
     from app.services.finance.domains.writes.queue import list_changes
 
     return any(
-        change.payload.get("document_id") == document_id
+        change.payload.get(key) == document_id
         for change in await list_changes(db, status="pending")
         if change.change_type == change_type
     )
@@ -104,16 +108,20 @@ async def propose_reading(
     second reading waits on a model and must not be inside a transaction
     while it does - see ``OpenSession``.
     """
+    # Its own module, imported here: it reads with this module's helpers.
+    from app.services.documents.domains.reading.banks import propose_bank
+
     async with open_session() as db:
         stranger = await _propose_contact(db, document_id, owner_user_id)
         figure = await propose_figure(
             db, document_id, owner_user_id, asked=_already_asked
         )
         metadata = await _propose_metadata(db, document_id, owner_user_id)
+        bank = await propose_bank(db, document_id, owner_user_id)
     request = await _propose_demands(
         open_session, document_id, owner_user_id=owner_user_id, read_letter=read_letter
     )
-    return metadata or stranger or figure or request
+    return metadata or stranger or figure or bank or request
 
 
 async def _propose_demands(
@@ -130,7 +138,6 @@ async def _propose_demands(
     last, and the lock with it.
     """
     from app.services.documents.domains.reading.letters import checked
-    from app.services.documents.queries import pages_for
     from app.services.finance.domains.writes.queue import propose
     from app.services.matters.matters import MatterService
     from app.services.matters.requests import RequestService
@@ -145,10 +152,7 @@ async def _propose_demands(
         matter_id = await MatterService(db).for_document(document_id)
         if matter_id is None or await RequestService(db).citing(document_id):
             return None
-        pages: list[Page] = [
-            {"page": page.page_number, "text": page.text}
-            for page in await pages_for(db, document_id)
-        ]
+        pages = await _read_pages(db, document_id)
 
     reading = checked(await read_letter(pages), pages)
     if reading is None:
@@ -182,18 +186,15 @@ async def _propose_metadata(
     ``None`` when there is nothing to say: no findings, nothing the
     document does not already record, or a card still awaiting an answer.
     """
-    from app.services.documents.queries import pages_for
     from app.services.documents.service import DocumentService
     from app.services.finance.domains.writes.queue import propose
 
     document = await DocumentService(db).get(document_id)
     if document is None or await _already_asked(db, METADATA, document_id):
         return None
-    pages = await pages_for(db, document_id)
+    read = await _read_pages(db, document_id)
     payload: dict[str, Any] = {"document_id": document_id}
-    findings = read_document(
-        [{"page": page.page_number, "text": page.text} for page in pages]
-    )
+    findings = read_document(read)
     for found in findings:
         # A card that changes nothing wastes a decision.
         standing = getattr(document, found.field, None)
@@ -204,7 +205,6 @@ async def _propose_metadata(
             "page": found.page,
             "because": found.because,
         }
-    read: list[Page] = [{"page": page.page_number, "text": page.text} for page in pages]
     letterhead = await _letterhead(db, read)
     # What else the front page says that the app can name: the account a
     # statement is for, and the sender where only their phone or website
@@ -289,11 +289,7 @@ async def _proposed_sender(
     from app.services.documents.service import DocumentService
     from app.services.matters.models import party_tag
 
-    if letterhead is None:
-        # No name across the top, but perhaps their number or their
-        # website: the Delta Dental flyer's first line is
-        # deltadentalins.com and its name never appears as words.
-        letterhead = await _printed_sender(db, printed)
+    letterhead = await _sender(db, letterhead, printed)
     if letterhead is None:
         return None
     found, party = letterhead
@@ -347,15 +343,11 @@ async def _propose_contact(
     already. A letterhead read off a page and taken as an organization
     is how a second address book starts.
     """
-    from app.services.documents.queries import pages_for
     from app.services.finance.domains.writes.queue import propose
 
     if await _already_asked(db, CONTACT, document_id):
         return None
-    read: list[Page] = [
-        {"page": page.page_number, "text": page.text}
-        for page in await pages_for(db, document_id)
-    ]
+    read = await _read_pages(db, document_id)
     # One sender per piece of paper. A Chase statement offered to create
     # a contact called "Chase" while "JPMorgan Chase Bank, N.A." was
     # already in the address book: the letterhead matches a payee and a
@@ -404,6 +396,24 @@ async def _brands(db: AsyncSession) -> list[str]:
         )
         if name and name.casefold() not in known
     ]
+
+
+async def _read_pages(db: AsyncSession, document_id: int) -> list[Page]:
+    """A document's pages as a reader takes them."""
+    from app.services.documents.queries import pages_for
+
+    return [
+        {"page": page.page_number, "text": page.text}
+        for page in await pages_for(db, document_id)
+    ]
+
+
+async def _sender(db: AsyncSession, letterhead: Any, printed: list[Any]) -> Any:
+    """Who sent it, as ``(finding, party)``: the name across the top, or
+    failing that their number or website - the Delta Dental flyer's
+    first line is deltadentalins.com and its name never appears as
+    words. One answer for every card that needs it."""
+    return letterhead or await _printed_sender(db, printed)
 
 
 async def _printed_sender(db: AsyncSession, printed: list[Any]) -> Any:

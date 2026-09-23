@@ -381,3 +381,10 @@ def account_tag(account_id: int) -> str:
     document and the page that lists them both read it from here.
     """
     return f"account:{account_id}"
+
+
+def tagged_account(tag: str) -> int | None:
+    """The account an ``account_tag`` names, or None for any other tag.
+    Beside it so the format is written in one place."""
+    prefix, _, rest = tag.partition(":")
+    return int(rest) if f"{prefix}:" == account_tag(0)[:-1] and rest.isdigit() else None

@@ -525,35 +525,37 @@ async def _contacts_offered(db: AsyncSession) -> list[Any]:
     ]
 
 
+async def _front_page(db: AsyncSession, *lines: str) -> Any:
+    """A document whose one read page says ``lines``."""
+    from app.services.documents.models import Document, DocumentPage
+
+    text = "\n".join(lines)
+    document = Document(
+        title="statement-0002.pdf",
+        storage_key=f"testcase/{abs(hash(text))}.pdf",
+        media_type="application/pdf",
+        content_hash=f"testcase-front-{abs(hash(text))}",
+        size_bytes=9,
+    )
+    db.add(document)
+    await db.flush()
+    db.add(
+        DocumentPage(
+            document_id=document.id,
+            page_number=1,
+            status="read",
+            method="text",
+            text=text,
+        )
+    )
+    await db.flush()
+    return document
+
+
 class TestWhatElseTheFrontPageSays:
     """A letterhead is not the only thing on a page the app knows. A
     statement prints the account it is for; a letter prints the sender's
     phone or website where its name never appears in words."""
-
-    async def _paper(self, db: AsyncSession, *lines: str) -> Any:
-        from app.services.documents.models import Document, DocumentPage
-
-        text = "\n".join(lines)
-        document = Document(
-            title="statement-0002.pdf",
-            storage_key=f"testcase/{abs(hash(text))}.pdf",
-            media_type="application/pdf",
-            content_hash=f"testcase-front-{abs(hash(text))}",
-            size_bytes=9,
-        )
-        db.add(document)
-        await db.flush()
-        db.add(
-            DocumentPage(
-                document_id=document.id,
-                page_number=1,
-                status="read",
-                method="text",
-                text=text,
-            )
-        )
-        await db.flush()
-        return document
 
     @pytest.mark.asyncio
     async def test_the_account_a_statement_is_for(
@@ -567,7 +569,7 @@ class TestWhatElseTheFrontPageSays:
         account.mask = "3639"
         async_db_session.add(account)
         await async_db_session.flush()
-        document = await self._paper(
+        document = await _front_page(
             async_db_session, "SEPTEMBER STATEMENT", "Account ending 3639"
         )
 
@@ -589,7 +591,7 @@ class TestWhatElseTheFrontPageSays:
         from tests.services._finance_factories import seed_account
 
         account = await seed_account(FinanceService(async_db_session), name="Card")
-        document = await self._paper(async_db_session, "Account ending 3639")
+        document = await _front_page(async_db_session, "Account ending 3639")
 
         await metadata_execute(
             async_db_session,
@@ -624,7 +626,7 @@ class TestWhatElseTheFrontPageSays:
             contact={"website": "https://www.deltadentalins.com"},
         )
         await async_db_session.flush()
-        document = await self._paper(
+        document = await _front_page(
             async_db_session, "deltadentalins.com", "Our PPO plans are underwritten"
         )
 
@@ -648,7 +650,7 @@ class TestWhatElseTheFrontPageSays:
             contact={"phone": "(845) 486-3000"},
         )
         await async_db_session.flush()
-        document = await self._paper(
+        document = await _front_page(
             async_db_session, "NOTICE OF RENEWAL", "Questions? Call 845-486-3000"
         )
 
@@ -673,7 +675,7 @@ class TestWhatElseTheFrontPageSays:
             contact={"phone": "(845) 486-3000"},
         )
         await async_db_session.flush()
-        document = await self._paper(
+        document = await _front_page(
             async_db_session,
             "HUDSON VALLEY CREDIT UNION",
             "Their county office: 845-486-3000",
@@ -681,3 +683,152 @@ class TestWhatElseTheFrontPageSays:
 
         change = await propose_reading(opens(async_db_session), document.id)
         assert change.payload["sender"]["value"] == str(named.id)
+
+
+class TestWhoHoldsTheAccount:
+    """Paper from the bank about an account says where the account is
+    held. The Citizens 1098 was filed under Citizens and onto Citizens
+    Bank Mortgage, and the account stayed held with nobody (#234)."""
+
+    async def _held_nowhere(self, db: AsyncSession, mask: str) -> Any:
+        from app.services.finance.service import FinanceService
+        from tests.services._finance_factories import seed_account
+
+        account = await seed_account(FinanceService(db), name=f"Loan {mask}")
+        account.mask = mask
+        db.add(account)
+        await db.flush()
+        return account
+
+    async def _bank(self, db: AsyncSession, name: str) -> Any:
+        from app.services.matters.service import PartyService
+
+        return await PartyService(db).create(name=name, kind="organization")
+
+    @pytest.mark.asyncio
+    async def test_a_statement_from_the_bank_says_where_it_is_held(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.proposals import propose_reading
+
+        bank = await self._bank(async_db_session, "Testcase Savings")
+        account = await self._held_nowhere(async_db_session, "4471")
+        document = await _front_page(
+            async_db_session,
+            "Testcase Savings",
+            "Account Statement",
+            "Account ending 4471",
+        )
+
+        await propose_reading(opens(async_db_session), document.id)
+
+        assert [
+            (c.payload["account_id"], c.payload["party_id"])
+            for c in await _banks_offered(async_db_session)
+        ] == [(account.id, bank.id)]
+
+    @pytest.mark.asyncio
+    async def test_the_account_it_is_already_filed_on_counts(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The real 1098 prints no last four; it was filed on the account
+        by hand."""
+        from app.services.documents.domains.reading.proposals import propose_reading
+        from app.services.documents.service import DocumentService
+        from app.services.finance.constants import account_tag
+
+        bank = await self._bank(async_db_session, "Testcase Mortgage Co")
+        account = await self._held_nowhere(async_db_session, "9902")
+        document = await _front_page(
+            async_db_session,
+            "Testcase Mortgage Co",
+            "2025 MORTGAGE INTEREST RECEIVED FROM PAYER/BORROWER(S) $7,568.77",
+        )
+        await DocumentService(async_db_session).tag(
+            document.id, account_tag(account.id)
+        )
+
+        await propose_reading(opens(async_db_session), document.id)
+
+        assert [
+            (c.payload["account_id"], c.payload["party_id"])
+            for c in await _banks_offered(async_db_session)
+        ] == [(account.id, bank.id)]
+
+    @pytest.mark.asyncio
+    async def test_a_bank_already_set_is_never_moved(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.proposals import propose_reading
+        from app.services.finance.domains.ledger.accounts import (
+            get_or_create_institution,
+        )
+
+        await self._bank(async_db_session, "Testcase Trust")
+        account = await self._held_nowhere(async_db_session, "5510")
+        elsewhere = await get_or_create_institution(async_db_session, name="Elsewhere")
+        account.institution_id = elsewhere.id
+        async_db_session.add(account)
+        await async_db_session.flush()
+        document = await _front_page(
+            async_db_session,
+            "Testcase Trust",
+            "Account Statement",
+            "Account ending 5510",
+        )
+
+        await propose_reading(opens(async_db_session), document.id)
+
+        assert await _banks_offered(async_db_session) == []
+
+    @pytest.mark.asyncio
+    async def test_a_letter_quoting_the_account_is_not_the_bank(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The county quotes your account number when it asks for its
+        statements; that does not make the county your bank."""
+        from app.services.documents.domains.reading.proposals import propose_reading
+
+        await self._bank(async_db_session, "Testcase County DSS")
+        await self._held_nowhere(async_db_session, "6620")
+        document = await _front_page(
+            async_db_session,
+            "Testcase County DSS",
+            "Dear Mr. Bedner:",
+            "Send statements for account ending 6620.",
+        )
+
+        await propose_reading(opens(async_db_session), document.id)
+
+        assert await _banks_offered(async_db_session) == []
+
+    @pytest.mark.asyncio
+    async def test_reading_again_does_not_stack_a_second_card(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.domains.reading.proposals import propose_reading
+
+        await self._bank(async_db_session, "Testcase Federal")
+        await self._held_nowhere(async_db_session, "7731")
+        document = await _front_page(
+            async_db_session,
+            "Testcase Federal",
+            "Account Statement",
+            "Account ending 7731",
+        )
+
+        await propose_reading(opens(async_db_session), document.id)
+        await propose_reading(opens(async_db_session), document.id)
+
+        assert len(await _banks_offered(async_db_session)) == 1
+
+
+async def _banks_offered(db: AsyncSession) -> list[Any]:
+    """The account.institution cards waiting in the queue."""
+    from app.services.finance.domains.writes.queue import list_changes
+
+    return [
+        change
+        for change in await list_changes(db, status="pending")
+        if change.change_type == "account.institution"
+    ]
