@@ -38,6 +38,7 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "matter_event": ("table", "matter_event"),
     "mail": ("table", "mail_batch"),
     "mail_letters": ("column", "mail_message", "document_id"),
+    "matter_cadence": ("column", "matter", "next_expected_on"),
     # Had a model and no migration for months; create_all built it at
     # startup on every install, which is exactly the habit #163 removes.
     # Existing databases adopt it here instead of replaying the DDL.

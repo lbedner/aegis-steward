@@ -19,4 +19,8 @@
 {{ notice("matter-deadlines", deadlines_count, "/matters",
           deadlines_count ~ " request" ~ ("s" if deadlines_count != 1 else "") ~ " due soon or already late",
           tone="rose") }}
+{#- The next letter, before it comes (ST-11): what a renewal will ask for
+    is worth gathering while there is still time to. -#}
+{{ notice("matter-expected", expected_count, "/matters",
+          expected_count ~ " matter" ~ ("s" if expected_count != 1 else "") ~ " expecting a letter soon") }}
 {% endif %}

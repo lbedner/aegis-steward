@@ -27,6 +27,18 @@ WITHIN_DAYS = 14
 
 INSIGHT_TYPE = "matter_due"
 
+# How long before a matter's NEXT request is expected to say so (ST-11).
+# Two months, not two weeks: a renewal asks for things that take time to
+# get - a pension's gross-income letter, a statement as of a date - and
+# the point is to have them before the county asks, not after.
+EXPECTED_WITHIN_DAYS = 60
+
+
+def _expected_key(matter_id: int, expected: date) -> str:
+    """Same insight type as a deadline, so the same retraction clears it:
+    a moved date, a letter arrived, a closed matter."""
+    return f"{INSIGHT_TYPE}:expected:{matter_id}:{expected.isoformat()}"
+
 
 def _key(request_id: int, due_on: date, late: bool) -> str:
     """One alert per request and deadline, and a DIFFERENT one once the
@@ -96,6 +108,36 @@ async def due_soon(
     )
 
 
+async def expected_soon(
+    db, *, today: date | None = None, within_days: int = EXPECTED_WITHIN_DAYS
+) -> list:
+    """Every open matter whose next request is expected inside the window.
+
+    One query behind both doors, as ``due_soon`` is: the alert and the
+    banner count read the same rows.
+    """
+    from sqlmodel import col, select
+
+    from app.services.finance.utils import current_date
+    from app.services.matters.models import Matter
+
+    today = today or current_date()
+    return list(
+        (
+            await db.exec(
+                select(Matter)
+                .where(col(Matter.status) == "open")
+                .where(col(Matter.deleted_at).is_(None))
+                .where(col(Matter.next_expected_on).is_not(None))
+                .where(
+                    col(Matter.next_expected_on) <= today + timedelta(days=within_days)
+                )
+                .order_by(col(Matter.next_expected_on))
+            )
+        ).all()
+    )
+
+
 async def nag(
     db,
     *,
@@ -160,8 +202,32 @@ async def nag(
         ):
             created += 1
 
+    # The next request, before it arrives: the renewal that is certain
+    # to come, early enough to gather what it will ask for.
+    for matter in await expected_soon(db, today=today):
+        key = _expected_key(matter.id, matter.next_expected_on)
+        standing.add(key)
+        if await create_insight_if_new(
+            db,
+            owner_user_id=store_owner,
+            insight_type=INSIGHT_TYPE,
+            dedup_key=key,
+            severity="info",
+            title=(
+                f"{matter.title}: next request expected "
+                f"{matter.next_expected_on.strftime('%b %Y')}"
+            ),
+            body=(
+                "This matter's next letter is due around "
+                f"{matter.next_expected_on.isoformat()}. What it asked for "
+                "last time is worth gathering now."
+            ),
+        ):
+            created += 1
+
     # Everything this rule has ever said that it would not say now: the
-    # request was answered, waived, deleted, or its deadline moved.
+    # request was answered, waived, deleted, or its deadline moved - or
+    # the letter a matter was expecting has come.
     stale = [
         alert
         for alert in (

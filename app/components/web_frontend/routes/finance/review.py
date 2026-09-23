@@ -133,6 +133,7 @@ async def nav_context(
         "current_tab": current,
         "pending_count": tally["approvals"],
         "deadlines_count": 0,
+        "expected_count": 0,
     }
 
 

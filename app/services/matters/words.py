@@ -57,6 +57,8 @@ WORDS: dict[str, str] = {
     # A person or an organization, in the address book.
     "someone": "someone",
     "add_someone": "Add someone",
+    # When the next request is due to arrive (ST-11).
+    "next_letter": "When the next letter comes",
     # One demand inside a request.
     "ask": "ask",
     "add_ask": "Add an ask",

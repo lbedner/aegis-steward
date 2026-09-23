@@ -230,6 +230,78 @@ async def matter(request: Request, matter_id: int) -> Response:
     )
 
 
+def _cadence_dialog(
+    request: Request,
+    matter_id: int,
+    cadence: str | None,
+    next_expected_on: object,
+    status_code: int = 200,
+    errors: list[str] | None = None,
+) -> Response:
+    from app.services.matters.models import MATTER_CADENCES
+
+    return dialog(
+        request,
+        "partials/matters/cadence.html",
+        status_code,
+        post=f"{SECTION.path}/{matter_id}/cadence",
+        cadences=MATTER_CADENCES,
+        cadence=cadence,
+        next_expected_on=next_expected_on,
+        errors=errors or [],
+    )
+
+
+@router.get("/{matter_id:int}/cadence", include_in_schema=False)
+async def cadence_dialog(
+    request: Request,
+    matter_id: int,
+    cadence: str | None = None,
+    next_expected_on: str = "",
+) -> Response:
+    """When the next letter is due, where the matter is read (ST-11).
+
+    Picking a cadence asks for this again with the choice, and the date
+    comes back filled in from when the last letter arrived - unless one
+    was already typed. The rule lives here, not in the browser.
+    """
+    from app.services.matters.matters import suggested_next
+    from app.services.matters.models import MATTER_CADENCES
+
+    async with get_async_session() as db:
+        found = or_404(await MatterService(db).get(matter_id))
+        if cadence is None:
+            chosen, when = found.cadence, found.next_expected_on
+        else:
+            chosen, when = cadence or None, parse_date(next_expected_on)
+        if chosen in MATTER_CADENCES and when is None:
+            when = await suggested_next(db, matter_id, chosen)
+    return _cadence_dialog(request, matter_id, chosen, when)
+
+
+@router.post("/{matter_id:int}/cadence", include_in_schema=False)
+async def save_cadence(
+    request: Request,
+    matter_id: int,
+    cadence: Annotated[str, Form()] = "",
+    next_expected_on: Annotated[str, Form()] = "",
+) -> Response:
+    async with get_async_session() as db:
+        or_404(await MatterService(db).get(matter_id))
+        try:
+            await MatterService(db).set_cadence(
+                matter_id,
+                cadence=cadence or None,
+                next_expected_on=parse_date(next_expected_on),
+            )
+        except ValueError as exc:
+            return _cadence_dialog(
+                request, matter_id, cadence, next_expected_on, 422, [str(exc)]
+            )
+        await db.commit()
+    return dialog_done(where_from(request, f"{SECTION.path}/{matter_id}"), "Saved")
+
+
 @router.get("/{matter_id:int}/answers", include_in_schema=False)
 async def answers(request: Request, matter_id: int) -> Response:
     """What to write on the county's form, and where each figure came

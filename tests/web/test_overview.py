@@ -260,6 +260,37 @@ class TestPendingChangesBanner:
         assert banner.get("href") == "/review"
 
 
+class TestTheExpectedLetterNotice:
+    """ST-11: the next request, before it arrives, beside the deadlines -
+    the banner is where a person already looks for what is coming."""
+
+    def test_nothing_expected_draws_nothing(self, client: TestClient) -> None:
+        page = client.get("/overview").text
+        assert one(page, "#matter-expected").get("hidden") is not None
+
+    @pytest.mark.asyncio
+    async def test_a_letter_due_inside_sixty_days_is_on_the_overview(
+        self, client: TestClient, async_db_session: AsyncSession
+    ) -> None:
+        from datetime import timedelta
+
+        from app.services.matters.matters import MatterService
+
+        matters = MatterService(async_db_session)
+        matter = await matters.open(title="Medicaid renewal", reference="OV-EXP-1")
+        await matters.set_cadence(
+            int(matter.id),
+            cadence="annual",
+            next_expected_on=current_date() + timedelta(days=30),
+        )
+        await async_db_session.flush()
+
+        notice = one(client.get("/overview").text, "#matter-expected")
+        assert notice.get("hidden") is None
+        assert notice.get("href") == "/matters"
+        assert "1 matter" in text(notice)
+
+
 class TestTheDeadlineNotice:
     """ST-09: a deadline nags before it is late, where the reader already
     looks. The sidebar's dot only ever appeared once the day had passed,

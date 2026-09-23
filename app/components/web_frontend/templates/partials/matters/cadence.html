@@ -1,0 +1,20 @@
+{# Dialog body: when this matter's next request is due to arrive (ST-11).
+
+   The date IS the reminder: setting it again is snoozing it, and a
+   letter arriving moves it on by the cadence. No cadence makes it a
+   one-off, cleared when that letter comes. #}
+{% from "components/macros/form.html" import field, select, date_input, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title(word("next_letter"), "Two months before, it shows on the overview and in Attention, so what it will ask for can be gathered first.") }}
+{{ error_banner(errors) }}
+<form {{ hx_dialog_post(post) }} class="space-y-4">
+  {#- Picking one re-renders this dialog with the date filled in from
+      when the last letter arrived: the rule is the server's, so the
+      browser carries no copy of it. -#}
+  <div {{ hx_dialog(post, 'hx-trigger="change" hx-include="closest form" data-cadence-picker') }}>
+  {% call field("How often") %}{{ select("cadence", cadences|as_options, cadence, blank="Not on a cadence", block=True) }}{% endcall %}
+  </div>
+  {% call field("Next letter expected") %}{{ date_input("next_expected_on", next_expected_on, block=True) }}{% endcall %}
+  {{ primary_button("Save", type="submit") }}
+</form>

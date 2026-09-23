@@ -81,7 +81,37 @@ class RequestService:
                 )
             )
         await self.db.flush()
+        await self._expected_letter_arrived(matter_id, received_on)
         return request
+
+    async def _expected_letter_arrived(
+        self, matter_id: int, received_on: date | None
+    ) -> None:
+        """A letter inside the window before the matter's next expected
+        date IS that letter: move the expectation on by the cadence, or
+        clear a one-off (ST-11). A follow-up in March is not next August's
+        renewal, so anything earlier than the window leaves it alone."""
+        from datetime import timedelta
+
+        from app.services.finance.utils import current_date
+        from app.services.matters.deadlines import EXPECTED_WITHIN_DAYS
+        from app.services.matters.matters import MatterService, next_after
+
+        matters = MatterService(self.db)
+        matter = await matters.get(matter_id)
+        if matter is None or matter.next_expected_on is None:
+            return
+        arrived = received_on or current_date()
+        if arrived < matter.next_expected_on - timedelta(days=EXPECTED_WITHIN_DAYS):
+            return
+        upcoming: date | None = None
+        if matter.cadence:
+            upcoming = next_after(matter.next_expected_on, matter.cadence)
+            while upcoming <= arrived:
+                upcoming = next_after(upcoming, matter.cadence)
+        await matters.set_cadence(
+            matter_id, cadence=matter.cadence, next_expected_on=upcoming
+        )
 
     async def add_item(
         self,

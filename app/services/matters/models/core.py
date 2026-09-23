@@ -96,6 +96,12 @@ def sort_name_for(name: str, kind: str) -> str:
 
 MATTER_STATUSES = ("open", "closed")
 
+# How often a matter's next request arrives (ST-11). Only the ones the
+# app can count forward from: a renewal is annual, a recertification
+# twice a year, a benefit review quarterly. A matter with none simply
+# has no cadence - NULL, not a fourth word meaning "none".
+MATTER_CADENCES = ("annual", "semiannual", "quarterly")
+
 # What a party IS to one matter. Deliberately a small, open list: the
 # roles a case has are the roles that case has, and a taxonomy narrow
 # enough to be correct for Medicaid is wrong for an estate.
@@ -119,6 +125,10 @@ def status_check() -> str:
     return one_of("status", MATTER_STATUSES)
 
 
+def cadence_check() -> str:
+    return one_of("cadence", MATTER_CADENCES)
+
+
 class Matter(SQLModel, table=True):
     """A case: the relationship a letter is an episode of.
 
@@ -137,6 +147,7 @@ class Matter(SQLModel, table=True):
     __tablename__ = "matter"
     __table_args__ = (
         CheckConstraint(status_check(), name="ck_matter_status"),
+        CheckConstraint(cadence_check(), name="ck_matter_cadence"),
         Index("ix_matter_owner", "owner_user_id"),
         Index("ix_matter_status", "status"),
         Index("ix_matter_subject", "subject_party_id"),
@@ -159,6 +170,12 @@ class Matter(SQLModel, table=True):
     status: str = Field(default="open", max_length=16)
     opened_on: date | None = Field(default=None)
     closed_on: date | None = Field(default=None)
+    # When the next request is due to ARRIVE, and how often one does
+    # (ST-11). The date is the reminder: snoozing it is moving it, and a
+    # letter arriving moves it on by the cadence. No separate reminder
+    # state to rot.
+    cadence: str | None = Field(default=None, max_length=16)
+    next_expected_on: date | None = Field(default=None)
     note: str | None = Field(default=None)
 
     created_at: datetime = Field(default_factory=utcnow)

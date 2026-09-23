@@ -17,6 +17,7 @@ from app.core.clock import utcnow
 from app.core.schema import require_one_of
 from app.services.matters.models import (
     DOCUMENT_PARTY_ROLES,
+    MATTER_CADENCES,
     MATTER_STATUSES,
     MATTER_TAG_PREFIX,
     PARTICIPANT_ROLES,
@@ -25,6 +26,54 @@ from app.services.matters.models import (
     MatterParticipant,
     Party,
 )
+
+# How far each cadence moves the next expected date, in months.
+_CADENCE_MONTHS = {"annual": 12, "semiannual": 6, "quarterly": 3}
+
+
+def next_after(expected: date, cadence: str) -> date:
+    """The next expected date after ``expected``, one cadence on.
+
+    By calendar month, so Aug 1 stays Aug 1; a day that month lacks
+    (Jan 31 + one quarter) lands on the month's last day instead.
+    """
+    import calendar
+
+    total = expected.month - 1 + _CADENCE_MONTHS[cadence]
+    year, month = expected.year + total // 12, total % 12 + 1
+    return date(year, month, min(expected.day, calendar.monthrange(year, month)[1]))
+
+
+async def suggested_next(
+    db: AsyncSession, matter_id: int, cadence: str, *, today: date | None = None
+) -> date | None:
+    """When the next request should arrive, counted from the last one.
+
+    Agencies send renewals on a cycle, so the next letter comes about a
+    cadence after the last one ARRIVED. With no letter received, the day
+    the matter opened; with neither, nothing. Stepped forward past today:
+    a suggestion already behind us is no suggestion. It is only offered -
+    the dialog shows it and the person saves it.
+    """
+    from app.services.finance.utils import current_date
+    from app.services.matters.requests import RequestService
+
+    today = today or current_date()
+    matter = await MatterService(db).get(matter_id)
+    if matter is None:
+        return None
+    received = [
+        one.received_on
+        for one in await RequestService(db).for_matter(matter_id)
+        if one.received_on is not None
+    ]
+    anchor = max(received) if received else matter.opened_on
+    if anchor is None:
+        return None
+    upcoming = next_after(anchor, cadence)
+    while upcoming <= today:
+        upcoming = next_after(upcoming, cadence)
+    return upcoming
 
 
 class MatterService:
@@ -105,6 +154,31 @@ class MatterService:
             .order_by(col(Matter.opened_on).desc())
         )
         return [(matter, role) for matter, role in rows.all()]
+
+    async def set_cadence(
+        self,
+        matter_id: int,
+        *,
+        cadence: str | None,
+        next_expected_on: date | None,
+    ) -> Matter | None:
+        """When the next request is due to arrive, and how often one does.
+
+        Setting the date again IS snoozing: there is no reminder state
+        beside it. A date with no cadence is a one-off expectation - it
+        clears when that letter comes rather than rolling on.
+        """
+        if cadence is not None:
+            require_one_of(cadence, MATTER_CADENCES)
+        matter = await self.get(matter_id)
+        if matter is None:
+            return None
+        matter.cadence = cadence
+        matter.next_expected_on = next_expected_on
+        matter.updated_at = utcnow()
+        self.db.add(matter)
+        await self.db.flush()
+        return matter
 
     async def set_status(
         self, matter_id: int, status: str, on: date | None = None
@@ -198,6 +272,8 @@ async def summarised(db: AsyncSession, matter: Matter) -> dict[str, Any]:
         "reference": matter.reference or "",
         "status": matter.status,
         "opened_on": matter.opened_on,
+        "cadence": matter.cadence,
+        "next_expected_on": matter.next_expected_on,
         "participants": [
             {"role": link.role, "party": party.name, "party_id": party.id}
             for link, party in await service.participants(matter.id)

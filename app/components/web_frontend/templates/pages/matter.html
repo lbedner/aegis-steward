@@ -37,6 +37,12 @@
 
   {% call card(word("asked_for")) %}
   {{ requests_block(requests, path, matter.id) }}
+  {#- What they will ask for next: the renewal that is certain to come
+      (ST-11). Read beside the requests because it is the next one. -#}
+  <p class="mt-3 flex items-center justify-between gap-3 text-sm text-aegis-muted" data-expected>
+    <span>{% if matter.next_expected_on %}Next letter expected {{ matter.next_expected_on.strftime("%b %Y") }}{% if matter.cadence %} · {{ matter.cadence }}{% endif %}{% else %}No next letter expected{% endif %}</span>
+    {{ action(word("next_letter"), hx_dialog(path ~ "/" ~ matter.id ~ "/cadence") ~ " data-expected-edit") }}
+  </p>
   {% endcall %}
 
   {# What we can say, and how we know. Separate from the asks because a
