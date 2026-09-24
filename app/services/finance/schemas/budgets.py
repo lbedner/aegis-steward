@@ -54,6 +54,8 @@ class EnvelopeUpdate(BaseModel):
     # The tag whose charges it pays for (#240): None leaves it as it is,
     # "" stops following one.
     tag: str | None = None
+    # When it starts counting that tag's charges; None leaves it.
+    tag_since: date | None = None
 
 
 class EnvelopeMove(BaseModel):

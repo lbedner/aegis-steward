@@ -21,7 +21,7 @@ offer a later date instead - the card's Forecast line shows the real ask.
 "cadence": weekly/monthly}; `envelope.update` - payload {"account_id": \
 int (an envelope in accounts()), and any of "allowance_cents", \
 "cadence", "auto_credit": bool, "tag": the tag whose charges it pays \
-for ("" stops it)}: an allowance somebody spends down. With a tag, a \
+for ("" stops it), "tag_since": YYYY-MM-DD it counts from}: an allowance somebody spends down. With a tag, a \
 charge the household makes for her is tagged (transaction.tag) and the \
 envelope pays for it; nothing else is needed. To SWAP a tag, send \
 transaction.tag with "replaces": the old tag - one card, never a tag \

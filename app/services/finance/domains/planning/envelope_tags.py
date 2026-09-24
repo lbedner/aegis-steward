@@ -101,20 +101,47 @@ async def tag_names(db: AsyncSession, accounts: list[FinanceAccount]) -> dict[in
 async def retag(
     db: AsyncSession,
     account_id: int,
-    name: str,
+    name: str | None,
     *,
     owner_user_id: int | None,
-    since: date,
+    since: date | None = None,
 ) -> bool:
-    """Follow ``name`` ("" for none) unless it already does. True when
-    it changed: re-saving the dialog must not restart the count."""
+    """Follow ``name`` ("" for none, None for the one it has) from
+    ``since``, then settle. True when anything changed.
+
+    ``since`` None leaves the start where it is - re-saving the dialog
+    must not move it - and a NEW tag starts today unless told otherwise.
+    The same tag with a new start keeps what it has counted, and settle
+    walks only the difference: moving the start back spends the tagged
+    charges it now covers, moving it forward gives them back. Two August
+    Dark Side Records charges tagged after the fact are why (2026-09-23).
+    """
+    from app.services.finance.utils import current_date
+
     account = await envelopes.accounts.get_account(
         db, account_id, owner_user_id=owner_user_id
     )
     meta = envelopes.envelope_metadata(account.metadata_) if account else None
-    if (name.strip() or None) == await tag_name(db, meta):
+    if account is None or meta is None:
+        raise ValueError(f"No envelope {account_id}.")
+    current = await tag_name(db, meta)
+    # None keeps the tag it follows: a card can move only the start.
+    wanted = current if name is None else (name.strip() or None)
+    if wanted != current:
+        start = since or current_date()
+        await follow_tag(
+            db, account_id, wanted, owner_user_id=owner_user_id, since=start
+        )
+    elif wanted is None or since is None or since == meta.tag_since:
         return False
-    await follow_tag(db, account_id, name, owner_user_id=owner_user_id, since=since)
+    else:
+        account.metadata_ = {
+            **(account.metadata_ or {}),
+            envelopes.TAG_SINCE_KEY: since.isoformat(),
+        }
+        db.add(account)
+        await db.flush()
+    await settle(db, owner_user_id=owner_user_id)
     return True
 
 

@@ -512,5 +512,24 @@ class TestEnvelopes:
         form = one(hx.get(f"/budget/envelopes/{budget.envelope}/edit").text, "form")
         assert one(form, 'input[name="tag"]').get("value") == "Kids stuff"
 
+    def test_the_dialog_sets_when_it_starts_counting(
+        self, client: TestClient, hx: TestClient, budget: Budget
+    ) -> None:
+        """Charges tagged after the fact are only paid for if counting
+        starts early enough to cover them (2026-09-23)."""
+        saved = client.post(
+            f"/budget/envelopes/{budget.envelope}/edit",
+            data={
+                "monthly_credit": "10",
+                "cadence": "weekly",
+                "tag": "Kids stuff",
+                "tag_since": "2026-08-01",
+            },
+        )
+        card = one(saved.text, f"#envelope-{budget.envelope}[hx-swap-oob]")
+        assert "from Aug 1" in text(one(card, "[data-pays-for]"))
+        form = one(hx.get(f"/budget/envelopes/{budget.envelope}/edit").text, "form")
+        assert one(form, 'input[name="tag_since"][type="date"]').get("value") == "2026-08-01"
+
     def test_unknown_envelope_is_404(self, client: TestClient, ledger: Ledger) -> None:
         assert client.get("/budget/envelopes/999999/credit").status_code == 404

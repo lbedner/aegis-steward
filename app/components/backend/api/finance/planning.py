@@ -97,6 +97,7 @@ async def update_envelope(
         auto_credit=body.auto_credit,
         cadence=body.cadence,
         tag=body.tag,
+        tag_since=body.tag_since,
     )
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND)

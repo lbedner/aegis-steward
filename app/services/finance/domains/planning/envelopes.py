@@ -258,8 +258,10 @@ async def update_envelope(
     auto_credit: bool,
     cadence: str = "monthly",
     tag: str | None = None,
+    tag_since: date | None = None,
 ) -> FinanceAccount | None:
-    """``tag`` None leaves what it pays for alone; "" stops it (#240)."""
+    """``tag`` None leaves what it pays for alone; "" stops it (#240).
+    ``tag_since`` moves when it starts counting; None leaves it."""
     account = await accounts.get_account(db, account_id, owner_user_id=owner_user_id)
     if account is None or envelope_metadata(account.metadata_) is None:
         return None
@@ -271,14 +273,11 @@ async def update_envelope(
     )
     db.add(account)
     await db.flush()
-    if tag is not None:
+    if tag is not None or tag_since is not None:
         # Imported here: envelope_tags builds on this module.
         from app.services.finance.domains.planning.envelope_tags import retag
-        from app.services.finance.utils import current_date
 
-        await retag(
-            db, account_id, tag, owner_user_id=owner_user_id, since=current_date()
-        )
+        await retag(db, account_id, tag, owner_user_id=owner_user_id, since=tag_since)
     return account
 
 

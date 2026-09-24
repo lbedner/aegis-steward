@@ -154,3 +154,120 @@ class TestTheCardCanPointItAtATag:
         meta = envelope_metadata(envelope.metadata_)
         assert meta is not None and meta.tag_id is not None
         assert meta.tag_since == TODAY
+
+
+class TestCountingFrom:
+    @pytest.mark.asyncio
+    async def test_moving_the_start_back_counts_what_it_now_covers(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Live: two August Dark Side Records charges were tagged Vanessa
+        and her envelope did not move, because counting starts the day the
+        tag is set (2026-09-23). The start is the person's to choose."""
+        from app.services.finance.domains.planning.envelope_tags import retag
+
+        made = await _setup(async_db_session)
+        older = await seed_txn(
+            made["svc"],
+            made["card"].id,
+            -540,
+            TODAY - timedelta(days=30),
+            name="ROBLOX",
+        )
+        await made["svc"].tag_transactions([older.id], "Vanessa", owner_user_id=1)
+        assert await _balance(async_db_session, made["envelope"]) == 6_000
+
+        await retag(
+            async_db_session,
+            made["envelope"].id,
+            "Vanessa",
+            owner_user_id=1,
+            since=TODAY - timedelta(days=60),
+        )
+
+        assert await _balance(async_db_session, made["envelope"]) == 6_000 - 540
+
+    @pytest.mark.asyncio
+    async def test_moving_it_forward_gives_back_what_it_no_longer_covers(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.planning.envelope_tags import retag
+
+        made = await _setup(async_db_session)
+        older = await seed_txn(
+            made["svc"],
+            made["card"].id,
+            -540,
+            TODAY - timedelta(days=30),
+            name="ROBLOX",
+        )
+        await made["svc"].tag_transactions([older.id], "Vanessa", owner_user_id=1)
+        await retag(
+            async_db_session,
+            made["envelope"].id,
+            "Vanessa",
+            owner_user_id=1,
+            since=TODAY - timedelta(days=60),
+        )
+
+        await retag(
+            async_db_session,
+            made["envelope"].id,
+            "Vanessa",
+            owner_user_id=1,
+            since=TODAY,
+        )
+
+        assert await _balance(async_db_session, made["envelope"]) == 6_000
+
+    @pytest.mark.asyncio
+    async def test_resaving_without_a_start_keeps_the_start(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Saving the dialog again must not quietly move counting to today."""
+        from app.services.finance.domains.planning.envelope_tags import retag
+        from app.services.finance.domains.planning.envelopes import envelope_metadata
+
+        made = await _setup(async_db_session)
+        start = TODAY - timedelta(days=45)
+        await retag(
+            async_db_session,
+            made["envelope"].id,
+            "Vanessa",
+            owner_user_id=1,
+            since=start,
+        )
+
+        changed = await retag(
+            async_db_session, made["envelope"].id, "Vanessa", owner_user_id=1
+        )
+
+        await async_db_session.refresh(made["envelope"])
+        assert changed is False
+        assert envelope_metadata(made["envelope"].metadata_).tag_since == start
+
+    @pytest.mark.asyncio
+    async def test_the_card_moves_the_start_and_says_so(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.writes.planning import (
+            EnvelopeUpdatePayload,
+            envelope_update_describe,
+            envelope_update_execute,
+        )
+
+        made = await _setup(async_db_session)
+        start = TODAY - timedelta(days=45)
+        payload = EnvelopeUpdatePayload(account_id=made["envelope"].id, tag_since=start)
+
+        said = {
+            row.label: row.value
+            for row in await envelope_update_describe(async_db_session, payload, None)
+        }
+        assert said["Counting from"] == f"{TODAY.isoformat()} → {start.isoformat()}"
+
+        await envelope_update_execute(async_db_session, payload, None)
+        from app.services.finance.domains.planning.envelopes import envelope_metadata
+
+        await async_db_session.refresh(made["envelope"])
+        assert envelope_metadata(made["envelope"].metadata_).tag_since == start
