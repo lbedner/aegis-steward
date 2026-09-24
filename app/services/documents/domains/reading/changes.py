@@ -251,7 +251,8 @@ async def metadata_describe(
     rows.extend(
         ChangeDisplayRow(
             label=labels[name],
-            value=f"{getattr(document, name) or '-'} → {read.value} · {read.cited()}",
+            value=f"{getattr(document, name) or '-'} → {read.value}",
+            note=read.cited(),
             document_id=payload.document_id,
             page=read.page,
         )
@@ -263,7 +264,8 @@ async def metadata_describe(
         rows.append(
             ChangeDisplayRow(
                 label="Filed on",
-                value=f"{case.title} · {payload.matter.cited()}",
+                value=case.title,
+                note=payload.matter.cited(),
                 document_id=payload.document_id,
                 page=payload.matter.page,
             )
@@ -272,7 +274,8 @@ async def metadata_describe(
         rows.append(
             ChangeDisplayRow(
                 label="About",
-                value=f"{held.name} · {payload.account.cited()}",
+                value=held.name,
+                note=payload.account.cited(),
                 document_id=payload.document_id,
                 page=payload.account.page,
             )
@@ -293,7 +296,8 @@ async def metadata_describe(
         rows.append(
             ChangeDisplayRow(
                 label="From",
-                value=f"{party.name} · {payload.sender.cited()}",
+                value=party.name,
+                note=payload.sender.cited(),
                 document_id=payload.document_id,
                 page=payload.sender.page,
             )
@@ -390,7 +394,8 @@ async def request_describe(
     rows.extend(
         ChangeDisplayRow(
             label=item_kind(ask.kind),
-            value=f"{ask.asked} · {ask.cited()}",
+            value=ask.asked,
+            note=ask.cited(),
             document_id=payload.document_id,
             page=ask.page,
         )

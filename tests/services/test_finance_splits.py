@@ -323,8 +323,8 @@ class TestSplitChangeType:
         # Itemized: one row per line, so the approval card reads as the
         # split the user is about to authorize - remainder included.
         assert [line.label for line in card[1:]] == ["Food:Groceries", "Shopping"]
-        assert card[1].value == "$25.00 · groceries"
-        assert card[2].value == "$51.00 · the rest"
+        assert (card[1].value, card[1].note) == ("$25.00", "groceries")
+        assert (card[2].value, card[2].note) == ("$51.00", "the rest")
         # The subject line reads like a person wrote it, not a log line.
         assert "Aug 15, 2026" in card[0].value
         assert "2026-08-15" not in card[0].value

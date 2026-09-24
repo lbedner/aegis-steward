@@ -34,6 +34,10 @@ from typing import Any
 # that quietly becomes a crawler.
 CANDIDATE_BUDGET = 4
 TIMEOUT_SECONDS = 4.0
+# Who is asking, said plainly. Sites block the bare python-httpx agent:
+# Eleanor's page answered 403 to it and 200 to this (2026-09-23). Never
+# a browser's string - a lookup that disguises itself is a scraper.
+USER_AGENT = "AegisSteward/1.0 (household records; contact lookup)"
 
 # Where an organization puts its contact details, in the order worth
 # trying. A site that hides them behind a search form is a site this
@@ -91,7 +95,9 @@ async def _read(url: str, host: str) -> str | None:
 
     try:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT_SECONDS, follow_redirects=False
+            timeout=TIMEOUT_SECONDS,
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
         ) as client:
             response = await client.get(url)
             if response.status_code in (301, 302, 303, 307, 308):
@@ -197,8 +203,13 @@ async def contact_page(
     from app.services.matters.lookup import found_in, lines_in
 
     host = _host_of(domain)
-    for path in paths:
-        url = f"{scheme}://{host}{path}"
+    # A found PAGE is read before the host's contact paths: a facility's
+    # page on its parent company's site is theirs, and the parent's
+    # /contact is not (2026-09-23).
+    itself = domain.strip().rstrip("/") != host
+    urls = [f"{scheme}://{domain.strip().lstrip('/')}"] if itself else []
+    urls += [f"{scheme}://{host}{path}" for path in paths]
+    for url in urls:
         page = await _read(url, host)
         if not page:
             continue
@@ -215,3 +226,46 @@ async def contact_page(
         if rows:
             return rows
     return []
+
+
+def on_record(contact: dict[str, Any] | None) -> set[str]:
+    """What a page must also carry to be THEIRS: the address and phone the
+    record already holds. The name alone proves a page mentions them, and
+    there is more than one organization with most names."""
+    return {
+        str(value)
+        for key, value in (contact or {}).items()
+        if key in ("address", "phone") and value
+    }
+
+
+async def web_offers(name: str, guesses: list[str], known: set[str]) -> dict[str, Any]:
+    """An organization's reach details off the web, and how the site was
+    found: ``{confirmed, found_by, offers}``.
+
+    The guesses first - the assistant's own, or the website a record
+    already holds - and only when none confirms, and search is on, a web
+    search whose hits are verified by the same ``confirm`` (#173). Each
+    offer's ``source`` is worded here, so a searched domain can never
+    read like one off their own paper. One home for the assistant's tool
+    and the contact page's button alike.
+    """
+    from app.core.search import candidates, search
+
+    found = await confirm(name, guesses, corroborate=known or None)
+    found_by = "guess"
+    if found is None:
+        tried = [d for d in candidates(await search(name)) if d not in guesses]
+        found = await confirm(name, tried, corroborate=known or None) if tried else None
+        found_by = "search"
+    if found is None:
+        return {"confirmed": None, "found_by": None, "offers": []}
+    via = "found by web search; read at " if found_by == "search" else ""
+    return {
+        "confirmed": found,
+        "found_by": found_by,
+        "offers": [
+            {**offer, "source": f"{via}{offer['url']}"}
+            for offer in await contact_page(found)
+        ],
+    }

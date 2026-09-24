@@ -679,7 +679,7 @@ class TestRecordingWhatAnAssetWasWorth:
         )
 
         assert rows[0].value == "House Bedner"
-        assert "Sold" in rows[1].value
+        assert rows[1].note == "Sold"
         assert "$285,000.00" in rows[1].value
         assert "(estimate)" in rows[2].value
 

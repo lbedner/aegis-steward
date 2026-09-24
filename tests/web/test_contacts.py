@@ -196,3 +196,106 @@ class TestANameIsADoor:
             one(block, f'a[data-contact="{person}"]').get("href")
             == f"/contacts/{person}"
         )
+
+
+class TestLookingItUpByHand:
+    """The assistant's lookup, on a button: one card in Review, never a
+    write by itself (#173 follow-up, 2026-09-23)."""
+
+    @staticmethod
+    def _made(client: TestClient, name: str, kind: str) -> int:
+        client.post(
+            "/contacts/new",
+            data={"name": name, "kind": kind, "sort_name": "", "note": ""},
+        )
+        page = client.get("/contacts", params={"q": name}).text
+        link = next(a for a in select(page, "#contacts tbody a") if text(a) == name)
+        return int(link.get("href").rsplit("/", 1)[-1])
+
+    def test_an_organization_offers_it_and_it_files_a_card(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        import app.services.matters.domain_lookup as domain_lookup
+
+        async def web_offers(name: str, guesses: list, known: set) -> dict:
+            return {
+                "confirmed": "example.org/x/",
+                "found_by": "search",
+                "offers": [
+                    {
+                        "field": "phone",
+                        "value": "(845) 555-0142",
+                        "url": "https://example.org/x/",
+                        "source": "found by web search; read at https://example.org/x/",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(domain_lookup, "web_offers", web_offers)
+        party_id = self._made(client, "Testcase Lookup Org", "organization")
+        page = client.get(f"/contacts/{party_id}").text
+        button = one(page, f'[hx-post="/contacts/{party_id}/look-up"]')
+        assert text(button) == WORDS["look_up"]
+
+        answer = client.post(f"/contacts/{party_id}/look-up")
+
+        # The card comes to the reader: the dialog opens on it, drawn by
+        # the one card route the chat uses, not a second rendering.
+        assert answer.status_code == 200
+        loader = one(answer.text, "[data-component-load='pending_change']")
+        assert loader.get("hx-get").startswith("/chat/components/change/")
+        assert button.get("hx-target") == "#dialog-body"
+
+    def test_the_page_redraws_when_its_card_is_decided(
+        self, client: TestClient
+    ) -> None:
+        """Approve the phone number in the dialog, and it appears on the
+        page behind it without a reload."""
+        party_id = self._made(client, "Testcase Lookup Redraw", "organization")
+        page = client.get(f"/contacts/{party_id}").text
+        redraws = one(page, "#contact [data-redraws]")
+        assert "change:resolved" in redraws.get("hx-trigger")
+        assert redraws.get("hx-select") == "#contact"
+        # Childless, and never on the section: htmx hands hx-select and
+        # hx-target down to every block inside, and the lazy sign-ins
+        # swapped the whole contact away (2026-09-24).
+        assert len(redraws) == 0
+        section = one(page, "#contact")
+        assert section.get("hx-select") is None and section.get("hx-target") is None
+
+    def test_nothing_new_says_so(self, client: TestClient, monkeypatch) -> None:
+        import app.services.matters.domain_lookup as domain_lookup
+        from tests.web.dom import triggers
+
+        async def web_offers(name: str, guesses: list, known: set) -> dict:
+            return {"confirmed": None, "found_by": None, "offers": []}
+
+        monkeypatch.setattr(domain_lookup, "web_offers", web_offers)
+        party_id = self._made(client, "Testcase Lookup Empty", "organization")
+
+        answer = client.post(f"/contacts/{party_id}/look-up")
+
+        # Nothing to decide, so no dialog: a 204 swaps nothing.
+        assert answer.status_code == 204
+        assert "Nothing new" in triggers(answer)["toast"]["text"]
+
+
+def test_a_rows_note_is_drawn_under_it(add_template) -> None:
+    """The one macro every card draws with puts a row's note on a line
+    of its own."""
+    from app.components.web_frontend.rendering import templates
+
+    add_template(
+        "probe_note.html",
+        '{% from "components/macros/changes.html" import display %}{{ display(change) }}',
+    )
+    html = templates.get_template("probe_note.html").render(
+        change={
+            "display": [
+                {"label": "Contact", "value": "Eleanor"},
+                {"label": "Phone", "value": "- → 555", "note": "read at https://x"},
+            ]
+        }
+    )
+    note = one(html, "li [data-note]")
+    assert text(note) == "read at https://x"

@@ -59,7 +59,8 @@ class TestTheCardListsWhatWasAsked:
         assert said["Read from"] == "Bedner J Request.pdf"
         assert said["Due"] == "2026-09-08"
         assert "Proof of GROSS monthly income" in said["Record a figure"]
-        assert "page 2" in said["Record a figure"]
+        cited = next(r for r in rows if r.label == "Record a figure")
+        assert cited.note is not None and cited.note.startswith("page 2")
 
 
 class TestTheCardAdmitsWhatItMissed:

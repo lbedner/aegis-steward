@@ -27,6 +27,7 @@ from app.services.ai.domains.chat.usage_context import UsageContext
 from app.services.ai.domains.llm.providers import get_agent
 from app.services.ai.models import Conversation, MessageRole
 from app.services.ai.service.contexts import ContextsMixin
+from app.services.ai.service.trace import steps_line
 
 # Conversation history carried into each model call, in characters
 # (~1.5k tokens). Newest messages first; the oldest drop when a thread
@@ -40,6 +41,8 @@ _HISTORY_CONTEXT_FRACTION = 0.05
 HISTORY_CHAR_BUDGET_MIN = 6_000
 HISTORY_CHAR_BUDGET_DEFAULT = 24_000  # model not in the catalog
 HISTORY_CHAR_BUDGET_MAX = 60_000
+# How many of the newest replies replay their steps line (#242).
+_STEPS_REPLIES = 3
 
 
 def history_char_budget(context_window_tokens: int | None) -> int:
@@ -246,6 +249,7 @@ class PromptMixin(ContextsMixin):
         context_parts: list[str] = []
         used = 0
         dropped = 0
+        replies = 0
         for msg in reversed(conversation.messages[:-1]):
             if msg.role == MessageRole.USER:
                 line = f"User: {msg.content}"
@@ -260,6 +264,17 @@ class PromptMixin(ContextsMixin):
                 continue
             context_parts.insert(0, line)
             used += len(line) + 1
+            # What the newest replies DID, ahead of what they said: the
+            # sandbox resets every turn and the text alone does not carry
+            # the ids, so "try again" re-queried for them (#242). Only
+            # where it fits after the words - what was said outranks it.
+            if msg.role == MessageRole.ASSISTANT and replies < _STEPS_REPLIES:
+                replies += 1
+                steps = steps_line(msg.metadata.get("tool_trace") or [])
+                did = f"Assistant steps: {steps}"
+                if steps and used + len(did) <= budget:
+                    context_parts.insert(0, did)
+                    used += len(did) + 1
 
         record_turn_context(
             history_chars=used,

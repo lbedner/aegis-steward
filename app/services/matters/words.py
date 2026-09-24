@@ -97,6 +97,7 @@ WORDS: dict[str, str] = {
     "add_policy": "Add a policy",
     "record_claim": "Record a claim",
     "edit_contact": "Edit",
+    "look_up": "Look it up",
 }
 
 

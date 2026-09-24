@@ -64,7 +64,7 @@
 </p>
 {% if rows|length > 1 %}
 <ul class="mt-0.5 space-y-0.5 text-xs text-aegis-muted">
-  {% for row in rows[1:] %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}</li>{% endfor %}
+  {% for row in rows[1:] %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}{% if row.note %}<span class="block pl-2 text-xxs text-aegis-muted/70 break-all" data-note>{{ row.note }}</span>{% endif %}</li>{% endfor %}
 </ul>
 {% endif %}
 {{ cited_page(rows) }}

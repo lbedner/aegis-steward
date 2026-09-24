@@ -430,8 +430,8 @@ class TestAmendingAContact:
             kind="organization",
             contact={"phone": "800-000-0000"},
         )
-        said = {
-            row.label: row.value
+        rows = {
+            row.label: row
             for row in await amend_contact_describe(
                 async_db_session,
                 AmendContactPayload(
@@ -443,11 +443,14 @@ class TestAmendingAContact:
                 None,
             )
         }
-        assert said["Contact"] == "Delta Testcase"
+        assert rows["Contact"].value == "Delta Testcase"
         # What it WAS is on the card: approving a correction blind is
-        # how a good number gets overwritten by a worse one.
-        assert said["Phone"] == "800-000-0000 → 800-471-7091 · Document 12, page 1"
-        assert said["Website"] == "- → https://deltadental.example"
+        # how a good number gets overwritten by a worse one. Where it
+        # came from is the row's note, drawn beneath the value.
+        assert rows["Phone"].value == "800-000-0000 → 800-471-7091"
+        assert rows["Phone"].note == "Document 12, page 1"
+        assert rows["Website"].value == "- → https://deltadental.example"
+        assert rows["Website"].note is None
 
     @pytest.mark.asyncio
     async def test_a_card_that_would_change_nothing_is_refused(

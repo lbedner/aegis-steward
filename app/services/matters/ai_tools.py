@@ -361,9 +361,9 @@ async def look_up_contact(
     host all confirm NOTHING.
 
     Returns {'confirmed': domain or None, 'offers': [...]}. Each offer
-    carries 'field', 'value' and the 'url' it was read at; labelled ones
-    also carry 'label'. Propose contact.amend with those, putting the URL
-    in 'sources'.
+    carries 'field', 'value', the 'url' it was read at and its 'source';
+    labelled ones also carry 'label'. Propose contact.amend with those,
+    putting each offer's 'source' in 'sources' exactly as given.
 
     ALWAYS pass party_id when the contact exists. The page is then
     checked against the address or phone already on the record - a
@@ -377,32 +377,23 @@ async def look_up_contact(
     value it did not return. When 'confirmed' is None, say plainly that
     nothing could be verified - a guess offered with a hedge is read as
     a fact by the next person to open the record. At most four
-    candidates are tried, so put your best first.
+    candidates are tried, so put your best first. When none confirms and
+    search is on, the app searches the name and verifies those the same
+    way; 'found_by' is then "search", and you say the domain came from
+    a web search, not from their own paper.
     """
-    from app.services.matters.domain_lookup import confirm, contact_page
+    from app.services.matters.domain_lookup import on_record, web_offers
 
-    # Corroborate against what the record ALREADY holds. Pass party_id
-    # whenever you have it: the name alone proves a page mentions them,
-    # and there is more than one organization with most names.
     known: set[str] = set()
     if party_id is not None:
         async with get_async_session() as db:
             party = await PartyService(db).get(party_id)
         if party is None:
             return {"error": f"No contact with id {party_id}"}
-        contact = party.contact or {}
-        known = {
-            str(value)
-            for key, value in contact.items()
-            if key in ("address", "phone") and value
-        }
+        known = on_record(party.contact)
 
-    found = await confirm(name, list(domains or []), corroborate=known or None)
-    if found is None:
-        return {"confirmed": None, "offers": [], "corroborated_against": sorted(known)}
     return {
-        "confirmed": found,
-        "offers": await contact_page(found),
+        **await web_offers(name, list(domains or []), known),
         "corroborated_against": sorted(known),
     }
 

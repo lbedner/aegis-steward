@@ -25,6 +25,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.db import OpenSession
 from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES
 
 # Letterhead and footer carry the contact block. A number buried on page
@@ -310,3 +311,85 @@ async def contact_details(db: AsyncSession, party_id: int) -> list[dict[str, Any
                 }
             )
     return offers
+
+
+# The fields one look-up fills. Labelled lines are left out: sending
+# ``also`` REPLACES a contact's lines, which a button must not do blind.
+# ponytail: add them once the card can append rather than replace.
+LOOK_UP_FIELDS = ("address", "phone", "email", "website")
+
+
+async def propose_look_up(open_session: OpenSession, party_id: int) -> Any | None:
+    """Look a contact up, and put what was found on ONE contact.amend card.
+
+    The contact page's button and the assistant's lookup are the same
+    two sources in the same order: their own filed paper, then the web
+    (``domain_lookup.web_offers``) for what the paper does not say. Only
+    fields the record lacks; each cites where it was read. None when
+    there is nothing new - a card that changes nothing wastes a decision.
+
+    Read, let the database go, fetch, then write: a web fetch is seconds
+    of somebody else's server, and an open session is the whole app's
+    write lock (see ``OpenSession``).
+    """
+    from app.services.documents.service import DocumentService
+    from app.services.finance.domains.writes.queue import list_changes, propose
+    from app.services.matters.domain_lookup import on_record, web_offers
+    from app.services.matters.service import PartyService
+
+    async with open_session() as db:
+        party = await PartyService(db).get(party_id)
+        if party is None:
+            return None
+        # A card still waiting from an earlier press IS the answer: a
+        # second press stacked a second, identical card (2026-09-24).
+        for change in await list_changes(db, status="pending"):
+            if change.change_type == "contact.amend" and (
+                change.payload.get("party_id") == party_id
+                and change.proposed_by_agent == "look-up"
+            ):
+                return change
+        paper = await contact_details(db, party_id)
+        titles = await DocumentService(db).get_many(
+            sorted({offer["document_id"] for offer in paper})
+        )
+        name, contact = party.name, dict(party.contact or {})
+        # A search names an organization, never a person (#173).
+        searchable = party.kind == "organization"
+
+    found: dict[str, tuple[str, str]] = {}
+    for offer in paper:
+        if offer["field"] in LOOK_UP_FIELDS and offer["field"] not in found:
+            document = titles.get(offer["document_id"])
+            cited = (
+                f"{document.title if document else 'document'}, page {offer['page']}"
+            )
+            found[offer["field"]] = (offer["value"], cited)
+    if searchable and not all(
+        contact.get(field) or field in found for field in LOOK_UP_FIELDS
+    ):
+        guesses = [contact["website"]] if contact.get("website") else []
+        web = await web_offers(name, guesses, on_record(contact))
+        for offer in web["offers"]:
+            field = offer["field"]
+            if (
+                field in LOOK_UP_FIELDS
+                and not contact.get(field)
+                and field not in found
+            ):
+                found[field] = (offer["value"], offer["source"])
+    if not found:
+        return None
+    async with open_session() as db:
+        card = await propose(
+            db,
+            "contact.amend",
+            {
+                "party_id": party_id,
+                **{field: value for field, (value, _) in found.items()},
+                "sources": {field: cited for field, (_, cited) in found.items()},
+            },
+            proposed_by_agent="look-up",
+        )
+        await db.commit()
+        return card

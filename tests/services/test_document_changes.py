@@ -45,16 +45,15 @@ class TestTheCardShowsItsWorking:
             ),
         )
 
-        said = {
-            r.label: r.value
+        rows = {
+            r.label: r
             for r in await metadata_describe(async_db_session, payload, None)
         }
-        assert said["Document"] == "Mortgage Interest Statement.pdf"
-        assert said["Kind"].startswith("other → statement")
-        assert said["Dated"].startswith("- → 2026-03-03")
-        assert (
-            "page 1" in said["Kind"] and "Mortgage Interest Statement" in said["Kind"]
-        )
+        assert rows["Document"].value == "Mortgage Interest Statement.pdf"
+        assert rows["Kind"].value == "other → statement"
+        assert rows["Dated"].value == "- → 2026-03-03"
+        # Where it was read, on the line beneath the value.
+        assert rows["Kind"].note == "page 1: Mortgage Interest Statement"
 
     @pytest.mark.asyncio
     async def test_approving_it_files_what_it_read(
@@ -349,8 +348,8 @@ class TestWhoSentIt:
         )
         document = await _a_document(async_db_session, "Invoice.pdf")
 
-        said = {
-            row.label: row.value
+        rows = {
+            row.label: row
             for row in await metadata_describe(
                 async_db_session,
                 MetadataPayload(
@@ -362,8 +361,8 @@ class TestWhoSentIt:
                 None,
             )
         }
-        assert "Delta Testcase" in said["From"]
-        assert "page 1" in said["From"]
+        assert rows["From"].value == "Delta Testcase"
+        assert rows["From"].note == "page 1: letterhead"
 
     @pytest.mark.asyncio
     async def test_a_sender_who_does_not_exist_is_refused(

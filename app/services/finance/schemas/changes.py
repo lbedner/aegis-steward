@@ -48,6 +48,9 @@ class ChangeDisplayRow(BaseModel):
     # rewrite history.
     document_id: int | None = None
     page: int | None = None
+    # Where the value came from, drawn on a line of its own under it.
+    # Run together with the value it was hard to read (2026-09-24).
+    note: str | None = None
     # ISO, not a date: these rows are frozen into the audit column as
     # plain JSON when a change resolves, and ISO sorts the way a date
     # does anyway.
