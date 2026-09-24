@@ -451,11 +451,11 @@ class TestComponents:
         )
         assert approve.get("hx-target") == f"#chat-change-{review.change}"
 
-        after = one(
-            hx.post(f"/chat/components/change/{review.change}/approve").text,
-            "[data-component=pending_change]",
-        )
+        approved = hx.post(f"/chat/components/change/{review.change}/approve")
+        after = one(approved.text, "[data-component=pending_change]")
         assert text(one(after, "[data-tone=ok]")) == "Approved"
+        # So the page behind the card can redraw what it just changed.
+        assert "change:resolved" in triggers(approved)
         none(after, "button[hx-post]")
         none(client.get("/review").text, f"#change-{review.change}")
 

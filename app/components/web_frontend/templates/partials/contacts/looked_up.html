@@ -1,0 +1,10 @@
+{#- What "Look it up" found, as the card itself: loaded through the one
+    card route the chat uses, so it is drawn and decided the same way
+    everywhere. Deciding it fires change:resolved, and the contact page
+    behind redraws. -#}
+{% from "components/macros/layout.html" import dialog_title %}
+{% from "components/macros/changes.html" import component %}
+{% call dialog_title("What we found for " ~ party.name) %}
+<p class="text-sm text-aegis-muted mb-4">Nothing is saved until you approve it. Each line says where it was read.</p>
+{% endcall %}
+{{ component({"kind": "pending_change", "id": card.id}, "/chat/components") }}

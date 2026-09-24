@@ -123,12 +123,11 @@ async def split_describe(
     # it will land: category, amount, and what the amount covers.
     rows = [subject]
     for part in payload.parts:
-        value = format_usd(part.amount)
-        if part.memo:
-            value += f" · {part.memo}"
         rows.append(
             ChangeDisplayRow(
-                label=names.get(part.category_id, "Uncategorized"), value=value
+                label=names.get(part.category_id, "Uncategorized"),
+                value=format_usd(part.amount),
+                note=part.memo or None,
             )
         )
     # Show the remainder line the approval will actually create - the
@@ -144,7 +143,8 @@ async def split_describe(
             rows.append(
                 ChangeDisplayRow(
                     label=parent_name,
-                    value=f"{format_usd(remainder)} · the rest",
+                    value=format_usd(remainder),
+                    note="the rest",
                 )
             )
     return rows

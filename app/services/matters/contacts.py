@@ -244,15 +244,15 @@ async def amend_contact_execute(
     return {"party_id": party.id, "name": party.name, "changed": sorted(changes)}
 
 
-def _before_and_after(before: str, after: str, source: str) -> str:
-    """One row's worth: what it was, what it becomes, where it came from.
+def _before_and_after(before: str, after: str) -> str:
+    """One row's worth: what it was, what it becomes. Where it came from
+    is the row's ``note``, drawn beneath it.
 
     A dash for absent on either side, because a blank half reads as a
     card that forgot to say something rather than a field that was
     empty - and "empty" is exactly what the reader has to weigh.
     """
-    line = f"{before or '-'} → {after or '-'}"
-    return f"{line} · {source}" if source else line
+    return f"{before or '-'} → {after or '-'}"
 
 
 async def amend_contact_describe(
@@ -267,11 +267,8 @@ async def amend_contact_describe(
             rows.append(
                 ChangeDisplayRow(
                     label={"name": "Name", "sort_name": "Files under"}.get(key, "Note"),
-                    value=_before_and_after(
-                        getattr(party, key) or "",
-                        sent[key] or "",
-                        payload.sources.get(key, ""),
-                    ),
+                    value=_before_and_after(getattr(party, key) or "", sent[key] or ""),
+                    note=payload.sources.get(key) or None,
                 )
             )
     for key, label in CONTACT_FIELDS:
@@ -281,9 +278,8 @@ async def amend_contact_describe(
             rows.append(
                 ChangeDisplayRow(
                     label=label,
-                    value=_before_and_after(
-                        was.get(key, ""), sent[key], payload.sources.get(key, "")
-                    ),
+                    value=_before_and_after(was.get(key, ""), sent[key]),
+                    note=payload.sources.get(key) or None,
                 )
             )
     # Sending ``also`` REPLACES the labelled lines, so a line that is
@@ -307,11 +303,8 @@ def _line_rows(
     return [
         ChangeDisplayRow(
             label=label,
-            value=_before_and_after(
-                before.get(label, ""),
-                after.get(label, ""),
-                payload.sources.get(CONTACT_LINES, ""),
-            ),
+            value=_before_and_after(before.get(label, ""), after.get(label, "")),
+            note=payload.sources.get(CONTACT_LINES) or None,
         )
         for label in [*before, *[k for k in after if k not in before]]
         if before.get(label) != after.get(label)

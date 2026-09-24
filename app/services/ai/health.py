@@ -75,6 +75,15 @@ async def check_ai_service_health() -> ComponentStatus:
             "usage_tracking_available": True,
         }
 
+        # Web search (#173): provider, key present, today's queries. A
+        # cache hiccup must not make the AI service read as unhealthy.
+        from app.core.search import status as search_status
+
+        try:
+            metadata["search"] = await search_status()
+        except Exception as exc:
+            metadata["search"] = {"error": str(exc)}
+
         # Add dependency status
         metadata["dependencies"] = {
             "backend": "required",

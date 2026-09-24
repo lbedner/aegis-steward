@@ -221,11 +221,13 @@ async def valuation_describe(
     for point in sorted(payload.points, key=lambda p: p.as_of_date):
         label = format_date(point.as_of_date)
         value = format_usd(point.value)
-        if point.note:
-            value += f" · {point.note}"
         if point.is_estimate:
             value += " (estimate)"
-        rows.append(ChangeDisplayRow(label=label, value=value, amount=point.value))
+        rows.append(
+            ChangeDisplayRow(
+                label=label, value=value, amount=point.value, note=point.note or None
+            )
+        )
     return rows
 
 

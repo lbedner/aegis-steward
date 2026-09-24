@@ -46,6 +46,7 @@ from app.components.web_frontend.rendering import (
     or_404,
     render,
     templates,
+    trigger,
     with_toast,
 )
 from app.core.chat_transcript import (
@@ -832,9 +833,10 @@ async def resolve_change_component(
     an optimistic guess."""
     handler = {"approve": approve_change, "reject": reject_change}.get(verb)
     or_404(handler)
+    refused: str | None = None
     try:
         change = await handler(change_id, service=service, owner_user_id=owner_user_id)
-    except HTTPException as refused:
+    except HTTPException as exc:
         # A refused execution is an ANSWER, not a failure to respond.
         # The queue already recorded why and left the row pending (the
         # decision is still the user's), but a 400 does not swap - see
@@ -842,26 +844,23 @@ async def resolve_change_component(
         # clicking Approve did nothing at all, forever, with no hint
         # that the split did not add up. Re-render the card: it carries
         # the recorded error, and the toast says it out loud.
+        refused = str(exc.detail)
         await service.db.commit()
-        refused_change = await get_change(
+        change = await get_change(
             change_id, service=service, owner_user_id=owner_user_id
         )
-        response = await _card(
-            request,
-            "partials/chat/change.html",
-            change_card(refused_change),
-            service,
-            owner_user_id,
-        )
-        return with_toast(response, str(refused.detail), tone="error")
     await service.db.commit()
-    return await _card(
+    response = await _card(
         request,
         "partials/chat/change.html",
         change_card(change),
         service,
         owner_user_id,
     )
+    if refused is not None:
+        return with_toast(response, refused, tone="error")
+    # So the page behind can redraw what it changed (pages/contact.html).
+    return trigger(response, "change:resolved")
 
 
 @router.get(COMPONENTS + "/batch/{batch_id}", include_in_schema=False)
@@ -905,13 +904,14 @@ async def resolve_batch_component(
         raise HTTPException(status_code=404)
     await service.db.commit()
     listing = await get_batch(batch_id, service=service, owner_user_id=owner_user_id)
-    return await _card(
+    response = await _card(
         request,
         "partials/chat/batch.html",
         batch_card(batch_id, listing.items),
         service,
         owner_user_id,
     )
+    return trigger(response, "change:resolved")
 
 
 @router.get(

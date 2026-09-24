@@ -256,6 +256,10 @@ use `isinstance(x, dict)` or `.get()` instead. If a script fails with \
 a type error, REWRITE the flagged line - do not resubmit it.
 - Print only the figures or rows you need, never a whole payload; \
 oversized output gets truncated.
-- State persists between run_code calls: print a value's shape first, \
-then compute against the real keys in the next call."""
+- State persists between run_code calls WITHIN this turn only - the \
+sandbox starts empty each turn. An earlier turn's ids and payloads are in \
+its "Assistant steps:" line in the history: reuse them instead of searching \
+again. "Try again" means propose the same change again from those steps; \
+search afresh only when the person says you had the wrong one. Print a \
+value's shape first, then compute against the real keys."""
 )

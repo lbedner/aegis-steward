@@ -179,3 +179,42 @@ def nested_tool_calls(event: FunctionToolResultEvent) -> list[tuple[str, str]]:
         args = part.args if isinstance(part.args, str) else json.dumps(part.args)
         out.append((part.tool_name, (args or "")[:120]))
     return out
+
+
+# The steps line replayed into the next turn's history (#242): what a
+# turn DID, compactly. History used to carry only final text, and the
+# sandbox resets every turn, so "try again" re-queried for ids the last
+# turn had in hand. Proposal payloads carry those ids, so they get the
+# most room; a script's own printout gets a clip.
+_STEPS_CAP = 1_200
+_STEP_ARGS_CAP = 400
+_STEP_RESULT_CAP = 120
+# A script's whole entry, so lookups can never crowd the proposal after
+# them out of the cap: three of them once cut a payload mid-word
+# ("replaces": "With Vanes", 2026-09-23).
+_STEP_SCRIPT_CAP = 240
+
+
+def steps_line(trace: list[dict[str, Any]]) -> str:
+    """One capped line saying what each tool call of a turn did."""
+    parts: list[str] = []
+    for entry in trace:
+        tool = entry.get("tool", "?")
+        if "code" in entry:
+            called = ", ".join(
+                f"{n.get('tool')}({(n.get('args') or '')[:60]})"
+                for n in entry.get("nested") or []
+            )
+            first = json.loads(call_args_preview({"code": entry["code"]}) or "{}")
+            said = f"run_code[{called or first.get('code', '')}]"
+            if entry.get("result"):
+                said += f" -> {entry['result'][:_STEP_RESULT_CAP]}"
+            said = said[:_STEP_SCRIPT_CAP]
+        else:
+            said = f"{tool}({(entry.get('args') or '')[:_STEP_ARGS_CAP]})"
+            marker = entry.get("component")
+            if isinstance(marker, dict):
+                card = marker.get("batch_id") or marker.get("pending_change_id")
+                said += f" -> card {card}"
+        parts.append(said)
+    return "; ".join(parts)[:_STEPS_CAP]

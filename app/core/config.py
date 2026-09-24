@@ -184,6 +184,7 @@ class Settings(
     SESSION_COOKIE_SECURE: bool | None = None
 
     # Redis settings for arq background tasks
+    BRAVE_SEARCH_API_KEY: str | None = None  # app/core/search.py; unset = off
     REDIS_URL: str = "redis://redis:6379"  # Docker service name by default
     REDIS_URL_LOCAL: str | None = None  # Manual override for local CLI usage
     # Host publish port chosen by `make serve` (loaded from .env.ports).
@@ -510,8 +511,7 @@ def get_available_queues() -> list[str]:
     try:
         from app.components.worker.registry import discover_worker_queues
 
-        queues: list[str] = discover_worker_queues()
-        return queues
+        return list(discover_worker_queues())
     except ImportError:
         # Worker components not available
         return []

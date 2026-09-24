@@ -25,6 +25,7 @@ from app.components.web_frontend.rendering import (
     or_404,
     render,
     where_from,
+    with_toast,
 )
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
@@ -129,6 +130,26 @@ async def edit_party(request: Request, party_id: int) -> Response:
     if party is None:
         return _form(request, errors=["They are gone."], status_code=404)
     return _form(request, errors=[], party=party)
+
+
+@router.post("/{party_id:int}/look-up", include_in_schema=False)
+async def look_up(request: Request, party_id: int) -> Response:
+    """What their paper and the web say, as one card - opened right here.
+
+    The card comes to the reader rather than waiting in Review to be
+    chased down (2026-09-24). Nothing found is a 204 and a toast: there
+    is nothing to decide, so no dialog opens.
+    """
+    from app.services.matters.lookup import propose_look_up
+
+    async with get_async_session() as db:
+        party = or_404(await PartyService(db).get(party_id))
+    card = await propose_look_up(get_async_session, party_id)
+    if card is None:
+        return with_toast(
+            Response(status_code=204), f"Nothing new found for {party.name}.", "info"
+        )
+    return dialog(request, "partials/contacts/looked_up.html", party=party, card=card)
 
 
 @router.post("/new", include_in_schema=False)
