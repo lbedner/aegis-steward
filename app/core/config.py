@@ -6,7 +6,7 @@ This module centralizes application settings, allowing them to be loaded
 from environment variables for easy configuration in different environments.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -63,12 +63,52 @@ class Settings(
     # Port for the web server
     PORT: int = 8000
 
+    # The host port compose actually published. ``make serve`` shifts it
+    # when 8000 is taken and writes the choice to ``.env.ports``; the
+    # container still listens on PORT. Anything running on the host
+    # (every CLI command that calls this app's API) needs this one, not
+    # PORT. None means nothing shifted it.
+    WEBSERVER_HOST_PORT: int | None = None
+
+    # Where this app's own CLI reaches its API. Left empty it follows the
+    # published port, so a project served anywhere needs no extra
+    # configuration; set it explicitly for a container or a tunnel.
+    API_BASE_URL: str = ""
+
+    @property
+    def is_docker(self) -> bool:
+        """Detect if running inside Docker container."""
+        import os
+
+        return os.path.exists("/.dockerenv") or bool(os.getenv("DOCKER_CONTAINER"))
+
+    @model_validator(mode="after")
+    def _default_api_base_url(self) -> Settings:
+        """Point the CLI at wherever this app is actually reachable."""
+        if not self.API_BASE_URL:
+            # The published host port is the host's business: .env.ports
+            # carries it into the container, naming a port nothing serves.
+            host_port = None if self.is_docker else self.WEBSERVER_HOST_PORT
+            self.API_BASE_URL = f"http://localhost:{host_port or self.PORT}"
+        return self
+
     # Development settings
     AUTO_RELOAD: bool = False
 
+    # ASGI server. `make serve ENGINE=granian` sets this for one run;
+    # deployments set it in the env file like any other deploy setting.
+    WEBSERVER_ENGINE: Literal["uvicorn", "granian"] = "uvicorn"
+
+    # Event loop, a separate axis from the engine. "auto" resolves to
+    # uvloop when installed; it never resolves to rloop on its own.
+    WEBSERVER_LOOP: Literal["auto", "asyncio", "uvloop", "rloop", "zuvloop"] = "auto"
+
     # Docker settings (used by docker-compose)
-    AEGIS_STACK_TAG: str = "aegis-stack:latest"
+    AEGIS_STACK_TAG: str = "aegis-steward:latest"
     AEGIS_STACK_VERSION: str = "dev"
+    # Deployed commit, stamped by ``aegis deploy``; cached payloads are
+    # namespaced by it. See ``services/insights/constants.py``.
+    BUILD_ID: str = "dev"
 
     # Health monitoring and alerting
     # Health checks are available via API endpoints (/health/)
@@ -96,6 +136,15 @@ class Settings(
     # Which backend get_storage() builds: the storage component flips this
     # to a bucket; everything else keeps the directory above.
     STORAGE_BACKEND: str = "filesystem"
+
+    # Where the scheduled backup job writes dumps. A relative path resolves
+    # against the process cwd, which inside a container is the writable
+    # layer - fine for local dev, but there the dumps are destroyed by the
+    # next `up --force-recreate`, i.e. every deploy. The compose files point
+    # the scheduler at a mounted absolute path so prod dumps outlive the
+    # container; restore from the scheduler, which is where they are visible.
+    DATABASE_BACKUP_DIR: str = "backups"
+    DATABASE_BACKUP_KEEP: int = 7
 
     # Flet frontend settings
     FLET_ASSETS_DIR: str = "assets"  # Directory for Flet static assets (images, etc.)
@@ -371,13 +420,6 @@ class Settings(
 
     # Scheduler settings
     SCHEDULER_TIMEZONE: str = "UTC"  # IANA timezone name; cron triggers inherit this
-
-    @property
-    def is_docker(self) -> bool:
-        """Detect if running inside Docker container."""
-        import os
-
-        return os.path.exists("/.dockerenv") or bool(os.getenv("DOCKER_CONTAINER"))
 
     @staticmethod
     def _localhost_url(

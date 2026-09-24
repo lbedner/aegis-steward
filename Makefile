@@ -20,7 +20,7 @@ build-static: ## Compile Tailwind CSS and fingerprint assets into static/dist
 	@npm run build
 	@uv run python -m app.components.web_frontend.build
 
-serve: build ## Run all services (auto-selects a free host port if the default is taken)
+serve: build ## Run all services (ENGINE=granian swaps the ASGI server for this run)
 	@uv run python scripts/dev_tasks.py serve
 
 serve-bg: ## Run all services in background (auto-selects a free host port if the default is taken)
@@ -125,6 +125,9 @@ health-json: ## System health as JSON
 health-probe: ## Health probe (exits 1 if unhealthy)
 	@uv run aegis-steward health probe
 
+bench-engines: ## Compare ASGI engines head to head (ARGS="--path /health/ -n 3000")
+	@uv run aegis-steward bench engines $(ARGS)
+
 test: ## Run tests locally
 	@echo "Running tests..."
 	@uv run pytest
@@ -165,6 +168,14 @@ typecheck: ## Run type checking with ty
 	@echo "Running type checking..."
 	@uv run ty check
 
+check-queries: ## Fail on N+1 queries not already in .queryspy-baseline.json
+	@echo "Checking for N+1 queries..."
+	@uv run pytest --queryspy-strict --queryspy-baseline .queryspy-baseline.json
+
+check-queries-baseline: ## Rewrite .queryspy-baseline.json from the current suite
+	@# -n 0: under xdist the baseline is written by the controller, which runs no tests, so it comes out empty.
+	@uv run pytest -n 0 --queryspy-strict --queryspy-baseline .queryspy-baseline.json --queryspy-baseline-update
+
 check: lint typecheck test ## Run all code quality checks
 	@echo "All checks completed successfully!"
 
@@ -174,7 +185,7 @@ check: lint typecheck test ## Run all code quality checks
 
 install: ## Install/sync dependencies with uv
 	@echo "Installing dependencies..."
-	@uv sync --all-extras
+	@uv sync
 
 deps-update: ## Update dependencies
 	@echo "Updating dependencies..."

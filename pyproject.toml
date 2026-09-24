@@ -13,6 +13,13 @@ dependencies = [
     "fastapi==0.116.1",
     "flet[all]==0.28.3",
     "uvicorn==0.35.0",
+    # Alternate ASGI server, selected per run by `make serve ENGINE=granian`.
+    # Shipped rather than made optional so the switch needs no install step.
+    "granian==2.8.3",
+    # Zig event loop for uvicorn, opt-in via WEBSERVER_LOOP=zuvloop. The
+    # marker is the gate: wheels start at 3.14, so older environments
+    # resolve without it rather than failing to install.
+    "zuvloop>=0.0.17; python_version >= '3.14'",
     "structlog==25.4.0",
     "pydantic-settings>=2.12.0",
     "typer==0.16.0",
@@ -67,23 +74,6 @@ dependencies = [
 aegis-steward = "app.cli.main:main"
 
 [project.optional-dependencies]
-dev = [
-    "cssselect>=1.5.0",
-    "lxml>=6.1.3",
-    "pytest>=9.0.3",
-    "pytest-asyncio>=1.1.0",
-    "pytest-xdist>=3.6.1",
-    "ruff==0.12.7",
-    "ty==0.0.79",
-    "types-psutil==7.0.0.20250801",
-    "pre-commit==4.2.0",
-    "pip-audit==2.9.0",
-    # Cross-platform task runner; `uv run poe <target>` mirrors `make <target>`
-    # for Windows, where `make` isn't a native binary.
-    "poethepoet==0.48.0",
-    # Auto-reload for workers; asset rebuilds for the web frontend watcher
-    "watchdog==4.0.2",
-]
 docs = [
     "mkdocs==1.6.1",
     "mkdocs-material==9.6.16",
@@ -376,13 +366,22 @@ cmd = "npx --yes @biomejs/biome@2.5.1 format --write app/components/web_frontend
 help = "Run type checking with ty"
 cmd = "uv run ty check"
 
+[tool.poe.tasks.check-queries]
+help = "Fail on N+1 queries not already in .queryspy-baseline.json"
+cmd = "uv run pytest --queryspy-strict --queryspy-baseline .queryspy-baseline.json"
+
+[tool.poe.tasks.check-queries-baseline]
+help = "Rewrite .queryspy-baseline.json from the current suite"
+# -n 0: under xdist the controller writes the baseline and runs no tests, so it comes out empty.
+cmd = "uv run pytest -n 0 --queryspy-strict --queryspy-baseline .queryspy-baseline.json --queryspy-baseline-update"
+
 [tool.poe.tasks.check]
 help = "Run all code quality checks"
 sequence = ["lint", "typecheck", "test", { cmd = 'echo "All checks completed successfully!"' }]
 
 [tool.poe.tasks.install]
 help = "Install/sync dependencies with uv"
-cmd = "uv sync --all-extras"
+cmd = "uv sync"
 
 [tool.poe.tasks.deps-update]
 help = "Update dependencies"
@@ -433,7 +432,37 @@ cmd = "uv run python -m arq app.components.worker.queues.system.WorkerSettings -
 help = "Show current system status"
 script = "scripts.dev_tasks:status"
 
+# Dev dependencies live here, not in an extra: ``uv sync`` installs this
+# group by default and ``uv add --dev`` writes to it, so the default path
+# is the correct one. Splitting them across both is how adding a single
+# test dependency used to uninstall pytest.
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.1.0",
+    "pytest-xdist>=3.6.1",
+    "ruff==0.12.7",
+    "ty==0.0.79",
+    "types-psutil==7.0.0.20250801",
+    "pre-commit==4.2.0",
+    "pip-audit==2.9.0",
+    # Cross-platform task runner; `uv run poe <target>` mirrors `make <target>`
+    # for Windows, where `make` isn't a native binary.
+    "poethepoet==0.48.0",
+    # DOM assertions for the web test kit (tests/web/dom.py)
+    "lxml>=6.1.3",
+    "cssselect>=1.5.0",
+    # N+1 and query-budget detection for the test suite (make check-queries).
+    # Built on SQLAlchemy 2.0's do_orm_execute, so it needs a database stack.
+    "queryspy>=0.4.1",
+    # Auto-reload for workers; asset rebuilds for the web frontend watcher
+    "watchdog==4.0.2",
+]
+docs = [
+    "mkdocs==1.6.1",
+    "mkdocs-material==9.6.16",
+    "mkdocstrings[python]==0.30.0",
+    "mkdocs-gen-files==0.5.0",
+    "pymdown-extensions==10.16.1",
 ]

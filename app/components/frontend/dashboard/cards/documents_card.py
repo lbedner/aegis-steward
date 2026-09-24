@@ -8,6 +8,7 @@ from app.services.system.models import ComponentStatus
 from app.services.system.ui import get_component_subtitle
 
 from .card_container import CardContainer
+from .card_metadata import metadata_number
 from .card_utils import (
     create_header_row,
     create_metric_container,
@@ -23,9 +24,9 @@ class DocumentsCard:
         self.metadata = component_data.metadata or {}
 
     def _create_metrics_section(self) -> ft.Container:
-        total = int(self.metadata.get("total", 0) or 0)
-        this_month = int(self.metadata.get("this_month", 0) or 0)
-        stored = int(self.metadata.get("bytes", 0) or 0)
+        total = int(metadata_number(self.metadata, "total"))
+        this_month = int(metadata_number(self.metadata, "this_month"))
+        stored = int(metadata_number(self.metadata, "bytes"))
         return ft.Container(
             content=ft.Row(
                 [

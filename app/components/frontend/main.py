@@ -48,8 +48,9 @@ from .dashboard.cards import (
 from .dashboard.cards.card_utils import create_health_status_indicator
 from .dashboard.diagram import DiagramView
 from .dashboard.status_overview import StatusOverviewPanel
+from .dashboard.system_dashboard import SystemDashboard
 from .theme import AegisTheme as Theme
-from .theme import ThemeManager
+from .theme_manager import ThemeManager
 
 # Constants for health system grouping
 COMPONENTS_GROUP_KEY = "components"
@@ -122,269 +123,6 @@ def _convert_component(comp_data: dict[str, Any]) -> ComponentStatus:
         )
 
 
-class SystemDashboard:
-    """
-    Professional system dashboard with safe component references.
-
-    Eliminates IndexError crashes by storing direct references to dashboard
-    components instead of using brittle index-based access patterns.
-
-    Includes robust page disconnection handling to prevent crashes when
-    users navigate away from the dashboard during auto-refresh cycles.
-
-    Note: Uses defensive programming around Flet's private APIs for
-    connection checking. This may need updates with future Flet versions.
-    """
-
-    def __init__(self):
-        # Direct component references - no more brittle indexing!
-        self._health_indicator_container: ft.Container | None = None
-        self._cards_container: ft.Container | None = None
-        self._status_overview_panel: StatusOverviewPanel | None = None
-        self._activity_feed: ActivityFeed | None = None
-        self._diagram_view: DiagramView | None = None
-        self._theme_manager: ThemeManager | None = None
-        self._page: ft.Page | None = None
-
-    def initialize_components(
-        self,
-        health_indicator_container: ft.Container,
-        cards_container: ft.Container,
-        status_overview_panel: StatusOverviewPanel,
-        activity_feed: ActivityFeed,
-        diagram_view: DiagramView,
-        theme_manager: ThemeManager,
-        page: ft.Page,
-    ) -> None:
-        """Initialize dashboard with component references."""
-        self._health_indicator_container = health_indicator_container
-        self._cards_container = cards_container
-        self._status_overview_panel = status_overview_panel
-        self._activity_feed = activity_feed
-        self._diagram_view = diagram_view
-        self._theme_manager = theme_manager
-        self._page = page
-
-        # Log Flet version for debugging connection check compatibility
-        try:
-            from importlib.metadata import version
-
-            flet_version = version("flet")
-            logger.debug(f"Initializing dashboard with Flet version: {flet_version}")
-        except Exception:
-            logger.debug("Flet version not available for compatibility logging")
-
-    def _is_page_connected(self) -> bool:
-        """
-        Check if the page is still connected.
-
-        Note: This uses Flet's private attribute access as a last resort.
-        This is necessary because Flet doesn't provide a public API for
-        connection status checking. While brittle, this prevents crashes
-        when users navigate away from the dashboard.
-
-        Returns False on any error to fail safely.
-        """
-        try:
-            if self._page is None:
-                return False
-
-            # Attempt to access Flet's private connection attribute
-            # This may break with future Flet versions, but will fail safely
-            if not hasattr(self._page, "_Page__conn"):
-                logger.debug(
-                    "Flet page connection attribute not found - assuming disconnected"
-                )
-                return False
-
-            return self._page._Page__conn is not None
-
-        except (AttributeError, Exception) as e:
-            # If anything goes wrong with connection checking, assume disconnected
-            # This provides defensive behavior against Flet internal changes
-            logger.debug(f"Page connection check failed, assuming disconnected: {e}")
-            return False
-
-    async def update_health_status(
-        self,
-        healthy_count: int,
-        total_count: int,
-        worst_status: ComponentStatusType | None = None,
-    ) -> None:
-        """Safely update health status indicator."""
-        if not self._is_page_connected():
-            logger.debug("Page disconnected, skipping health status update")
-            return
-
-        if not self._health_indicator_container:
-            logger.warning("Health indicator container not initialized")
-            return
-
-        try:
-            new_health_indicator = create_health_status_indicator(
-                healthy_count, total_count, worst_status
-            )
-            self._health_indicator_container.content = new_health_indicator
-            # No .update() call here - batched with
-            # page.update() in refresh_dashboard
-        except PageDisconnectedException:
-            logger.debug("Page disconnected during health status update")
-            return
-        except Exception as e:
-            logger.error(
-                f"Failed to update health status: {e}",
-                exc_info=True,
-                extra={
-                    "error_type": type(e).__name__,
-                    "function": "update_health_status",
-                    "healthy_count": healthy_count,
-                    "total_count": total_count,
-                },
-            )
-
-    async def update_component_cards(
-        self, components: dict[str, ComponentStatus], card_creator_fn: Callable
-    ) -> None:
-        """Safely update component cards."""
-        if not self._is_page_connected():
-            logger.debug("Page disconnected, skipping component cards update")
-            return
-
-        if not self._cards_container or not self._cards_container.content:
-            logger.warning("Cards container not initialized")
-            return
-
-        try:
-            # Clear existing cards
-            self._cards_container.content.controls.clear()
-
-            # Create cards for all available components with responsive sizing
-            for component_name, component_data in components.items():
-                card = card_creator_fn(component_name, component_data)
-
-                # Skip empty cards (e.g., frontend merged into ServerCard)
-                if not card.content:
-                    continue
-
-                if (
-                    isinstance(card.content, ft.Text)
-                    and "Unknown component" in card.content.value
-                ):
-                    continue  # Skip unknown components
-
-                # All cards use uniform 1/3 width (3-column grid)
-                card.col = {"xs": 12, "sm": 6, "md": 4, "lg": 4, "xl": 4}
-                self._cards_container.content.controls.append(card)
-
-            # No .update() call here - batched with
-            # page.update() in refresh_dashboard
-        except PageDisconnectedException:
-            logger.debug("Page disconnected during component cards update")
-            return
-        except Exception as e:
-            logger.error(
-                f"Failed to update component cards: {e}",
-                exc_info=True,
-                extra={
-                    "error_type": type(e).__name__,
-                    "function": "update_component_cards",
-                    "component_count": len(components),
-                },
-            )
-
-    async def update_status_overview(
-        self, components: dict[str, ComponentStatus]
-    ) -> None:
-        """Safely update the status overview panel and activity feed."""
-        if not self._is_page_connected():
-            logger.debug("Page disconnected, skipping status overview update")
-            return
-
-        if not self._status_overview_panel:
-            logger.debug("Status overview panel not initialized")
-            return
-
-        try:
-            self._status_overview_panel.update_components(components)
-
-            # Also refresh the activity feed
-            if self._activity_feed:
-                self._activity_feed.refresh()
-
-            # No .update() calls here - batched with
-            # page.update() in refresh_dashboard
-        except PageDisconnectedException:
-            logger.debug("Page disconnected during status overview update")
-            return
-        except Exception as e:
-            logger.error(
-                f"Failed to update status overview: {e}",
-                exc_info=True,
-                extra={
-                    "error_type": type(e).__name__,
-                    "function": "update_status_overview",
-                    "component_count": len(components),
-                },
-            )
-
-    async def update_diagram_view(self, components: dict[str, ComponentStatus]) -> None:
-        """Safely update the diagram view."""
-        if not self._is_page_connected():
-            logger.debug("Page disconnected, skipping diagram view update")
-            return
-
-        if not self._diagram_view:
-            logger.debug("Diagram view not initialized")
-            return
-
-        try:
-            self._diagram_view.update_components(components)
-            # No .update() calls here - batched with
-            # page.update() in refresh_dashboard
-        except PageDisconnectedException:
-            logger.debug("Page disconnected during diagram view update")
-            return
-        except Exception as e:
-            logger.error(
-                f"Failed to update diagram view: {e}",
-                exc_info=True,
-                extra={
-                    "error_type": type(e).__name__,
-                    "function": "update_diagram_view",
-                    "component_count": len(components),
-                },
-            )
-
-    async def show_error_status(self) -> None:
-        """Safely show error status in health indicator."""
-        if not self._is_page_connected():
-            logger.debug("Page disconnected, skipping error status display")
-            return
-
-        if not self._health_indicator_container:
-            logger.warning(
-                "Health indicator container not initialized for error display"
-            )
-            return
-
-        try:
-            error_indicator = create_health_status_indicator(0, 1)
-            self._health_indicator_container.content = error_indicator
-            # Check connection again before updating container
-            if self._is_page_connected():
-                self._health_indicator_container.update()
-        except PageDisconnectedException:
-            logger.debug("Page disconnected during error status display")
-            return
-        except Exception as e:
-            logger.error(
-                f"Failed to show error status: {e}",
-                exc_info=True,
-                extra={
-                    "error_type": type(e).__name__,
-                    "function": "show_error_status",
-                },
-            )
 
 
 async def setup_dashboard(view: BaseView) -> None:
@@ -751,11 +489,14 @@ async def setup_dashboard(view: BaseView) -> None:
     async def refresh_dashboard() -> None:
         """Refresh the stunning marketing-grade dashboard."""
         try:
-            # Single /health/ endpoint for all health data. APIClient
+            # /health/ is a liveness probe and contains no component tree.
+            # Use the detailed endpoint to populate the dashboard. APIClient
             # returns parsed JSON or ``None`` on any error (logged centrally).
-            data = await api_client.get("/health/")
+            data = await api_client.get("/health/detailed")
             if data is None:
-                logger.debug("refresh_dashboard.skipping: /health/ returned None")
+                logger.debug(
+                    "refresh_dashboard.skipping: /health/detailed returned None"
+                )
                 return
             assert isinstance(data, dict), f"unexpected /health/ shape: {type(data)}"
 
@@ -846,6 +587,7 @@ async def setup_dashboard(view: BaseView) -> None:
     if page.data is None:
         page.data = {}
     page.data["refresh_dashboard"] = refresh_dashboard
+    page.data["update_component"] = dashboard.update_component
 
     # Consecutive disconnect checks before declaring page truly dead.
     # Flet sessions reconnect within a few seconds — this grace period

@@ -31,6 +31,12 @@ from app.services.finance.adapters.importers.base import (
     assign_import_hashes,
     infer_account_kind,
 )
+from app.services.finance.adapters.importers.base import (
+    CATEGORY_KEPT_NOTE as CATEGORY_KEPT_NOTE,
+)
+from app.services.finance.adapters.importers.base import (
+    IGNORED_REASONS as IGNORED_REASONS,
+)
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.utils import current_date
 

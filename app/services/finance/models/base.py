@@ -39,6 +39,9 @@ _SCHEMA: str | None = None
 # is a redundant-condition diagnostic on SQLite stacks.
 _FK = ""
 
+# Finance can exist without auth; owner IDs remain plain nullable integers.
+_OWNER_FK: str | None = None
+
 
 def _bigint(name: str, *, nullable: bool = True, default: Any = None) -> Any:
     """A BigInteger money / scaled-integer column.

@@ -1,6 +1,6 @@
 """Agent-tool link table."""
 
-from sqlalchemy import Column, ForeignKey, Integer
+from sqlalchemy import Column, ForeignKey, Integer, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -13,6 +13,10 @@ class AgentTool(SQLModel, table=True):
     """
 
     __tablename__ = "agent_tool"
+    # One link per (agent, tool); the generated schema always had this index.
+    __table_args__ = (
+        UniqueConstraint("agent_id", "tool_id", name="uq_agent_tool_pair"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     agent_id: int = Field(

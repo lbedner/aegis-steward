@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import inspect
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -233,7 +234,8 @@ class TestAgentGrantsReachTheApiChatPath:
             )
             await service.chat("hello")
 
-            assert captured["tools"] == [lookup]
+            assert len(captured["tools"]) == 1
+            assert inspect.unwrap(captured["tools"][0]) is lookup
             by_type = {
                 base.__name__: cap
                 for cap in captured["capabilities"]

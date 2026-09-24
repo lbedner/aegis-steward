@@ -21,6 +21,7 @@ x-app: &app
     # Dockerfile's ENV (PORT, STORAGE_ROOT), not here.
     - DOCKER_CONTAINER=1
     - PORT=${PORT:-8000}
+    - WEBSERVER_ENGINE=${WEBSERVER_ENGINE:-uvicorn}
   volumes:
     # Every process that runs the app shares one object store. Compose
     # merges volume lists across override files by target path, so the
@@ -39,6 +40,11 @@ x-app: &app
     # The cost is deliberate: the host can no longer open this file.
     # Anything that talks to the database runs `docker compose exec`.
     - aegis-data:/data/db
+    # Where the scheduler's backup job writes dumps. Named, so they survive
+    # container recreation and the deploy's rsync. It lives here, not on the
+    # scheduler: a service-level volumes list REPLACES this one, which once
+    # left the scheduler on its own empty database.
+    - backup-data:/var/backups/app
   labels:
     logging: "aegis-stack"
 
@@ -59,6 +65,7 @@ services:
     environment:
       # Docker container marker
       - DOCKER_CONTAINER=1
+      - WEBSERVER_ENGINE=${WEBSERVER_ENGINE:-uvicorn}
       # Redis connection for health checks
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
     healthcheck:
@@ -88,6 +95,12 @@ services:
     <<: *app
     command:
       - scheduler
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.components.scheduler.heartbeat"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       redis:
         condition: service_healthy
@@ -95,6 +108,11 @@ services:
       # Docker container marker
       - DOCKER_CONTAINER=1
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      # The scheduled backup job writes here. Without the volume below the
+      # dumps land in the container's writable layer and are destroyed by
+      # the next `up --force-recreate` - i.e. every deploy - so they are
+      # not restorable and only cost disk.
+      - DATABASE_BACKUP_DIR=/var/backups/app
     restart: unless-stopped
     deploy:
       resources:
@@ -112,6 +130,8 @@ services:
     command:
       - worker
       - load_test
+    healthcheck:
+      disable: true
     depends_on:
       redis:
         condition: service_healthy
@@ -146,6 +166,8 @@ services:
     command:
       - worker
       - system
+    healthcheck:
+      disable: true
     depends_on:
       redis:
         condition: service_healthy
@@ -168,8 +190,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
-          cpus: '1.0'
+          # Not a maintenance worker once finance or documents are in the
+          # stack: finance_import_task and extract_document_task both land
+          # on this queue and are the heaviest jobs the app has. An
+          # 18,618-row import measured 253 MiB in its planning step alone -
+          # a pure read, before a single write - so 256M killed it twelve
+          # seconds in, and restart + WORKER_MAX_TRIES made that a retry
+          # loop. 0.25 CPU made it slow as well as dead.
+          memory: ${SYSTEM_WORKER_MEMORY:-1G}
+          cpus: '${SYSTEM_WORKER_CPUS:-1.0}'
     profiles:
       - dev
       - prod
@@ -209,3 +238,4 @@ services:
 volumes:
   aegis-data:
   storage-data:
+  backup-data:

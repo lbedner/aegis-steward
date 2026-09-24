@@ -11,6 +11,7 @@ from datetime import date, timedelta
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.time import utcnow
 from app.services.finance.domains.ledger import queries, transactions
 from app.services.finance.models import (
     FinanceCategory,
@@ -25,7 +26,6 @@ from app.services.finance.schemas import (
 from app.services.finance.utils import (
     current_date,
     transaction_payee_key,
-    utcnow,
 )
 
 

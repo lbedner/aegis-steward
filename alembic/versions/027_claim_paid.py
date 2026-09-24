@@ -25,7 +25,9 @@ def upgrade() -> None:
         "insurance_claim",
         sa.Column("paid_transaction_id", sa.Integer(), nullable=True),
     )
-    op.create_index("ix_insurance_claim_paid", "insurance_claim", ["paid_transaction_id"])
+    op.create_index(
+        "ix_insurance_claim_paid", "insurance_claim", ["paid_transaction_id"]
+    )
 
 
 def downgrade() -> None:

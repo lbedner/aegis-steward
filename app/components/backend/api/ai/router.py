@@ -35,6 +35,21 @@ from app.services.ai.service import (
     ProviderError,
 )
 
+# Subclasses before AIServiceError, their base.
+_STREAM_ERROR_LABELS: tuple[tuple[type[Exception], str], ...] = (
+    (ProviderError, "AI provider error"),
+    (ConversationError, "Conversation error"),
+    (AIServiceError, "AI service error"),
+)
+
+
+def _stream_error_label(error: Exception) -> str:
+    """Name the kind of failure without exposing its text."""
+    for kind, label in _STREAM_ERROR_LABELS:
+        if isinstance(error, kind):
+            return label
+    return "Unexpected error"
+
 
 async def sync_active_model() -> None:
     """Adopt the stored model selection before serving a request.
@@ -270,17 +285,10 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             complete_data = {"status": "completed", "message": "Stream finished"}
             yield f"event: complete\ndata: {json.dumps(complete_data)}\n\n"
 
-        except AIServiceError as e:
-            error_data = {"error": "AI service error", "detail": str(e)}
-            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
-        except ProviderError as e:
-            error_data = {"error": "AI provider error", "detail": str(e)}
-            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
-        except ConversationError as e:
-            error_data = {"error": "Conversation error", "detail": str(e)}
-            yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
         except Exception as e:
-            error_data = {"error": "Unexpected error", "detail": str(e)}
+            # The exception text stays in the log: it can carry internals.
+            logger.exception("Chat stream failed")
+            error_data = {"error": _stream_error_label(e)}
             yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
 
     # Create streaming response with proper SSE headers
@@ -320,12 +328,9 @@ async def ai_health() -> dict[str, Any]:
             "validation_errors": validation_errors,
         }
 
-    except Exception as e:
-        return {
-            "service": "ai",
-            "status": "error",
-            "error": str(e),
-        }
+    except Exception:
+        logger.exception("AI health check failed")
+        return {"service": "ai", "status": "error"}
 
 
 @router.get("/version")

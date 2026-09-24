@@ -29,7 +29,9 @@ class Conversation(SQLModel, table=True):
     user_id: str = Field(index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    meta_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    meta_data: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
 
     # Relationship to messages
     messages: list[ConversationMessage] = Relationship(back_populates="conversation")
@@ -49,7 +51,9 @@ class ConversationMessage(SQLModel, table=True):
     role: str = Field(index=False)  # user, assistant, system
     content: str = Field(default="")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
-    meta_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    meta_data: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
 
     # Relationship to conversation
     conversation: Conversation = Relationship(back_populates="messages")

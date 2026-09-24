@@ -13,14 +13,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.adapters.importers.base import ParsedTransaction
 from app.services.finance.adapters.importers.imports import (
-    ImportPlan,
     _csv_profiles,
     _detect_csv,
     _extension,
     _parse_by_extension,
     _prior_batch,
-    plan_transactions,
 )
+from app.services.finance.adapters.importers.plan import ImportPlan, plan_transactions
 from app.services.finance.models import FinanceAccount
 
 

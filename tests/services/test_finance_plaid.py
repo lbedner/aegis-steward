@@ -900,14 +900,17 @@ class TestPlaidPendingAndMutations:
 
     @pytest.mark.asyncio
     async def test_modified_preserves_user_category(
-        self, async_db_session: AsyncSession
+        self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         conn = await self._connect(async_db_session)
         client = FakePlaidClient(_ACCOUNTS, _TXNS, always=True)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         rows = {r.external_id: r for r in await self._plaid_rows(async_db_session)}
         mcd = rows["txn_mcd"]
-        mcd.category_id = 4242
+        # A real category: the FK to finance_category is enforced, as it always
+        # was in a generated database; a made-up id never survived there.
+        user_pick = await svc.get_or_create_pfc_category("USER_PICK")
+        mcd.category_id = user_pick.id
         mcd.category_source = "user"
         mcd.is_user_categorized = True
         async_db_session.add(mcd)
@@ -917,7 +920,7 @@ class TestPlaidPendingAndMutations:
         # user's category wins over the provider's.
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         rows = {r.external_id: r for r in await self._plaid_rows(async_db_session)}
-        assert rows["txn_mcd"].category_id == 4242
+        assert rows["txn_mcd"].category_id == user_pick.id
         assert rows["txn_mcd"].category_source == "user"
 
     @pytest.mark.asyncio

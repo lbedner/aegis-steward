@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
-from .timestamps import utcnow_naive
+from app.core.time import utcnow
 
 
 class AgentUserMemory(SQLModel, table=True):
@@ -22,6 +22,8 @@ class AgentUserMemory(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     user_id: str = Field(unique=True, index=True)
-    memory: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
-    created_at: datetime = Field(default_factory=utcnow_naive)
-    updated_at: datetime = Field(default_factory=utcnow_naive)
+    memory: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
+    )
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)

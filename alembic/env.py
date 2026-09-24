@@ -9,9 +9,16 @@ proper metadata detection for autogenerate functionality.
 import sys
 from pathlib import Path
 
-from sqlalchemy import engine_from_config, pool
+import sqlmodel.sql.sqltypes
+from sqlalchemy import DateTime, engine_from_config, pool
 
 from alembic import context
+
+# Revisions generated under sqlmodel 0.0.45+ call its UTCDateTime, and the
+# project pins below 0.0.45, which has no such name. Keep those revisions
+# loadable with the column type they created.
+if not hasattr(sqlmodel.sql.sqltypes, "UTCDateTime"):
+    setattr(sqlmodel.sql.sqltypes, "UTCDateTime", lambda: DateTime(timezone=True))  # noqa: B010
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
@@ -20,56 +27,9 @@ sys.path.insert(0, str(project_root))
 # Import SQLModel and models to register metadata
 from sqlmodel import SQLModel  # noqa: E402
 from app.core.config import settings  # noqa: E402
+from app.core.model_registry import import_all_models  # noqa: E402
 
-
-from app.models.conversation import Conversation, ConversationMessage  # noqa: E402,F401
-
-
-from app.services.finance.models import (  # noqa: E402,F401
-    FinanceAccount,
-    FinanceAttachment,
-    FinanceBalanceSnapshot,
-    FinanceBudget,
-    FinanceBudgetCategory,
-    FinanceCategory,
-    FinanceCategoryAlias,
-    FinanceConnection,
-    FinanceCurrency,
-    FinanceFxRate,
-    FinanceHolding,
-    FinanceImportBatch,
-    FinanceImportBatchRow,
-    FinanceImportProfile,
-    FinanceInsight,
-    FinanceInstitution,
-    FinanceLiabilityDetail,
-    FinanceMerchant,
-    FinanceNetWorthSnapshot,
-    FinanceRecurringStream,
-    FinanceRule,
-    FinanceSecurity,
-    FinanceSecurityPrice,
-    FinanceSpendingBaseline,
-    FinanceTag,
-    FinanceTrade,
-    FinanceTransaction,
-    FinanceTransactionChangelog,
-    FinanceTransactionSplit,
-    FinanceTransactionTag,
-    FinanceTransfer,
-    FinanceValuation,
-    FinanceWebhookEvent,
-)
-
-
-from app.services.insurance.models import InsuranceClaim, InsurancePolicy  # noqa: E402,F401
-from app.services.mail.models import (  # noqa: E402,F401
-    MailAttachment,
-    MailBatch,
-    MailMessage,
-)
-from app.services.scheduler.models import JobExecution  # noqa: E402,F401
-
+import_all_models()
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -120,41 +80,53 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode.
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
+    ``app.cli.migrate_gen`` hands in its own connection (a scratch database
+    it replays revisions onto) and extra ``configure`` options through
+    ``config.attributes``; every other caller gets an engine from the ini.
     """
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        _run(connection)
+        return
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    with connectable.connect() as conn:
+        _run(conn)
 
-    with connectable.connect() as connection:
-        # Every option goes through one dict, and
-        # ``config.attributes["configure"]`` is the contract callers use to
-        # override them - ``app.cli.migrate_gen`` sets ``include_object``,
-        # ``compare_type`` and ``render_as_batch`` that way, and a caller's
-        # value wins.
-        #
-        # Without this merge the generator's options were silently dropped,
-        # and ``render_as_batch`` with them: autogenerate then emitted
-        # ``ALTER TABLE ... ALTER COLUMN ... DROP NOT NULL``, which SQLite
-        # has no syntax for, so every generated revision was unusable
-        # (found adding auth, 2026-09-20). Assign defaults into ``options``
-        # below, never as a second keyword on ``context.configure`` - that
-        # raises ``TypeError: got multiple values`` the moment a caller
-        # sets the same option.
-        options: dict[str, object] = {
-            "target_metadata": target_metadata,
-            # include_schemas so autogenerate sees tables in non-public
-            # schemas (e.g. the scheduler component's ``scheduler`` schema).
-            "include_schemas": True,
-        }
-        options.update(config.attributes.get("configure", {}))
-        context.configure(connection=connection, **options)
 
-        with context.begin_transaction():
-            context.run_migrations()
+def _run(connection: object) -> None:
+    """Configure the migration context and run the pending revisions.
+
+    Every option goes through one dict. ``config.attributes["configure"]`` is
+    the contract callers use to override these — ``app.cli.migrate_gen`` sets
+    ``include_object``, ``compare_type`` and ``render_as_batch`` through it —
+    and a caller's value wins. Add project defaults by assigning into
+    ``options`` below, never as a second keyword on ``context.configure``:
+    that raises ``TypeError: configure() got multiple values`` the moment a
+    caller sets the same option.
+    """
+    options: dict[str, object] = {
+        "target_metadata": target_metadata,
+        # include_schemas so autogenerate sees tables in non-public
+        # schemas (e.g. the scheduler component's ``scheduler`` schema).
+        "include_schemas": True,
+        # Commit each revision on its own. In one transaction, a failure
+        # in the third revision rolls back the first two that succeeded,
+        # so the database ends with no ``alembic_version`` row and none of
+        # the tables - and the real error surfaces later as missing tables
+        # at runtime, pointing nowhere near the migration that failed.
+        # Per-revision commits stop at the failure with everything before
+        # it applied and recorded, which is also what makes a retry
+        # meaningful.
+        "transaction_per_migration": True,
+    }
+    options.update(config.attributes.get("configure", {}))
+    context.configure(connection=connection, **options)
+    with context.begin_transaction():
+        context.run_migrations()
 
 
 if context.is_offline_mode():

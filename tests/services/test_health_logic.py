@@ -20,7 +20,7 @@ class TestHealthUtilityFunctions:
 
     def test_format_bytes(self) -> None:
         """Test format_bytes utility function."""
-        from app.services.system.health import format_bytes
+        from app.core.formatting import format_bytes
 
         # Test various byte sizes
         assert format_bytes(0) == "0 B"
@@ -181,7 +181,7 @@ class TestSystemStatusWarningPropagation:
                 return_value={"test": "info"},
             ),
         ):
-            system_status = await get_system_status()
+            system_status = await get_system_status(force_refresh=True)
 
             # System should be unhealthy due to unhealthy_service
             assert system_status.overall_healthy is False
@@ -262,7 +262,7 @@ class TestSystemStatusWarningPropagation:
                 return_value={"test": "info"},
             ),
         ):
-            system_status = await get_system_status()
+            system_status = await get_system_status(force_refresh=True)
 
             # System is not healthy because WARNING is not healthy
             assert system_status.overall_healthy is False

@@ -20,7 +20,7 @@ else:
 from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html  # noqa: E402
 from fastapi.openapi.utils import get_openapi  # noqa: E402
-from fastapi.responses import HTMLResponse  # noqa: E402
+from fastapi.responses import HTMLResponse, RedirectResponse  # noqa: E402
 from fastapi.security import HTTPBasic, HTTPBasicCredentials  # noqa: E402
 
 from app.components.backend.hooks import backend_hooks  # noqa: E402
@@ -169,7 +169,12 @@ def create_integrated_app() -> FastAPI:
         max_upload_size=10 * 1024 * 1024,  # matches the finance import cap
         secret_key=settings.SECRET_KEY,
     )
+
     # Mount Flet at /dashboard to avoid intercepting FastAPI routes like /health
+    @app.get("/", include_in_schema=False)
+    async def root_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/dashboard/")
+
     app.mount("/dashboard", flet_app)
     # Splice the paste-capture script into the dashboard page: pasted
     # images post to /api/v1/pastebox, where consumer surfaces (chat's

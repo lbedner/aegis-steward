@@ -10,6 +10,7 @@ import flet as ft
 from app.services.system.models import ComponentStatus
 
 from .card_container import CardContainer
+from .card_metadata import metadata_number, metadata_text
 from .card_utils import (
     create_header_row,
     create_metric_container,
@@ -72,11 +73,11 @@ class AICard:
     def _create_metrics_section(self) -> ft.Container:
         """Create the metrics section with a clean grid layout."""
         # Get real data from metadata
-        provider = self.metadata.get("provider", "Unknown")
-        model = self.metadata.get("model", "Unknown")
-        total_conversations = self.metadata.get("total_conversations", 0)
+        provider = metadata_text(self.metadata, "provider", "Unknown")
+        model = metadata_text(self.metadata, "model", "Unknown")
+        total_conversations = int(metadata_number(self.metadata, "total_conversations"))
         usage_available = self.metadata.get("usage_tracking_available", False)
-        total_cost = self.metadata.get("total_cost", 0.0)
+        total_cost = metadata_number(self.metadata, "total_cost", 0.0)
 
         # Format values for display
         provider_display_names = {"public": "LLM7.io"}

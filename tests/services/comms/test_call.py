@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.comms.call import (
+from app.services.comms.calls import (
     CallConfigurationError,
     get_call_status,
     make_call,
@@ -21,7 +21,7 @@ class TestCallConfiguration:
 
     def test_get_call_status_configured(self) -> None:
         """Test status when fully configured."""
-        with patch("app.services.comms.call.settings") as mock_settings:
+        with patch("app.services.comms.calls.settings") as mock_settings:
             mock_settings.TWILIO_ACCOUNT_SID = "ACtest123"
             mock_settings.TWILIO_AUTH_TOKEN = "auth_token"
             mock_settings.TWILIO_PHONE_NUMBER = "+15551234567"
@@ -35,7 +35,7 @@ class TestCallConfiguration:
 
     def test_get_call_status_not_configured(self) -> None:
         """Test status when not configured."""
-        with patch("app.services.comms.call.settings") as mock_settings:
+        with patch("app.services.comms.calls.settings") as mock_settings:
             mock_settings.TWILIO_ACCOUNT_SID = None
             mock_settings.TWILIO_AUTH_TOKEN = None
             mock_settings.TWILIO_PHONE_NUMBER = None
@@ -46,7 +46,7 @@ class TestCallConfiguration:
 
     def test_validate_call_config_valid(self) -> None:
         """Test validation with valid configuration."""
-        with patch("app.services.comms.call.settings") as mock_settings:
+        with patch("app.services.comms.calls.settings") as mock_settings:
             mock_settings.TWILIO_ACCOUNT_SID = "ACtest123"
             mock_settings.TWILIO_AUTH_TOKEN = "auth_token"
             mock_settings.TWILIO_PHONE_NUMBER = "+15551234567"
@@ -57,7 +57,7 @@ class TestCallConfiguration:
 
     def test_validate_call_config_missing_credentials(self) -> None:
         """Test validation when credentials are missing."""
-        with patch("app.services.comms.call.settings") as mock_settings:
+        with patch("app.services.comms.calls.settings") as mock_settings:
             mock_settings.TWILIO_ACCOUNT_SID = None
             mock_settings.TWILIO_AUTH_TOKEN = None
             mock_settings.TWILIO_PHONE_NUMBER = None
@@ -74,8 +74,8 @@ class TestMakeCall:
     async def test_make_call_success(self) -> None:
         """Test successful call initiation."""
         with (
-            patch("app.services.comms.call.settings") as mock_settings,
-            patch("app.services.comms.call.Client") as mock_client_class,
+            patch("app.services.comms.calls.settings") as mock_settings,
+            patch("app.services.comms.twilio.Client") as mock_client_class,
         ):
             mock_settings.TWILIO_ACCOUNT_SID = "ACtest123"
             mock_settings.TWILIO_AUTH_TOKEN = "auth_token"
@@ -102,8 +102,8 @@ class TestMakeCall:
     async def test_make_call_with_timeout(self) -> None:
         """Test call initiation with custom timeout."""
         with (
-            patch("app.services.comms.call.settings") as mock_settings,
-            patch("app.services.comms.call.Client") as mock_client_class,
+            patch("app.services.comms.calls.settings") as mock_settings,
+            patch("app.services.comms.twilio.Client") as mock_client_class,
         ):
             mock_settings.TWILIO_ACCOUNT_SID = "ACtest123"
             mock_settings.TWILIO_AUTH_TOKEN = "auth_token"
@@ -131,7 +131,7 @@ class TestMakeCall:
     @pytest.mark.asyncio
     async def test_make_call_missing_credentials(self) -> None:
         """Test call fails when credentials are missing."""
-        with patch("app.services.comms.call.settings") as mock_settings:
+        with patch("app.services.comms.calls.settings") as mock_settings:
             mock_settings.TWILIO_ACCOUNT_SID = None
             mock_settings.TWILIO_AUTH_TOKEN = None
             mock_settings.TWILIO_PHONE_NUMBER = "+15551234567"
@@ -150,8 +150,8 @@ class TestMakeCall:
     async def test_make_call_missing_phone_number(self) -> None:
         """Test call fails when phone number is missing."""
         with (
-            patch("app.services.comms.call.settings") as mock_settings,
-            patch("app.services.comms.call.Client"),
+            patch("app.services.comms.calls.settings") as mock_settings,
+            patch("app.services.comms.twilio.Client"),
         ):
             mock_settings.TWILIO_ACCOUNT_SID = "ACtest123"
             mock_settings.TWILIO_AUTH_TOKEN = "auth_token"
@@ -176,8 +176,8 @@ class TestMakeCallSimple:
     async def test_make_call_simple_success(self) -> None:
         """Test simple call initiation."""
         with (
-            patch("app.services.comms.call.settings") as mock_settings,
-            patch("app.services.comms.call.Client") as mock_client_class,
+            patch("app.services.comms.calls.settings") as mock_settings,
+            patch("app.services.comms.twilio.Client") as mock_client_class,
         ):
             mock_settings.TWILIO_ACCOUNT_SID = "ACtest123"
             mock_settings.TWILIO_AUTH_TOKEN = "auth_token"

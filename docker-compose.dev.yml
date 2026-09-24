@@ -61,7 +61,7 @@ services:
       - dev
 
   build-static-watcher:
-    image: ${AEGIS_STACK_TAG:-aegis-stack:latest}
+    image: ${AEGIS_STACK_TAG:-aegis-steward:latest}
     env_file:
       - ${AEGIS_STACK_ENV_FILE:-.env}
     working_dir: /code
@@ -69,6 +69,9 @@ services:
       - .:/code
     command:
       - build-watch
+    # The image's HEALTHCHECK curls /health; a file watcher serves nothing.
+    healthcheck:
+      disable: true
     profiles:
       - dev
 

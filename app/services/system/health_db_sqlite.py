@@ -13,8 +13,8 @@ import sqlite3
 from typing import Any
 
 from app.core.config import settings
+from app.core.formatting import format_bytes
 from app.core.log import logger
-from app.services.system.health import format_bytes
 from app.services.system.models import (
     ComponentStatus,
     ComponentStatusType,

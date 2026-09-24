@@ -1,0 +1,39 @@
+modify_nullable finance_account.metadata db=False model=True
+modify_nullable finance_category.metadata db=False model=True
+modify_nullable finance_connection.capabilities db=False model=True
+modify_nullable finance_connection.metadata db=False model=True
+modify_nullable finance_holding.metadata db=False model=True
+modify_nullable finance_import_batch_row.parsed db=False model=True
+modify_nullable finance_import_profile.column_mapping db=False model=True
+modify_nullable finance_import_profile.header_signature db=False model=True
+modify_nullable finance_insight.data db=False model=True
+modify_nullable finance_insight.metadata db=False model=True
+modify_nullable finance_institution.metadata db=False model=True
+modify_nullable finance_institution.supported_products db=False model=True
+modify_nullable finance_liability_detail.aprs db=False model=True
+modify_nullable finance_liability_detail.raw db=False model=True
+modify_nullable finance_net_worth_snapshot.breakdown db=False model=True
+modify_nullable finance_recurring_stream.metadata db=False model=True
+modify_nullable finance_rule.actions db=False model=True
+modify_nullable finance_rule.conditions db=False model=True
+modify_nullable finance_rule.metadata db=False model=True
+modify_nullable finance_security.metadata db=False model=True
+modify_nullable finance_trade.metadata db=False model=True
+modify_nullable finance_transaction.metadata db=False model=True
+modify_nullable finance_valuation.metadata db=False model=True
+modify_nullable finance_webhook_event.payload db=False model=True
+remove_column finance_valuation.is_stale
+remove_fk finance_trade(import_batch_id)->finance_import_batch name=fk_finance_trade_import_batch
+remove_fk finance_transaction(category_id)->finance_category name=fk_finance_transaction_category_id_finance_category
+remove_fk finance_transaction(import_batch_id)->finance_import_batch name=fk_finance_txn_import_batch
+remove_fk finance_transaction(merchant_id)->finance_merchant name=fk_finance_transaction_merchant_id_finance_merchant
+remove_fk finance_transaction(recurring_stream_id)->finance_recurring_stream name=fk_finance_txn_recurring_stream
+remove_fk finance_transaction(transfer_group_id)->finance_transfer name=fk_finance_transaction_transfer_group_id_finance_transfer
+remove_fk finance_transaction_split(category_id)->finance_category name=fk_finance_transaction_split_category_id_finance_category
+remove_fk finance_transaction_split(merchant_id)->finance_merchant name=fk_finance_transaction_split_merchant_id_finance_merchant
+remove_index document(import_batch_id) unique=False name=ix_document_batch
+remove_index finance_holding(import_batch_id) unique=False name=ix_finance_holding_batch
+remove_index finance_valuation(import_batch_id) unique=False name=ix_finance_valuation_batch
+remove_index mail_message(document_id) unique=False name=ix_mail_message_document
+remove_index request_item(document_id) unique=False name=ix_request_item_document
+remove_index request_item(option_group) unique=False name=ix_request_item_group
