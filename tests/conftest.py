@@ -574,3 +574,9 @@ def acting_owner_user_id() -> int | None:
     ``None`` keeps seed helpers written once and correct in both stacks.
     """
     return None
+
+
+@pytest.fixture
+def authenticated_app_client(client: TestClient) -> TestClient:
+    """Use the regular client in this stack's unauthenticated tests."""
+    return client

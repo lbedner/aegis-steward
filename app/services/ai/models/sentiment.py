@@ -32,7 +32,9 @@ class SentimentAnalysis(SQLModel, table=True):
     overall_sentiment: str
     overall_score: float
     assistant_performance: str
-    issues: list[Any] = Field(default_factory=list, sa_column=Column(JSON))
+    issues: list[Any] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
     summary: str | None = None
     model_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

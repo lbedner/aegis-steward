@@ -607,6 +607,19 @@ class TestFinanceNetWorth:
             finally:
                 event.remove(Engine, "before_cursor_execute", _on_exec)
 
+        # Two owners that exist: with auth in the stack owner_user_id is a
+        # real FK, and these ids are not among the ones conftest seeds. Without
+        # auth there is no user table and the column is a plain integer.
+        import importlib.util
+
+        if importlib.util.find_spec("app.models.user") is not None:
+            from app.models.user import User
+
+            async_db_session.add_all(
+                User(id=n, email=f"owner{n}@test.local", hashed_password="!")
+                for n in (101, 102)
+            )
+            await async_db_session.flush()
         small = await _recompute_owner(owner=101, account_count=2)
         large = await _recompute_owner(owner=102, account_count=8)
 

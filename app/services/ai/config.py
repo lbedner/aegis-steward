@@ -10,10 +10,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from .models import (
+    PROVIDERS,
     AIProvider,
     ProviderConfig,
     get_provider_capabilities,
 )
+
+
+def api_key_env(provider: AIProvider) -> str:
+    """Return the registry's API key setting for a provider."""
+    return PROVIDERS[provider].env_var
 
 
 def _resolve_provider(value: object) -> AIProvider:

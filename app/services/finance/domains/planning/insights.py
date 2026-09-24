@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.time import utcnow
 from app.services.finance.constants import (
     ANALYST_NOTE_INSIGHT_TYPE,
 )
@@ -78,7 +78,7 @@ async def resolve_insight(
     if state != STILL_OPEN:
         insight.status = "actioned"
         insight.is_read = True
-        insight.resolved_at = datetime.now(UTC).replace(tzinfo=None)
+        insight.resolved_at = utcnow()
     db.add(insight)
     await db.flush()
     return insight
@@ -93,7 +93,7 @@ async def dismiss_insight(
         return None
     insight.status = "dismissed"
     insight.is_read = True
-    insight.dismissed_at = datetime.now(UTC).replace(tzinfo=None)
+    insight.dismissed_at = utcnow()
     db.add(insight)
     await db.flush()
     return insight

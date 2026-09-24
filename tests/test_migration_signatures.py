@@ -11,6 +11,7 @@ shipped unsigned and did exactly this.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import re
 
@@ -35,11 +36,42 @@ def _service_suffixes() -> list[str]:
 
 def test_every_migration_file_has_a_stamp_signature() -> None:
     signatures = signatures_module.SERVICE_MIGRATION_SIGNATURES
-    missing = [s for s in _service_suffixes() if s not in signatures]
+    missing = []
+    for path in sorted(VERSIONS.glob("*.py")):
+        match = re.match(r"\d+_(.+)", path.stem)
+        if match and match.group(1) not in signatures and not _carried_signature(path):
+            missing.append(path.name)
     assert not missing, (
         f"migrations without a stamp signature: {missing} - add an entry to "
-        "_SERVICE_MIGRATION_SIGNATURES naming the table or column whose "
-        "existence proves the migration ran"
+        "SERVICE_MIGRATION_SIGNATURES or declare aegis_stamp_signature"
+    )
+
+
+def _carried_signature(path: Path) -> tuple[str, ...] | None:
+    for node in ast.parse(path.read_text()).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "aegis_stamp_signature"
+            for target in node.targets
+        ):
+            return tuple(ast.literal_eval(node.value))
+    return None
+
+
+def test_generated_signature_takes_precedence_over_legacy_service_entry() -> None:
+    from types import SimpleNamespace
+
+    from app.components.backend.startup.migrations import _signature_for_revision
+
+    revision = SimpleNamespace(
+        path="/tmp/038_ai.py",
+        module=SimpleNamespace(
+            aegis_stamp_signature=("column", "llm_usage", "duration_ms")
+        ),
+    )
+    assert _signature_for_revision(revision, {"ai": ("table", "llm_org")}) == (
+        "column",
+        "llm_usage",
+        "duration_ms",
     )
 
 

@@ -20,7 +20,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.clock import utcnow
 from app.services.finance.adapters.providers import queries
 from app.services.finance.constants import Provider
-from app.services.finance.models import FinanceConnection
+from app.services.finance.models import FinanceAccount, FinanceConnection
 
 # The named slot a connection's encrypted credential occupies. Each provider
 # stores a different secret (Plaid an access token, SnapTrade a user secret),
@@ -28,6 +28,28 @@ from app.services.finance.models import FinanceConnection
 # from ever being decrypted as the other.
 _ACCESS_TOKEN_CONTEXT = "finance.plaid.access_token"
 _SNAPTRADE_SECRET_CONTEXT = "finance.snaptrade.user_secret"
+
+
+async def relinked_account(
+    db: AsyncSession,
+    connection: FinanceConnection,
+    *,
+    provider: str,
+    name: str,
+    mask: str | None,
+) -> FinanceAccount | None:
+    """Find an existing account after its provider assigns a new link ID."""
+    filters = [
+        FinanceAccount.provider == provider,
+        FinanceAccount.name == name,
+        FinanceAccount.deleted_at.is_(None),
+        FinanceAccount.mask == mask
+        if mask is not None
+        else FinanceAccount.mask.is_(None),
+    ]
+    if connection.owner_user_id is not None:
+        filters.append(FinanceAccount.owner_user_id == connection.owner_user_id)
+    return await queries.account_first_where(db, filters)
 
 
 def record_run(

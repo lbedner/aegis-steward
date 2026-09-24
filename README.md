@@ -30,7 +30,7 @@ This Aegis Stack project includes the following components:
 1. **Install dependencies:**
    ```bash
    uv sync                    # Core dependencies only
-   # Or for development: uv sync --all-extras  (includes testing, linting, docs)
+   # Or for development: uv sync --all-extras
    ```
 
 2. **Activate virtual environment:**
@@ -43,13 +43,13 @@ This Aegis Stack project includes the following components:
    Windows gets through the rest of this page. `uv run poe -h` lists
    them.
 
-3. **Set up environment:**
+4. **Set up environment:**
    ```bash
    cp .env.example .env
    # Edit .env with your configuration
    ```
 
-4. **Set up database:**
+5. **Set up database:**
    ```bash
    # Create data directory for SQLite database
    mkdir -p data
@@ -58,7 +58,7 @@ This Aegis Stack project includes the following components:
    # Default location: data/app.db
    ```
 
-5. **Run the application:**
+6. **Run the application:**
    ```bash
    make serve
    ```

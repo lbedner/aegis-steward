@@ -1,6 +1,7 @@
 """Shared formatting utilities for display across CLI and frontend."""
 
 from datetime import UTC, datetime
+import re
 
 
 def format_slug(slug: str) -> str:
@@ -222,3 +223,8 @@ def format_relative_time(
 # value that failed to load. Shared by the model picker (a local model's
 # row) and a finished message's footer (a local model's turn).
 FREE = "$0.00"
+
+
+def slugify(value: str) -> str:
+    """Lowercase, hyphen-separated, ASCII; empty when nothing survives."""
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")

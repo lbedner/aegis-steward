@@ -14,6 +14,7 @@ from app.services.system.models import ComponentStatus
 from app.services.system.ui import get_component_subtitle
 
 from .card_container import CardContainer
+from .card_metadata import metadata_number
 from .card_utils import (
     create_header_row,
     create_metric_container,
@@ -34,10 +35,10 @@ class FinanceCard:
 
     def _create_metrics_section(self) -> ft.Container:
         """Net-worth headline, then account / connection counts."""
-        net_worth = self.metadata.get("net_worth_amount", 0)
-        accounts = self.metadata.get("account_count", 0)
-        connections = self.metadata.get("connection_count", 0)
-        insights = self.metadata.get("new_insight_count", 0)
+        net_worth = metadata_number(self.metadata, "net_worth_amount")
+        accounts = int(metadata_number(self.metadata, "account_count"))
+        connections = int(metadata_number(self.metadata, "connection_count"))
+        insights = int(metadata_number(self.metadata, "new_insight_count"))
 
         counts = [
             create_metric_container("Accounts", f"{accounts:,}"),

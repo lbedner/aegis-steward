@@ -27,8 +27,7 @@ from app.services.finance.models import (
 
 
 def owner_clause_txn(column, owner_user_id: int | None):
-    """NULL-owner (standalone) rows match IS NULL, same convention the
-    categorize package uses."""
+    """Match the standalone NULL owner or the selected authenticated owner."""
     return column.is_(None) if owner_user_id is None else column == owner_user_id
 
 

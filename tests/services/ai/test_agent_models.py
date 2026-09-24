@@ -1,5 +1,6 @@
 """Tests for the agent registry models and seed fixtures."""
 
+import inspect
 import subprocess
 import sys
 
@@ -201,6 +202,8 @@ class TestAgentToolLink:
 
             session.refresh(agent)
             names = [t.name for t in agent.tools if t.is_active]
-            assert resolve_tools(names) == [greet]
+            # ``resolve_tools`` wraps for the tool-call ledger, so compare
+            # what the wrapper wraps.
+            assert [inspect.unwrap(t) for t in resolve_tools(names)] == [greet]
         finally:
             unregister_tool("greet")

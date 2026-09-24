@@ -18,7 +18,10 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from app.core.db import engine
+from app.core.model_registry import import_all_models  # noqa: E402
 from app.i18n import t
+
+import_all_models()
 
 
 def _sa_type_str(col_type: object) -> str:

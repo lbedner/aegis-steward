@@ -10,12 +10,12 @@ since an empty module can never contribute context.
 
 from typing import Any
 
-from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
+from app.core.time import utcnow
+from app.services.ai.domains.chat import queries
 from app.services.ai.models.agents import MemoryModule
-from app.services.ai.models.agents.timestamps import utcnow_naive
 
 
 class InvalidMemoryModuleError(ValueError):
@@ -31,19 +31,16 @@ def _validate_content(prompt_content: str | None, fetch_function: str | None) ->
 
 async def get_memory_module(session: AsyncSession, slug: str) -> MemoryModule | None:
     """Fetch one module by slug, or None."""
-    result = await session.exec(select(MemoryModule).where(MemoryModule.slug == slug))
-    return result.first()
+    return await queries.memory_module_by_slug(session, slug)
 
 
 async def list_memory_modules(
     session: AsyncSession, *, active_only: bool = True
 ) -> list[MemoryModule]:
     """List modules ordered by priority (lowest number renders first)."""
-    stmt = select(MemoryModule).order_by(MemoryModule.priority)  # type: ignore[arg-type]
-    if active_only:
-        stmt = stmt.where(MemoryModule.is_active)
-    result = await session.exec(stmt)
-    return list(result.all())
+    return list(
+        await queries.memory_modules_by_priority(session, active_only=active_only)
+    )
 
 
 async def create_memory_module(
@@ -83,7 +80,6 @@ async def create_memory_module(
     )
     session.add(module)
     await session.commit()
-    await session.refresh(module)
     logger.info("Created memory module", module_slug=slug)
     return module
 
@@ -117,10 +113,9 @@ async def update_memory_module(
 
     for field, value in changes.items():
         setattr(module, field, value)
-    module.updated_at = utcnow_naive()
+    module.updated_at = utcnow()
     session.add(module)
     await session.commit()
-    await session.refresh(module)
     logger.info("Updated memory module", module_slug=slug)
     return module
 

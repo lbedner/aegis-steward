@@ -37,49 +37,11 @@ from app.services.scheduler.execution_log import (
     record_job_missed,
     record_job_started,
 )
+from app.services.scheduler.orphans import drop_unknown_persisted_jobs
 from app.services.system import activity
 from app.services.system.backup import backup_database_job
 
-
-def _drop_unknown_persisted_jobs(scheduler: AsyncIOScheduler) -> None:
-    """Delete persisted rows whose ID isn't registered in code.
-
-    ``replace_existing=True`` keeps live jobs in sync when their triggers
-    change, but does nothing for jobs that were *removed* from
-    ``create_scheduler``. Without this sweep, the persistent jobstore
-    would keep firing the obsolete job indefinitely — breaking the
-    "code is the source of truth" promise. Runs after the ``add_job``
-    pass so the set of intended IDs is whatever ``scheduler.get_jobs()``
-    reports right now.
-    """
-    from sqlmodel import text
-
-    try:
-        intended_ids = {job.id for job in scheduler.get_jobs()}
-        with db_session() as session:
-            persisted_ids = {
-                row[0]
-                for row in session.exec(
-                    text("SELECT id FROM apscheduler_jobs")
-                ).fetchall()
-            }
-
-        orphans = persisted_ids - intended_ids
-        if not orphans:
-            return
-
-        with db_session(autocommit=True) as session:
-            for job_id in orphans:
-                session.exec(
-                    text("DELETE FROM apscheduler_jobs WHERE id = :id"),
-                    params={"id": job_id},
-                )
-        logger.info(
-            f"Removed {len(orphans)} orphan scheduled job(s) "
-            f"(no longer in code): {sorted(orphans)}"
-        )
-    except Exception as e:
-        logger.debug(f"Orphan job sweep skipped: {e}")
+from .heartbeat import is_heartbeat_event, register_heartbeat_job
 
 
 def _cleanup_stale_jobs() -> None:
@@ -175,14 +137,11 @@ def create_scheduler() -> AsyncIOScheduler:
     )
     logger.info("Scheduler using sqlite database for job persistence")
 
-    # ========================================================================
-    # JOB SCHEDULE CONFIGURATION
-    #
-    # Code is the source of truth. Every startup re-registers each job
-    # below via ``replace_existing=True``, so editing a trigger here and
-    # redeploying is all that's needed to change the schedule. Runtime
-    # edits to persisted jobs do not survive a restart by design.
-    # ========================================================================
+    # JOB SCHEDULE CONFIGURATION - code is the source of truth. Every startup
+    # re-registers each job below via ``replace_existing=True``, so editing a
+    # trigger here and redeploying changes the schedule; runtime edits to
+    # persisted jobs do not survive a restart by design.
+    register_heartbeat_job(scheduler)
 
     scheduler.add_job(
         backup_database_job,
@@ -329,7 +288,7 @@ def create_scheduler() -> AsyncIOScheduler:
     # "schedule changed" case for jobs that still exist; this covers the
     # "job deleted" case so persistent storage doesn't keep firing an
     # obsolete job ID forever.
-    _drop_unknown_persisted_jobs(scheduler)
+    drop_unknown_persisted_jobs(scheduler)
 
     return scheduler
 
@@ -355,6 +314,8 @@ async def run_scheduler() -> None:
 
     def _on_job_event(event: Any) -> None:
         """Emit activity events (and persist execution history) for jobs."""
+        if is_heartbeat_event(event):
+            return
         # JobSubmissionEvent uses `scheduled_run_times` (list); JobExecutionEvent
         # uses `scheduled_run_time` (singular). Normalise to a single value so
         # the run_key matches across SUBMITTED → EXECUTED/ERROR.

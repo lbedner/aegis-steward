@@ -64,6 +64,18 @@ HOUSEHOLD = 0
 EVERYONE: int | None = None
 
 
+async def account_owner_ids(db: AsyncSession) -> list[int | None]:
+    """Owners with live accounts, including the standalone NULL owner."""
+    rows = (
+        await db.exec(
+            select(FinanceAccount.owner_user_id)
+            .where(FinanceAccount.deleted_at.is_(None))
+            .distinct()
+        )
+    ).all()
+    return list(rows)
+
+
 async def account_names(db: AsyncSession, ids: list[int | None]) -> dict[int, str]:
     """id -> name for ``ids``, in one query: what a row that names an
     account beside a figure draws from."""

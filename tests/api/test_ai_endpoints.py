@@ -438,3 +438,58 @@ class TestStreamToolFrame:
         frame = next(b for b in body.split("\n\n") if b.startswith("event: tool"))
         data = json.loads(frame.split("data: ", 1)[1])
         assert data["label"] == "ledger(months=3)"
+
+
+class TestStreamErrorFrame:
+    """A failed stream names the kind of failure; the exception text stays
+    in the server log, never in the response."""
+
+    @pytest.mark.parametrize(
+        ("raised", "label"),
+        [
+            ("provider", "AI provider error"),
+            ("conversation", "Conversation error"),
+            ("service", "AI service error"),
+            ("other", "Unexpected error"),
+        ],
+    )
+    def test_error_frame_carries_only_the_label(self, raised: str, label: str) -> None:
+        from app.components.backend.api.ai import router
+        from app.services.ai.service import (
+            AIServiceError,
+            ConversationError,
+            ProviderError,
+        )
+
+        errors = {
+            "provider": ProviderError,
+            "conversation": ConversationError,
+            "service": AIServiceError,
+            "other": RuntimeError,
+        }
+
+        async def failing_stream(**_: Any) -> Any:
+            raise errors[raised]("secret internal detail")
+            yield  # pragma: no cover
+
+        with patch.object(router.ai_service, "stream_chat", failing_stream):
+            client = TestClient(create_integrated_app())
+            body = client.post(
+                "/api/v1/ai/chat/stream", json={"message": "hi", "user_id": "u"}
+            ).text
+        frame = next(b for b in body.split("\n\n") if b.startswith("event: error"))
+        assert json.loads(frame.split("data: ", 1)[1]) == {"error": label}
+
+
+class TestHealthHidesTheException:
+    def test_failed_health_reports_status_without_the_text(self) -> None:
+        from app.components.backend.api.ai import router
+
+        with patch.object(
+            router.ai_service,
+            "get_service_status",
+            AsyncMock(side_effect=RuntimeError("secret internal detail")),
+        ):
+            client = TestClient(create_integrated_app())
+            body = client.get("/api/v1/ai/health").json()
+        assert body == {"service": "ai", "status": "error"}

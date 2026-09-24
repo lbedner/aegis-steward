@@ -166,6 +166,16 @@ def _service_of(revision: Any) -> str:
     return name[4:-3] if name[:3].isdigit() else ""
 
 
+def _signature_for_revision(
+    revision: Any, legacy_signatures: dict[str, tuple[str, ...]]
+) -> tuple[str, ...] | None:
+    """Prefer the signature declared by a generated migration."""
+    carried = getattr(getattr(revision, "module", None), "aegis_stamp_signature", None)
+    return (
+        carried if carried is not None else legacy_signatures.get(_service_of(revision))
+    )
+
+
 def adopt_pending(database_path: str) -> list[str]:
     """Stamp migrations whose objects a persisted database already has.
 
@@ -209,7 +219,7 @@ def adopt_pending(database_path: str) -> list[str]:
         furthest: str | None = None
         for revision in _pending(script, current):
             service = _service_of(revision)
-            signature = SERVICE_MIGRATION_SIGNATURES.get(service)
+            signature = _signature_for_revision(revision, SERVICE_MIGRATION_SIGNATURES)
             if signature is None or not already_applied(inspector, signature):
                 break
             adopted.append(service)

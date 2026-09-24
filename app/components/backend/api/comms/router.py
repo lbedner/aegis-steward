@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.services.comms.call import (
+from app.services.comms.calls import (
     CallConfigurationError,
     CallError,
     get_call_status,

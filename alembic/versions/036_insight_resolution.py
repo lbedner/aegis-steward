@@ -29,7 +29,9 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     # Batch mode: SQLite cannot add a CHECK constraint to a table in place.
     with op.batch_alter_table("finance_insight") as batch_op:
-        batch_op.add_column(sa.Column("resolution", sa.String(length=24), nullable=True))
+        batch_op.add_column(
+            sa.Column("resolution", sa.String(length=24), nullable=True)
+        )
         batch_op.add_column(sa.Column("resolution_note", sa.Text(), nullable=True))
         batch_op.add_column(sa.Column("resolved_at", sa.DateTime(), nullable=True))
         batch_op.create_check_constraint(

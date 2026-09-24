@@ -10,6 +10,7 @@ import flet as ft
 from app.services.system.models import ComponentStatus
 
 from .card_container import CardContainer
+from .card_metadata import metadata_number
 from .card_utils import (
     create_header_row,
     create_metric_container,
@@ -35,13 +36,13 @@ class RedisCard:
 
     def _get_hit_ratio_display(self) -> str:
         """Get formatted hit ratio for display."""
-        hit_rate = self.metadata.get("hit_rate_percent", 0)
+        hit_rate = metadata_number(self.metadata, "hit_rate_percent")
         return f"{hit_rate:.1f}%"
 
     def _get_memory_display(self) -> str:
         """Get formatted memory usage for display."""
-        used_memory = self.metadata.get("used_memory", 0)
-        max_memory = self.metadata.get("maxmemory", 0)
+        used_memory = metadata_number(self.metadata, "used_memory")
+        max_memory = metadata_number(self.metadata, "maxmemory")
 
         if max_memory > 0:
             memory_percent = (used_memory / max_memory) * 100
@@ -57,7 +58,7 @@ class RedisCard:
 
     def _get_ops_display(self) -> str:
         """Get formatted ops/sec for display."""
-        ops_per_sec = self.metadata.get("instantaneous_ops_per_sec", 0)
+        ops_per_sec = metadata_number(self.metadata, "instantaneous_ops_per_sec")
         if ops_per_sec >= 1000:
             return f"{ops_per_sec / 1000:.1f}k"
         return str(int(ops_per_sec))

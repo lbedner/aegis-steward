@@ -15,11 +15,11 @@ from app.services.system import (
     get_system_status,
     register_health_check,
 )
-from app.services.system.health import (
+from app.services.system.health import check_cache_health
+from app.services.system.health_probes import (
     _check_cpu_usage,
     _check_disk_space,
     _check_memory,
-    check_cache_health,
 )
 from app.services.system.health_worker import check_worker_health
 

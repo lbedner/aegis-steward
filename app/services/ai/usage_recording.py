@@ -144,6 +144,7 @@ async def record_usage(
     success: bool = True,
     error_message: str | None = None,
     duration_ms: int | None = None,
+    tool_calls: int | None = None,
 ) -> float:
     """Write one ``llm_usage`` ledger row; returns the calculated cost.
 
@@ -183,6 +184,7 @@ async def record_usage(
                     success=success,
                     error_message=error_message,
                     duration_ms=duration_ms,
+                    tool_calls=tool_calls,
                 )
             )
             return cost

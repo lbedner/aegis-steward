@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.ai.config import AIServiceConfig, _resolve_effort, _resolve_provider
-from app.services.ai.domains.llm.providers import (
+from app.services.ai.domains.llm.model_factory import (
     _model_settings,
     _supports_custom_temperature,
 )

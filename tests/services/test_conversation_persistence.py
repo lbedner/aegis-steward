@@ -5,6 +5,8 @@ Tests the core AIService and ConversationManager classes to ensure
 conversation memory works correctly for both streaming and non-streaming modes.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
@@ -83,6 +85,24 @@ async def sample_conversation(conversation_manager):
 
     await conversation_manager.save_conversation(conversation)
     return conversation
+
+
+@contextmanager
+def _fake_runtime(reply: str) -> Iterator[None]:
+    """The AI config and the framework runtime faked so a turn returns
+    ``reply`` without a provider. Which runtime is faked follows the
+    framework the project was generated with."""
+    with (
+        patch("app.services.ai.config.get_ai_config") as mock_config,
+        patch("app.services.ai.service.prompt.get_agent") as runtime,
+    ):
+        mock_config.return_value.enabled = True
+        mock_config.return_value.provider = AIProvider.OPENAI
+        mock_config.return_value.model = "gpt-4"
+        agent = AsyncMock()
+        agent.run = AsyncMock(return_value=MagicMock(output=reply))
+        runtime.return_value = agent
+        yield
 
 
 class TestConversationManager:
@@ -225,19 +245,7 @@ class TestAIServiceConversationMemory:
     @pytest.mark.asyncio
     async def test_chat_creates_conversation_when_none_provided(self, mock_settings):
         """Test that chat creates new conversation when none provided."""
-        with (
-            patch("app.services.ai.config.get_ai_config") as mock_config,
-            patch("app.services.ai.service.prompt.get_agent") as mock_get_agent,
-        ):
-            # Setup mocks
-            mock_config.return_value.enabled = True
-            mock_config.return_value.provider = AIProvider.OPENAI
-            mock_config.return_value.model = "gpt-4"
-
-            mock_agent = AsyncMock()
-            mock_agent.run = AsyncMock(return_value=MagicMock(output="Test response"))
-            mock_get_agent.return_value = mock_agent
-
+        with _fake_runtime("Test response"):
             ai_service = AIService(mock_settings)
 
             # Call chat without conversation_id
@@ -258,19 +266,7 @@ class TestAIServiceConversationMemory:
     @pytest.mark.asyncio
     async def test_chat_uses_existing_conversation(self, mock_settings):
         """Test that chat uses existing conversation when provided."""
-        with (
-            patch("app.services.ai.config.get_ai_config") as mock_config,
-            patch("app.services.ai.service.prompt.get_agent") as mock_get_agent,
-        ):
-            # Setup mocks
-            mock_config.return_value.enabled = True
-            mock_config.return_value.provider = AIProvider.OPENAI
-            mock_config.return_value.model = "gpt-4"
-
-            mock_agent = AsyncMock()
-            mock_agent.run = AsyncMock(return_value=MagicMock(output="Test response"))
-            mock_get_agent.return_value = mock_agent
-
+        with _fake_runtime("Test response"):
             ai_service = AIService(mock_settings)
 
             # Create initial conversation
@@ -321,9 +317,9 @@ class TestAIServiceConversationMemory:
                 conversation.id
             )
 
-            # Check if using database persistence (has db_session import)
+            # Check if using database persistence (has the async store)
             try:
-                from app.core.db import db_session  # noqa: F401
+                from app.core.db import get_async_session  # noqa: F401
 
                 uses_database = True
             except ImportError:
@@ -462,16 +458,7 @@ class TestSurfaceScopingAndTitles:
 
     @pytest.mark.asyncio
     async def test_new_conversation_records_surface_and_title(self, mock_settings):
-        with (
-            patch("app.services.ai.config.get_ai_config") as mock_config,
-            patch("app.services.ai.service.prompt.get_agent") as mock_get_agent,
-        ):
-            mock_config.return_value.enabled = True
-            mock_config.return_value.provider = AIProvider.OPENAI
-            mock_config.return_value.model = "gpt-4"
-            mock_agent = AsyncMock()
-            mock_agent.run = AsyncMock(return_value=MagicMock(output="ok"))
-            mock_get_agent.return_value = mock_agent
+        with _fake_runtime("ok"):
             ai_service = self._service(mock_settings)
 
             user = f"scoped-{uuid.uuid4().hex[:8]}"
@@ -485,16 +472,7 @@ class TestSurfaceScopingAndTitles:
 
     @pytest.mark.asyncio
     async def test_long_first_message_truncates_into_the_title(self, mock_settings):
-        with (
-            patch("app.services.ai.config.get_ai_config") as mock_config,
-            patch("app.services.ai.service.prompt.get_agent") as mock_get_agent,
-        ):
-            mock_config.return_value.enabled = True
-            mock_config.return_value.provider = AIProvider.OPENAI
-            mock_config.return_value.model = "gpt-4"
-            mock_agent = AsyncMock()
-            mock_agent.run = AsyncMock(return_value=MagicMock(output="ok"))
-            mock_get_agent.return_value = mock_agent
+        with _fake_runtime("ok"):
             ai_service = self._service(mock_settings)
 
             user = f"scoped-{uuid.uuid4().hex[:8]}"
@@ -506,16 +484,7 @@ class TestSurfaceScopingAndTitles:
 
     @pytest.mark.asyncio
     async def test_list_conversations_filters_by_surface(self, mock_settings):
-        with (
-            patch("app.services.ai.config.get_ai_config") as mock_config,
-            patch("app.services.ai.service.prompt.get_agent") as mock_get_agent,
-        ):
-            mock_config.return_value.enabled = True
-            mock_config.return_value.provider = AIProvider.OPENAI
-            mock_config.return_value.model = "gpt-4"
-            mock_agent = AsyncMock()
-            mock_agent.run = AsyncMock(return_value=MagicMock(output="ok"))
-            mock_get_agent.return_value = mock_agent
+        with _fake_runtime("ok"):
             ai_service = self._service(mock_settings)
 
             user = f"scoped-{uuid.uuid4().hex[:8]}"

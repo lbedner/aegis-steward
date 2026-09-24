@@ -32,7 +32,7 @@ Selected capabilities:
 
 Every target above also runs as `uv run poe <target>` (`uv run poe test`,
 `uv run poe check`, ...) for platforms without `make`, such as Windows, once
-dev dependencies are installed (`uv sync --all-extras`).
+dev dependencies are installed (`uv sync`).
 
 Host-side commands that talk to services resolve dynamic ports through
 `.env.ports`; use the Makefile targets (or source that file) so the CLI reaches
@@ -80,8 +80,11 @@ CLI wires routes, tests, health checks, and dependencies for you.
 
 Models are SQLModel classes; every schema change goes through an alembic
 migration. Never query inside a loop (N+1); batch with `WHERE id IN (...)` or
-eager-load with `selectinload()`/`joinedload()`. See the
-`add-model-and-migration` skill.
+eager-load with `selectinload()`/`joinedload()`. `make check-queries` runs
+the test suite under queryspy and fails on any repeated-query site that is
+not already in `.queryspy-baseline.json` (CI's test job runs the same
+flags); the baseline is the known debt, shrink it, never add to it.
+`make check-queries-baseline` rewrites it after a fix. See the `add-model-and-migration` skill.
 
 ## Worker
 

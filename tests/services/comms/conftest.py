@@ -106,7 +106,7 @@ def mock_resend():
 @pytest.fixture
 def mock_twilio_client():
     """Mock the Twilio Client."""
-    with patch("app.services.comms.sms.Client") as mock_client_class:
+    with patch("app.services.comms.twilio.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
 

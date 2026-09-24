@@ -41,6 +41,11 @@ def serve(*, detach: bool = False) -> None:
         ollama=False,
     )
     env = {**os.environ, **{key: str(value) for key, value in ports.items()}}
+    # `make serve ENGINE=granian`: make exports command-line variables, so
+    # the short name arrives here and becomes the setting the app reads.
+    engine = os.environ.get("ENGINE")
+    if engine:
+        env["WEBSERVER_ENGINE"] = engine
     cmd = [*_COMPOSE_DEV, "--profile", "dev", "up", "--remove-orphans"]
     if detach:
         cmd.append("-d")

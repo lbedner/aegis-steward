@@ -1,0 +1,445 @@
+"""Derive alembic revisions from the models.
+
+The models are the only description of the schema. This module turns them
+into revision files under ``alembic/versions`` by replaying the existing
+revisions onto a scratch SQLite database and letting alembic autogenerate
+the difference, one revision per requested service so each service keeps
+its own file. ``aegis init`` and ``aegis add`` run it inside the project's
+venv; nothing outside the project ever renders a table by hand.
+
+Usage:
+    python -m app.cli.migrate_gen SERVICE [SERVICE ...]   write revisions
+    python -m app.cli.migrate_gen --check [--url URL]     report drift, exit 1 if any
+"""
+
+import argparse
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+from typing import Any
+
+from sqlalchemy import Connection, create_engine, event, inspect, text
+from sqlalchemy.schema import CreateSchema
+from sqlalchemy.sql.elements import TextClause
+from sqlmodel import SQLModel
+
+from alembic import command
+from alembic.config import Config
+from alembic.operations import ops
+from alembic.script import ScriptDirectory
+from app.core.model_registry import import_all_models
+
+import_all_models()
+
+ALEMBIC_INI = Path("alembic/alembic.ini")
+VERSIONS = Path("alembic/versions")
+
+
+# ---------------------------------------------------------------------------
+# Ownership: which service a table belongs to, from where its model lives
+# ---------------------------------------------------------------------------
+
+
+def _owners() -> dict[str, list[str]]:
+    """Map each table key to the service names that may claim it.
+
+    ``app.services.ai.models.agents.tool`` offers ``ai_agents`` then ``ai``;
+    ``app.models.org`` offers ``auth_org`` then ``auth``. The first name in
+    the requested service list wins, so a stack adding ``ai[agents]`` later
+    gets its own ``NNN_ai_agents.py`` while a fresh init folds it into ``ai``.
+    """
+    owners: dict[str, list[str]] = {}
+    for mapper in SQLModel._sa_registry.mappers:
+        parts = mapper.class_.__module__.split(".")
+        if parts[:2] == ["app", "models"]:
+            base, sub = "auth", parts[2:3]
+        elif parts[:2] == ["app", "services"] and "models" in parts:
+            base = parts[2]
+            sub = parts[parts.index("models") + 1 : parts.index("models") + 2]
+        else:
+            continue
+        names = [f"{base}_{sub[0]}", base] if sub else [base]
+        owners[mapper.persist_selectable.key] = names
+    return owners
+
+
+def _sweep_target(all_services: list[str]) -> str:
+    """Which revision of the run takes the tables nobody claims.
+
+    Core tables under ``app/models/`` (``conversation.py``, shipped with
+    ai) belong to no service package. Unclaimed must never mean uncreated,
+    or a foreign key to them fails, so one revision sweeps them up: the
+    first service that has no revision yet, which on ``aegis add`` is the
+    service being added rather than one that shipped long ago.
+    """
+    return next(
+        (s for s in all_services if not any(VERSIONS.glob(f"*_{s}.py"))),
+        all_services[0],
+    )
+
+
+def _claimed_by(service: str, all_services: list[str]) -> set[str]:
+    """Tables ``service`` writes when the run covers ``all_services``."""
+    sweep = _sweep_target(all_services)
+    claimed = set()
+    for table, names in _owners().items():
+        winner = next((n for n in names if n in all_services), sweep)
+        if winner == service:
+            claimed.add(table)
+    return claimed
+
+
+# ---------------------------------------------------------------------------
+# Scratch database: SQLite, one attached database per Postgres schema
+# ---------------------------------------------------------------------------
+
+
+def _schemas() -> set[str]:
+    return {t.schema for t in SQLModel.metadata.tables.values() if t.schema}
+
+
+@contextmanager
+def _connection(url: str | None, scratch_dir: Path | None) -> Iterator[Connection]:
+    """A connection to ``url``, or to a fresh scratch database when ``url`` is None."""
+    if url is not None:
+        engine = create_engine(url)
+        with engine.connect() as conn:
+            yield conn
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = scratch_dir or Path(tmp)
+        engine = create_engine(f"sqlite:///{root / 'scratch.sqlite'}")
+
+        @event.listens_for(engine, "connect")
+        def _attach(dbapi_conn: Any, _record: Any) -> None:
+            cur = dbapi_conn.cursor()
+            for schema in _schemas():
+                cur.execute(
+                    f"ATTACH DATABASE '{root / (schema + '.sqlite')}' AS {schema}"
+                )
+            cur.close()
+
+        @event.listens_for(engine, "before_execute", retval=True)
+        def _skip_create_schema(
+            _conn: Any, clause: Any, multiparams: Any, params: Any, opts: Any
+        ) -> tuple[Any, Any, Any]:
+            # Revisions create their Postgres schema; SQLite attached it above.
+            sql = clause.text if isinstance(clause, TextClause) else ""
+            if isinstance(clause, CreateSchema) or sql.upper().startswith(
+                "CREATE SCHEMA"
+            ):
+                return text("SELECT 1"), multiparams, params
+            return clause, multiparams, params
+
+        with engine.connect() as conn:
+            yield conn
+
+
+def _config(conn: Connection, **configure: Any) -> Config:
+    cfg = Config(str(ALEMBIC_INI))
+    cfg.attributes["connection"] = conn
+    cfg.attributes["configure"] = configure
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Generation
+# ---------------------------------------------------------------------------
+
+
+def _next_rev_id() -> str:
+    existing = [
+        int(p.stem.split("_")[0])
+        for p in VERSIONS.glob("*.py")
+        if p.stem.split("_")[0].isdigit()
+    ]
+    return f"{max(existing, default=0) + 1:03d}"
+
+
+def _reflected_column_sets(
+    conn: Connection, table: str, schema: str | None
+) -> set[frozenset[str]]:
+    insp = inspect(conn)
+    if not insp.has_table(table, schema=schema):
+        return set()
+    sets: set[frozenset[str]] = set()
+    for ix in insp.get_indexes(table, schema=schema):
+        sets.add(frozenset(c for c in ix["column_names"] if c))
+    for uq in insp.get_unique_constraints(table, schema=schema):
+        sets.add(frozenset(uq["column_names"]))
+    for fk in insp.get_foreign_keys(table, schema=schema):
+        sets.add(frozenset(fk["constrained_columns"]))
+    return sets
+
+
+# Tables the caller empties before this revision's DDL runs, so a required
+# column with nothing to backfill is still safe to add to them. Passed in by
+# ``aegis`` from the service spec that declares the clear; empty otherwise.
+CLEARED_TABLES: set[str] = {
+    name for name in os.environ.get("AEGIS_CLEARED_TABLES", "").split(",") if name
+}
+
+
+def _literal_default(column: Any) -> TextClause | None:
+    """The model's own default, as SQL a backfill can use."""
+    arg = getattr(column.default, "arg", None) if column.default is not None else None
+    if callable(arg):
+        # ``default_factory=datetime.utcnow`` and friends: the database has
+        # its own now(), and nothing else callable can be rendered.
+        return text("CURRENT_TIMESTAMP") if _is_datetime(column) else None
+    if isinstance(arg, bool):
+        return text("1" if arg else "0")
+    if isinstance(arg, int | float):
+        return text(str(arg))
+    if isinstance(arg, str):
+        escaped = arg.replace("'", "''")
+        return text(f"'{escaped}'")
+    return None
+
+
+def _is_datetime(column: Any) -> bool:
+    return column.type.__class__.__name__ in {"DateTime", "TIMESTAMP"}
+
+
+def _backfill_not_null(op: ops.AddColumnOp) -> None:
+    """Give a NOT NULL column something for the rows already in the table.
+
+    A column added to an EXISTING table lands on rows that predate it, and
+    SQLModel renders ``Field(default=...)`` as a Python-side default the
+    database never sees - so the column arrives NOT NULL with nothing to
+    fill it and the migration dies on the first row. The model's default is
+    the right value by definition, so it rides along as a server default.
+
+    A required column with no default at all (a foreign key, typically)
+    has no answer the models can supply: refuse here, where the message can
+    name the column, rather than inside alembic on the user's database.
+    """
+    column = op.column
+    if column.nullable or column.server_default is not None:
+        return
+    if op.table_name in CLEARED_TABLES:
+        # Emptied first, so there are no rows for the column to fail on.
+        return
+    default = _literal_default(column)
+    if default is None:
+        raise SystemExit(
+            f"{op.table_name}.{column.name} is NOT NULL with no default, and the "
+            "table already exists: rows that predate the column have nothing to "
+            "fill it with. Give the field a default, make it optional, or clear "
+            "the table in the service's pre_data_sql."
+        )
+    column.server_default = default
+
+
+def _additive(op: ops.MigrateOperation, conn: Connection) -> bool:
+    """Keep creates; drop removals, and constraint adds the database already
+    has under another name (SQLite reflection reports those as new)."""
+    if isinstance(op, ops.ModifyTableOps):
+        # ``render_as_batch`` groups a table's index and constraint ops here.
+        op.ops[:] = [inner for inner in op.ops if _additive(inner, conn)]
+        return bool(op.ops)
+    if isinstance(op, ops.CreateTableOp):
+        op.if_not_exists = True
+        return True
+    if isinstance(op, ops.AddColumnOp):
+        _backfill_not_null(op)
+        return True
+    if isinstance(op, ops.CreateIndexOp):
+        # No ``if_not_exists`` here, unlike CreateTableOp. An index on a
+        # table that already exists renders inside ``batch_alter_table``
+        # under ``render_as_batch``, and alembic's batch implementation is
+        # ``ApplyBatchImpl.create_index(self, idx)`` - it takes no such
+        # argument, so the revision dies with a TypeError the moment it
+        # runs. The duplicate it was insuring against is already handled
+        # below: an index whose column set the database reflects is
+        # dropped rather than emitted.
+        cols = frozenset(c if isinstance(c, str) else c.name for c in op.columns)
+        return cols not in _reflected_column_sets(conn, op.table_name, op.schema)
+    if isinstance(op, ops.AddConstraintOp):
+        constraint = op.to_constraint()
+        cols = frozenset(constraint.columns.keys())
+        table = constraint.table
+        # SQLite cannot ALTER a constraint onto a table, so batch mode
+        # rebuilds the table around it - and it refuses to rebuild around a
+        # constraint it cannot name ("Constraint must have a name"). A
+        # column-level ``unique=True`` or ``foreign_key=`` declares one
+        # without a name, so name it here the way a naming convention
+        # would, rather than losing the constraint on every SQLite project.
+        if getattr(op, "constraint_name", None) is None:
+            op.constraint_name = _conventional_name(op, table.name, cols)
+        return cols not in _reflected_column_sets(conn, table.name, table.schema)
+    return False
+
+
+_CONSTRAINT_PREFIXES: list[tuple[type, str]] = [
+    (ops.CreateForeignKeyOp, "fk"),
+    (ops.CreateUniqueConstraintOp, "uq"),
+    (ops.CreateCheckConstraintOp, "ck"),
+    (ops.CreatePrimaryKeyOp, "pk"),
+]
+
+
+def _conventional_name(
+    op: ops.MigrateOperation, table: str, cols: frozenset[str]
+) -> str:
+    """``fk_largelanguagemodel_servedbyorgid``-style name for an unnamed
+    constraint, stable across runs so a re-generated revision names it the
+    same thing."""
+    prefix = next(
+        (p for op_type, p in _CONSTRAINT_PREFIXES if isinstance(op, op_type)), "cn"
+    )
+    return "_".join([prefix, table, *sorted(cols)])
+
+
+def _qualified(table: str, schema: str | None) -> str:
+    return f"{schema}.{table}" if schema else table
+
+
+def _signature(kept: list[Any]) -> tuple[str, ...] | None:
+    """The object whose existence proves this revision ran.
+
+    The startup hook stamps instead of replaying DDL when it finds this,
+    which is how a database that outlived its ``alembic_version`` row is
+    re-adopted. Created table first, then an added column, then a new
+    foreign key - the three shapes a revision can take.
+    """
+    flat: list[Any] = []
+    for op in kept:
+        flat.extend(op.ops if isinstance(op, ops.ModifyTableOps) else [op])
+    for op in flat:
+        if isinstance(op, ops.CreateTableOp):
+            return ("table", _qualified(op.table_name, op.schema))
+    for op in flat:
+        if isinstance(op, ops.AddColumnOp):
+            return ("column", _qualified(op.table_name, op.schema), op.column.name)
+    for op in flat:
+        if isinstance(op, ops.CreateForeignKeyOp):
+            return (
+                "foreign_key",
+                # The schema is in ``kw``, not an attribute: alembic's
+                # CreateForeignKeyOp takes (constraint_name, source_table,
+                # referent_table, local_cols, remote_cols, **kw) and keeps
+                # everything else there. ``op.source_schema`` raises
+                # AttributeError, which took out every revision whose diff
+                # contained a foreign key - and with it the signature the
+                # startup adoption walk needs (alembic 1.16.5, 2026-09-20).
+                _qualified(op.source_table, op.kw.get("source_schema")),
+                op.local_cols[0],
+            )
+    return None
+
+
+def _prune(
+    conn: Connection, signature: dict[str, tuple[str, ...] | None]
+) -> Callable[..., None]:
+    def process(_ctx: Any, _rev: Any, directives: list[Any]) -> None:
+        script = directives[0]
+        kept = [op for op in script.upgrade_ops.ops if _additive(op, conn)]
+        script.upgrade_ops.ops[:] = kept
+        new_schemas = {
+            op.schema for op in kept if isinstance(op, ops.CreateTableOp) and op.schema
+        }
+        for schema in sorted(new_schemas):
+            script.upgrade_ops.ops.insert(
+                0, ops.ExecuteSQLOp(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            )
+        # ``Table.create`` leaves ``use_alter`` FKs out of CREATE TABLE (they
+        # close cycles); add them once every table in the revision exists.
+        for table_op in [op for op in kept if isinstance(op, ops.CreateTableOp)]:
+            for fk in table_op.to_table().foreign_key_constraints:
+                if fk.use_alter:
+                    script.upgrade_ops.ops.append(
+                        ops.ModifyTableOps(
+                            table_op.table_name,
+                            [ops.CreateForeignKeyOp.from_constraint(fk)],
+                            schema=table_op.schema,
+                        )
+                    )
+        # The downgrade mirrors exactly what upgrade kept, in reverse.
+        script.downgrade_ops.ops[:] = [
+            op.reverse()
+            for op in reversed(script.upgrade_ops.ops)
+            if not isinstance(op, ops.ExecuteSQLOp)
+        ]
+        signature["value"] = _signature(kept)
+        if not kept:
+            directives[:] = []
+
+    return process
+
+
+def generate(services: list[str], scratch_dir: Path | None = None) -> list[Path]:
+    """Write one revision per service that has tables not yet in a revision."""
+    written: list[Path] = []
+    with _connection(None, scratch_dir) as conn:
+        for service in services:
+            claimed = _claimed_by(service, services)
+            signature: dict[str, tuple[str, ...] | None] = {}
+            cfg = _config(
+                conn,
+                include_object=lambda obj,
+                name,
+                type_,
+                reflected,
+                _cmp,
+                claimed=claimed: (
+                    not reflected
+                    and (obj if type_ == "table" else obj.table).key in claimed
+                ),
+                process_revision_directives=_prune(conn, signature),
+                compare_type=False,
+                compare_server_default=False,
+                render_as_batch=True,
+            )
+            command.upgrade(cfg, "head")
+            before = set(VERSIONS.glob("*.py"))
+            command.revision(
+                cfg, message=service, autogenerate=True, rev_id=_next_rev_id()
+            )
+            new_files = sorted(set(VERSIONS.glob("*.py")) - before)
+            for path in new_files:
+                _stamp_signature(path, signature.get("value"))
+            written.extend(new_files)
+        command.upgrade(_config(conn), "head")
+    return written
+
+
+def _stamp_signature(path: Path, signature: tuple[str, ...] | None) -> None:
+    """Record the proof object in the revision itself, beside its id."""
+    if signature is None:
+        return
+    body = path.read_text()
+    anchor = "depends_on = None\n"
+    if anchor not in body:
+        return
+    head, _, tail = body.partition(anchor)
+    path.write_text(f"{head}{anchor}aegis_stamp_signature = {signature!r}\n{tail}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("services", nargs="*")
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--url", default=None)
+    args = parser.parse_args(argv)
+    if args.check:
+        # Local: migrate_drift imports this module for the scratch machinery.
+        from app.cli.migrate_drift import drift
+
+        found = drift(args.url)
+        print(json.dumps(found, indent=1))
+        return 1 if found else 0
+    if not ScriptDirectory.from_config(Config(str(ALEMBIC_INI))):
+        return 2
+    for path in generate(args.services):
+        print(path.name)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

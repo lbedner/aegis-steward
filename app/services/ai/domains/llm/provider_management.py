@@ -45,6 +45,9 @@ def get_env_var_name(provider: str) -> str:
     Returns:
         Environment variable name (e.g., "OPENAI_API_KEY", "GOOGLE_API_KEY")
     """
+    resolved = AIProvider.from_name(provider)
+    if resolved is not None:
+        return PROVIDERS[resolved].env_var
     return f"{provider.upper()}_API_KEY"
 
 

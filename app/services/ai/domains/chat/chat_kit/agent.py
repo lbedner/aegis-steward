@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 import inspect
+import time
 from typing import Any, Generic, TypeVar
 
 from pydantic_ai import Agent
@@ -151,6 +152,7 @@ class ToolChatAgent(Generic[DepsT]):
         model_history = to_model_history(history)
 
         answer_parts: list[str] = []
+        started = time.perf_counter()
         try:
             # Event-based streaming rather than ``run_stream``: the event
             # stream crosses tool boundaries, so a model that narrates
@@ -199,6 +201,7 @@ class ToolChatAgent(Generic[DepsT]):
             return
 
         answer = "".join(answer_parts)
+        duration_ms = max(1, round((time.perf_counter() - started) * 1000))
         # The ledger write is async (usage_recording); a test's recorder
         # may be a plain function returning the cost.
         cost = self._recorder(
@@ -206,6 +209,8 @@ class ToolChatAgent(Generic[DepsT]):
             model_name=self._model_name,
             usage=usage,
             user_id=scope.user_id,
+            duration_ms=duration_ms,
+            tool_calls=tool_calls,
         )
         if inspect.isawaitable(cost):
             cost = await cost

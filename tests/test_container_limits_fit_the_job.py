@@ -35,6 +35,7 @@ decides whether the process gets stopped.
 """
 
 from pathlib import Path
+import re
 
 import yaml
 
@@ -48,7 +49,14 @@ MINIMUM_WORKER_MEMORY_MB = 1024
 def _limits(service: str) -> dict[str, str]:
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text()) or {}
     spec = (compose.get("services") or {})[service]
-    return spec["deploy"]["resources"]["limits"]
+    limits = spec["deploy"]["resources"]["limits"]
+    # Check Compose defaults: overrides can vary by deployment environment.
+    return {
+        name: match.group(1)
+        if (match := re.fullmatch(r"\$\{[^:}]+:-([^}]+)\}", str(value)))
+        else str(value)
+        for name, value in limits.items()
+    }
 
 
 def _megabytes(value: str) -> int:

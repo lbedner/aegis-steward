@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from app.components.frontend.core.session_health import reload_if_server_restarted
 from app.core.log import logger
 
 
@@ -29,6 +30,13 @@ async def on_connect(event: ft.ControlEvent) -> None:
         route=page.route,
         session_id=page.session_id,
     )
+
+    # Before anything renders: a tab reconnecting across a webserver
+    # restart holds a control tree this process never built, and the
+    # first update() against it raises. Reload it now instead - same
+    # cure, minus the frozen frame and the loops that have to notice.
+    if await reload_if_server_restarted(page):
+        return
 
     # Browser refresh path: tell the active view to reload its data.
     if page.views:

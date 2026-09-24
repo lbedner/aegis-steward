@@ -35,7 +35,9 @@ _EXTENSION = re.compile(r"\.[a-z0-9]{2,5}$", re.I)
 
 
 def upgrade() -> None:
-    op.add_column("document", sa.Column("filename", sa.String(length=255), nullable=True))
+    op.add_column(
+        "document", sa.Column("filename", sa.String(length=255), nullable=True)
+    )
     _carry_over()
 
 

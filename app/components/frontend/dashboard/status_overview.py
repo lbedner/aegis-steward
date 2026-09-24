@@ -81,9 +81,11 @@ def get_component_display_info(
         return ("Frontend", "Flet")
 
     else:
-        # Generic fallback
+        # Generic fallback, which is the path every plugin takes: the name
+        # comes from the health metadata the plugin declares.
         display_name = component_name.replace("_", " ").replace("service ", "").title()
-        return (display_name, "")
+        subtitle = get_component_subtitle(component_name, metadata)
+        return (display_name, "" if subtitle == display_name else subtitle)
 
 
 def create_status_cell(
@@ -152,6 +154,10 @@ class StatusOverviewPanel(ft.Container):
         )
         self.content = self._table
 
+        # What the current table was built from, so an unchanged refresh
+        # can be skipped entirely.
+        self._components: dict[str, ComponentStatus] = {}
+
     def update_components(self, components: dict[str, ComponentStatus]) -> None:
         """
         Update the panel with new component data.
@@ -159,6 +165,14 @@ class StatusOverviewPanel(ft.Container):
         Args:
             components: Dictionary mapping component names to ComponentStatus
         """
+        # Rebuilding assigns a brand new DataTable, so every row and cell
+        # is a new object and Flet sends a full replacement. Measured at
+        # 231 controls with 1 surviving a refresh whose rendered output
+        # was identical - which in the steady state is every refresh.
+        if self._components == components:
+            return
+        self._components = dict(components)
+
         # Define display order (most important first)
         display_order = [
             "backend",

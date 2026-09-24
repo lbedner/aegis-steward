@@ -1,8 +1,7 @@
-# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
-_commit: bcc439c085bda33d061c6086eaa4252f1d39f4d7
+_commit: 5390ab4dffbf8b3cda2533b1d6adbb0509f312fc
 _src_path: gh:lbedner/aegis-stack
-_template_version: 0.11.0
-aegis_version: 0.11.0
+_template_version: 0.13.0
+aegis_version: 0.13.0
 ai_backend: sqlite
 ai_framework: pydantic-ai
 ai_providers: ollama

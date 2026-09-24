@@ -42,8 +42,10 @@ for non-database state.
 
 - `app/services/`: models live in a service package as `models.py` (SQLModel
   classes with `table=True`).
-- `alembic/env.py`: imports the models so autogenerate can see them; a model it
-  cannot import is omitted from the migration.
+- `app/core/model_registry.py`: imports every `models` module under
+  `app/models/` and `app/services/<service>/models`, so alembic, `migrate-fix`
+  and the tests all see the same tables. Nothing to edit; a table defined
+  outside those paths is invisible, and `tests/test_model_registry.py` fails.
 - `alembic/versions/`: the generated revision lands here.
 
 ## Procedure
@@ -51,12 +53,17 @@ for non-database state.
 1. Write the failing test first (the query or behavior that needs the new
    column or table). Confirm it fails for the right reason.
 2. Define or edit the SQLModel class in the service's `models.py`.
-3. Make sure the model is imported where `alembic/env.py` collects metadata, so
-   autogenerate sees it.
-4. Generate the migration with alembic autogenerate, then open the new file in
-   `alembic/versions/` and confirm it contains the intended change and nothing
-   spurious.
-5. Run the gates and fix anything red.
+3. Keep the class under the service's `models` module or package; the model
+   registry imports it, so autogenerate sees it with no further wiring.
+4. Derive the migration from the model with
+   `uv run python -m app.cli.migrate_gen <service>` (what `aegis add` runs), or
+   with alembic autogenerate directly. Open the new file in `alembic/versions/`
+   and confirm it contains the intended change and nothing spurious.
+5. Confirm nothing drifted: `uv run python -m app.cli.migrate_gen --check`
+   replays every revision onto a scratch database and prints what still
+   differs from the models. Empty output is the goal, and
+   `tests/test_model_registry.py` asserts it.
+6. Run the gates and fix anything red.
 
 ## Gates
 
@@ -67,7 +74,8 @@ for non-database state.
 - Never query inside a loop (N+1): batch with `WHERE id IN (...)` or eager-load
   relationships with `selectinload()` or `joinedload()`, or the query count
   grows with the row count.
-- A model that `alembic/env.py` cannot import produces an empty or partial
-  migration, because autogenerate only sees imported metadata.
+- A table defined outside `app/models/` or `app/services/<service>/models`
+  is invisible to autogenerate, because only the registry's paths are imported;
+  `tests/test_model_registry.py` reports exactly which module.
 - The SQLModel class and the migration are independent; editing one without the
   other leaves the schema and the code out of sync with no error until runtime.

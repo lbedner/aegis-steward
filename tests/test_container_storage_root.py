@@ -27,3 +27,14 @@ def test_no_compose_environment_list_carries_it() -> None:
         for service, spec in (compose.get("services") or {}).items():
             for entry in (spec or {}).get("environment") or []:
                 assert not str(entry).startswith("STORAGE_ROOT="), f"{name}: {service}"
+
+
+def test_every_app_service_shares_the_database_and_store() -> None:
+    # A service-level ``volumes`` list replaces the anchor's the same way,
+    # which once left the scheduler on its own empty SQLite file.
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    for service, spec in compose["services"].items():
+        if spec.get("image") != compose["x-app"]["image"]:
+            continue
+        assert "aegis-data:/data/db" in spec["volumes"], service
+        assert "storage-data:/data/storage" in spec["volumes"], service

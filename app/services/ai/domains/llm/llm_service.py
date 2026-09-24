@@ -13,10 +13,10 @@ from app.core.config import settings
 from app.core.db import engine, get_async_session
 from app.core.log import logger
 from app.services.ai.domains.llm import active_model
-from app.services.ai.domains.llm.catalog_queries import (
+from app.services.ai.domains.llm.catalog import (
     LLMListResult as LLMListResult,
 )
-from app.services.ai.domains.llm.catalog_queries import (
+from app.services.ai.domains.llm.catalog import (
     list_models as list_models,
 )
 from app.services.ai.domains.llm.provider_management import update_env_file
