@@ -10,6 +10,10 @@
     {% call field("How often?") %}{{ select("cadence", cadences, values.cadence, blank=None, block=True) }}{% endcall %}
     {% if not envelope %}{% call field("Starting balance (optional)") %}{{ money_input("starting_balance", values.starting_balance) }}{% endcall %}{% endif %}
   </div>
-  {% if envelope %}{{ checkbox("auto_credit", values.auto_credit == "on", label="Credit it automatically") }}{% endif %}
+  {% if envelope %}{{ checkbox("auto_credit", values.auto_credit == "on", label="Credit it automatically") }}
+  {#- What the household buys for her, she pays for from here: a charge
+      wearing this tag is spent from the envelope, counted from the day
+      it is set (ticket 240). Empty stops it. -#}
+  {% call field("Pays for what is tagged (optional)") %}{{ text_input("tag", values.tag, placeholder="Vanessa") }}{% endcall %}{% endif %}
   <div>{{ primary_button("Save", type="submit") }}</div>
 </form>

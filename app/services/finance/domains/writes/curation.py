@@ -185,6 +185,17 @@ class TagPayload(BaseModel):
     tag: str
 
 
+class TagSwapPayload(TagPayload):
+    """A tag attached, and optionally another taken off in the same card.
+
+    A swap was two cards, and the second previewed "With Vanessa -> none"
+    because it could not see the first adding "Vanessa" - one change read
+    as two contradicting ones (2026-09-23).
+    """
+
+    replaces: str | None = None
+
+
 async def _tag_names(db: AsyncSession, transaction_id: int) -> list[str]:
     current = await transactions.transaction_tags(db, [transaction_id])
     return sorted(t.name for t in current.get(transaction_id, []))
@@ -203,7 +214,7 @@ def _tag_rows(
 
 
 async def tag_execute(
-    db: AsyncSession, payload: TagPayload, owner_user_id: int | None
+    db: AsyncSession, payload: TagSwapPayload, owner_user_id: int | None
 ) -> dict[str, Any]:
     txn = await transactions.get_transaction(
         db, payload.transaction_id, owner_user_id=owner_user_id
@@ -213,11 +224,18 @@ async def tag_execute(
     tag = await transactions.tag_transactions(
         db, [payload.transaction_id], payload.tag, owner_user_id=owner_user_id
     )
+    if payload.replaces:
+        # The untag card's own executor: one path off a transaction.
+        await untag_execute(
+            db,
+            TagPayload(transaction_id=payload.transaction_id, tag=payload.replaces),
+            owner_user_id,
+        )
     return {"transaction_id": payload.transaction_id, "tag_id": tag.id}
 
 
 async def tag_describe(
-    db: AsyncSession, payload: TagPayload, owner_user_id: int | None
+    db: AsyncSession, payload: TagSwapPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
     from app.services.finance.utils import normalize_payee
 
@@ -231,6 +249,9 @@ async def tag_describe(
         after = before
     else:
         after = sorted([*before, payload.tag.strip()])
+    if payload.replaces:
+        gone = normalize_payee(payload.replaces)
+        after = [name for name in after if normalize_payee(name) != gone]
     return _tag_rows(subject, before, after)
 
 

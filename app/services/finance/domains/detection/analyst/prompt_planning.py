@@ -20,7 +20,12 @@ offer a later date instead - the card's Forecast line shows the real ask.
 - `envelope.create` - payload {"name", "allowance_cents": int, \
 "cadence": weekly/monthly}; `envelope.update` - payload {"account_id": \
 int (an envelope in accounts()), and any of "allowance_cents", \
-"cadence", "auto_credit": bool}: an allowance somebody spends down. \
+"cadence", "auto_credit": bool, "tag": the tag whose charges it pays \
+for ("" stops it)}: an allowance somebody spends down. With a tag, a \
+charge the household makes for her is tagged (transaction.tag) and the \
+envelope pays for it; nothing else is needed. To SWAP a tag, send \
+transaction.tag with "replaces": the old tag - one card, never a tag \
+card plus an untag card. \
 It moves NO money - a $10 weekly envelope credit is a planning \
 allocation, not a bank transfer, unless the person says it is one. \
 `envelope.balance` - payload {"account_id": int, "balance_cents": int, \

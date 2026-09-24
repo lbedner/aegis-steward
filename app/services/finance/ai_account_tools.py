@@ -32,6 +32,7 @@ from app.services.finance.domains.ledger.properties import (
 from app.services.finance.domains.ledger.queries.accounts import EVERYONE, accounts_page
 from app.services.finance.domains.ledger.subjects import subject_filter
 from app.services.finance.domains.ledger.valuations import preferred_valuation_row
+from app.services.finance.domains.planning.envelope_tags import tag_names
 from app.services.finance.domains.planning.envelopes import envelope_metadata
 from app.services.finance.domains.planning.goals import goal_metadata
 from app.services.finance.domains.planning.recurring.upcoming import (
@@ -125,6 +126,7 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
         # a second connection nothing returned, which held the write lock
         # until garbage collection killed it mid-answer (#238, 2026-09-23).
         whose, held_with = await _named(session, account_rows)
+        pays_for = await tag_names(session, account_rows)
 
     upcoming_by_account = {
         account_id: [
@@ -203,6 +205,8 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
                 "credit_cents": envelope_meta.monthly_credit,
                 "cadence": envelope_meta.cadence,
                 "auto_credit": envelope_meta.auto_credit,
+                # Charges wearing this tag are spent from it (#240).
+                "pays_for_tag": pays_for.get(account.id),
             }
         property_meta = property_metadata(account.metadata_)
         if property_meta is not None:

@@ -72,7 +72,9 @@ class ImportsMixin(FinanceServiceBase):
         account_id: int | None = None,
         on_label: SetLabel | None = None,
     ) -> imports.ImportResult:
-        return await imports.import_file(
+        from app.services.finance.domains.planning.envelope_tags import settle
+
+        result = await imports.import_file(
             self.db,
             owner_user_id=owner_user_id,
             file_name=file_name,
@@ -80,3 +82,10 @@ class ImportsMixin(FinanceServiceBase):
             account_id=account_id,
             on_label=on_label,
         )
+        # Tags arrive with a Quicken import, so an envelope that pays for
+        # one may owe for what just came in (#240). After the import's own
+        # transfer pass, so a tagged transfer is already known as one.
+        # ponytail: the CLI and demo seed call the adapter directly and
+        # skip this; the next tag change or import settles them.
+        await settle(self.db, owner_user_id=owner_user_id)
+        return result

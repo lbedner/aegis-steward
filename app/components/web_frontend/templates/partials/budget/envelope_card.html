@@ -5,6 +5,7 @@
     <span class="tabular-nums text-lg font-semibold {{ 'text-error' if envelope.balance < 0 else 'text-aegis-text' }}">{{ envelope.balance|money }}</span>
   </div>
   <p class="text-xxs text-aegis-muted">{% if envelope.auto_credit and envelope.monthly_credit %}+{{ envelope.monthly_credit|money }}/{{ "wk" if envelope.cadence == "weekly" else "mo" }} automatically{% else %}topped up by hand{% endif %}</p>
+  {% if envelope.tag %}<p class="text-xxs text-aegis-muted" data-pays-for>pays for what is tagged {{ envelope.tag }}{% if envelope.tag_since %}, from {{ envelope.tag_since|short_date }}{% endif %}</p>{% endif %}
   <div class="flex items-center gap-2 text-xs">
     {% set base = path ~ "/envelopes/" ~ envelope.account_id %}
     {{ action("Credit", hx_dialog(base ~ '/credit'), tone="primary") }}

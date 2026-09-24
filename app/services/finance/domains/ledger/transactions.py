@@ -205,6 +205,7 @@ async def tag_transactions(
         if txn_id not in already:
             db.add(FinanceTransactionTag(transaction_id=txn_id, tag_id=tag.id))
     await db.flush()
+    await _settle_envelopes(db, owner_user_id=owner_user_id)
     return tag
 
 
@@ -221,7 +222,16 @@ async def untag_transactions(
     for link in links:
         await db.delete(link)
     await db.flush()
+    await _settle_envelopes(db, owner_user_id=owner_user_id)
     return len(links)
+
+
+async def _settle_envelopes(db: AsyncSession, *, owner_user_id: int | None) -> None:
+    """A tag moved, so an envelope paying for it may owe or be owed
+    (#240). Imported lazily: planning builds on the ledger, not under it."""
+    from app.services.finance.domains.planning.envelope_tags import settle
+
+    await settle(db, owner_user_id=owner_user_id)
 
 
 async def soft_delete_transactions(

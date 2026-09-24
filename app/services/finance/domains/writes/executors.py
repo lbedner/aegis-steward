@@ -121,7 +121,7 @@ register(
     ChangeExecutor(
         change_type="transaction.tag",
         title="Tag a transaction",
-        payload_model=curation.TagPayload,
+        payload_model=curation.TagSwapPayload,
         execute=curation.tag_execute,
         describe=curation.tag_describe,
     )

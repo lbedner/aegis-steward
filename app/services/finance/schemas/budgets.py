@@ -51,6 +51,9 @@ class EnvelopeUpdate(BaseModel):
     monthly_credit: int | None = Field(default=None, ge=0)
     auto_credit: bool = False
     cadence: Literal["weekly", "monthly"] = "monthly"
+    # The tag whose charges it pays for (#240): None leaves it as it is,
+    # "" stops following one.
+    tag: str | None = None
 
 
 class EnvelopeMove(BaseModel):
@@ -68,6 +71,9 @@ class EnvelopeResponse(BaseModel):
     monthly_credit: int | None
     auto_credit: bool
     cadence: str
+    # What it pays for: charges wearing this tag, from this date (#240).
+    tag: str | None = None
+    tag_since: date | None = None
 
 
 class EnvelopeListResponse(BaseModel):

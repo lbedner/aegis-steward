@@ -62,7 +62,7 @@ async def _envelope_card(
     return dialog(
         request,
         "partials/budget/envelope_card.html",
-        envelope=envelope_response(account),
+        envelope=await envelope_response(service.db, account),
         oob=oob,
         path=SECTION.path,
     )
@@ -94,15 +94,17 @@ async def edit_envelope(
     monthly_credit: Annotated[str, Form()] = "",
     cadence: Annotated[str, Form()] = "monthly",
     auto_credit: Annotated[str, Form()] = "",
+    tag: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _envelope(service, account_id, owner_user_id)
     values = {
-        **_envelope_values(account),
+        **await _envelope_values(service, account),
         "monthly_credit": monthly_credit,
         "cadence": cadence,
         "auto_credit": auto_credit,
+        "tag": tag,
     }
     credit = money_to_cents(monthly_credit)
     if credit is None or cadence not in {c["id"] for c in CADENCES}:
@@ -119,6 +121,9 @@ async def edit_envelope(
             monthly_credit=credit or None,
             auto_credit=auto_credit == "on",
             cadence=cadence,
+            # The whole form is the envelope's state: an empty field
+            # stops it paying for a tag (#240).
+            tag=tag,
         ),  # type: ignore[arg-type]
         service=service,
         owner_user_id=owner_user_id,
@@ -137,7 +142,9 @@ async def envelope_move_form(
 ) -> Response:
     account = await _envelope(service, account_id, owner_user_id)
     if verb == "edit":
-        return _envelope_editor(request, account, _envelope_values(account), [])
+        return _envelope_editor(
+            request, account, await _envelope_values(service, account), []
+        )
     if verb not in ("credit", "spend"):
         raise HTTPException(status_code=404)
     return _move_dialog(request, account, verb, [])
@@ -167,14 +174,19 @@ async def envelope_move(
     return close_dialog(with_toast(response, f"{verb.title()}: {money(cents)}."))
 
 
-def _envelope_values(account: FinanceAccount | None) -> dict[str, str]:
-    if account is None:
+async def _envelope_values(
+    service: FinanceService | None, account: FinanceAccount | None
+) -> dict[str, str]:
+    from app.services.finance.domains.planning.envelope_tags import tag_name
+
+    if account is None or service is None:
         return {
             "name": "",
             "monthly_credit": "",
             "cadence": "monthly",
             "starting_balance": "",
             "auto_credit": "",
+            "tag": "",
         }
     meta = envelope_metadata(account.metadata_)
     assert meta is not None
@@ -184,6 +196,7 @@ def _envelope_values(account: FinanceAccount | None) -> dict[str, str]:
         "cadence": meta.cadence,
         "starting_balance": "",
         "auto_credit": "on" if meta.auto_credit else "",
+        "tag": await tag_name(service.db, meta) or "",
     }
 
 
@@ -208,7 +221,7 @@ def _envelope_editor(
 
 @router.get("/envelopes/new", include_in_schema=False)
 async def new_envelope_form(request: Request) -> Response:
-    return _envelope_editor(request, None, _envelope_values(None), [])
+    return _envelope_editor(request, None, await _envelope_values(None, None), [])
 
 
 @router.post("/envelopes/new", include_in_schema=False)

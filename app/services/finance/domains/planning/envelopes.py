@@ -35,7 +35,13 @@ _MARKER_KEY = "envelope"
 _CREDIT_KEY = "envelope_monthly_credit"
 _AUTO_KEY = "envelope_auto_credit"
 _CADENCE_KEY = "envelope_credit_cadence"
-_ENVELOPE_KEYS = (_MARKER_KEY, _CREDIT_KEY, _AUTO_KEY, _CADENCE_KEY)
+# The tag it pays for, from when, and how much tagged spend it has
+# already walked off its balance (``envelope_tags``).
+TAG_KEY = "envelope_tag_id"
+TAG_SINCE_KEY = "envelope_tag_since"
+TAG_COUNTED_KEY = "envelope_tag_counted"
+_TAG_KEYS = (TAG_KEY, TAG_SINCE_KEY, TAG_COUNTED_KEY)
+_ENVELOPE_KEYS = (_MARKER_KEY, _CREDIT_KEY, _AUTO_KEY, _CADENCE_KEY, *_TAG_KEYS)
 
 
 class EnvelopeMeta(BaseModel):
@@ -54,6 +60,11 @@ class EnvelopeMeta(BaseModel):
     auto_credit: bool = Field(default=False, alias=_AUTO_KEY)
     # weekly | monthly - how often the credit lands
     cadence: str = Field(default="monthly", alias=_CADENCE_KEY)
+    # The tag whose charges it pays for, counted from ``tag_since``;
+    # ``tag_counted`` is the spend already walked off (``envelope_tags``).
+    tag_id: int | None = Field(default=None, alias=TAG_KEY)
+    tag_since: date | None = Field(default=None, alias=TAG_SINCE_KEY)
+    tag_counted: int = Field(default=0, alias=TAG_COUNTED_KEY)
 
 
 def envelope_metadata(metadata: dict[str, Any] | None) -> EnvelopeMeta | None:
@@ -63,7 +74,7 @@ def envelope_metadata(metadata: dict[str, Any] | None) -> EnvelopeMeta | None:
         return None
     stored = {
         key: metadata[key]
-        for key in (_CREDIT_KEY, _AUTO_KEY, _CADENCE_KEY)
+        for key in (_CREDIT_KEY, _AUTO_KEY, _CADENCE_KEY, *_TAG_KEYS)
         if metadata.get(key) is not None
     }
     return _validated(EnvelopeMeta.model_validate(stored))
@@ -82,10 +93,14 @@ def set_envelope_metadata(
             monthly_credit=monthly_credit, auto_credit=auto_credit, cadence=cadence
         )
     )
+    # The tag keys are left as they stand: changing an allowance must not
+    # stop an envelope paying for what it follows (``envelope_tags``).
     return {
         **(metadata or {}),
         _MARKER_KEY: True,
-        **meta.model_dump(mode="json", by_alias=True),
+        **meta.model_dump(
+            mode="json", by_alias=True, exclude={"tag_id", "tag_since", "tag_counted"}
+        ),
     }
 
 
@@ -244,7 +259,9 @@ async def update_envelope(
     monthly_credit: int | None,
     auto_credit: bool,
     cadence: str = "monthly",
+    tag: str | None = None,
 ) -> FinanceAccount | None:
+    """``tag`` None leaves what it pays for alone; "" stops it (#240)."""
     account = await accounts.get_account(db, account_id, owner_user_id=owner_user_id)
     if account is None or envelope_metadata(account.metadata_) is None:
         return None
@@ -256,6 +273,14 @@ async def update_envelope(
     )
     db.add(account)
     await db.flush()
+    if tag is not None:
+        # Imported here: envelope_tags builds on this module.
+        from app.services.finance.domains.planning.envelope_tags import retag
+        from app.services.finance.utils import current_date
+
+        await retag(
+            db, account_id, tag, owner_user_id=owner_user_id, since=current_date()
+        )
     return account
 
 

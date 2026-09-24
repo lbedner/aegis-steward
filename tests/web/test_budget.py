@@ -493,5 +493,24 @@ class TestEnvelopes:
         response = client.delete(f"/budget/envelopes/{envelope_id}")
         assert response.status_code == 200 and response.text == ""
 
+    def test_an_envelope_can_pay_for_a_tag(
+        self, client: TestClient, hx: TestClient, budget: Budget
+    ) -> None:
+        """What the household buys her, she pays for from her envelope:
+        the dialog names the tag, and the card says what it pays for
+        (#240)."""
+        form = one(hx.get(f"/budget/envelopes/{budget.envelope}/edit").text, "form")
+        one(form, 'input[name="tag"]')
+        saved = client.post(
+            f"/budget/envelopes/{budget.envelope}/edit",
+            data={"monthly_credit": "10", "cadence": "weekly", "tag": "Kids stuff"},
+        )
+        card = one(saved.text, f"#envelope-{budget.envelope}[hx-swap-oob]")
+        assert "pays for what is tagged Kids stuff" in text(
+            one(card, "[data-pays-for]")
+        )
+        form = one(hx.get(f"/budget/envelopes/{budget.envelope}/edit").text, "form")
+        assert one(form, 'input[name="tag"]').get("value") == "Kids stuff"
+
     def test_unknown_envelope_is_404(self, client: TestClient, ledger: Ledger) -> None:
         assert client.get("/budget/envelopes/999999/credit").status_code == 404

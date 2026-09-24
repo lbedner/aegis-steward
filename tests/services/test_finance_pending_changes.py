@@ -786,6 +786,35 @@ class TestTagExecutors:
         assert display["Tags"] == "Travel \u2192 Business, Travel"
 
     @pytest.mark.asyncio
+    async def test_one_card_swaps_a_tag(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Live: "With Vanessa" to "Vanessa" took two cards, and the second
+        previewed "With Vanessa -> none" because it could not see the
+        first. Confusing (2026-09-23). A swap is one change."""
+        from app.services.finance.domains.ledger.transactions import (
+            tag_transactions,
+            transaction_tags,
+        )
+
+        txn = await self._fixture(svc, async_db_session)
+        await tag_transactions(
+            async_db_session, [txn.id], "With Vanessa", owner_user_id=1
+        )
+        row = await svc.propose_change(
+            "transaction.tag",
+            {"transaction_id": txn.id, "tag": "Vanessa", "replaces": "With Vanessa"},
+            owner_user_id=1,
+        )
+        display = {d.label: d.value for d in await svc.describe_pending_change(row)}
+        assert display["Tags"] == "With Vanessa \u2192 Vanessa"
+
+        await svc.approve_change(row.id, owner_user_id=1)
+
+        tags = await transaction_tags(async_db_session, [txn.id])
+        assert [t.name for t in tags[txn.id]] == ["Vanessa"]
+
+    @pytest.mark.asyncio
     async def test_an_untagged_transaction_reads_none(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:

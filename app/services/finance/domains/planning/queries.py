@@ -191,6 +191,29 @@ async def accounts_of_type(
     return list((await db.exec(query.order_by(FinanceAccount.id))).all())
 
 
+async def tagged_spend(db: AsyncSession, *, tag_id: int, since: date) -> int:
+    """Positive cents of countable spend (``spend_filters``) wearing the
+    tag from ``since``, transfers aside: paying her allowance by Venmo is
+    a transfer, not something she bought."""
+    from app.services.finance.models import FinanceTransactionTag
+
+    total = (
+        await db.exec(
+            select(func.coalesce(func.sum(FinanceTransaction.amount), 0))
+            .join(
+                FinanceTransactionTag,
+                FinanceTransactionTag.transaction_id == FinanceTransaction.id,
+            )
+            .where(
+                FinanceTransactionTag.tag_id == tag_id,
+                FinanceTransaction.is_transfer.is_(False),
+                *spend_filters(None, since),
+            )
+        )
+    ).one()
+    return -int(total)
+
+
 # -- insights -----------------------------------------------------------------
 
 

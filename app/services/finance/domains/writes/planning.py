@@ -315,6 +315,8 @@ class EnvelopeUpdatePayload(BaseModel):
     allowance_cents: int | None = Field(default=None, ge=0)
     cadence: str | None = None
     auto_credit: bool | None = None
+    # The tag whose charges it pays for (#240); "" stops following one.
+    tag: str | None = None
     _known_cadence = field_validator("cadence")(known(ENVELOPE_CADENCES))
 
     @model_validator(mode="after")
@@ -323,6 +325,7 @@ class EnvelopeUpdatePayload(BaseModel):
             self.allowance_cents is None
             and self.cadence is None
             and self.auto_credit is None
+            and self.tag is None
         ):
             raise ValueError("Nothing to change: give at least one field.")
         return self
@@ -346,19 +349,37 @@ def _merged(meta: Any, payload: EnvelopeUpdatePayload) -> tuple[int | None, str,
     )
 
 
+def _pays_for(name: str | None, since: date | None) -> str:
+    if not name:
+        return "-"
+    return f"what is tagged {name}, from {since.isoformat()}" if since else name
+
+
+async def _retagged(
+    db: AsyncSession, meta: Any, payload: EnvelopeUpdatePayload
+) -> bool:
+    """Whether the card moves the envelope to a different tag, or off one."""
+    from app.services.finance.domains.planning.envelope_tags import tag_name
+
+    if payload.tag is None:
+        return False
+    return (payload.tag.strip() or None) != await tag_name(db, meta)
+
+
 async def envelope_update_execute(
     db: AsyncSession, payload: EnvelopeUpdatePayload, owner_user_id: int | None
 ) -> dict[str, Any]:
     from app.services.finance.service import FinanceService
 
-    _account_row, meta = await _envelope(db, payload.account_id)
+    account, meta = await _envelope(db, payload.account_id)
     allowance, cadence, auto = _merged(meta, payload)
     await FinanceService(db).update_envelope(
         payload.account_id,
-        owner_user_id=owner_user_id,
+        owner_user_id=account.owner_user_id,
         monthly_credit=allowance,
         auto_credit=auto,
         cadence=cadence,
+        tag=payload.tag,
     )
     return {"account_id": payload.account_id}
 
@@ -383,6 +404,13 @@ async def envelope_update_describe(
                 value="automatically each period" if auto else "by hand only",
             )
         )
+    if await _retagged(db, meta, payload):
+        from app.services.finance.domains.planning.envelope_tags import tag_name
+        from app.services.finance.utils import current_date
+
+        was = _pays_for(await tag_name(db, meta), meta.tag_since)
+        now = _pays_for((payload.tag or "").strip() or None, current_date())
+        rows.append(ChangeDisplayRow(label="Pays for", value=f"{was} → {now}"))
     if len(rows) == 1:
         raise ValueError(f"This would change nothing about {account.name}.")
     rows.append(ChangeDisplayRow(label="Money", value=_NO_MONEY))
