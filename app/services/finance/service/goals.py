@@ -273,6 +273,7 @@ class GoalsMixin(FinanceServiceBase):
         auto_credit: bool,
         cadence: str = "monthly",
         tag: str | None = None,
+        tag_since: date | None = None,
     ) -> FinanceAccount | None:
         return await envelopes.update_envelope(
             self.db,
@@ -282,6 +283,7 @@ class GoalsMixin(FinanceServiceBase):
             auto_credit=auto_credit,
             cadence=cadence,
             tag=tag,
+            tag_since=tag_since,
         )
 
     async def auto_credit_envelopes(
