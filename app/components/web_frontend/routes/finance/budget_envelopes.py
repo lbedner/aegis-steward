@@ -15,7 +15,12 @@ from app.components.backend.api.finance.planning import (
     envelope_response,
     update_envelope,
 )
-from app.components.web_frontend.filters import cents_to_input, money, money_to_cents
+from app.components.web_frontend.filters import (
+    cents_to_input,
+    money,
+    money_to_cents,
+    parse_date,
+)
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
@@ -95,6 +100,7 @@ async def edit_envelope(
     cadence: Annotated[str, Form()] = "monthly",
     auto_credit: Annotated[str, Form()] = "",
     tag: Annotated[str, Form()] = "",
+    tag_since: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
@@ -105,6 +111,7 @@ async def edit_envelope(
         "cadence": cadence,
         "auto_credit": auto_credit,
         "tag": tag,
+        "tag_since": tag_since,
     }
     credit = money_to_cents(monthly_credit)
     if credit is None or cadence not in {c["id"] for c in CADENCES}:
@@ -115,6 +122,12 @@ async def edit_envelope(
             ["Amounts are in dollars; pick weekly or monthly."],
             422,
         )
+    try:
+        since = parse_date(tag_since)
+    except ValueError:
+        return _envelope_editor(
+            request, account, values, ["Counting from is a date, like 2026-08-01."], 422
+        )
     await update_envelope(
         account_id,
         EnvelopeUpdate(
@@ -124,6 +137,7 @@ async def edit_envelope(
             # The whole form is the envelope's state: an empty field
             # stops it paying for a tag (#240).
             tag=tag,
+            tag_since=since,
         ),  # type: ignore[arg-type]
         service=service,
         owner_user_id=owner_user_id,
@@ -187,6 +201,7 @@ async def _envelope_values(
             "starting_balance": "",
             "auto_credit": "",
             "tag": "",
+            "tag_since": "",
         }
     meta = envelope_metadata(account.metadata_)
     assert meta is not None
@@ -197,6 +212,7 @@ async def _envelope_values(
         "starting_balance": "",
         "auto_credit": "on" if meta.auto_credit else "",
         "tag": await tag_name(service.db, meta) or "",
+        "tag_since": meta.tag_since.isoformat() if meta.tag_since else "",
     }
 
 

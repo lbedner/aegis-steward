@@ -317,6 +317,8 @@ class EnvelopeUpdatePayload(BaseModel):
     auto_credit: bool | None = None
     # The tag whose charges it pays for (#240); "" stops following one.
     tag: str | None = None
+    # When it starts counting that tag's charges; None leaves it.
+    tag_since: date | None = None
     _known_cadence = field_validator("cadence")(known(ENVELOPE_CADENCES))
 
     @model_validator(mode="after")
@@ -326,6 +328,7 @@ class EnvelopeUpdatePayload(BaseModel):
             and self.cadence is None
             and self.auto_credit is None
             and self.tag is None
+            and self.tag_since is None
         ):
             raise ValueError("Nothing to change: give at least one field.")
         return self
@@ -380,6 +383,7 @@ async def envelope_update_execute(
         auto_credit=auto,
         cadence=cadence,
         tag=payload.tag,
+        tag_since=payload.tag_since,
     )
     return {"account_id": payload.account_id}
 
@@ -409,8 +413,19 @@ async def envelope_update_describe(
         from app.services.finance.utils import current_date
 
         was = _pays_for(await tag_name(db, meta), meta.tag_since)
-        now = _pays_for((payload.tag or "").strip() or None, current_date())
+        now = _pays_for(
+            (payload.tag or "").strip() or None, payload.tag_since or current_date()
+        )
         rows.append(ChangeDisplayRow(label="Pays for", value=f"{was} → {now}"))
+    elif payload.tag_since and payload.tag_since != meta.tag_since and meta.tag_id:
+        # Same tag, new start: the charges it now covers are spent, the
+        # ones it no longer covers are given back.
+        was = meta.tag_since.isoformat() if meta.tag_since else "-"
+        rows.append(
+            ChangeDisplayRow(
+                label="Counting from", value=f"{was} → {payload.tag_since.isoformat()}"
+            )
+        )
     if len(rows) == 1:
         raise ValueError(f"This would change nothing about {account.name}.")
     rows.append(ChangeDisplayRow(label="Money", value=_NO_MONEY))

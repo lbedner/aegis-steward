@@ -101,13 +101,13 @@ async def tag_names(db: AsyncSession, accounts: list[FinanceAccount]) -> dict[in
 async def retag(
     db: AsyncSession,
     account_id: int,
-    name: str,
+    name: str | None,
     *,
     owner_user_id: int | None,
     since: date | None = None,
 ) -> bool:
-    """Follow ``name`` ("" for none) from ``since``, then settle. True when
-    anything changed.
+    """Follow ``name`` ("" for none, None for the one it has) from
+    ``since``, then settle. True when anything changed.
 
     ``since`` None leaves the start where it is - re-saving the dialog
     must not move it - and a NEW tag starts today unless told otherwise.
@@ -124,8 +124,10 @@ async def retag(
     meta = envelopes.envelope_metadata(account.metadata_) if account else None
     if account is None or meta is None:
         raise ValueError(f"No envelope {account_id}.")
-    wanted = name.strip() or None
-    if wanted != await tag_name(db, meta):
+    current = await tag_name(db, meta)
+    # None keeps the tag it follows: a card can move only the start.
+    wanted = current if name is None else (name.strip() or None)
+    if wanted != current:
         start = since or current_date()
         await follow_tag(
             db, account_id, wanted, owner_user_id=owner_user_id, since=start

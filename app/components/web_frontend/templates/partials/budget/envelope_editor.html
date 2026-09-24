@@ -1,4 +1,4 @@
-{% from "components/macros/form.html" import field, text_input, money_input, select, checkbox, primary_button %}
+{% from "components/macros/form.html" import field, text_input, money_input, select, checkbox, primary_button, date_input %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {{ dialog_title("Edit " ~ envelope.name if envelope else "New envelope") }}
@@ -14,6 +14,11 @@
   {#- What the household buys for her, she pays for from here: a charge
       wearing this tag is spent from the envelope, counted from the day
       it is set (ticket 240). Empty stops it. -#}
-  {% call field("Pays for what is tagged (optional)") %}{{ text_input("tag", values.tag, placeholder="Vanessa") }}{% endcall %}{% endif %}
+  <div class="grid grid-cols-2 gap-4">
+    {% call field("Pays for what is tagged (optional)") %}{{ text_input("tag", values.tag, placeholder="Vanessa") }}{% endcall %}
+    {#- Charges tagged after the fact count only from here: blank starts
+        a new tag today and leaves an existing start alone. -#}
+    {% call field("Counting from") %}{{ date_input("tag_since", values.tag_since, block=True) }}{% endcall %}
+  </div>{% endif %}
   <div>{{ primary_button("Save", type="submit") }}</div>
 </form>

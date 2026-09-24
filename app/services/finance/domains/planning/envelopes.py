@@ -275,7 +275,7 @@ async def update_envelope(
     )
     db.add(account)
     await db.flush()
-    if tag is not None:
+    if tag is not None or tag_since is not None:
         # Imported here: envelope_tags builds on this module.
         from app.services.finance.domains.planning.envelope_tags import retag
 

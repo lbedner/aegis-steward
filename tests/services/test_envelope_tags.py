@@ -225,8 +225,8 @@ class TestCountingFrom:
         self, async_db_session: AsyncSession
     ) -> None:
         """Saving the dialog again must not quietly move counting to today."""
-        from app.services.finance.domains.planning.envelopes import envelope_metadata
         from app.services.finance.domains.planning.envelope_tags import retag
+        from app.services.finance.domains.planning.envelopes import envelope_metadata
 
         made = await _setup(async_db_session)
         start = TODAY - timedelta(days=45)
@@ -244,4 +244,30 @@ class TestCountingFrom:
 
         await async_db_session.refresh(made["envelope"])
         assert changed is False
+        assert envelope_metadata(made["envelope"].metadata_).tag_since == start
+
+    @pytest.mark.asyncio
+    async def test_the_card_moves_the_start_and_says_so(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.finance.domains.writes.planning import (
+            EnvelopeUpdatePayload,
+            envelope_update_describe,
+            envelope_update_execute,
+        )
+
+        made = await _setup(async_db_session)
+        start = TODAY - timedelta(days=45)
+        payload = EnvelopeUpdatePayload(account_id=made["envelope"].id, tag_since=start)
+
+        said = {
+            row.label: row.value
+            for row in await envelope_update_describe(async_db_session, payload, None)
+        }
+        assert said["Counting from"] == f"{TODAY.isoformat()} → {start.isoformat()}"
+
+        await envelope_update_execute(async_db_session, payload, None)
+        from app.services.finance.domains.planning.envelopes import envelope_metadata
+
+        await async_db_session.refresh(made["envelope"])
         assert envelope_metadata(made["envelope"].metadata_).tag_since == start
