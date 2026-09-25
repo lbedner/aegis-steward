@@ -6,6 +6,7 @@ Add your own jobs by importing service functions and calling scheduler.add_job()
 """
 
 import asyncio
+import logging
 from typing import Any
 
 from apscheduler.events import (
@@ -117,6 +118,11 @@ async def _apply_active_model() -> None:
 
 def create_scheduler() -> AsyncIOScheduler:
     """Create and configure the scheduler with all jobs."""
+
+    # APScheduler logs every run at INFO: two lines per heartbeat every 15s,
+    # and every other run is an enqueue the worker logs for real. Failures
+    # still log at ERROR.
+    logging.getLogger("apscheduler.executors").setLevel(logging.WARNING)
 
     # Ensure database is initialized before creating jobstore
     init_database()

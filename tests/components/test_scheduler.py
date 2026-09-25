@@ -302,3 +302,18 @@ async def test_running_a_job_by_hand_hands_it_to_the_worker(
     pool.enqueue_job.assert_awaited_once_with(
         "backup_database_job", _queue_name="arq:queue:system"
     )
+
+
+def test_a_run_that_succeeds_logs_nothing(caplog: pytest.LogCaptureFixture) -> None:
+    """APScheduler logged every run at INFO - the heartbeat alone was two
+    lines every 15 seconds, and after the handoff every other run is an
+    enqueue the worker logs for real. Failures still log (ERROR)."""
+    import logging
+
+    from app.components.scheduler.main import create_scheduler
+
+    caplog.set_level(logging.INFO)  # the container's root level
+    create_scheduler()
+    executor = logging.getLogger("apscheduler.executors.default")
+    assert not executor.isEnabledFor(logging.INFO)
+    assert executor.isEnabledFor(logging.ERROR)
