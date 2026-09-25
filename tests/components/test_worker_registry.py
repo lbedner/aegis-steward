@@ -15,6 +15,7 @@ import pytest
 from app.components.worker.registry import (
     discover_worker_queues,
     get_queue_metadata,
+    task_name,
 )
 from app.components.worker.tasks import (
     get_queue_for_task,
@@ -25,7 +26,7 @@ from app.components.worker.tasks import (
 
 def _defined_tasks(module: Any) -> set[str]:
     settings = module.WorkerSettings
-    return {fn.__name__ for fn in getattr(settings, "functions", [])}
+    return {task_name(fn) for fn in getattr(settings, "functions", [])}
 
 
 @pytest.mark.parametrize("queue_name", discover_worker_queues())
@@ -51,10 +52,10 @@ def test_task_api_can_see_every_registered_task(queue_name: str) -> None:
     module = importlib.import_module(f"app.components.worker.queues.{queue_name}")
     available = set(list_available_tasks())
 
-    for task_name in _defined_tasks(module):
-        assert task_name in available, f"{task_name} is not offered by the task API"
-        assert get_task_by_name(task_name) is not None
-        assert get_queue_for_task(task_name) == queue_name
+    for name in _defined_tasks(module):
+        assert name in available, f"{name} is not offered by the task API"
+        assert get_task_by_name(name) is not None
+        assert get_queue_for_task(name) == queue_name
 
 
 def test_task_lookup_returns_the_function_itself() -> None:

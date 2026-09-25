@@ -210,7 +210,7 @@ async def trigger_scheduled_job(
                 },
             )
 
-        background_tasks.add_task(run_triggered_job, func, job_id, task.name)
+        background_tasks.add_task(run_triggered_job, func, job_id, task.name, task.args)
         return TriggerJobResponse(
             job_id=job_id,
             status="triggered",

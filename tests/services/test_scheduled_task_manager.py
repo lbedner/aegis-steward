@@ -134,6 +134,7 @@ class TestScheduledTaskManager:
             assert isinstance(task, ScheduledTask)
             assert task.job_id == "test_job_id"
             assert task.name == "Test Job"
+            assert task.args == []
             assert task.status == "active"  # Has next_run_time
 
     @pytest.mark.asyncio
@@ -306,3 +307,34 @@ class TestScheduledTaskManager:
         # Test unknown
         result = manager._get_trigger_type(None)
         assert result == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_a_task_carries_the_arguments_its_job_was_stored_with() -> None:
+    """A handed-off job is ``enqueue_task("backup_database_job")``; a manual
+    run that drops the name calls ``enqueue_task()`` and fails."""
+    job = APSchedulerJob(
+        id="database_backup",
+        next_run_time=datetime.now().timestamp(),
+        job_state=pickle.dumps(
+            {
+                "name": "Daily Database Backup",
+                "func": "app.components.scheduler.handoff:enqueue_task",
+                "args": ("backup_database_job",),
+                "trigger": MockTrigger(),
+            }
+        ),
+    )
+    with patch(
+        "app.services.scheduler.scheduled_task_manager.get_async_session"
+    ) as mock_session:
+        session = AsyncMock()
+        mock_session.return_value.__aenter__.return_value = session
+        result = MagicMock()
+        result.first.return_value = job
+        session.exec.return_value = result
+
+        task = await ScheduledTaskManager().get_task("database_backup")
+
+    assert task is not None
+    assert task.args == ["backup_database_job"]

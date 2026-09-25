@@ -40,6 +40,15 @@ def discover_worker_queues() -> list[str]:
     return discovery.discover_queues(_is_queue)
 
 
+def task_name(entry: Any) -> str:
+    """The name a ``WorkerSettings.functions`` entry is enqueued by.
+
+    An entry is a coroutine function, or an arq ``Function`` from
+    ``func(...)``, which carries its own name (and timeout).
+    """
+    return getattr(entry, "name", None) or entry.__name__
+
+
 def queue_tasks(queue_name: str) -> dict[str, Any]:
     """Tasks a queue registers, keyed by name.
 
@@ -53,7 +62,10 @@ def queue_tasks(queue_name: str) -> dict[str, Any]:
         logger.warning(f"Failed to read tasks for queue '{queue_name}': {e}")
         return {}
 
-    return {fn.__name__: fn for fn in getattr(settings_class, "functions", [])}
+    return {
+        task_name(fn): getattr(fn, "coroutine", fn)
+        for fn in getattr(settings_class, "functions", [])
+    }
 
 
 def get_queue_metadata(queue_name: str) -> dict[str, Any]:

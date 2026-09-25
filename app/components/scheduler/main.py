@@ -41,7 +41,9 @@ from app.services.scheduler.orphans import drop_unknown_persisted_jobs
 from app.services.system import activity
 from app.services.system.backup import backup_database_job
 
+from .handoff import enqueue_task
 from .heartbeat import is_heartbeat_event, register_heartbeat_job
+from .wakeup import StewardScheduler
 
 
 def _cleanup_stale_jobs() -> None:
@@ -130,7 +132,7 @@ def create_scheduler() -> AsyncIOScheduler:
     # (host sleep, container pause, deploy gap). Assumes jobs are idempotent.
     # coalesce=True collapses multiple missed runs into a single catch-up.
     job_defaults = {"misfire_grace_time": None, "coalesce": True}
-    scheduler = AsyncIOScheduler(
+    scheduler = StewardScheduler(
         jobstores=jobstores,
         job_defaults=job_defaults,
         timezone=settings.SCHEDULER_TIMEZONE,
@@ -144,7 +146,8 @@ def create_scheduler() -> AsyncIOScheduler:
     register_heartbeat_job(scheduler)
 
     scheduler.add_job(
-        backup_database_job,
+        enqueue_task,
+        args=[backup_database_job.__name__],
         trigger="cron",
         hour=2,
         minute=0,
@@ -160,7 +163,8 @@ def create_scheduler() -> AsyncIOScheduler:
     # read at 6pm should be joined the same night, and idempotent, so a
     # missed run simply catches up.
     scheduler.add_job(
-        join_arrivals_job,
+        enqueue_task,
+        args=[join_arrivals_job.__name__],
         trigger="cron",
         hour=23,
         minute=0,
@@ -172,7 +176,8 @@ def create_scheduler() -> AsyncIOScheduler:
     )
 
     scheduler.add_job(
-        sync_llm_catalog_job,
+        enqueue_task,
+        args=[sync_llm_catalog_job.__name__],
         trigger="interval",
         hours=6,
         id="llm_sync",
@@ -183,7 +188,8 @@ def create_scheduler() -> AsyncIOScheduler:
     )
 
     scheduler.add_job(
-        analyze_sentiment_job,
+        enqueue_task,
+        args=[analyze_sentiment_job.__name__],
         trigger="interval",
         hours=1,
         id="sentiment_analysis",
@@ -196,7 +202,8 @@ def create_scheduler() -> AsyncIOScheduler:
     # Net-worth engine: materialize per-account balance + per-user net-worth
     # snapshots nightly so the net-worth-over-time chart is a cheap range scan.
     scheduler.add_job(
-        finance_recompute_snapshots_job,
+        enqueue_task,
+        args=[finance_recompute_snapshots_job.__name__],
         trigger="cron",
         hour=2,
         id="finance_recompute_snapshots",
@@ -209,7 +216,8 @@ def create_scheduler() -> AsyncIOScheduler:
     # Idempotent per month, so a missed run caught up later books nothing
     # twice - the plan saves unless actively paused.
     scheduler.add_job(
-        finance_goal_auto_contribute_job,
+        enqueue_task,
+        args=[finance_goal_auto_contribute_job.__name__],
         trigger="cron",
         day=1,
         hour=2,
@@ -225,7 +233,8 @@ def create_scheduler() -> AsyncIOScheduler:
     # land Mondays), so the job checks DAILY and the per-period
     # idempotency inside it decides whether anything books.
     scheduler.add_job(
-        finance_envelope_credit_job,
+        enqueue_task,
+        args=[finance_envelope_credit_job.__name__],
         trigger="cron",
         hour=2,
         minute=50,
@@ -240,7 +249,8 @@ def create_scheduler() -> AsyncIOScheduler:
     # so the register isn't stale between logins (webhooks handle the real-time
     # nudge when a public URL is configured).
     scheduler.add_job(
-        finance_sync_connections_job,
+        enqueue_task,
+        args=[finance_sync_connections_job.__name__],
         trigger="interval",
         hours=6,
         id="finance_sync_connections",
@@ -254,7 +264,8 @@ def create_scheduler() -> AsyncIOScheduler:
     # days, mailed once. Does nothing at all until FINANCE_BILL_EMAIL_TO
     # is set, so an unconfigured project mails nobody.
     scheduler.add_job(
-        finance_bill_due_email_job,
+        enqueue_task,
+        args=[finance_bill_due_email_job.__name__],
         trigger="cron",
         hour=7,
         minute=0,
@@ -269,7 +280,8 @@ def create_scheduler() -> AsyncIOScheduler:
     # morning is one you can still do something about, and the sidebar's
     # dot only ever appeared once the day had passed.
     scheduler.add_job(
-        matters_deadline_nag_job,
+        enqueue_task,
+        args=[matters_deadline_nag_job.__name__],
         trigger="cron",
         hour=6,
         minute=30,

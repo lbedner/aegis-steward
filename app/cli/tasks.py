@@ -115,7 +115,7 @@ async def _trigger_job(job_id: str, force: bool) -> bool:
 
     name = task.name or job_id
     rprint(f"[dim]{t('tasks.triggering')}[/dim] {name}")
-    succeeded = await run_triggered_job(func, job_id, name)
+    succeeded = await run_triggered_job(func, job_id, name, task.args)
     if succeeded:
         rprint(f"[{theme.ACCENT}]{t('tasks.trigger_success')}[/] {name}")
     else:
