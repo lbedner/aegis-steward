@@ -5,7 +5,7 @@ Used by both the backend API (``POST /api/v1/scheduler/jobs/{job_id}/run``) and 
 place instead of being duplicated per entry point.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 import importlib
 import inspect
 import traceback
@@ -32,7 +32,10 @@ def import_job_function(func_ref: str) -> Callable[..., Any] | None:
 
 
 async def run_triggered_job(
-    func: Callable[..., Any], job_id: str, job_name: str
+    func: Callable[..., Any],
+    job_id: str,
+    job_name: str,
+    args: Sequence[Any] = (),
 ) -> bool:
     """Run a manually-triggered job and record its execution.
 
@@ -44,9 +47,9 @@ async def run_triggered_job(
     execution_id = await run_in_threadpool(record_job_started, job_id, job_name)
     try:
         if inspect.iscoroutinefunction(func):
-            await func()
+            await func(*args)
         else:
-            await run_in_threadpool(func)
+            await run_in_threadpool(func, *args)
         await run_in_threadpool(record_job_finished, execution_id, job_id, success=True)
         return True
     except Exception as e:

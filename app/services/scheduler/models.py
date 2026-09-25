@@ -102,6 +102,9 @@ class ScheduledTask(BaseModel):
     status: Literal["active", "paused"] = Field(..., description="Current task status")
     max_instances: int = Field(1, description="Maximum concurrent instances allowed")
     coalesce: bool = Field(True, description="Whether to coalesce missed runs")
+    args: list[Any] = Field(
+        default_factory=list, description="Arguments the job is called with"
+    )
 
     @property
     def is_active(self) -> bool:
