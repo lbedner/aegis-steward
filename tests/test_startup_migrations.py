@@ -175,10 +175,10 @@ class TestAdoptingAPersistedDatabase:
 async def test_a_fresh_database_comes_up_at_head(tmp_path: Path) -> None:
     """End to end on a real file: no create_all anywhere, and the
     version table says head rather than lagging behind it."""
-    from app.components.backend.startup.migrations import upgrade_to_head
+    from app.components.backend.startup.migrations import bring_to_head
 
     db = tmp_path / "fresh.db"
-    upgrade_to_head(str(db))
+    bring_to_head(str(db))
 
     import sqlite3
 
@@ -313,3 +313,44 @@ def test_init_database_does_not_build_tables_when_migrations_exist(
     )
     db_module.init_database()
     assert called == [], "init_database built tables behind alembic's back"
+
+
+async def test_adoption_is_rechecked_between_migrations(tmp_path: Path) -> None:
+    """2026-09-24: the live database sat at 037 while the scheduler had
+    already built ``apscheduler_jobs`` for itself. Adoption ran once, up
+    front, and stopped at 038 (not yet applied); the upgrade then ran
+    038 through 040 in one go and 040 died on the scheduler's index,
+    stranding every later migration. Each step has to re-ask."""
+    import sqlite3
+
+    from alembic import command
+    from app.components.backend.startup import migrations
+
+    db = tmp_path / "lagging.db"
+    command.upgrade(migrations._alembic_config(migrations._url_for(str(db))), "037")
+    connection = sqlite3.connect(db)
+    try:
+        # What APScheduler's jobstore creates on first boot.
+        connection.execute(
+            "CREATE TABLE apscheduler_jobs (id VARCHAR(191) PRIMARY KEY, "
+            "next_run_time FLOAT, job_state BLOB NOT NULL)"
+        )
+        connection.execute(
+            "CREATE INDEX ix_apscheduler_jobs_next_run_time "
+            "ON apscheduler_jobs (next_run_time)"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    adopted = migrations.bring_to_head(str(db))
+
+    connection = sqlite3.connect(db)
+    try:
+        stamped = connection.execute(
+            "select version_num from alembic_version"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert "scheduler" in adopted
+    assert stamped[0] == migrations.head_revision()

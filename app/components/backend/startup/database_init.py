@@ -100,9 +100,8 @@ def _build_schema() -> None:
     from sqlmodel import SQLModel
 
     from app.components.backend.startup.migrations import (
-        adopt_pending,
+        bring_to_head,
         missing_model_tables,
-        upgrade_to_head,
         versions_exist,
     )
     from app.core.db import DATABASE_PATH, engine
@@ -115,10 +114,9 @@ def _build_schema() -> None:
         logger.info("Database tables created (no migrations on this install)")
         return
 
-    adopted = adopt_pending(DATABASE_PATH)
+    adopted = bring_to_head(DATABASE_PATH)
     if adopted:
         logger.info(f"Adopted already-applied migrations: {sorted(adopted)}")
-    upgrade_to_head(DATABASE_PATH)
 
     missing = missing_model_tables(
         sa_inspect(engine), {table.name for table in SQLModel.metadata.tables.values()}

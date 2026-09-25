@@ -15,7 +15,8 @@ So when ``alembic/versions`` exists, this module owns the schema:
   rather than replaying its DDL. A persisted database that predates a
   migration is the normal case, not a broken one, and replaying is what
   makes a boot log "already exists" forever.
-- ``upgrade_to_head`` runs the rest.
+- ``bring_to_head`` runs the rest one migration at a time, asking
+  ``adopt_pending`` again before each.
 - ``missing_model_tables`` is the loud part: a model whose table no
   migration creates stops startup and names the table. That is the
   failure create_all used to paper over, and the whole point of the
@@ -133,11 +134,48 @@ def _url_for(database_path: str) -> str:
     return f"sqlite:///{database_path}"
 
 
-def upgrade_to_head(database_path: str) -> None:
-    """Run the migrations. The only thing that builds tables."""
+def head_revision() -> str:
+    """The revision a fully migrated database is stamped at."""
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(_alembic_config("sqlite://")).get_current_head()
+    assert head is not None
+    return head
+
+
+def _current_revision(database_path: str) -> str | None:
+    from sqlalchemy import create_engine, inspect, text
+
+    engine = create_engine(_url_for(database_path))
+    try:
+        if "alembic_version" not in inspect(engine).get_table_names():
+            return None
+        with engine.connect() as conn:
+            row = conn.execute(text("select version_num from alembic_version")).first()
+        return row[0] if row else None
+    finally:
+        engine.dispose()
+
+
+def bring_to_head(database_path: str) -> list[str]:
+    """Adopt what already exists, run ONE migration, and ask again.
+
+    Adoption asked once, up front, is not enough (2026-09-24): it stops
+    at the first migration that has not run, and the upgrade that follows
+    runs every later one blind - including one whose table another
+    process (APScheduler's jobstore) had already built, which then died
+    on the existing index and stranded everything after it.
+    """
     from alembic import command
 
-    command.upgrade(_alembic_config(_url_for(database_path)), "head")
+    config = _alembic_config(_url_for(database_path))
+    head = head_revision()
+    adopted: list[str] = []
+    while True:
+        adopted += adopt_pending(database_path)
+        if _current_revision(database_path) == head:
+            return adopted
+        command.upgrade(config, "+1")
 
 
 def _pending(script: Any, current: str | None) -> list[Any]:
