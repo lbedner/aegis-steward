@@ -62,6 +62,10 @@ class AudioInput(BaseModel):
         default=None,
         description="ISO 639-1 language code (e.g., 'en', 'es'). If None, auto-detect.",
     )
+    prompt: str | None = Field(
+        default=None,
+        description="Spelling hint for names the model cannot guess",
+    )
     duration_seconds: float | None = Field(
         default=None,
         description="Duration of audio in seconds (optional, for usage tracking)",
