@@ -1,3 +1,4 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
 _commit: 5390ab4dffbf8b3cda2533b1d6adbb0509f312fc
 _src_path: gh:lbedner/aegis-stack
 _template_version: 0.13.0
@@ -6,7 +7,7 @@ ai_backend: sqlite
 ai_framework: pydantic-ai
 ai_providers: ollama
 ai_rag: false
-ai_voice: false
+ai_voice: true
 ai_with_persistence: true
 auth_level: basic
 author_email: your.email@example.com
