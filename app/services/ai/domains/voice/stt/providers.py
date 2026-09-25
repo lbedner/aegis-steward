@@ -116,6 +116,8 @@ class OpenAIWhisperProvider(BaseSTTProvider):
 
             if audio.language:
                 params["language"] = audio.language
+            if audio.prompt:
+                params["prompt"] = audio.prompt
 
             response = await client.audio.transcriptions.create(**params)
 
@@ -421,6 +423,8 @@ class GroqWhisperProvider(BaseSTTProvider):
 
             if audio.language:
                 params["language"] = audio.language
+            if audio.prompt:
+                params["prompt"] = audio.prompt
 
             response = await client.audio.transcriptions.create(**params)
 

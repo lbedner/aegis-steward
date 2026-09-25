@@ -11,6 +11,7 @@ from typing import Any
 
 from app.services.ai.config import get_ai_config
 from app.services.ai.domains.chat.conversation import ConversationManager
+from app.services.ai.domains.voice import STTService, TTSService
 
 
 class AIServiceError(Exception):
@@ -39,6 +40,22 @@ class AIServiceBase:
         self.settings = settings
         self.config = get_ai_config(settings)
         self.conversation_manager = ConversationManager()
+        self._stt_service: STTService | None = None
+        self._tts_service: TTSService | None = None
+
+    @property
+    def stt(self) -> STTService:
+        """Lazy initialization of STT service."""
+        if self._stt_service is None:
+            self._stt_service = STTService(self.settings)
+        return self._stt_service
+
+    @property
+    def tts(self) -> TTSService:
+        """Lazy initialization of TTS service."""
+        if self._tts_service is None:
+            self._tts_service = TTSService(self.settings)
+        return self._tts_service
 
     def refresh_config(self) -> None:
         """Rebuild config from the live settings singleton.
