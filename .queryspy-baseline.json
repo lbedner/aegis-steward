@@ -28,6 +28,12 @@
     },
     {
       "kind": "column_load",
+      "label": "FinanceAccount",
+      "file": "tests/services/test_envelope_tags.py",
+      "function": "_balance"
+    },
+    {
+      "kind": "column_load",
       "label": "FinanceTransaction",
       "file": "tests/api/test_finance_endpoints.py",
       "function": "test_batch_approve_with_a_veto"
@@ -2341,6 +2347,12 @@
       "label": "SELECT large_language_model.id, large_language_model.model_id, large_language_model.title, large_language_model.description, large_language_model.context_window, large_language_model.training_data, large_language_model.streamable, large_language_model.enabled, large_language_model.color, large_language_model.icon_path, large_language_model.license, large_language_model.source_url, large_language_model.released_on, large_language_model.family, large_language_model.served_by_org_id, large_language_model.made_by_org_id FROM large_language_model WHERE large_language_model.model_id = :model_id_1",
       "file": "app/services/ai/usage_recording.py",
       "function": "_latest_price"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT large_language_model.id, large_language_model.model_id, large_language_model.title, large_language_model.description, large_language_model.context_window, large_language_model.training_data, large_language_model.streamable, large_language_model.enabled, large_language_model.color, large_language_model.icon_path, large_language_model.license, large_language_model.source_url, large_language_model.released_on, large_language_model.family, large_language_model.served_by_org_id, large_language_model.made_by_org_id FROM large_language_model WHERE large_language_model.served_by_org_id IN (__[POSTCOMPILE_served_by_org_id_1])",
+      "file": "app/services/ai/domains/chat/llm_catalog_context.py",
+      "function": "build"
     },
     {
       "kind": "repeated_statement",
