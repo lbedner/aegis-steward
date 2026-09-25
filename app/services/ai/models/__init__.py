@@ -24,6 +24,7 @@ from .llm import (
     Modality,
 )
 from .sentiment import SentimentAnalysis
+from .voice_usage import STTUsage, TTSUsage
 
 
 class AIProvider(str, Enum):
@@ -427,6 +428,9 @@ __all__ = [
     "Tool",
     # Sentiment analysis
     "SentimentAnalysis",
+    # Voice usage (STT / TTS)
+    "STTUsage",
+    "TTSUsage",
     # LLM tracking models
     "LLMOrg",
     "LargeLanguageModel",

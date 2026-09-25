@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.components.backend.api.ai import conversations as conversation_routes
 from app.components.backend.api.ai import memory as memory_routes
+from app.components.backend.api.ai import speech as speech_routes
 from app.core.chat_transcript import tool_label
 from app.core.config import settings
 from app.core.log import logger
@@ -470,3 +471,4 @@ async def update_registry_agent(
 # Memory modules and saved facts both live in their own module.
 router.include_router(memory_routes.router, tags=["ai: memory"])
 router.include_router(conversation_routes.router, tags=["ai: conversations"])
+router.include_router(speech_routes.router, tags=["ai: speech"])

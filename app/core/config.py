@@ -12,6 +12,7 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.formatting import format_slug
+from app.core.voice_settings import VoiceSettings
 
 # Default placeholder bundled with the template — anyone reading the
 # template source knows this value, so leaving it unchanged in a non-dev
@@ -21,9 +22,7 @@ from app.core.formatting import format_slug
 _SECRET_KEY_PLACEHOLDER = "change-this-secret-key-in-production-use-env-variable"
 
 
-class Settings(
-    BaseSettings,
-):
+class Settings(VoiceSettings, BaseSettings):
     """
     Defines application settings.
     `model_config` is used to specify that settings should be loaded from a .env file.
