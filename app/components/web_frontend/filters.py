@@ -44,9 +44,17 @@ def dollars(cents: int | None) -> float:
 
 
 def short_date(value: date | datetime | str | None, today: date | None = None) -> str:
-    """``Jul 15`` this year, ``Jul 15, 2025`` otherwise. Blank stays blank."""
+    """``Jul 15`` this year, ``Jul 15, 2025`` otherwise; a ``YYYY-MM`` month
+    is ``Jul`` / ``Jul 2025``. Blank stays blank."""
     if not value:
         return ""
+    if isinstance(value, str) and len(value) == 7:
+        try:
+            month = datetime.strptime(value, "%Y-%m").date()
+        except ValueError:
+            return value
+        this_year = month.year == (today or _utc_today()).year
+        return f"{month:%b}" if this_year else f"{month:%b %Y}"
     if isinstance(value, str):
         try:
             value = datetime.fromisoformat(value)
@@ -383,9 +391,10 @@ def assistant(slug: str | None) -> str:
     return ASSISTANTS.get(slug or "", slug or "")
 
 
-FILTERS: dict[str, Callable[..., str]] = {
+FILTERS: dict[str, Callable[..., Any]] = {
     "as_options": as_options,
     "money": money,
+    "dollars": dollars,
     "cents_to_input": cents_to_input,
     "short_date": short_date,
     "date_range": date_range,

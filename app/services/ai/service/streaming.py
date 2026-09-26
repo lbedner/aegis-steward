@@ -31,6 +31,7 @@ from app.services.ai.domains.chat.attachments import (
     build_user_content,
     prepare_turn,
 )
+from app.services.ai.domains.chat.cards import attach_cards, card_stage
 from app.services.ai.domains.chat.module_context import render_memory_modules
 from app.services.ai.domains.chat.readings import (
     merge_staged_readings,
@@ -230,6 +231,7 @@ class StreamingMixin(ChatMixin):
                     conversation_id=conversation.id,
                 ),
                 reading_stage() as staged_readings,
+                card_stage() as drawn_cards,
             ):
                 async with agent.run_stream_events(
                     build_user_content(conversation_context, attachments)
@@ -265,6 +267,8 @@ class StreamingMixin(ChatMixin):
                             # dispatched calls as metadata; surface each one so
                             # the UI trail shows what the script actually did.
                             record_tool_result(tool_trace, event)
+                            # Cards a script drew ride that script's entry.
+                            attach_cards(tool_trace, drawn_cards)
                             for name, args in nested_tool_calls(event):
                                 yield self._tool_notice(
                                     name,
