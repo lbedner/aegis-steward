@@ -33,4 +33,6 @@ class VoiceProfile(SQLModel, table=True):
     # How a spoken turn's reply is heard, and what plays while she works.
     reply: str = Field(default="live")
     working_sound: str = Field(default="typing")
+    # A live call hangs up after this many seconds of dead air (0: never).
+    live_idle_seconds: int = Field(default=30, ge=0, le=600)
     updated_at: datetime = Field(default_factory=utcnow)

@@ -29,6 +29,7 @@ SETTINGS = {
     "tts_instructions": "TTS_INSTRUCTIONS",
     "reply": "VOICE_REPLY",
     "working_sound": "VOICE_WORKING_SOUND",
+    "live_idle_seconds": "VOICE_LIVE_IDLE_SECONDS",
 }
 
 
@@ -51,6 +52,7 @@ STT_MODELS = ("gpt-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe")
 REPLIES = ("live", "answer")
 WORKING_SOUNDS = ("typing", "none")
 SPEED_RANGE = (0.25, 4.0)
+IDLE_RANGE = (0, 600)
 
 
 def parse_form(form: Any) -> tuple[dict[str, Any], list[str]]:
@@ -79,6 +81,15 @@ def parse_form(form: Any) -> tuple[dict[str, Any], list[str]]:
         values["tts_speed"] = speed
     except ValueError:
         errors.append(f"Speed is a number from {SPEED_RANGE[0]} to {SPEED_RANGE[1]}.")
+    try:
+        idle = int(str(form.get("live_idle_seconds") or ""))
+        if not IDLE_RANGE[0] <= idle <= IDLE_RANGE[1]:
+            raise ValueError
+        values["live_idle_seconds"] = idle
+    except ValueError:
+        errors.append(
+            f"Hang up after is whole seconds from {IDLE_RANGE[0]} to {IDLE_RANGE[1]}."
+        )
     values["tts_instructions"] = str(form.get("tts_instructions") or "").strip() or None
     return values, errors
 

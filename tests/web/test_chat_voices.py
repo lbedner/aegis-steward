@@ -206,6 +206,20 @@ class TestEditing:
         await async_db_session.refresh(voices["marin"])
         assert voices["marin"].tts_speed == 1.35
 
+    def test_the_live_dead_air_limit_is_saved_and_applied(
+        self, hx: TestClient, voices: dict[str, VoiceProfile]
+    ) -> None:
+        form = one(
+            hx.get(f"{VOICES}/{voices['marin'].id}/edit").text, "form[data-voice-form]"
+        )
+        assert [i.get("value") for i in form.cssselect("input[name=live_idle_seconds]")] == ["30"]
+        response = hx.post(
+            f"{VOICES}/{voices['marin'].id}",
+            data=_form(voices["marin"], live_idle_seconds="0"),
+        )
+        assert response.status_code == 200
+        assert settings.VOICE_LIVE_IDLE_SECONDS == 0  # 0: never
+
     async def test_saving_another_voice_leaves_hers_alone(
         self, hx: TestClient, voices: dict[str, VoiceProfile]
     ) -> None:
@@ -223,6 +237,9 @@ class TestEditing:
             {"tts_speed": "fast"},
             {"tts_voice": "ghost"},
             {"name": ""},
+            {"live_idle_seconds": "-1"},
+            {"live_idle_seconds": "601"},
+            {"live_idle_seconds": "soon"},
         ],
     )
     def test_nonsense_is_a_422_that_keeps_the_form(
@@ -330,6 +347,7 @@ def _form(profile: VoiceProfile, **changes: str) -> dict[str, str]:
         "tts_instructions": profile.tts_instructions or "",
         "reply": profile.reply,
         "working_sound": profile.working_sound,
+        "live_idle_seconds": str(profile.live_idle_seconds),
     }
     values.update(changes)
     return values

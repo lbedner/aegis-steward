@@ -37,6 +37,7 @@ def voice() -> dict[str, object]:
     return {
         "reply": settings.VOICE_REPLY,
         "sound": settings.VOICE_WORKING_SOUND,
+        "idle": settings.VOICE_LIVE_IDLE_SECONDS,
     }
 
 

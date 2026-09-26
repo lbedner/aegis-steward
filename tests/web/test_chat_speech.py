@@ -241,6 +241,7 @@ class TestTheControls:
         assert json.loads(mic.get("data-voice")) == {
             "reply": settings.VOICE_REPLY,
             "sound": settings.VOICE_WORKING_SOUND,
+            "idle": settings.VOICE_LIVE_IDLE_SECONDS,
         }
         # What the mic is doing shows on the mic itself: the page draws each
         # state, voice.js only sets data-state.

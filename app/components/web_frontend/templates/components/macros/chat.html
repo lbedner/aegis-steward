@@ -26,8 +26,8 @@
    heard or fetched; speaking - an equalizer while it plays. The control
    carries ``group relative``; one set of visuals for the mic and every
    speaker, so they cannot drift apart. #}
-{% macro voice_states(size="w-4 h-4", record=False) %}
-<span class="contents group-data-[state=thinking]:hidden group-data-[state=speaking]:hidden">{{ caller() }}</span>
+{% macro voice_states(size="w-4 h-4", record=False, work=False) %}
+<span class="contents group-data-[state=thinking]:hidden group-data-[state=speaking]:hidden group-data-[state=working]:hidden">{{ caller() }}</span>
 {% if record %}
 <span data-mic-visual="recording" class="hidden group-data-[state=recording]:flex absolute -top-1 -right-1 w-2.5 h-2.5" aria-hidden="true">
   <span class="absolute inset-0 rounded-full bg-aegis-error animate-ping"></span>
@@ -35,6 +35,15 @@
 </span>
 {% endif %}
 <svg data-mic-visual="thinking" class="hidden group-data-[state=thinking]:block {{ size }} animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+{# ``work``: her agent pulling data for a live call - not the spinner,
+   which is connecting or transcribing. #}
+{% if work %}
+<span data-mic-visual="working" class="hidden group-data-[state=working]:flex items-center justify-center gap-0.5 {{ size }}" aria-hidden="true">
+  <span class="w-1 h-1 rounded-full bg-current animate-bounce"></span>
+  <span class="w-1 h-1 rounded-full bg-current animate-bounce [animation-delay:150ms]"></span>
+  <span class="w-1 h-1 rounded-full bg-current animate-bounce [animation-delay:300ms]"></span>
+</span>
+{% endif %}
 <span data-mic-visual="speaking" class="hidden group-data-[state=speaking]:flex items-end gap-0.5 {{ size }}" aria-hidden="true">
   <span class="w-1 h-full rounded-sm bg-current origin-bottom animate-voice-bar"></span>
   <span class="w-1 h-full rounded-sm bg-current origin-bottom animate-voice-bar [animation-delay:150ms]"></span>

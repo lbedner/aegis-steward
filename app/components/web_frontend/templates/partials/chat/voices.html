@@ -57,6 +57,7 @@
     {% call field("Speed (0.25-4)") %}<input type="number" name="tts_speed" value="{{ values.tts_speed }}" step="0.05" min="0.25" max="4" class="{{ control('input') }} w-full mt-1">{% endcall %}
     {% call field("Hearing model") %}{{ select("stt_model", choices.stt_model, values.stt_model, blank=None, block=True) }}{% endcall %}
     {% call field("Reply") %}{{ select("reply", choices.reply, values.reply, blank=None, block=True) }}{% endcall %}
+    {% call field("Live: hang up after (seconds of quiet, 0 never)") %}<input type="number" name="live_idle_seconds" value="{{ values.live_idle_seconds }}" step="1" min="0" max="600" class="{{ control('input') }} w-full mt-1">{% endcall %}
     {% call field("While she works") %}{{ select("working_sound", choices.working_sound, values.working_sound, blank=None, block=True) }}{% endcall %}
   </div>
   {% call field("How she says it (Voice Affect, Tone, Emotion, Pronunciation, Pauses, Pacing)") %}{{ textarea("tts_instructions", values.tts_instructions, rows=8) }}{% endcall %}
