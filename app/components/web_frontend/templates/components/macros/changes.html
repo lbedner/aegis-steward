@@ -211,8 +211,8 @@
    kind from the queue; an unknown kind renders nothing. #}
 {% macro component(marker, base) %}
 {% if marker.kind == "pending_change" %}
-<div hx-get="{{ base }}/change/{{ marker.id }}" hx-trigger="load" hx-swap="outerHTML" data-component-load="{{ marker.kind }}"></div>
+<div {{ hx_load(base ~ "/change/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
 {% elif marker.kind == "pending_change_batch" %}
-<div hx-get="{{ base }}/batch/{{ marker.id }}" hx-trigger="load" hx-swap="outerHTML" data-component-load="{{ marker.kind }}"></div>
+<div {{ hx_load(base ~ "/batch/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
 {% endif %}
 {% endmacro %}

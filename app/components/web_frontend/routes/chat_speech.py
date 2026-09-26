@@ -9,6 +9,7 @@ then be heard. Audio is never kept - the conversation holds the words.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, File, UploadFile
 from starlette.responses import JSONResponse, Response, StreamingResponse
@@ -80,21 +81,22 @@ async def transcribe(audio: UploadFile = File(...)) -> Response:
     return JSONResponse({"text": text, "agent_slug": FINANCE_VOICE_AGENT_SLUG})
 
 
-# A stored answer never changes, so the browser may keep its audio: the
-# autoplay and a Listen press were each paying for a full synthesis. A
-# sentence is keyed by its own text, so the same holds for it.
-SPOKEN_CACHE = "private, max-age=86400"
+# Never cached. A stream cut short (a replay stopped, a tab closed) was kept
+# by Chrome as a truncated entry; the next play asked for the missing range,
+# this route answered from the start, and the audio element stalled on its
+# spinner (2026-09-25). A replay costs one more synthesis instead.
+SPOKEN_CACHE = "no-store"
 SAY = SPEECH + "/say"
 SAY_LIMIT = 2_000  # a sentence or a short paragraph, never a document
 
 
-async def _spoken(text: str) -> Response:
+async def spoken(text: str, tts: Any = None) -> Response:
     """``text`` said aloud: markup stripped, streamed as it is synthesized so
     playback starts with the first chunk (whole, an 843-character answer
     took 31s before anything played, 2026-09-25). The first chunk is
     awaited here so a synthesis that fails at once is a 503, not a broken
     stream."""
-    chunks = ai_service.tts.synthesize_stream(
+    chunks = (tts or ai_service.tts).synthesize_stream(
         SpeechRequest(text=to_spoken(text)), user_id=str(STANDALONE_USER_ID)
     )
     try:
@@ -119,11 +121,11 @@ async def say(text: str = "") -> Response:
     (``VOICE_REPLY=live``): voice.js cuts her stream into sentences."""
     if len(text) > SAY_LIMIT or not to_spoken(text):
         return Response(status_code=422)
-    return await _spoken(text)
+    return await spoken(text)
 
 
 @router.get(SPEECH + "/{conversation_id}/{message_id}", include_in_schema=False)
 async def speak(conversation_id: str, message_id: str) -> Response:
     """A stored answer, said aloud: her words without the markup."""
     message = await stored_message(conversation_id, message_id)
-    return await _spoken(readable(message.content))
+    return await spoken(readable(message.content))

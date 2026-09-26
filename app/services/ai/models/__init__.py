@@ -24,6 +24,7 @@ from .llm import (
     Modality,
 )
 from .sentiment import SentimentAnalysis
+from .voice_profile import VoiceProfile
 from .voice_usage import STTUsage, TTSUsage
 
 
@@ -431,6 +432,7 @@ __all__ = [
     # Voice usage (STT / TTS)
     "STTUsage",
     "TTSUsage",
+    "VoiceProfile",
     # LLM tracking models
     "LLMOrg",
     "LargeLanguageModel",

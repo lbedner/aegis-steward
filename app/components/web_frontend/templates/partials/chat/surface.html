@@ -5,7 +5,7 @@
    Needs: assistant, stream_url, turn_defaults, chip, messages,
    conversation_id, path (the chat section's). #}
 {% from "components/macros/form.html" import button_classes, control %}
-{% from "components/macros/chat.html" import model_chip, conversation_field %}
+{% from "components/macros/chat.html" import model_chip, conversation_field, voice_states %}
 <div id="chat" class="flex flex-col h-full"
      data-chat='{{ {"stream": stream_url, "defaults": turn_defaults, "path": path}|tojson }}'>
   <div class="relative flex-1 min-h-0">
@@ -40,6 +40,8 @@
     <span>
       <span data-state="recording">Listening - press the microphone again when you're done.</span>
       <span data-state="transcribing">Working out what you said...</span>
+      <span data-state="thinking">She's working on it...</span>
+      <span data-state="speaking">Speaking - press the microphone to interrupt.</span>
       <span data-state="denied">The microphone is blocked. Allow it for this site, or type instead.</span>
       <span data-state="unsupported">This browser can't record here. You can type instead.</span>
       <span data-state="offline">Couldn't reach the app. You can type instead.</span>
@@ -52,7 +54,10 @@
         x-data="{ text: '', staged: 0 }" @chat-staged.window="staged = $event.detail"
         @htmx:after-request="if ($event.detail.successful) { text = ''; $refs.input.style.height = 'auto' }">
     {{ conversation_field(conversation_id) }}
-    <div class="shrink-0 pb-2">{{ model_chip(chip, path ~ "/models") }}</div>
+    <div class="shrink-0 pb-2 flex flex-col items-start gap-1">
+      {{ model_chip(chip, path ~ "/models") }}
+      <span id="chat-voice" {{ hx_load(path ~ "/voices/chip") }}></span>
+    </div>
     {# Not ``required``: a message may be images alone (the route sends the
        house line); Send stays disabled until there is text or an image. #}
     <textarea name="message" x-ref="input" x-model="text" rows="1"
@@ -66,11 +71,13 @@
     </label>
     {# The microphone: records while pressed on, then sends what it heard
        as the message (static/js/voice.js). #}
-    <button type="button" id="chat-mic" class="{{ button_classes('default') }} aria-pressed:text-error aria-pressed:border-error"
+    {# data-state (voice.js) is what she is doing; voice_states draws it. #}
+    <button type="button" id="chat-mic" data-state="idle"
+            class="group relative {{ button_classes('default') }} data-[state=recording]:text-error data-[state=recording]:border-error data-[state=speaking]:text-aegis-teal data-[state=speaking]:border-aegis-teal"
             aria-pressed="false" aria-label="Speak a question" title="Speak a question"
             data-transcripts="{{ path }}/speech/transcripts" data-say="{{ path }}/speech/say"
             data-voice='{{ voice()|tojson }}'>
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
+      {% call voice_states(record=True) %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>{% endcall %}
     </button>
     <button type="button" id="chat-stop" hidden class="{{ button_classes('default') }}" aria-label="Stop">Stop</button>
     <button type="submit" id="chat-send" class="{{ button_classes() }}" aria-label="Send" :disabled="!text.trim() && !staged">Send</button>
