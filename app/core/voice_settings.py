@@ -43,3 +43,6 @@ class VoiceSettings(BaseSettings):
     # key taps ("typing"), or nothing. Instead of narrating her tool calls,
     # which ran behind her own answer (2026-09-25).
     VOICE_WORKING_SOUND: Literal["typing", "none"] = "typing"
+    # A live call hangs up after this many seconds of dead air (0: never):
+    # GPT-Live bills by the minute, silence included.
+    VOICE_LIVE_IDLE_SECONDS: int = Field(default=30, ge=0, le=600)

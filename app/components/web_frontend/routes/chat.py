@@ -365,7 +365,7 @@ def settled(
     }
 
 
-async def _owned(conversation_id: str) -> Any:
+async def owned(conversation_id: str) -> Any:
     """This surface's conversation, or a 404: another user's is as absent
     as a missing one."""
     conversation = await ai_service.get_conversation(conversation_id)
@@ -378,7 +378,7 @@ async def _owned(conversation_id: str) -> Any:
 
 
 async def stored_message(conversation_id: str, message_id: str) -> Any:
-    conversation = await _owned(conversation_id)
+    conversation = await owned(conversation_id)
     found = next((m for m in conversation.messages if m.id == message_id), None)
     or_404(found)
     return found
@@ -626,7 +626,7 @@ async def new_conversation(request: Request) -> Response:
 async def load_conversation(request: Request, conversation_id: str) -> Response:
     """The thread for a conversation picked from history, replacing the
     current one in place; the dialog closes on the way."""
-    conversation = await _owned(conversation_id)
+    conversation = await owned(conversation_id)
     response = templates.TemplateResponse(
         request=request,
         name="partials/chat/transcript.html",

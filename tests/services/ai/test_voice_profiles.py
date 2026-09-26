@@ -26,6 +26,7 @@ def _settings(**overrides: Any) -> SimpleNamespace:
         "TTS_INSTRUCTIONS": "Voice Affect: Warm.",
         "VOICE_REPLY": "live",
         "VOICE_WORKING_SOUND": "typing",
+        "VOICE_LIVE_IDLE_SECONDS": 30,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
