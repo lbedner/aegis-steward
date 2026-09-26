@@ -77,8 +77,13 @@ async def test_it_carries_the_amounts_and_not_the_spending(
 
 @pytest.mark.asyncio
 async def test_a_month_you_have_edited_is_left_alone(svc: FinanceService) -> None:
-    """Inheritance seeds an empty month; it never argues with a choice."""
-    _, fuel = await _august_budget(svc)
+    """Inheritance seeds an empty month; it never argues with a choice.
+
+    Editing one line of a month that had none of its own seeds it first,
+    so the edit is the only difference from the month it inherits: the
+    edit used to BE the month, and every other limit was gone from it
+    and from each month copied after it (#265)."""
+    groceries, fuel = await _august_budget(svc)
     await svc.upsert_budget_line(
         owner_user_id=1,
         period_month=SEPTEMBER,
@@ -93,8 +98,8 @@ async def test_a_month_you_have_edited_is_left_alone(svc: FinanceService) -> Non
     )
 
     allocated = {line.category_id: line.allocated_amount for line in _flexible(summary)}
-    assert allocated == {fuel: 5_000}, (
-        "September had its own budget and inheritance overrode it"
+    assert allocated == {groceries: 100_000, fuel: 5_000}, (
+        "September's own edit was overridden, or its inherited limits lost"
     )
 
 
