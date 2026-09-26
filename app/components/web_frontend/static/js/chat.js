@@ -22,6 +22,10 @@
   // Markup the script needs is cloned from <template>s in the surface
   // partial, so styling has one home (the template), never a JS string.
   const clone = (id) => document.getElementById(id).content.firstElementChild.cloneNode(true);
+  // The live turn, told to whoever listens (voice.js speaks it as it comes):
+  // `chat:text` per streamed chunk, `chat:tool` when she stops writing to run
+  // a tool, `chat:end` when the stream is over.
+  const announce = (name, detail) => document.dispatchEvent(new CustomEvent(name, { detail }));
 
   // --- Scroll: stay with the newest unless the reader went looking ------
   // Pinned is an INTENT, not a position. Content settles after it arrives
@@ -420,6 +424,11 @@
       trail.hidden = false;
     };
     const attachments = staged.map(({ name, media_type, data_b64 }) => ({ name, media_type, data_b64 }));
+    // A spoken turn names its own agent (voice.js sets it from the server's
+    // transcript answer); this turn uses it, the next typed one does not.
+    const composer = document.getElementById('chat-composer');
+    const agent = composer?.dataset.agent;
+    if (composer) delete composer.dataset.agent;
     controller = new AbortController();
     setStreaming(true);
     document.getElementById('chat-empty')?.remove();
@@ -430,7 +439,13 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({ ...defaults, message: bubble.dataset.text, conversation_id: ids.conversation, attachments }),
+        body: JSON.stringify({
+          ...defaults,
+          ...(agent && { agent_slug: agent }),
+          message: bubble.dataset.text,
+          conversation_id: ids.conversation,
+          attachments,
+        }),
       });
       if (!resp.ok || !resp.body) throw new Error(`bad response ${resp.status}`);
       for await (const { event, data } of frames(resp.body)) {
@@ -441,7 +456,9 @@
           busy.hidden = true;
           if (data.conversation_id) ids.conversation = data.conversation_id;
           writer.add(data.content || '');
+          announce('chat:text', data.content || '');
         } else if (event === 'tool') {
+          announce('chat:tool');
           // Fold the narration so far into the trail, then the call itself;
           // the answer is whatever follows the last tool call.
           const said = note(writer.text);
@@ -466,6 +483,7 @@
       answered();
       busy.hidden = true;
       setStreaming(false);
+      announce('chat:end');
       if (ids.conversation) {
         const hidden = document.getElementById('chat-conversation');
         if (hidden) hidden.value = ids.conversation;

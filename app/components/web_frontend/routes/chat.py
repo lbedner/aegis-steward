@@ -51,7 +51,7 @@ from app.components.web_frontend.rendering import (
 )
 from app.core.chat_transcript import (
     footer_line,
-    strip_attachment_marker,
+    readable,
     strip_paste_markers,
     trace_failed,
     trace_label,
@@ -304,6 +304,7 @@ def batch_card(batch_id: str, items: list[PendingChangeResponse]) -> dict[str, A
 
 ATTACHMENTS = SECTION.path + "/attachments"
 PASTES = SECTION.path + "/pastes"
+SPEECH = SECTION.path + "/speech"  # routes/chat_speech.py
 
 
 def paste_chip(paste: dict[str, Any]) -> dict[str, Any]:
@@ -353,16 +354,14 @@ def settled(
         ],
         "id": message.id,
         "role": message.role.value,
-        # A replayed user message must not carry its attachment marker:
-        # the bytes rode one turn only, and re-sending the marker would
-        # claim images the model cannot see.
         "pastes": [paste_chip(p) for p in meta.get("pastes") or []],
-        "content": strip_paste_markers(strip_attachment_marker(message.content)),
+        "content": readable(message.content),
         "at": message.timestamp.isoformat(),
         "trail": trail(trace, conversation_id, message.id),
         "components": components(trace),
         "components_base": COMPONENTS,
         "footer": footer_line(meta, local=is_local_model(meta)),
+        "speech": f"{SPEECH}/{conversation_id}/{message.id}",
     }
 
 
@@ -378,7 +377,7 @@ async def _owned(conversation_id: str) -> Any:
     return conversation
 
 
-async def _stored(conversation_id: str, message_id: str) -> Any:
+async def stored_message(conversation_id: str, message_id: str) -> Any:
     conversation = await _owned(conversation_id)
     found = next((m for m in conversation.messages if m.id == message_id), None)
     or_404(found)
@@ -744,7 +743,7 @@ async def message(request: Request, conversation_id: str, message_id: str) -> Re
     """The settled bubble for a stored message, swapped over the streaming
     one once the turn completes (the message is persisted before the
     stream's final frame)."""
-    found = await _stored(conversation_id, message_id)
+    found = await stored_message(conversation_id, message_id)
     return templates.TemplateResponse(
         request=request,
         name="partials/chat/message.html",
@@ -923,7 +922,7 @@ async def run_detail(
 ) -> Response:
     """What one tool run actually did, in the one modal: the script (or
     the arguments), its output, and the calls it dispatched."""
-    entries = ((await _stored(conversation_id, message_id)).metadata or {}).get(
+    entries = ((await stored_message(conversation_id, message_id)).metadata or {}).get(
         "tool_trace"
     ) or []
     if not 0 <= index < len(entries):

@@ -15,6 +15,10 @@ DEEP_DIVE_AGENT_SLUG = "finance-analyst-deep"
 # tools so novel questions get computed rather than estimated.
 FINANCE_CHAT_AGENT_SLUG = "finance-assistant"
 
+# Illiana when she is spoken to (#260): extends the chat agent above - her
+# prompt, tools and memory - with a spoken-answer section and a faster model.
+FINANCE_VOICE_AGENT_SLUG = "finance-voice"
+
 
 FINANCE_CHAT_SURFACE = "finance"
 

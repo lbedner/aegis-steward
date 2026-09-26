@@ -53,6 +53,7 @@ class AgentConfig:
     memory_modules: tuple[str, ...] = ()
     knowledge_base_ids: tuple[str, ...] = ()
     code_mode: bool = False
+    extends: str | None = None
 
 
 def default_agent_config() -> AgentConfig:
@@ -76,25 +77,41 @@ _cache: dict[str, AgentConfig] = {}
 
 
 def invalidate_agent_cache(slug: str | None = None) -> None:
-    """Drop cached config for one slug, or all when ``slug`` is None."""
+    """Drop cached config for one slug and the agents that extend it, or
+    all when ``slug`` is None."""
     if slug is None:
         _cache.clear()
-    else:
-        _cache.pop(slug, None)
+        return
+    for cached in [s for s, c in _cache.items() if slug in (s, c.extends)]:
+        del _cache[cached]
 
 
-def _to_config(row: Agent) -> AgentConfig:
+def _tool_names(row: Agent) -> tuple[str, ...]:
+    return tuple(t.name for t in row.tools if t.is_active)
+
+
+def _to_config(row: Agent, parent: Agent | None = None) -> AgentConfig:
+    """A row as a config; with ``parent``, the row's section goes FIRST -
+    an instruction at the end of a long prompt is the one that gets
+    ignored - and what the row leaves empty comes from the parent. Only
+    the parent's own row is read, so inheritance is one level deep."""
+    base = parent or row
     return AgentConfig(
         slug=row.slug,
         name=row.name,
-        system_prompt=row.system_prompt,
+        system_prompt=(
+            f"{row.system_prompt}\n\n{parent.system_prompt}"
+            if parent
+            else row.system_prompt
+        ),
         model_id=row.model_id,
         temperature=row.temperature,
         max_tokens=row.max_tokens,
-        tool_names=tuple(t.name for t in row.tools if t.is_active),
-        memory_modules=tuple(row.memory_modules),
-        knowledge_base_ids=tuple(row.knowledge_base_ids),
+        tool_names=_tool_names(row) or _tool_names(base),
+        memory_modules=tuple(row.memory_modules or base.memory_modules),
+        knowledge_base_ids=tuple(row.knowledge_base_ids or base.knowledge_base_ids),
         code_mode=row.code_mode,
+        extends=row.extends,
     )
 
 
@@ -113,10 +130,10 @@ async def resolve_agent(
         return cached
 
     if session is not None:
-        row = await queries.agent_by_slug(session, slug)
+        row, parent = await queries.agent_and_parent(session, slug)
     else:
         async with get_async_session() as owned_session:
-            row = await queries.agent_by_slug(owned_session, slug)
+            row, parent = await queries.agent_and_parent(owned_session, slug)
 
     if row is None or not row.is_active:
         logger.warning(
@@ -125,7 +142,14 @@ async def resolve_agent(
         )
         return default_agent_config()
 
-    config = _to_config(row)
+    if row.extends and (parent is None or not parent.is_active):
+        logger.warning(
+            "Agent's parent missing or inactive", agent_slug=slug, extends=row.extends
+        )
+        parent = None
+    elif parent is not None and parent.extends:
+        logger.warning("Agent inheritance is one level; not following", agent_slug=slug)
+    config = _to_config(row, parent)
     _cache[slug] = config
     return config
 

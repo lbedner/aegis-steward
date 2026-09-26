@@ -154,3 +154,86 @@ class TestBaseTTSProviderInterface:
         for provider_class, expected_type in providers:
             assert hasattr(provider_class, "provider_type")
             assert provider_class.provider_type == expected_type
+
+
+class TestOpenAIStreamsForReal:
+    """``synthesize_stream`` used to await OpenAI's whole response and then
+    slice it, so an 843-character answer took 31s before the first byte
+    left (2026-09-25). It has to pass the audio on as it is generated."""
+
+    async def test_chunks_are_passed_on_as_they_arrive(self) -> None:
+        from types import SimpleNamespace
+
+        from app.services.ai.domains.voice.models import SpeechRequest
+        from app.services.ai.domains.voice.tts import OpenAITTSProvider
+
+        arrived: list[bytes] = []
+        seen_before_end: list[list[bytes]] = []
+
+        class _Response:
+            async def iter_bytes(self, chunk_size: int | None = None):  # noqa: ANN202
+                for chunk in (b"ID3", b"frame1", b"frame2"):
+                    arrived.append(chunk)
+                    yield chunk
+
+        class _Streaming:
+            def __init__(self) -> None:
+                self.kwargs: dict[str, object] = {}
+
+            def create(self, **kwargs: object) -> _Streaming:
+                self.kwargs = kwargs
+                return self
+
+            async def __aenter__(self) -> _Response:
+                return _Response()
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+        streaming = _Streaming()
+        provider = OpenAITTSProvider(model="gpt-4o-mini-tts", api_key="k")
+        provider._client = SimpleNamespace(
+            audio=SimpleNamespace(
+                speech=SimpleNamespace(with_streaming_response=streaming)
+            )
+        )
+
+        got: list[bytes] = []
+        async for chunk in provider.synthesize_stream(
+            SpeechRequest(text="Hello there")
+        ):
+            got.append(chunk)
+            seen_before_end.append(list(arrived))
+
+        assert got == [b"ID3", b"frame1", b"frame2"]
+        # The first chunk reached us before the rest had been generated.
+        assert seen_before_end[0] == [b"ID3"]
+        assert streaming.kwargs["input"] == "Hello there"
+        assert streaming.kwargs["response_format"] == "mp3"
+
+
+class TestOpenAIRequestKnobs:
+    """``speed`` works on every OpenAI speech model (measured on
+    gpt-4o-mini-tts, 2026-09-25: 6.40s -> 4.95s at 1.5); ``instructions``
+    (tone, emotion, pacing) exists only on the gpt-4o models."""
+
+    def test_gpt_4o_gets_speed_and_instructions(self) -> None:
+        from app.services.ai.domains.voice.models import SpeechRequest
+        from app.services.ai.domains.voice.tts import OpenAITTSProvider
+
+        provider = OpenAITTSProvider(model="gpt-4o-mini-tts", api_key="k")
+        kwargs = provider._speech_kwargs(
+            SpeechRequest(text="Hi", speed=1.4, instructions="Warm.")
+        )
+        assert kwargs["speed"] == 1.4
+        assert kwargs["instructions"] == "Warm."
+        assert kwargs["response_format"] == "mp3"
+
+    def test_tts_1_gets_no_instructions(self) -> None:
+        from app.services.ai.domains.voice.models import SpeechRequest
+        from app.services.ai.domains.voice.tts import OpenAITTSProvider
+
+        provider = OpenAITTSProvider(model="tts-1", api_key="k")
+        kwargs = provider._speech_kwargs(SpeechRequest(text="Hi", instructions="Warm."))
+        assert "instructions" not in kwargs
+        assert kwargs["speed"] == 1.0  # unset means the model's normal pace

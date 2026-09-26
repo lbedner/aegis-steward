@@ -243,3 +243,122 @@ class TestCache:
         invalidate_agent_cache()
         fresh = await resolve_agent("support", session=session)
         assert fresh.name == "Renamed"
+
+
+async def _tool(session: AsyncSession, agent: Agent, name: str) -> None:
+    tool = Tool(name=name)
+    session.add(tool)
+    await session.commit()
+    await session.refresh(agent)
+    await session.refresh(tool)
+    session.add(AgentTool(agent_id=agent.id, tool_id=tool.id))
+    await session.commit()
+
+
+class TestExtends:
+    """One level of inheritance (#260): a child agent is its parent with
+    its own section in front and its own model and sampling. Illiana's
+    voice agent extends her written one, so an edit to her prompt, tools
+    or memory reaches both."""
+
+    async def _family(self, session: AsyncSession, **child: object) -> Agent:
+        parent = await _add_agent(
+            session,
+            slug="illiana",
+            system_prompt="You are Illiana.",
+            memory_modules=["finance_snapshot"],
+            code_mode=True,
+            model_id=None,
+        )
+        await _tool(session, parent, "ledger")
+        data: dict[str, object] = {
+            "slug": "illiana-voice",
+            "system_prompt": "Answer aloud, briefly.",
+            "extends": "illiana",
+            "model_id": "gpt-4.1-mini",
+            "temperature": 0.3,
+            "max_tokens": 400,
+        }
+        data.update(child)
+        return await _add_agent(session, **data)
+
+    async def test_the_childs_section_comes_first(self, session: AsyncSession) -> None:
+        await self._family(session)
+        config = await resolve_agent("illiana-voice", session=session)
+        # First, because an instruction at the end of a long prompt is the
+        # one that gets ignored.
+        assert config.system_prompt == "Answer aloud, briefly.\n\nYou are Illiana."
+
+    async def test_tools_and_memory_are_inherited(self, session: AsyncSession) -> None:
+        await self._family(session)
+        config = await resolve_agent("illiana-voice", session=session)
+        assert config.tool_names == ("ledger",)
+        assert config.memory_modules == ("finance_snapshot",)
+
+    async def test_model_and_sampling_are_the_childs_own(
+        self, session: AsyncSession
+    ) -> None:
+        await self._family(session, code_mode=False)
+        config = await resolve_agent("illiana-voice", session=session)
+        assert config.model_id == "gpt-4.1-mini"
+        assert (config.temperature, config.max_tokens) == (0.3, 400)
+        assert config.code_mode is False
+        assert config.slug == "illiana-voice"
+
+    async def test_a_child_with_its_own_tools_keeps_them(
+        self, session: AsyncSession
+    ) -> None:
+        child = await self._family(session, memory_modules=["voice_notes"])
+        await _tool(session, child, "speak")
+        config = await resolve_agent("illiana-voice", session=session)
+        assert config.tool_names == ("speak",)
+        assert config.memory_modules == ("voice_notes",)
+
+    async def test_only_one_level(self, session: AsyncSession) -> None:
+        await self._family(session)
+        await _add_agent(
+            session,
+            slug="grandchild",
+            system_prompt="Whisper.",
+            extends="illiana-voice",
+        )
+        config = await resolve_agent("grandchild", session=session)
+        # The chain is not followed: its parent's own section, not its
+        # parent's parent.
+        assert config.system_prompt == "Whisper.\n\nAnswer aloud, briefly."
+
+    async def test_a_missing_parent_leaves_the_child_alone(
+        self, session: AsyncSession
+    ) -> None:
+        await _add_agent(
+            session, slug="orphan", system_prompt="Alone.", extends="nobody"
+        )
+        config = await resolve_agent("orphan", session=session)
+        assert config.system_prompt == "Alone."
+        assert config.tool_names == ()
+
+    async def test_editing_the_parent_reaches_a_cached_child(
+        self, session: AsyncSession
+    ) -> None:
+        await self._family(session)
+        await resolve_agent("illiana-voice", session=session)
+        parent = await resolve_agent("illiana", session=session)
+        assert parent.system_prompt == "You are Illiana."
+
+        row = await session.get(Agent, (await _row_id(session, "illiana")))
+        assert row is not None
+        row.system_prompt = "You are Illiana, revised."
+        session.add(row)
+        await session.commit()
+
+        invalidate_agent_cache("illiana")
+        child = await resolve_agent("illiana-voice", session=session)
+        assert child.system_prompt.endswith("You are Illiana, revised.")
+
+
+async def _row_id(session: AsyncSession, slug: str) -> int:
+    from sqlmodel import select
+
+    row = (await session.exec(select(Agent).where(Agent.slug == slug))).one()
+    assert row.id is not None
+    return row.id

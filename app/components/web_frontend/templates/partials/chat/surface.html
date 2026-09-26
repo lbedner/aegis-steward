@@ -34,7 +34,19 @@
       <button type="button" title="Remove" aria-label="Remove" class="text-aegis-muted hover:text-aegis-text" data-remove>×</button>
     </span>
   </template>
+  {# What the microphone is doing, read out as well as shown. The server's
+     own refusals (nothing heard, transcription down) arrive as text. #}
+  <template id="chat-mic-states">
+    <span>
+      <span data-state="recording">Listening - press the microphone again when you're done.</span>
+      <span data-state="transcribing">Working out what you said...</span>
+      <span data-state="denied">The microphone is blocked. Allow it for this site, or type instead.</span>
+      <span data-state="unsupported">This browser can't record here. You can type instead.</span>
+      <span data-state="offline">Couldn't reach the app. You can type instead.</span>
+    </span>
+  </template>
   <template id="chat-image"><img src="" alt="" width="800" height="600" class="max-h-[75vh] h-auto w-auto max-w-full mx-auto rounded"></template>
+  <p id="chat-mic-status" class="shrink-0 pt-2 text-xs text-aegis-muted empty:hidden" aria-live="polite"></p>
   <form id="chat-composer" class="shrink-0 border-t border-aegis-border pt-3 flex items-end gap-2"
         hx-post="{{ path }}/turns" hx-target="#chat-thread" hx-swap="beforeend"
         x-data="{ text: '', staged: 0 }" @chat-staged.window="staged = $event.detail"
@@ -52,6 +64,14 @@
       <input type="file" id="chat-attach" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple class="sr-only" aria-label="Attach images or PDFs">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
     </label>
+    {# The microphone: records while pressed on, then sends what it heard
+       as the message (static/js/voice.js). #}
+    <button type="button" id="chat-mic" class="{{ button_classes('default') }} aria-pressed:text-error aria-pressed:border-error"
+            aria-pressed="false" aria-label="Speak a question" title="Speak a question"
+            data-transcripts="{{ path }}/speech/transcripts" data-say="{{ path }}/speech/say"
+            data-voice='{{ voice()|tojson }}'>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
+    </button>
     <button type="button" id="chat-stop" hidden class="{{ button_classes('default') }}" aria-label="Stop">Stop</button>
     <button type="submit" id="chat-send" class="{{ button_classes() }}" aria-label="Send" :disabled="!text.trim() && !staged">Send</button>
   </form>

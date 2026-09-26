@@ -26,6 +26,7 @@ def mock_voice_settings() -> MagicMock:
     settings.TTS_MODEL = "tts-1"
     settings.TTS_VOICE = OpenAIVoice.ALLOY.value
     settings.TTS_SPEED = 1.0
+    settings.TTS_INSTRUCTIONS = None
     settings.STT_PROVIDER = STTProvider.OPENAI_WHISPER.value
     settings.STT_MODEL = "whisper-1"
     settings.STT_LANGUAGE = None

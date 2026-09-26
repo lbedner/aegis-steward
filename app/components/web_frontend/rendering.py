@@ -29,6 +29,18 @@ from app.services.finance.constants import account_sections
 templates = Jinja2Templates(directory=str(COMPONENT_DIR / "templates"))
 
 templates.env.globals["static"] = static_url
+
+
+def voice() -> dict[str, object]:
+    """How Illiana is heard, for voice.js (core/voice_settings.py). Read
+    per render, never bound at import, so an .env change needs no code."""
+    return {
+        "reply": settings.VOICE_REPLY,
+        "sound": settings.VOICE_WORKING_SOUND,
+    }
+
+
+templates.env.globals["voice"] = voice
 # Every page's <title> and sidebar name the project, so these are globals
 # rather than something each route has to remember to pass through.
 templates.env.globals["project_name"] = settings.PROJECT_DISPLAY_NAME

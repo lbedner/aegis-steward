@@ -114,11 +114,16 @@ class SpeechRequest(BaseModel):
     language: str | None = Field(
         default=None, description="Language code for synthesis"
     )
-    speed: float = Field(
-        default=1.0,
+    speed: float | None = Field(
+        default=None,
         ge=0.25,
         le=4.0,
-        description="Speech speed multiplier (0.25 to 4.0)",
+        description="Speech speed multiplier (0.25 to 4.0); None = TTS_SPEED",
+    )
+    instructions: str | None = Field(
+        default=None,
+        description="How to say it - tone, emotion, pacing (gpt-4o models); "
+        "None = TTS_INSTRUCTIONS",
     )
 
 

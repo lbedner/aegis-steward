@@ -120,6 +120,12 @@
       "kind": "column_load",
       "label": "Tool",
       "file": "tests/services/ai/test_agent_loader.py",
+      "function": "_tool"
+    },
+    {
+      "kind": "column_load",
+      "label": "Tool",
+      "file": "tests/services/ai/test_agent_loader.py",
       "function": "test_only_active_tools_are_exposed"
     },
     {
@@ -142,21 +148,33 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT agent.id, agent.slug, agent.name, agent.description, agent.category, agent.model_id, agent.system_prompt, agent.prompt_fingerprint, agent.temperature, agent.max_tokens, agent.memory_modules, agent.knowledge_base_ids, agent.is_active, agent.code_mode, agent.created_at, agent.updated_at FROM agent WHERE agent.slug = :slug_1",
+      "label": "SELECT agent.id, agent.slug, agent.name, agent.description, agent.category, agent.model_id, agent.system_prompt, agent.prompt_fingerprint, agent.temperature, agent.max_tokens, agent.memory_modules, agent.knowledge_base_ids, agent.is_active, agent.code_mode, agent.extends, agent.created_at, agent.updated_at FROM agent WHERE agent.slug = :slug_1",
       "file": "app/services/ai/domains/chat/queries.py",
       "function": "agent_by_slug"
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT agent.id, agent.slug, agent.name, agent.description, agent.category, agent.model_id, agent.system_prompt, agent.prompt_fingerprint, agent.temperature, agent.max_tokens, agent.memory_modules, agent.knowledge_base_ids, agent.is_active, agent.code_mode, agent.created_at, agent.updated_at FROM agent WHERE agent.slug = :slug_1",
+      "label": "SELECT agent.id, agent.slug, agent.name, agent.description, agent.category, agent.model_id, agent.system_prompt, agent.prompt_fingerprint, agent.temperature, agent.max_tokens, agent.memory_modules, agent.knowledge_base_ids, agent.is_active, agent.code_mode, agent.extends, agent.created_at, agent.updated_at FROM agent WHERE agent.slug = :slug_1",
       "file": "app/services/ai/fixtures/agent_fixtures.py",
       "function": "load_agent_fixtures"
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT agent.id, agent.slug, agent.name, agent.description, agent.category, agent.model_id, agent.system_prompt, agent.prompt_fingerprint, agent.temperature, agent.max_tokens, agent.memory_modules, agent.knowledge_base_ids, agent.is_active, agent.code_mode, agent.created_at, agent.updated_at FROM agent WHERE agent.slug = :slug_1",
+      "label": "SELECT agent.id, agent.slug, agent.name, agent.description, agent.category, agent.model_id, agent.system_prompt, agent.prompt_fingerprint, agent.temperature, agent.max_tokens, agent.memory_modules, agent.knowledge_base_ids, agent.is_active, agent.code_mode, agent.extends, agent.created_at, agent.updated_at FROM agent WHERE agent.slug = :slug_1",
       "file": "app/services/finance/domains/detection/analyst/seeds.py",
       "function": "load_finance_agent_fixtures"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT agent.id, agent.slug, agent.name, agent.description, agent.category, agent.model_id, agent.system_prompt, agent.prompt_fingerprint, agent.temperature, agent.max_tokens, agent.memory_modules, agent.knowledge_base_ids, agent.is_active, agent.code_mode, agent.extends, agent.created_at, agent.updated_at FROM agent WHERE agent.slug = :slug_1 OR agent.slug = (SELECT agent.extends FROM agent WHERE agent.slug = :slug_2)",
+      "file": "app/services/ai/domains/chat/queries.py",
+      "function": "agent_and_parent"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT agent_1.id AS agent_1_id, tool.id AS tool_id, tool.name AS tool_name, tool.description AS tool_description, tool.is_active AS tool_is_active FROM agent AS agent_1 JOIN agent_tool AS agent_tool_1 ON agent_1.id = agent_tool_1.agent_id JOIN tool ON tool.id = agent_tool_1.tool_id WHERE agent_1.id IN (__[POSTCOMPILE_primary_keys])",
+      "file": "app/services/ai/domains/chat/queries.py",
+      "function": "agent_and_parent"
     },
     {
       "kind": "repeated_statement",

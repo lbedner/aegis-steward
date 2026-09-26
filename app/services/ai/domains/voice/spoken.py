@@ -10,11 +10,16 @@ layout, not content, so it is stripped here instead.
 import re
 
 _FENCED = re.compile(r"```.*?```", re.DOTALL)
-_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+# Link text holds no "[" and a target no "(": each attempt then stops at the
+# next bracket rather than scanning to the end, which made a run of "["
+# quadratic (CodeQL py/polynomial-redos).
+_LINK = re.compile(r"!?\[([^\[\]]*)\]\([^()]*\)")
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s*")
 _BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 _EMPHASIS = re.compile(r"(\*{1,3}|_{1,3}|~~|`)")
-_TABLE_RULE = re.compile(r"^\s*\|?\s*:?-{2,}")
+# One class for the prefix: two \s* around an optional "|" could both match
+# the same spaces, which went quadratic on a long run of them.
+_TABLE_RULE = re.compile(r"^[\s|:]*-{2,}")
 _ENDS_A_SENTENCE = (".", "!", "?", ":", ";")
 
 

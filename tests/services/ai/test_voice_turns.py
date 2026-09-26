@@ -234,3 +234,35 @@ async def test_speaking_an_answer_asks_no_model(
     )
 
     assert spoken == "Vanessa. $212 left, see the envelope. Next: groceries"
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "[" * 40_000,
+        "[\\" * 20_000,
+        "](" * 20_000,
+        " " * 40_000 + "x",
+        "|" + " " * 40_000,
+    ],
+)
+def test_stripping_is_linear_on_hostile_text(hostile: str) -> None:
+    """CodeQL py/polynomial-redos on the link and table-rule patterns: text
+    the model wrote is spoken through these, so they must not go
+    quadratic on a long run of brackets or spaces."""
+    import time
+
+    from app.services.ai.domains.voice.spoken import to_spoken
+
+    start = time.perf_counter()
+    to_spoken(hostile)
+    assert time.perf_counter() - start < 0.5
+
+
+def test_links_and_tables_still_read_as_words() -> None:
+    from app.services.ai.domains.voice.spoken import to_spoken
+
+    said = to_spoken(
+        "See [the envelope](/budget/1) and ![a chart](x.png).\n| a | b |\n|---|:--|\n| 1 | 2 |"
+    )
+    assert said == "See the envelope and a chart. a b. 1 2"

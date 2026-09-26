@@ -34,11 +34,15 @@ from app.services.finance.domains.detection.analyst.prompts import (
     FINANCE_CHAT_MAX_TOKENS,
     FINANCE_CHAT_SYSTEM_PROMPT,
     FINANCE_CHAT_TEMPERATURE,
+    FINANCE_VOICE_MAX_TOKENS,
+    FINANCE_VOICE_SYSTEM_PROMPT,
+    FINANCE_VOICE_TEMPERATURE,
 )
 from app.services.finance.domains.detection.analyst.shared import (
     ANALYST_AGENT_SLUG,
     DEEP_DIVE_AGENT_SLUG,
     FINANCE_CHAT_AGENT_SLUG,
+    FINANCE_VOICE_AGENT_SLUG,
     SNAPSHOT_MODULE_SLUG,
 )
 import app.services.insurance.ai_tools  # noqa: F401
@@ -232,6 +236,50 @@ def finance_chat_agent_definition() -> dict[str, Any]:
     }
 
 
+# None follows the active model, as the chat agent does. Timed on her real
+# context (2026-09-25, "How much is left in Vanessa's envelope?"): only
+# gpt-5.6-luna (7-10s) and gpt-5-mini (12s) answered right. gpt-4.1-mini,
+# gpt-4.1-nano, gpt-5.4-mini and gpt-5.4-nano were 2-6s and all wrong - they
+# could not drive 31 tools in code mode, and said the envelope was missing
+# or empty. A faster voice has to come from a smaller context, not a
+# smaller model.
+FINANCE_VOICE_MODEL: str | None = None
+
+
+def finance_voice_agent_definition() -> dict[str, Any]:
+    """The seed row for Illiana when spoken to: she EXTENDS the chat agent,
+    so her prompt, tools and memory come from it at resolve time and an
+    edit there reaches both. Only the spoken section, the model and the
+    sampling are this row's own; tools and memory are left empty on
+    purpose so they are inherited."""
+    return {
+        "slug": FINANCE_VOICE_AGENT_SLUG,
+        "name": "Finance Assistant (voice)",
+        "description": "The finance assistant, answering aloud",
+        "category": "finance",
+        "extends": FINANCE_CHAT_AGENT_SLUG,
+        "model_id": FINANCE_VOICE_MODEL,
+        "system_prompt": FINANCE_VOICE_SYSTEM_PROMPT,
+        "temperature": FINANCE_VOICE_TEMPERATURE,
+        "max_tokens": FINANCE_VOICE_MAX_TOKENS,
+        "memory_modules": [],
+        "knowledge_base_ids": [],
+        "is_active": True,
+        "code_mode": True,
+    }
+
+
+def finance_agent_definitions() -> tuple[dict[str, Any], ...]:
+    """Every finance agent the app seeds and resyncs - one list, so a new
+    agent cannot be seeded and then never resynced, or the reverse."""
+    return (
+        analyst_agent_definition(),
+        deep_dive_agent_definition(),
+        finance_chat_agent_definition(),
+        finance_voice_agent_definition(),
+    )
+
+
 def _attach_chat_tools(session: Session) -> int:
     """Link the chat agent to the finance tool rows, idempotently."""
     agent = session.exec(
@@ -283,11 +331,7 @@ def resync_finance_agent_prompts(
     Returns slug -> "updated", "unchanged" or "edited by hand".
     """
     result: dict[str, str] = {}
-    for definition in (
-        analyst_agent_definition(),
-        deep_dive_agent_definition(),
-        finance_chat_agent_definition(),
-    ):
+    for definition in finance_agent_definitions():
         row = session.exec(
             select(Agent).where(Agent.slug == definition["slug"])
         ).first()
@@ -339,11 +383,7 @@ def load_finance_agent_fixtures(session: Session) -> dict[str, int]:
         counts["finance_memory_modules"] = 1
         logger.info(f"Seeded memory module '{module['slug']}'")
 
-    for definition in (
-        analyst_agent_definition(),
-        deep_dive_agent_definition(),
-        finance_chat_agent_definition(),
-    ):
+    for definition in finance_agent_definitions():
         if (
             session.exec(select(Agent).where(Agent.slug == definition["slug"])).first()
             is not None

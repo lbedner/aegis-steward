@@ -24,6 +24,7 @@ class TTSConfig(BaseModel):
     model: str | None = None  # None = use provider default
     voice: str | None = None  # None = use provider default
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    instructions: str | None = None  # how to say it; gpt-4o models only
 
     # Provider-specific defaults
     DEFAULT_MODELS: dict[TTSProvider, str] = Field(
@@ -55,6 +56,7 @@ class TTSConfig(BaseModel):
             model=getattr(settings, "TTS_MODEL", None),
             voice=getattr(settings, "TTS_VOICE", None),
             speed=getattr(settings, "TTS_SPEED", 1.0),
+            instructions=getattr(settings, "TTS_INSTRUCTIONS", None),
         )
 
     def get_model(self) -> str:
