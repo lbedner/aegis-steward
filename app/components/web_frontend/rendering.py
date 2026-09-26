@@ -101,6 +101,19 @@ templates.env.globals["all_days"] = ranges.ALL
 T = TypeVar("T")
 
 
+def hx_load(url: str) -> Markup:
+    """The attributes for "fetch this as soon as I am on the page, and
+    become it": a placeholder that loads its own content (a card's change,
+    the composer's voice chip), so the page that holds it needs nothing in
+    its own context. ``hx-target="this"`` is stated, never inherited: the
+    voice chip's placeholder sits inside the composer form, whose target is
+    the thread, and borrowing that replaced the whole conversation with the
+    chip (2026-09-25)."""
+    return Markup(
+        f'hx-get="{escape(url)}" hx-trigger="load" hx-target="this" hx-swap="outerHTML"'
+    )
+
+
 def hx_dialog(url: str, extra: str = "") -> Markup:
     """The attributes for "open this in the one modal" (pattern 4), so no
     template has to remember which element the dialog swaps into.
@@ -209,6 +222,7 @@ def hx_lazy(url: str) -> Markup:
 templates.env.globals["hx_lazy"] = hx_lazy
 templates.env.globals["hx_page"] = hx_page
 templates.env.globals["hx_filter"] = hx_filter
+templates.env.globals["hx_load"] = hx_load
 templates.env.globals["hx_dialog"] = hx_dialog
 templates.env.globals["hx_dialog_post"] = hx_dialog_post
 templates.env.filters.update(FILTERS)

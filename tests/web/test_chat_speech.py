@@ -141,15 +141,17 @@ class TestSpeaking:
         assert "**" not in said and "- Water" not in said
         assert user_id == str(STANDALONE_USER_ID)
 
-    def test_a_replay_is_not_synthesized_again(
+    def test_streamed_speech_is_never_cached(
         self, client: TestClient, speech: FakeSpeech, stored: tuple[str, str]
     ) -> None:
-        """A stored answer never changes, so the browser may keep its audio:
-        Listen and the autoplay were each paying for a full synthesis."""
+        """A streamed answer cut short (a replay stopped, a tab closed) was
+        kept by Chrome as a truncated cache entry; the next play asked for
+        the missing range, this route answered from the start, and the audio
+        element stalled on its spinner (2026-09-25). A replay costs one
+        more synthesis instead."""
         conversation_id, message_id = stored
         response = client.get(f"{SPEECH}/{conversation_id}/{message_id}")
-        cache = response.headers["cache-control"]
-        assert "private" in cache and "max-age=" in cache
+        assert response.headers["cache-control"] == "no-store"
 
     def test_an_unknown_message_is_a_404(
         self, client: TestClient, speech: FakeSpeech, stored: tuple[str, str]
@@ -199,7 +201,7 @@ class TestSpeakingAsSheWrites:
         assert response.status_code == 200
         assert response.headers["content-type"] == "audio/mpeg"
         assert response.content == b"ID3mp3"
-        assert "private" in response.headers["cache-control"]
+        assert response.headers["cache-control"] == "no-store"
         said, user_id = speech.spoken[0]
         assert said == "$60 left in Vanessa's envelope."
         assert user_id == str(STANDALONE_USER_ID)
@@ -239,6 +241,15 @@ class TestTheControls:
         assert json.loads(mic.get("data-voice")) == {
             "reply": settings.VOICE_REPLY,
             "sound": settings.VOICE_WORKING_SOUND,
+        }
+        # What the mic is doing shows on the mic itself: the page draws each
+        # state, voice.js only sets data-state.
+        assert mic.get("data-state") == "idle"
+        drawn = {e.get("data-mic-visual") for e in mic.cssselect("[data-mic-visual]")}
+        assert drawn == {"recording", "thinking", "speaking"}
+        states = one(page, "template#chat-mic-states")
+        assert {"thinking", "speaking"} <= {
+            e.get("data-state") for e in states.cssselect("[data-state]")
         }
         status = one(page, "#chat-mic-status")
         assert status.get("aria-live") == "polite"

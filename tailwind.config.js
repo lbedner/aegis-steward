@@ -138,6 +138,16 @@ module.exports = {
       fontSize: {
         xxs: ["0.625rem", "0.875rem"],
       },
+      // The mic's "speaking" equalizer (partials/chat/surface.html).
+      keyframes: {
+        "voice-bar": {
+          "0%, 100%": { transform: "scaleY(0.3)" },
+          "50%": { transform: "scaleY(1)" },
+        },
+      },
+      animation: {
+        "voice-bar": "voice-bar 0.9s ease-in-out infinite",
+      },
     },
   },
   plugins: [require("daisyui")],

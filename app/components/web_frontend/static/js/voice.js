@@ -41,6 +41,15 @@
   };
 
   const pressed = (on) => mic()?.setAttribute('aria-pressed', String(on));
+  // What a voice control is doing: idle, recording, thinking, speaking. The
+  // page draws each state (the voice_states macro); this only sets it.
+  const show = (control, state) => control?.setAttribute('data-state', state);
+  // The mic's state, with the status line that reads it out.
+  const mood = (state) => {
+    show(mic(), state);
+    if (state === 'thinking' || state === 'speaking') say(state);
+    if (state === 'idle') say(null);
+  };
 
   // --- Working: soft key taps until she speaks -------------------------------
   // Generated, not a recording: a short burst of filtered noise per key, at
@@ -80,10 +89,15 @@
     typing = null;
   };
 
-  // The first sound of her voice ends the typing.
-  const voiced = (url) => {
+  // The first sound of her voice ends the typing and shows her speaking -
+  // on ``control`` (a speaker button) and, for her reply, on the mic.
+  const voiced = (url, control = null, reply = true) => {
     const audio = new Audio(url);
-    audio.addEventListener('playing', stopTyping);
+    audio.addEventListener('playing', () => {
+      stopTyping();
+      show(control, 'speaking');
+      if (reply) mood('speaking');
+    });
     return audio;
   };
 
@@ -113,10 +127,12 @@
     try {
       const answer = await fetch(url, { method: 'POST', body });
       const data = await answer.json().catch(() => ({}));
-      if (answer.ok && data.text) place(data.text, data.agent_slug);
-      else if (data.error) say(null, data.error);
+      if (answer.ok && data.text) return place(data.text, data.agent_slug);
+      mic()?.setAttribute('data-state', 'idle');
+      if (data.error) say(null, data.error);
       else say('offline');
     } catch (_) {
+      mic()?.setAttribute('data-state', 'idle');
       say('offline');
     }
   };
@@ -138,11 +154,13 @@
       const type = recorder.mimeType || 'audio/webm';
       recorder = null;
       pressed(false);
+      mic()?.setAttribute('data-state', 'thinking');
       transcribe(new Blob(chunks, { type }), button.dataset.transcripts);
     });
     recorder.start();
     recorder._limit = setTimeout(() => recorder?.stop(), LIMIT_MS);
     pressed(true);
+    mic()?.setAttribute('data-state', 'recording');
     say('recording');
   };
 
@@ -160,17 +178,26 @@
 
   // --- Speaking ---------------------------------------------------------------
   const stop = () => {
+    if (player?.reply) mood('idle');
     player?.pause();
     playing?.setAttribute('aria-pressed', 'false');
+    show(playing, 'idle');
     player = null;
     playing = null;
   };
 
-  const play = (button) => {
+  // ``reply``: her answer to a spoken turn, so the mic shows it too; a
+  // Listen or a preview shows only on its own button.
+  const play = (button, reply = false) => {
     const again = playing === button;
     stop();
     if (again) return; // pressing a playing Listen button stops it
-    player = voiced(button.dataset.speak);
+    // A form's preview speaks the form's current fields, unsaved.
+    const form = 'speakForm' in button.dataset && button.closest('form');
+    const query = form ? `?${new URLSearchParams(new FormData(form))}` : '';
+    show(button, 'thinking'); // fetching and synthesizing
+    player = voiced(`${button.dataset.speak}${query}`, button, reply);
+    player.reply = reply;
     playing = button;
     button.setAttribute('aria-pressed', 'true');
     player.addEventListener('ended', stop);
@@ -190,7 +217,10 @@
   // before plays) and played in order.
   const next = () => {
     current = queue.shift() || null;
-    if (!current) return;
+    if (!current) {
+      if (!live && !pending) mood('idle'); // she has finished
+      return;
+    }
     current.addEventListener('ended', next);
     current.addEventListener('error', next);
     current.play().catch(next);
@@ -222,6 +252,7 @@
     current?.pause();
     current = null;
     stopTyping();
+    mood('idle');
   };
   document.addEventListener('chat:text', (event) => {
     if (!live) return;
@@ -235,10 +266,14 @@
   document.addEventListener('chat:end', () => {
     if (live) flush();
     live = false;
+    if (!current && !queue.length && !speakReply) mood('idle');
     // A turn that ends with nothing to say (failed, or silent) must not
-    // leave the typing running.
+    // leave the typing - or the spinner - running.
     clearTimeout(quiet);
-    quiet = setTimeout(stopTyping, QUIET_MS);
+    quiet = setTimeout(() => {
+      stopTyping();
+      if (!current && !player) mood('idle');
+    }, QUIET_MS);
   });
 
   // A turn sent from a transcript is answered aloud, in the server's
@@ -250,7 +285,9 @@
     live = spoken && voice().reply === 'live';
     speakReply = spoken && !live;
     say(null);
-    if (spoken) startTyping();
+    if (!spoken) return;
+    mood('thinking');
+    startTyping();
   });
   // The settled answer is swapped in over the streaming bubble (chat.js);
   // that is the moment it can be heard.
@@ -259,6 +296,6 @@
       && event.detail.elt.querySelector('[data-speak]');
     if (!button) return;
     speakReply = false;
-    play(button);
+    play(button, true);
   });
 })();
