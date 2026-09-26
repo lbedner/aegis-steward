@@ -1,0 +1,21 @@
+{# The frame every drawn card sits in (issue 266): border, title, the line
+   under it, and the click that opens it larger in the one dialog. One
+   copy, so the kinds cannot drift apart. Ported from Pulse.
+
+   ``url`` is the card's own address; in the thread the frame opens
+   ``url?size=large``, and in the dialog (``large``) it is just the card. #}
+{% macro card_frame(kind, title, subtitle, url, large=False) %}
+<div data-card="{{ kind }}"
+     {% if not large %}{{ hx_dialog(url ~ "?size=large", "hx-trigger=\"click, keyup[key=='Enter']\"") }}
+     role="button" tabindex="0" title="Open larger" aria-label="Open {{ title }} larger"{% endif %}
+     class="block w-full {{ '' if large else 'max-w-xl cursor-zoom-in hover:border-aegis-muted transition-colors' }} rounded-lg border border-aegis-border bg-aegis-card overflow-hidden">
+  <div class="px-4 py-2.5 border-b border-aegis-border">
+    <div class="text-sm font-medium text-aegis-text">{{ title }}</div>
+    {% if subtitle %}<div class="text-xs text-aegis-muted mt-0.5">{{ subtitle }}</div>{% endif %}
+  </div>
+  {{ caller() }}
+</div>
+{% endmacro %}
+
+{# A figure as the card's unit reads it: money arrives in cents. #}
+{% macro amount(value, unit) %}{{ value|int|money if unit == "money" else "{:,}".format(value|round|int) }}{% endmacro %}

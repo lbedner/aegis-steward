@@ -172,6 +172,9 @@ FINANCE_CHAT_TOOL_NAMES = (
     # be recorded before it is answered from - the recording is what
     # later turns get instead of the pixels.
     "record_reading",
+    # A chart, ranking, comparison or table under the answer (#266),
+    # drawn from inside run_code with the rows the script computed.
+    "draw_card",
     # The text the user pasted, read back on demand. A pasted page
     # stands in the conversation as a one-line marker; without this
     # there is no way to reach what it stands for.

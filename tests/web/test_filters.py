@@ -76,6 +76,12 @@ class TestShortDate:
         assert short_date("2026-07-15", today=self.TODAY) == "Jul 15"
         assert short_date(datetime(2026, 7, 15, 13, 5), today=self.TODAY) == "Jul 15"
 
+    def test_a_month_reads_as_one(self, short_date: Callable[..., str]) -> None:
+        """A monthly series is dated "2026-04" (a chart she draws, #266);
+        it reads as the month, not a raw key or a made-up day."""
+        assert short_date("2026-04", today=self.TODAY) == "Apr"
+        assert short_date("2025-12", today=self.TODAY) == "Dec 2025"
+
     def test_blank_stays_blank(self, short_date: Callable[..., str]) -> None:
         assert short_date(None) == ""
         assert short_date("") == ""
