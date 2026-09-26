@@ -1,0 +1,23 @@
+{# One measure over time, drawn by the app's own chart code (the ``chart``
+   macro and charts.js), so this kind has no script of its own. The points
+   are the card's frozen payload; money is cents in the payload and
+   dollars on the axis. #}
+{% from "partials/chat/cards/_frame.html" import card_frame %}
+{% from "components/macros/layout.html" import chart %}
+{% set points = card["rows"] %}
+{% set money = card["unit"] == "money" %}
+{% call card_frame("trend", card["title"], card["measure"], card_url, large) %}
+  {% if points %}
+  {% set values = [] %}
+  {% for point in points %}{% set _ = values.append(point["value"]|dollars if money else point["value"]) %}{% endfor %}
+  <div class="px-2 py-2">
+    {{ chart("card-" ~ card_id ~ ("-large" if large else ""), "line",
+             {"labels": points|map(attribute="date")|map("short_date")|list,
+              "series": [{"label": card["measure"], "values": values}],
+              "format": "money" if money else "count"},
+             height="h-80" if large else "h-40", label=card["title"]) }}
+  </div>
+  {% else %}
+  <p class="px-4 py-3 text-xs text-aegis-muted">No data in this window.</p>
+  {% endif %}
+{% endcall %}

@@ -1,0 +1,31 @@
+{# Bars, in the order she gave them, drawn by the app's own chart code:
+   Pulse's day-of-week chart. The highest is bright teal, the lowest
+   violet, the rest a darker teal; each bar's tone is decided here and
+   charts.js only colours it. The axis starts at zero, so a bar's height
+   is its value. A month key ("2025-11") reads as a month. #}
+{% from "partials/chat/cards/_frame.html" import card_frame %}
+{% from "components/macros/layout.html" import chart %}
+{% set rows = card["rows"] %}
+{% set money = card["unit"] == "money" %}
+{% set figures = rows|map(attribute="value")|list %}
+{% set top = figures|max if figures else 0 %}
+{% set low = figures|min if figures else 0 %}
+{% set values = [] %}
+{% set tones = [] %}
+{% for row in rows %}
+  {% set _ = values.append(row["value"]|dollars if money else row["value"]) %}
+  {% set _ = tones.append("high" if row["value"] == top else "low" if row["value"] == low else "mid") %}
+{% endfor %}
+{% call card_frame("bar", card["title"], card["measure"], card_url, large) %}
+  {% if rows %}
+  <div class="px-2 py-2">
+    {{ chart("card-" ~ card_id ~ ("-large" if large else ""), "bar",
+             {"labels": rows|map(attribute="label")|map("short_date")|list,
+              "series": [{"label": card["measure"], "values": values, "tones": tones}],
+              "format": "money" if money else "count"},
+             height="h-80" if large else "h-48", label=card["title"]) }}
+  </div>
+  {% else %}
+  <p class="px-4 py-3 text-xs text-aegis-muted">No data in this window.</p>
+  {% endif %}
+{% endcall %}
