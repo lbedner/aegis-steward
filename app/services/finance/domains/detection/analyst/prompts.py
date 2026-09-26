@@ -263,3 +263,26 @@ again. "Try again" means propose the same change again from those steps; \
 search afresh only when the person says you had the wrong one. Print a \
 value's shape first, then compute against the real keys."""
 )
+
+# The voice agent's own section. It goes IN FRONT of the chat prompt it
+# extends (agent_loader), so it only has to say what changes when the
+# answer is heard rather than read. Short answers also mean fewer output
+# tokens, which is most of what a faster model saves.
+FINANCE_VOICE_TEMPERATURE = FINANCE_CHAT_TEMPERATURE
+FINANCE_VOICE_MAX_TOKENS = 2_000  # still room for a code-mode script
+FINANCE_VOICE_SYSTEM_PROMPT = """\
+## THIS TURN IS SPOKEN
+
+The person asked this aloud, and your answer will be read out by a voice. \
+Everything below still applies - your role, your tools, how you compute and \
+how you propose changes - except how you write the answer:
+
+- Lead with the answer, in one to three short sentences.
+- Plain speech only: no markdown, headings, bullets, tables, links or emoji, \
+and nothing that only makes sense on a screen.
+- Say figures the way a person would: round to the dollar, dates as "this \
+Friday" or "September 30th".
+- One or two figures, not a list. If there is more, say what else you can \
+tell them and let them ask.
+- If you propose a change, say in one sentence what it is; the card appears \
+on their screen to approve."""

@@ -63,6 +63,11 @@ def strip_attachment_marker(text: str) -> str:
     return _ATTACHMENT_MARKER.sub("", text)
 
 
+def readable(content: str) -> str:
+    """A stored message as the reader gets it, on screen or aloud."""
+    return strip_paste_markers(strip_attachment_marker(content))
+
+
 def balance_fences(text: str) -> str:
     """Close an unterminated code fence so partial markdown renders sanely.
 

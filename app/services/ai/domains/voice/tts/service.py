@@ -131,6 +131,17 @@ class TTSService:
 
         return self._provider_instance
 
+    def _configured(self, request: SpeechRequest) -> SpeechRequest:
+        """The request with what it leaves unset taken from the settings.
+        TTS_SPEED used to be read and then never sent: every request carried
+        its own default of 1.0 (2026-09-25)."""
+        return request.model_copy(
+            update={
+                "speed": request.speed or self._config.speed,
+                "instructions": request.instructions or self._config.instructions,
+            }
+        )
+
     async def synthesize(
         self,
         request: SpeechRequest,
@@ -161,7 +172,7 @@ class TTSService:
         success = True
 
         try:
-            result = await provider.synthesize(request)
+            result = await provider.synthesize(self._configured(request))
 
             logger.debug(
                 f"Synthesis complete: {len(result.audio)} bytes, "
@@ -188,11 +199,15 @@ class TTSService:
                 error_message=error_message,
             )
 
-    async def synthesize_stream(self, request: SpeechRequest) -> AsyncIterator[bytes]:
-        """Stream synthesized audio.
+    async def synthesize_stream(
+        self, request: SpeechRequest, user_id: str | None = None
+    ) -> AsyncIterator[bytes]:
+        """Stream synthesized audio, recorded like ``synthesize`` once the
+        last chunk has gone (or the stream failed).
 
         Args:
             request: SpeechRequest containing text and synthesis options.
+            user_id: Optional user identifier for usage tracking.
 
         Yields:
             Audio data chunks as bytes.
@@ -207,8 +222,27 @@ class TTSService:
             f"with {provider.provider_type.value}"
         )
 
-        async for chunk in provider.synthesize_stream(request):
-            yield chunk
+        start_time = time.perf_counter()
+        sent = 0
+        error_message: str | None = None
+        try:
+            async for chunk in provider.synthesize_stream(self._configured(request)):
+                sent += len(chunk)
+                yield chunk
+        except Exception as e:
+            error_message = str(e)
+            raise
+        finally:
+            await self._record_usage(
+                input_characters=len(request.text),
+                output_bytes=sent,
+                output_duration_seconds=None,
+                voice=request.voice or self.voice,
+                latency_ms=int((time.perf_counter() - start_time) * 1000),
+                user_id=user_id,
+                success=error_message is None,
+                error_message=error_message,
+            )
 
     def reset_provider(self) -> None:
         """Reset the provider instance.

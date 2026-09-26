@@ -109,20 +109,28 @@ class OpenAITTSProvider(BaseTTSProvider):
 
         return self._client
 
+    def _speech_kwargs(self, request: SpeechRequest) -> dict[str, Any]:
+        """One set of arguments for the whole-file and the streamed call.
+        ``speed`` works on every model (measured on gpt-4o-mini-tts: 6.40s ->
+        4.95s at 1.5); ``instructions`` - tone, emotion, pacing - only on the
+        gpt-4o ones, and tts-1 refuses it."""
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "voice": request.voice or self.default_voice,
+            "input": request.text,
+            "speed": request.speed or 1.0,
+            "response_format": "mp3",
+        }
+        if request.instructions and self.model.startswith("gpt-4o"):
+            kwargs["instructions"] = request.instructions
+        return kwargs
+
     async def synthesize(self, request: SpeechRequest) -> SpeechResult:
         """Synthesize speech using OpenAI TTS API."""
         client = self._get_client()
 
-        voice = request.voice or self.default_voice
-
         try:
-            response = await client.audio.speech.create(
-                model=self.model,
-                voice=voice,
-                input=request.text,
-                speed=request.speed,
-                response_format="mp3",
-            )
+            response = await client.audio.speech.create(**self._speech_kwargs(request))
 
             # Read the audio content
             audio_data = response.content
@@ -141,23 +149,15 @@ class OpenAITTSProvider(BaseTTSProvider):
         """Stream audio from OpenAI TTS."""
         client = self._get_client()
 
-        voice = request.voice or self.default_voice
-
+        # Passed on as OpenAI generates it: awaiting the whole response and
+        # slicing it made a long answer wait for all of its audio (31s for
+        # 843 characters, 2026-09-25) before the first byte left.
         try:
-            response = await client.audio.speech.create(
-                model=self.model,
-                voice=voice,
-                input=request.text,
-                speed=request.speed,
-                response_format="mp3",
-            )
-
-            # OpenAI returns the full response, stream in chunks
-            audio_data = response.content
-            chunk_size = 4096
-
-            for i in range(0, len(audio_data), chunk_size):
-                yield audio_data[i : i + chunk_size]
+            async with client.audio.speech.with_streaming_response.create(
+                **self._speech_kwargs(request)
+            ) as response:
+                async for chunk in response.iter_bytes(4096):
+                    yield chunk
 
         except Exception as e:
             logger.error(f"OpenAI TTS streaming failed: {e}")

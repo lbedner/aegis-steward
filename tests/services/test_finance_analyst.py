@@ -692,9 +692,11 @@ class TestFixtures:
     def test_seeds_the_agents_and_their_module(self, db_session: Session) -> None:
         counts = analyst.load_finance_agent_fixtures(db_session)
 
-        # Three agents: the nightly note, the deep dive, and the chat
-        # assistant behind the dashboard's Chat tab.
-        assert counts["finance_agents"] == 3
+        # The nightly note, the deep dive, the chat assistant behind the
+        # Chat tab, and her voice.
+        assert counts["finance_agents"] == len(
+            analyst.seeds.finance_agent_definitions()
+        )
         assert counts["finance_memory_modules"] == 1
         agent = db_session.exec(
             select(Agent).where(Agent.slug == analyst.ANALYST_AGENT_SLUG)
@@ -707,6 +709,24 @@ class TestFixtures:
         assert agent.memory_modules == [module.slug]
         assert module.fetch_function == analyst.SNAPSHOT_MODULE_SLUG
         assert agent.model_id is None  # follows the service's configured model
+
+    def test_the_voice_agent_extends_the_chat_agent(self, db_session: Session) -> None:
+        """#260: she is one agent spoken to two ways. The voice row names
+        no tools and no memory of its own, so both come from the chat
+        agent at resolve time; its spoken section and sampling are its own."""
+        from app.services.finance.domains.detection.analyst.shared import (
+            FINANCE_CHAT_AGENT_SLUG,
+            FINANCE_VOICE_AGENT_SLUG,
+        )
+
+        analyst.load_finance_agent_fixtures(db_session)
+        voice = db_session.exec(
+            select(Agent).where(Agent.slug == FINANCE_VOICE_AGENT_SLUG)
+        ).one()
+        assert voice.extends == FINANCE_CHAT_AGENT_SLUG
+        assert voice.memory_modules == []
+        assert voice.tools == []
+        assert voice.model_id is None  # follows the active model (see seeds)
 
     def test_second_run_adds_nothing(self, db_session: Session) -> None:
         analyst.load_finance_agent_fixtures(db_session)

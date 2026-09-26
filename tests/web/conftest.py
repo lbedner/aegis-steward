@@ -17,9 +17,12 @@ from jinja2 import ChoiceLoader, DictLoader
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.components.backend.api.ai.router import ai_service
 from app.components.web_frontend.rendering import templates
 from app.core.db import get_async_db
 from app.integrations.main import create_integrated_app
+from app.services.ai.models import AIProvider, MessageRole
+from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 
@@ -385,3 +388,35 @@ def await_job(client: TestClient, job_id: str, tries: int = 200) -> dict[str, ob
         if body["status"] != "running":
             return body
     raise AssertionError(f"job {job_id} never finished")
+
+
+@pytest.fixture
+async def stored() -> tuple[str, str]:
+    """A conversation with one answered turn, the way a stream leaves it."""
+    conversation = await ai_service.conversation_manager.create_conversation(
+        provider=AIProvider.OLLAMA,
+        model="gpt-5.6-luna",
+        user_id=STANDALONE_USER_ID,
+        surface="finance",
+    )
+    conversation.add_message(MessageRole.USER, "What is due?")
+    reply = conversation.add_message(
+        MessageRole.ASSISTANT,
+        "**Two bills** this week:\n\n- Water: $45\n- Rent: $1,500\n\n<script>alert(1)</script>",
+        metadata={
+            "provider": "ollama",
+            "model": "gpt-5.6-luna",
+            "gen_tps": 58.5,
+            "cost": 0.0063,
+            "tool_trace": [
+                {"tool": "bills", "args": '{"days": 7}', "result": '{"count": 2}'},
+                {
+                    "tool": "run_code",
+                    "code": "# plan\nledger(months=3)\n",
+                    "result": "Runtime error: boom",
+                },
+            ],
+        },
+    )
+    await ai_service.conversation_manager.save_conversation(conversation)
+    return conversation.id, reply.id

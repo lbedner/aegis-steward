@@ -138,38 +138,6 @@ async def _own_conversations() -> None:
         await manager.delete_conversation(conversation.id)
 
 
-@pytest.fixture
-async def stored() -> tuple[str, str]:
-    """A conversation with one answered turn, the way a stream leaves it."""
-    conversation = await ai_service.conversation_manager.create_conversation(
-        provider=AIProvider.OLLAMA,
-        model="gpt-5.6-luna",
-        user_id=STANDALONE_USER_ID,
-        surface="finance",
-    )
-    conversation.add_message(MessageRole.USER, "What is due?")
-    reply = conversation.add_message(
-        MessageRole.ASSISTANT,
-        "**Two bills** this week:\n\n- Water: $45\n- Rent: $1,500\n\n<script>alert(1)</script>",
-        metadata={
-            "provider": "ollama",
-            "model": "gpt-5.6-luna",
-            "gen_tps": 58.5,
-            "cost": 0.0063,
-            "tool_trace": [
-                {"tool": "bills", "args": '{"days": 7}', "result": '{"count": 2}'},
-                {
-                    "tool": "run_code",
-                    "code": "# plan\nledger(months=3)\n",
-                    "result": "Runtime error: boom",
-                },
-            ],
-        },
-    )
-    await ai_service.conversation_manager.save_conversation(conversation)
-    return conversation.id, reply.id
-
-
 class TestSettledMessage:
     def test_renders_markdown_trail_and_footer(
         self, hx: TestClient, stored: tuple[str, str]
