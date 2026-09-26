@@ -180,6 +180,10 @@ async def upsert_budget_line(
     budget = await get_or_create_budget(
         db, owner_user_id=owner_user_id, period_month=month
     )
+    # A month with no lines of its own runs on the last month's. Writing
+    # one line first would leave it with ONLY that line: every inherited
+    # limit gone for this month and every month copied from it (#265).
+    await lines_in_force(db, budget_id=budget.id, period_month=month)
     line = await queries.budget_line_for_target(
         db,
         budget.id,

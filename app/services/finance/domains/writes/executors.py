@@ -11,6 +11,7 @@ from __future__ import annotations
 from app.services.documents.domains import reading
 from app.services.finance.domains.writes import (
     accounts,
+    budgets,
     curation,
     filing,
     findings,
@@ -340,6 +341,13 @@ for change_type, title, model, execute, describe in (
         planning.EnvelopeUpdatePayload,
         planning.envelope_update_execute,
         planning.envelope_update_describe,
+    ),
+    (
+        "budget.limit",
+        "Change a budget limit",
+        budgets.BudgetLimitPayload,
+        budgets.budget_limit_execute,
+        budgets.budget_limit_describe,
     ),
     (
         "envelope.balance",

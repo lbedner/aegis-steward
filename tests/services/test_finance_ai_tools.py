@@ -1314,6 +1314,8 @@ async def test_budget_reports_the_limit_the_user_set(
         if row["category"] == "Health & Fitness:Medicine/Drugs"
     )
     assert line["limit"] == 20_000
+    # What a budget.limit card names (#265): she had no handle on a line.
+    assert (line["category_id"], line["payee_key"]) == (category.id, None)
     assert line["spent"] == 4_500
     assert line["remaining"] == 15_500
     assert line["status"] == "good"

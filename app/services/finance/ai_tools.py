@@ -340,7 +340,9 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
     def line(row: Any) -> dict[str, Any]:
         return {
             "category": row.category_name,
+            "category_id": row.category_id,
             "payee": row.payee_label,
+            "payee_key": row.payee_key,
             "limit": row.allocated_amount,
             "spent": row.spent_amount,
             "remaining": row.allocated_amount - row.spent_amount,
