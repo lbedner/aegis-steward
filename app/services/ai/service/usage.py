@@ -68,6 +68,7 @@ class UsageMixin(AIServiceBase):
         user_id: str,
         success: bool = True,
         error_message: str | None = None,
+        conversation_id: str | None = None,
     ) -> None:
         """
         Record LLM usage with cost calculation.
@@ -87,6 +88,7 @@ class UsageMixin(AIServiceBase):
             user_id,
             success=success,
             error_message=error_message,
+            conversation_id=conversation_id,
         )
 
     async def get_usage_stats(

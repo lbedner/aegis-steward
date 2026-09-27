@@ -44,3 +44,13 @@ class LLMUsage(SQLModel, table=True):
     cache_read_tokens: int | None = Field(default=None, ge=0)
     cache_write_tokens: int | None = Field(default=None, ge=0)
     tool_calls: int | None = Field(default=None, ge=0)
+
+    # Voice (#270). A model that bills by the second (GPT-Live) meters
+    # ``audio_seconds``; its tokens are 0 because it reports none, not
+    # because nobody measured. ``session_id`` is the provider's call id (one
+    # row per call, updated as it runs); ``conversation_id`` ties a call and
+    # the answers given during it together, so a call costs its row plus
+    # its turns.
+    conversation_id: str | None = Field(default=None, index=True, max_length=64)
+    session_id: str | None = Field(default=None, index=True, max_length=64)
+    audio_seconds: float | None = Field(default=None, ge=0)

@@ -208,7 +208,12 @@ class ChatMixin(PromptMixin):
 
             # Record usage tracking, attributed to the resolved agent
             usage = self._extract_usage(result)
-            await self._record_usage(f"chat:{agent_config.slug}", usage, user_id)
+            await self._record_usage(
+                f"chat:{agent_config.slug}",
+                usage,
+                user_id,
+                conversation_id=conversation.id,
+            )
 
             # Add TPS (tokens per second) to metadata for performance monitoring
             output_tokens = usage.get("output_tokens", 0)

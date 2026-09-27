@@ -252,6 +252,7 @@ class STTService:
         """
         try:
             from app.core.db import get_async_session
+            from app.services.ai import usage_recording
             from app.services.ai.models.voice_usage import STTUsage
         except ImportError:
             # A project generated without a database has no stt_usage table
@@ -261,6 +262,9 @@ class STTService:
             # worse than silence.
             return
 
+        # Priced by the second from the one rate table, and written to the
+        # usage ledger beside every other model cost (#270).
+        cost = usage_recording.rated_cost(self.model, seconds=input_duration_seconds)
         try:
             async with get_async_session() as session:
                 usage = STTUsage(
@@ -273,11 +277,20 @@ class STTService:
                     output_characters=output_characters,
                     detected_language=detected_language,
                     latency_ms=latency_ms,
-                    total_cost=0.0,  # TODO: Calculate cost based on provider pricing
+                    total_cost=cost,
                     success=success,
                     error_message=error_message,
                 )
                 session.add(usage)
+            await usage_recording.record_speech(
+                "stt",
+                self.model,
+                cost=cost,
+                seconds=input_duration_seconds,
+                user_id=user_id,
+                success=success,
+                error_message=error_message,
+            )
 
             logger.debug(
                 f"STT usage recorded: {input_bytes} bytes, "

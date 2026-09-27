@@ -180,6 +180,7 @@ SETTINGS_TABS: tuple[tuple[str, str, str], ...] = (
     ("institutions", "Institutions", "/institutions"),
     ("comms", "Comms", "/comms"),
     ("activity", "Activity", "/activity"),
+    ("usage", "Usage", "/usage"),
 )
 
 

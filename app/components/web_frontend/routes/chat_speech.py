@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from app.components.backend.api.ai.router import ai_service
@@ -55,9 +55,13 @@ def _format(filename: str | None) -> AudioFormat:
 
 
 @router.post(TRANSCRIPTS, include_in_schema=False)
-async def transcribe(audio: UploadFile = File(...)) -> Response:
+async def transcribe(
+    audio: UploadFile = File(...), seconds: float | None = Form(default=None, ge=0)
+) -> Response:
     """The recording as text, for the composer. JSON, like the paste
-    route: the script puts it in the textarea, where it can be edited."""
+    route: the script puts it in the textarea, where it can be edited.
+    ``seconds`` is how long the browser recorded: transcription bills by
+    the second (#270), and a webm upload does not say."""
     content = await audio.read()
     if not content:
         return JSONResponse({"error": NO_SPEECH}, status_code=422)
@@ -67,6 +71,7 @@ async def transcribe(audio: UploadFile = File(...)) -> Response:
                 content=content,
                 format=_format(audio.filename),
                 prompt=TRANSCRIPTION_HINT,
+                duration_seconds=seconds,
             ),
             user_id=str(STANDALONE_USER_ID),
         )

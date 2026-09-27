@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from starlette.responses import JSONResponse, Response
 
 from app.components.backend.api.ai.router import ai_service, sync_active_model
@@ -23,6 +23,7 @@ from app.components.web_frontend.routes.chat import SECTION, SURFACE, owned
 from app.core.chat_transcript import readable
 from app.core.config import settings
 from app.core.log import logger
+from app.services.ai import usage_recording
 from app.services.ai.domains.voice.spoken import to_spoken
 from app.services.finance.domains.detection.analyst.prompts import (
     FINANCE_LIVE_INSTRUCTIONS,
@@ -40,6 +41,7 @@ router = APIRouter(dependencies=[Depends(sync_active_model)])
 LIVE = SECTION.path + "/live"
 SESSIONS = LIVE + "/sessions"
 DELEGATIONS = LIVE + "/delegations"
+USAGE = LIVE + "/usage"
 
 LIVE_MODEL = "gpt-live-1"
 LIVE_FALLBACK_VOICE = "marin"
@@ -74,6 +76,15 @@ templates.env.globals["live_lines"] = {
 class Offer(BaseModel):
     sdp: str
     conversation_id: str | None = None
+
+
+class Billed(BaseModel):
+    """What OpenAI says the call has billed so far (``session.usage.updated``,
+    a running total) and, at the end, why it closed (``session.closed``)."""
+
+    session_id: str
+    seconds: float = Field(ge=0)
+    reason: str | None = None
 
 
 class Said(BaseModel):
@@ -132,7 +143,24 @@ async def open_session(offer: Offer) -> Response:
     except Exception:
         logger.exception("Opening a live session failed")
         return Response(status_code=502)
+    # Its ledger row opens with it (#270): every live minute is metered.
+    await usage_recording.open_live_call(
+        opened.session.id,
+        model=LIVE_MODEL,
+        conversation_id=offer.conversation_id,
+        user_id=STANDALONE_USER_ID,
+    )
     return JSONResponse({"sdp": opened.transport.sdp, "session_id": opened.session.id})
+
+
+@router.post(USAGE, include_in_schema=False)
+async def billed(report: Billed) -> Response:
+    """The page relays OpenAI's running total; the ledger keeps the largest.
+    A closed tab loses only the seconds since the last report."""
+    known = await usage_recording.live_call_seconds(
+        report.session_id, report.seconds, reason=report.reason
+    )
+    return Response(status_code=204 if known else 404)
 
 
 @router.post(DELEGATIONS, include_in_schema=False)
