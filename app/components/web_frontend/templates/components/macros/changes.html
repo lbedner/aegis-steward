@@ -214,5 +214,7 @@
 <div {{ hx_load(base ~ "/change/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
 {% elif marker.kind == "pending_change_batch" %}
 <div {{ hx_load(base ~ "/batch/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
+{% elif marker.kind == "chat_card" %}
+<div {{ hx_load(base ~ "/card/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
 {% endif %}
 {% endmacro %}

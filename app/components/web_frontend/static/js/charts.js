@@ -47,12 +47,28 @@ function money(value) {
 	return `${value < 0 ? "-" : ""}$${abs}`;
 }
 
+// A bar's tone, decided by the server: the highest bright teal, the lowest
+// violet, the rest a darker teal (Pulse's day-of-week chart).
+function toneColor(tone) {
+	const teal = token("--aegis-chart-1");
+	if (tone === "high") return teal;
+	if (tone === "low") return token("--aegis-chart-2");
+	return `${teal}88`;
+}
+
 function datasets(kind, data) {
 	const tail = token("--n"); // "Other" reads as tail, never as a category
 	return data.series.map((series, i) =>
 		series.points
 			? markers(series)
-			: {
+			: series.tones
+				? {
+						label: series.label,
+						data: series.values,
+						backgroundColor: series.tones.map(toneColor),
+						borderRadius: 3,
+					}
+				: {
 					label: series.label,
 					data: series.values,
 					backgroundColor:
@@ -149,6 +165,9 @@ function build(Chart, canvas) {
 		document.getElementById(canvas.dataset.chartData).textContent,
 	);
 	const kind = canvas.dataset.chart;
+	// Dollars unless the data says it counts something else.
+	const shown =
+		data.format === "count" ? (v) => Number(v).toLocaleString() : money;
 	const existing = Chart.getChart(canvas);
 	if (existing) existing.destroy();
 	const muted = token("--n");
@@ -156,7 +175,7 @@ function build(Chart, canvas) {
 	const axes = {
 		x: { ticks: { color: muted }, grid: { color: grid } },
 		y: {
-			ticks: { color: muted, callback: (v) => money(v) },
+			ticks: { color: muted, callback: (v) => shown(v) },
 			grid: { color: grid },
 		},
 	};
@@ -177,7 +196,7 @@ function build(Chart, canvas) {
 			interaction: { mode: "index", intersect: false },
 			plugins: {
 				legend: {
-					display: kind !== "line",
+					display: kind !== "line" && !data.series[0]?.tones,
 					position: kind === "doughnut" ? "right" : "top",
 					labels: { color: muted, boxWidth: 10 },
 				},
@@ -185,7 +204,7 @@ function build(Chart, canvas) {
 					callbacks: {
 						label: (ctx) => {
 							const value = kind === "doughnut" ? ctx.parsed : ctx.parsed.y;
-							return `${ctx.dataset.label ? `${ctx.dataset.label}: ` : ""}${money(value)}`;
+							return `${ctx.dataset.label ? `${ctx.dataset.label}: ` : ""}${shown(value)}`;
 						},
 					},
 				},

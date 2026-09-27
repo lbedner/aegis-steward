@@ -127,14 +127,22 @@
 {% macro chart_panel(id, title, kind, data, drilldown=None, subtitle=None) %}
 {# ``title`` may be ``None``: the canvas keeps its aria-label either way. #}
 {% call card(title, subtitle, id="chart-" ~ id) %}
-<div class="relative h-64">
+{{ chart(id, kind, data, label=title, drilldown=drilldown) }}
+{% endcall %}
+{% endmacro %}
+
+{# The canvas charts.js draws, and the data beside it: the one recipe,
+   used by a page's panel and by a card she draws in chat (issue 266). ``data``
+   is ``{labels, series: [{label, values}]}``; ``format: "count"`` draws
+   plain numbers instead of dollars. #}
+{% macro chart(id, kind, data, height="h-64", label=None, drilldown=None) %}
+<div class="relative {{ height }}">
   <canvas data-chart="{{ kind }}"
           data-chart-data="chart-{{ id }}-data"
           {% if drilldown %}data-drilldown="{{ drilldown }}"{% endif %}
-          role="img" aria-label="{{ title or id|replace("-", " ") }}"></canvas>
+          role="img" aria-label="{{ label or id|replace("-", " ") }}"></canvas>
 </div>
 <script type="application/json" id="chart-{{ id }}-data">{{ data|tojson }}</script>
-{% endcall %}
 {% endmacro %}
 
 

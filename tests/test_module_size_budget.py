@@ -55,7 +55,7 @@ BUDGET: dict[str, int] = {
     "services/finance/adapters/providers/connections/plaid_sync.py": 1039,
     "services/finance/seeds/demo_seed.py": 953,
     "services/finance/domains/detection/insights/rules.py": 831,
-    "components/web_frontend/routes/chat.py": 931,
+    "components/web_frontend/routes/chat.py": 879,
     "components/frontend/dashboard/modals/comms_modal.py": 832,
     "components/web_frontend/routes/finance/transactions.py": 781,
     "services/finance/adapters/importers/imports.py": 811,

@@ -1,0 +1,25 @@
+{# A titled table: ``columns`` names every column, the label one first.
+   Fields are read with ``[...]``: the payload is a plain dict, and
+   ``row.values`` would be the dict METHOD, not the field. A wide table
+   scrolls inside the card rather than widening the thread. #}
+{% from "partials/chat/cards/_frame.html" import card_frame %}
+{% call card_frame("table", card["title"], None, card_url, large) %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-aegis-muted text-xs">
+          <th class="text-left font-medium px-4 py-2 whitespace-nowrap">{{ card["columns"][0] }}</th>
+          {% for column in card["columns"][1:] %}<th class="text-right font-medium px-4 py-2 whitespace-nowrap">{{ column }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in card["rows"] %}
+        <tr class="border-t border-aegis-border/50">
+          <td class="px-4 py-1.5 text-aegis-text whitespace-nowrap">{{ row["label"] }}</td>
+          {% for value in row["values"] %}<td class="px-4 py-1.5 text-right text-aegis-text tabular-nums whitespace-nowrap">{{ value }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endcall %}

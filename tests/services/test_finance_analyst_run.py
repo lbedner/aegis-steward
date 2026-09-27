@@ -6,7 +6,7 @@ under test is the plumbing and the refusals, not the prose.
 """
 
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from pydantic_ai.messages import ModelResponse, ToolCallPart
@@ -24,9 +24,16 @@ from app.services.ai.models import AIProvider
 from app.services.finance.domains.detection import analyst
 from app.services.finance.models import FinanceInsight
 from app.services.finance.seeds import demo_seed
+from app.services.finance.utils import current_date
 
 OWNER = 1
 NOTE_TEXT = "Your spending is up in one category this month. Nothing else moved."
+# The demo seed dates everything from the real clock, so the report reads
+# as of that same day. A pinned 2026-07-20 held only while real time was
+# close to July: the seeded bills drifted out of its projection window and
+# the cash block vanished (2026-09-27).
+TODAY = current_date()
+YESTERDAY = TODAY - timedelta(days=1)
 
 
 @pytest.fixture(autouse=True)
@@ -161,7 +168,7 @@ class TestRunAnalystNote:
         await _seed_agent(async_db_session)
 
         note = await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 20)
+            _one_session(async_db_session), owner_user_id=OWNER, today=TODAY
         )
 
         assert note is not None
@@ -172,7 +179,7 @@ class TestRunAnalystNote:
         assert note.body.startswith(NOTE_TEXT)
         assert "**Cash and bills**" in note.body
         assert "Open findings:" in note.body
-        assert note.dedup_key == "note:20260720"
+        assert note.dedup_key == f"note:{TODAY:%Y%m%d}"
         assert note.metadata_["model_name"] == "test-model"
         assert note.metadata_["commentary"]["headline"] == NOTE_TEXT
         assert len(await _notes(async_db_session)) == 1
@@ -205,7 +212,7 @@ class TestRunAnalystNote:
         await _seed_agent(async_db_session)
 
         note = await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 20)
+            _one_session(async_db_session), owner_user_id=OWNER, today=TODAY
         )
 
         assert note is not None
@@ -224,7 +231,7 @@ class TestRunAnalystNote:
         calls = _fake_model(monkeypatch)
         await demo_seed.seed_demo(async_db_session, owner_user_id=OWNER)
         await _seed_agent(async_db_session)
-        today = date(2026, 7, 20)
+        today = TODAY
 
         first = await analyst.run_analyst_note(
             _one_session(async_db_session), owner_user_id=OWNER, today=today
@@ -248,7 +255,7 @@ class TestRunAnalystNote:
         await _seed_agent(async_db_session)
 
         note = await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 20)
+            _one_session(async_db_session), owner_user_id=OWNER, today=TODAY
         )
 
         assert note is None
@@ -267,7 +274,7 @@ class TestRunAnalystNote:
         await demo_seed.seed_demo(async_db_session, owner_user_id=OWNER)
 
         note = await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 20)
+            _one_session(async_db_session), owner_user_id=OWNER, today=TODAY
         )
 
         assert note is None
@@ -290,7 +297,7 @@ class TestRunAnalystNote:
         await _seed_agent(async_db_session)
 
         note = await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 20)
+            _one_session(async_db_session), owner_user_id=OWNER, today=TODAY
         )
 
         assert note is None
@@ -306,7 +313,7 @@ class TestRunAnalystNote:
         await _seed_agent(async_db_session)
 
         note = await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 20)
+            _one_session(async_db_session), owner_user_id=OWNER, today=TODAY
         )
 
         assert note is None
@@ -328,11 +335,11 @@ class TestRunAnalystNote:
         await demo_seed.seed_demo(async_db_session, owner_user_id=OWNER)
         await _seed_agent(async_db_session)
         await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 19)
+            _one_session(async_db_session), owner_user_id=OWNER, today=YESTERDAY
         )
 
         snapshot = await analyst.build_finance_snapshot(
-            async_db_session, owner_user_id=OWNER, today=date(2026, 7, 20)
+            async_db_session, owner_user_id=OWNER, today=TODAY
         )
 
         assert snapshot is not None
@@ -350,11 +357,11 @@ class TestRunAnalystNote:
         await demo_seed.seed_demo(async_db_session, owner_user_id=OWNER)
         await _seed_agent(async_db_session)
         await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 19)
+            _one_session(async_db_session), owner_user_id=OWNER, today=YESTERDAY
         )
 
         snapshot = await analyst.build_finance_snapshot(
-            async_db_session, owner_user_id=OWNER, today=date(2026, 7, 20)
+            async_db_session, owner_user_id=OWNER, today=TODAY
         )
 
         assert "YOUR PREVIOUS NOTE" in snapshot
@@ -370,14 +377,14 @@ class TestRunAnalystNote:
         await _seed_agent(async_db_session)
 
         await analyst.run_analyst_note(
-            _one_session(async_db_session), owner_user_id=OWNER, today=date(2026, 7, 19)
+            _one_session(async_db_session), owner_user_id=OWNER, today=YESTERDAY
         )
 
         baseline = await analyst.snapshot_before(
-            async_db_session, owner_user_id=OWNER, day=date(2026, 7, 20)
+            async_db_session, owner_user_id=OWNER, day=TODAY
         )
         assert baseline is not None
-        assert baseline[0] == date(2026, 7, 19)
+        assert baseline[0] == YESTERDAY
 
     @pytest.mark.asyncio
     async def test_a_failed_run_leaves_no_baseline(
@@ -393,13 +400,13 @@ class TestRunAnalystNote:
             await analyst.run_analyst_note(
                 _one_session(async_db_session),
                 owner_user_id=OWNER,
-                today=date(2026, 7, 19),
+                today=YESTERDAY,
             )
             is None
         )
         assert (
             await analyst.snapshot_before(
-                async_db_session, owner_user_id=OWNER, day=date(2026, 7, 20)
+                async_db_session, owner_user_id=OWNER, day=TODAY
             )
             is None
         )
