@@ -85,10 +85,12 @@ class TestReconcile:
             },
         )
         assert location(applied) == f"/accounts/{ledger.checking}"
-        # One transfer-flagged adjustment absorbs the difference: hidden by
-        # default, visible with the transfers toggle.
-        page = client.get(f"/accounts/{ledger.checking}?include_transfers=on").text
+        # One transfer-flagged adjustment absorbs the difference: shown by
+        # default, gone when transfers are hidden.
+        page = client.get(f"/accounts/{ledger.checking}").text
         assert len(select(page, "#register tbody tr")) == 4
+        hidden = client.get(f"/accounts/{ledger.checking}?hide_transfers=on").text
+        assert len(select(hidden, "#register tbody tr")) == 3
 
     def test_bad_balance_is_a_422(self, client: TestClient, ledger: Ledger) -> None:
         response = client.post(

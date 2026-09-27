@@ -64,7 +64,7 @@
     {% if register.tags %}{{ select("tag_id", register.tags, register.filters.tag_id, blank="All tags") }}{% endif %}
     {{ date_input("from", register.filters.from_date, label="From") }}
     {{ date_input("to", register.filters.to_date, label="To") }}
-    {{ checkbox("include_transfers", register.filters.include_transfers, label="Show transfers") }}
+    {{ checkbox("hide_transfers", register.filters.hide_transfers, label="Hide transfers") }}
     {% if register.filters.page_size != 50 %}<input type="hidden" name="page_size" value="{{ register.filters.page_size }}">{% endif %}
     <span id="uncategorized-count" class="text-xxs text-aegis-muted">{{ register.uncategorized_total }} uncategorized</span>
     {# Always present, sometimes empty: a search that clears its own text

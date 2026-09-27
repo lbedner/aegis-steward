@@ -253,7 +253,14 @@ async def transactions(
     magnitude (800 finds a $8.00 charge whichever way it is signed),
     ``since``/``until`` are ISO dates. Returns 'total' (how many match)
     and 'transactions' - id, date, payee, amount_cents, category,
-    account, memo - newest first, capped at ``limit``.
+    account, memo, transfer - newest first, capped at ``limit``.
+
+    It finds every row, transfers included. ``transfer: true`` means the
+    row is flagged as money between accounts: hidden from the register
+    unless "Show transfers" is on, and left out of spending. A payment
+    wrongly flagged (a mortgage or a nursing home categorized "Transfer")
+    is fixed by recategorizing it to a spending category, which clears
+    the flag - unless it is paired with a deposit on another account.
 
     Use this, not ``ledger(detail="transactions")``, whenever the
     question names a payee, an amount or a date: matching a receipt to
@@ -277,6 +284,9 @@ async def transactions(
             from_date=_date(since),
             to_date=_date(until),
             page_size=max(1, min(int(limit), 200)),
+            # A search hides nothing: the register's default hid Dad's
+            # mortgage from her, and she called it "already" right (#278).
+            include_transfers=True,
         )
         items = await hydrate_transactions(service, rows)
         accounts = {
@@ -304,6 +314,7 @@ async def transactions(
                 "category": item.category,
                 "account": accounts.get(item.account_id, ""),
                 "memo": item.memo,
+                "transfer": item.is_transfer,
             }
             for item in items
         ],
