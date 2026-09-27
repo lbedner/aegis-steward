@@ -38,8 +38,14 @@ class _Live:
     """Stands in for ``AsyncOpenAI().live``."""
 
     def __init__(self, fail: Exception | None = None) -> None:
+        import uuid
+
         self.calls: list[dict[str, Any]] = []
         self.fail = fail
+        # Its own id per test: the ledger rows outlive a test (they go
+        # through the app's session), and a shared id found another
+        # test's row in CI's order.
+        self.session_id = f"live_{uuid.uuid4().hex[:12]}"
 
     async def create(self, **kwargs: Any) -> Any:
         from types import SimpleNamespace
@@ -48,7 +54,7 @@ class _Live:
         if self.fail:
             raise self.fail
         return SimpleNamespace(
-            session=SimpleNamespace(id="live_123"),
+            session=SimpleNamespace(id=self.session_id),
             transport=SimpleNamespace(type="webrtc", sdp="v=0 answer"),
         )
 
@@ -67,7 +73,7 @@ class TestOpeningASession:
         response = client.post(SESSIONS, json={"sdp": "v=0 offer"})
 
         assert response.status_code == 200
-        assert response.json() == {"sdp": "v=0 answer", "session_id": "live_123"}
+        assert response.json() == {"sdp": "v=0 answer", "session_id": live.session_id}
         call = live.calls[0]
         assert call["transport"] == {"type": "webrtc", "sdp": "v=0 offer"}
         session = call["session"]
@@ -79,7 +85,9 @@ class TestOpeningASession:
         self, client: TestClient, live: _Live, stored: tuple[str, str]
     ) -> None:
         conversation_id, _ = stored
-        client.post(SESSIONS, json={"sdp": "v=0 offer", "conversation_id": conversation_id})
+        client.post(
+            SESSIONS, json={"sdp": "v=0 offer", "conversation_id": conversation_id}
+        )
 
         history = live.calls[0]["session"]["input"]
         assert [item["role"] for item in history] == ["user", "assistant"]
@@ -194,7 +202,9 @@ class TestWhileSheWorks:
         from tests.web.dom import one
 
         button = one(client.get("/chat").text, "button#chat-live")
-        drawn = {e.get("data-mic-visual") for e in button.cssselect("[data-mic-visual]")}
+        drawn = {
+            e.get("data-mic-visual") for e in button.cssselect("[data-mic-visual]")
+        }
         assert drawn == {"recording", "thinking", "speaking", "working"}
 
     def test_the_status_line_says_so(self, client: TestClient) -> None:
@@ -257,3 +267,66 @@ class TestHangingUp:
         monkeypatch.setattr(settings, "VOICE_LIVE_IDLE_SECONDS", 45)
         mic = one(client.get("/chat").text, "button#chat-mic")
         assert json.loads(mic.get("data-voice") or "{}")["idle"] == 45
+
+
+class TestTheMeter:
+    """Every live minute is in the ledger (#270): the call's row opens with
+    the call, and the page reports the billed seconds as OpenAI counts them."""
+
+    @staticmethod
+    async def _row(session_id: str) -> Any:
+        from sqlmodel import select
+
+        from app.core.db import get_async_session
+        from app.services.ai.models.llm import LLMUsage
+
+        async with get_async_session() as session:
+            return (
+                await session.exec(
+                    select(LLMUsage).where(LLMUsage.session_id == session_id)
+                )
+            ).first()
+
+    async def test_opening_a_call_opens_its_row(
+        self, client: TestClient, live: _Live, stored: tuple[str, str]
+    ) -> None:
+        conversation_id, _ = stored
+        client.post(
+            SESSIONS, json={"sdp": "v=0 offer", "conversation_id": conversation_id}
+        )
+        row = await self._row(live.session_id)
+        assert row is not None
+        assert (row.model_id, row.action, row.conversation_id) == (
+            "gpt-live-1",
+            "live",
+            conversation_id,
+        )
+
+    async def test_the_page_reports_the_seconds(
+        self, client: TestClient, live: _Live
+    ) -> None:
+        client.post(SESSIONS, json={"sdp": "v=0 offer"})
+        response = client.post(
+            chat_live.USAGE,
+            json={
+                "session_id": live.session_id,
+                "seconds": 90,
+                "reason": "close_requested",
+            },
+        )
+        assert response.status_code == 204
+        row = await self._row(live.session_id)
+        assert row.audio_seconds == 90
+        assert row.total_cost == pytest.approx(0.075)
+
+    def test_an_unknown_call_is_a_404(self, client: TestClient) -> None:
+        response = client.post(
+            chat_live.USAGE, json={"session_id": "nope", "seconds": 5}
+        )
+        assert response.status_code == 404
+
+    def test_the_live_button_knows_where_to_report(self, client: TestClient) -> None:
+        from tests.web.dom import one
+
+        button = one(client.get("/chat").text, "button#chat-live")
+        assert button.get("data-usage") == chat_live.USAGE

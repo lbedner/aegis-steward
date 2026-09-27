@@ -43,6 +43,13 @@ def dollars(cents: int | None) -> float:
     return (cents or 0) / 100
 
 
+def usd(dollars: float | None) -> str:
+    """Dollars as a usage cost reads: to the cent, or to the hundredth of a
+    cent below one (a transcription costs $0.0045, not $0.00)."""
+    value = dollars or 0.0
+    return f"${value:,.2f}" if value == 0 or value >= 0.01 else f"${value:.4f}"
+
+
 def short_date(value: date | datetime | str | None, today: date | None = None) -> str:
     """``Jul 15`` this year, ``Jul 15, 2025`` otherwise; a ``YYYY-MM`` month
     is ``Jul`` / ``Jul 2025``. Blank stays blank."""
@@ -395,6 +402,7 @@ FILTERS: dict[str, Callable[..., Any]] = {
     "as_options": as_options,
     "money": money,
     "dollars": dollars,
+    "usd": usd,
     "cents_to_input": cents_to_input,
     "short_date": short_date,
     "date_range": date_range,

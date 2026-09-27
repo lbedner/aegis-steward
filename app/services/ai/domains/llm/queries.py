@@ -378,3 +378,58 @@ async def spend_since(
         .where(LLMUsage.timestamp >= since)
     )
     return float(row.one())
+
+
+# --- the usage report (#270) --------------------------------------------------
+
+
+async def usage_by_action_and_model(
+    session: AsyncSession, since: datetime
+) -> list[Any]:
+    """Cost, uses, audio seconds and tokens per (action, model) since
+    ``since`` (naive UTC, as stored). One grouped statement."""
+    stmt = (
+        select(
+            LLMUsage.action,
+            LLMUsage.model_id,
+            func.count(LLMUsage.id).label("uses"),
+            func.coalesce(func.sum(LLMUsage.total_cost), 0.0).label("cost"),
+            func.coalesce(func.sum(LLMUsage.audio_seconds), 0.0).label("seconds"),
+            func.coalesce(
+                func.sum(LLMUsage.input_tokens + LLMUsage.output_tokens), 0
+            ).label("tokens"),
+        )
+        .where(LLMUsage.timestamp >= since)
+        .group_by(LLMUsage.action, LLMUsage.model_id)
+    )
+    return list((await session.exec(stmt)).all())
+
+
+async def live_call_rows(
+    session: AsyncSession, since: datetime, action: str, limit: int
+) -> list[LLMUsage]:
+    """The live calls since ``since``, newest first."""
+    stmt = (
+        select(LLMUsage)
+        .where(LLMUsage.action == action, LLMUsage.timestamp >= since)
+        .order_by(LLMUsage.timestamp.desc())
+        .limit(limit)
+    )
+    return list((await session.exec(stmt)).all())
+
+
+async def turns_in_conversations(
+    session: AsyncSession, conversation_ids: set[str], since: datetime, action: str
+) -> list[Any]:
+    """(conversation_id, timestamp, cost) of every other ledger row in
+    those conversations since ``since`` - one statement for all calls."""
+    if not conversation_ids:
+        return []
+    stmt = select(
+        LLMUsage.conversation_id, LLMUsage.timestamp, LLMUsage.total_cost
+    ).where(
+        LLMUsage.conversation_id.in_(conversation_ids),
+        LLMUsage.timestamp >= since,
+        LLMUsage.action != action,
+    )
+    return list((await session.exec(stmt)).all())

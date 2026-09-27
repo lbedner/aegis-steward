@@ -314,6 +314,7 @@ class TTSService:
         """
         try:
             from app.core.db import get_async_session
+            from app.services.ai import usage_recording
             from app.services.ai.models.voice_usage import TTSUsage
         except ImportError:
             # A project generated without a database has no tts_usage table
@@ -323,6 +324,9 @@ class TTSService:
             # worse than silence.
             return
 
+        # Priced by the character from the one rate table, and written to
+        # the usage ledger beside every other model cost (#270).
+        cost = usage_recording.rated_cost(self.model, characters=input_characters)
         try:
             async with get_async_session() as session:
                 usage = TTSUsage(
@@ -335,11 +339,20 @@ class TTSService:
                     output_duration_seconds=output_duration_seconds,
                     output_bytes=output_bytes,
                     latency_ms=latency_ms,
-                    total_cost=0.0,  # TODO: Calculate cost based on provider pricing
+                    total_cost=cost,
                     success=success,
                     error_message=error_message,
                 )
                 session.add(usage)
+            await usage_recording.record_speech(
+                "tts",
+                self.model,
+                cost=cost,
+                seconds=output_duration_seconds,
+                user_id=user_id,
+                success=success,
+                error_message=error_message,
+            )
 
             logger.debug(
                 f"TTS usage recorded: {input_characters} chars, "

@@ -27,10 +27,12 @@ from app.components.web_frontend.routes.finance import (
     review_resolve,
     settings,
     transactions,
+    usage,
 )
 
 router = APIRouter()
 router.include_router(overview.router)
+router.include_router(usage.router)
 router.include_router(accounts.router)
 router.include_router(account_manage.router)
 router.include_router(account_naming.router)

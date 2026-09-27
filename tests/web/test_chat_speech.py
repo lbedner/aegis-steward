@@ -89,6 +89,19 @@ class TestHearing:
         assert "Illiana" in audio.prompt  # she was "Ilyana" without it
         assert speech.transcribe.call_args.kwargs["user_id"] == str(STANDALONE_USER_ID)
 
+    def test_the_recordings_length_rides_along(
+        self, client: TestClient, speech: FakeSpeech
+    ) -> None:
+        """Transcription bills by the second (#270); the browser knows how
+        long it recorded, and a webm upload does not say."""
+        response = client.post(
+            TRANSCRIPTS,
+            files={"audio": ("speech.webm", b"webm-bytes", "audio/webm")},
+            data={"seconds": "12.5"},
+        )
+        assert response.status_code == 200
+        assert speech.transcribe.call_args.args[0].duration_seconds == 12.5
+
     @pytest.mark.parametrize(
         "name,expected",
         [("speech.mp4", AudioFormat.MP4), ("speech.ogg", AudioFormat.OGG)],

@@ -145,6 +145,7 @@ async def record_usage(
     error_message: str | None = None,
     duration_ms: int | None = None,
     tool_calls: int | None = None,
+    conversation_id: str | None = None,
 ) -> float:
     """Write one ``llm_usage`` ledger row; returns the calculated cost.
 
@@ -185,6 +186,7 @@ async def record_usage(
                     error_message=error_message,
                     duration_ms=duration_ms,
                     tool_calls=tool_calls,
+                    conversation_id=conversation_id,
                 )
             )
             return cost
@@ -200,3 +202,133 @@ async def record_usage(
     except Exception as e:
         logger.error("Failed to record LLM usage", error=str(e))
     return total_cost
+
+
+# --- voice (#270) ------------------------------------------------------------
+# Voice bills by the second (a live call, a transcription) or by the
+# character (speech), not by the token, and the catalog prices tokens
+# only. So these rates live here, the one table every voice cost reads,
+# until the voice catalog (#267) holds them. USD per unit, OpenAI's list
+# prices (2026-09).
+# ponytail: gpt-4o-mini-tts bills text and audio tokens; its per-character
+# rate is OpenAI's ~$0.015 a minute at ~900 characters a minute.
+RATES: dict[str, tuple[str, float]] = {
+    "gpt-live-1": ("second", 0.05 / 60),
+    "gpt-transcribe": ("second", 0.0045 / 60),
+    "gpt-4o-transcribe": ("second", 0.006 / 60),
+    "gpt-4o-mini-transcribe": ("second", 0.003 / 60),
+    "whisper-1": ("second", 0.006 / 60),
+    "tts-1": ("character", 15 / 1_000_000),
+    "tts-1-hd": ("character", 30 / 1_000_000),
+    "gpt-4o-mini-tts": ("character", 0.015 / 900),
+}
+
+
+def rated_cost(
+    model: str, *, seconds: float | None = None, characters: int | None = None
+) -> float:
+    """What a voice call cost: its measure times its model's rate. A dated
+    build ("gpt-4o-mini-tts-2025-03-20") prices as its model; an unknown
+    model, or nothing measured, is 0."""
+    rate = RATES.get(model) or next(
+        (RATES[name] for name in RATES if model.startswith(f"{name}-")), None
+    )
+    if rate is None:
+        return 0.0
+    unit, price = rate
+    measured = seconds if unit == "second" else characters
+    return (measured or 0) * price
+
+
+async def record_speech(
+    action: str,
+    model: str,
+    *,
+    cost: float,
+    seconds: float | None = None,
+    user_id: str | None = None,
+    success: bool = True,
+    error_message: str | None = None,
+) -> None:
+    """One ledger row for a transcription (``stt``) or spoken reply
+    (``tts``), beside the model calls. Tokens are 0: speech reports none."""
+    try:
+        async with get_async_session() as session:
+            session.add(
+                LLMUsage(
+                    action=action,
+                    model_id=model,
+                    user_id=user_id,
+                    timestamp=datetime.now(UTC),
+                    input_tokens=0,
+                    output_tokens=0,
+                    total_cost=cost,
+                    audio_seconds=seconds,
+                    success=success,
+                    error_message=error_message,
+                )
+            )
+    except Exception as e:
+        logger.error("Failed to record speech usage", error=str(e))
+
+
+LIVE_ACTION = "live"
+# How a call may end without anything having gone wrong.
+_CLEAN_ENDINGS = frozenset({"close_requested", "remote_hangup"})
+
+
+async def open_live_call(
+    session_id: str,
+    *,
+    model: str,
+    conversation_id: str | None = None,
+    user_id: str | None = None,
+) -> None:
+    """The call's ledger row, opened with the call and updated as it runs."""
+    try:
+        async with get_async_session() as session:
+            session.add(
+                LLMUsage(
+                    action=LIVE_ACTION,
+                    model_id=model,
+                    user_id=user_id,
+                    timestamp=datetime.now(UTC),
+                    input_tokens=0,
+                    output_tokens=0,
+                    total_cost=0.0,
+                    audio_seconds=0.0,
+                    session_id=session_id,
+                    conversation_id=conversation_id,
+                )
+            )
+    except Exception as e:
+        logger.error("Failed to open a live call's usage", error=str(e))
+
+
+async def live_call_seconds(
+    session_id: str, seconds: float, *, reason: str | None = None
+) -> bool:
+    """The call's billed seconds so far - a running total the provider
+    reports, never summed - and, at the end, how it ended. Returns whether
+    the call was known."""
+    async with get_async_session() as session:
+        row = (
+            await session.exec(
+                select(LLMUsage).where(
+                    LLMUsage.session_id == session_id,
+                    LLMUsage.action == LIVE_ACTION,
+                )
+            )
+        ).first()
+        if row is None:
+            return False
+        billed = max(row.audio_seconds or 0.0, seconds)
+        row.audio_seconds = billed
+        row.total_cost = rated_cost(row.model_id, seconds=billed)
+        row.duration_ms = billed * 1000
+        if reason is not None:
+            row.success = reason in _CLEAN_ENDINGS
+            row.error_message = None if row.success else reason
+        session.add(row)
+    return True
+

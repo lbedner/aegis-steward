@@ -120,10 +120,12 @@
     input.form.requestSubmit();
   };
 
-  const transcribe = async (blob, url) => {
+  const transcribe = async (blob, url, seconds) => {
     say('transcribing'); // an empty one too: the server says nothing was heard
     const body = new FormData();
     body.append('audio', blob, `speech.${extension(blob.type)}`);
+    // Transcription bills by the second (issue 270).
+    if (seconds) body.append('seconds', seconds.toFixed(1));
     try {
       const answer = await fetch(url, { method: 'POST', body });
       const data = await answer.json().catch(() => ({}));
@@ -155,8 +157,9 @@
       recorder = null;
       pressed(false);
       mic()?.setAttribute('data-state', 'thinking');
-      transcribe(new Blob(chunks, { type }), button.dataset.transcripts);
+      transcribe(new Blob(chunks, { type }), button.dataset.transcripts, (Date.now() - started) / 1000);
     });
+    const started = Date.now();
     recorder.start();
     recorder._limit = setTimeout(() => recorder?.stop(), LIMIT_MS);
     pressed(true);
@@ -307,15 +310,25 @@
   let call = null;
   const phone = () => document.getElementById('chat-live');
   const conversation = () => document.getElementById('chat-conversation');
-  const hangUp = () => {
+  // Ending is two steps. Hanging up stops the mic and the sound at once and
+  // asks OpenAI to close; the connection stays open a moment for its
+  // session.closed, which carries the call's final billed seconds (issue
+  // 270). ``finish`` tears down, on that event or after the wait.
+  const CLOSE_WAIT_MS = 2500;
+  const finish = () => {
     if (!call) return;
+    clearTimeout(call.closing);
+    call.peer.close();
+    call = null;
+  };
+  const hangUp = () => {
+    if (!call || call.closing) return;
     try { call.channel.send(JSON.stringify({ type: 'session.close' })); } catch (_) {}
     for (const track of call.stream.getTracks()) track.stop();
-    call.peer.close();
     call.audio.srcObject = null;
     clearTimeout(call.quiet);
     clearTimeout(call.idle);
-    call = null;
+    call.closing = setTimeout(finish, CLOSE_WAIT_MS);
     stopTyping();
     show(phone(), 'idle');
     phone()?.setAttribute('aria-pressed', 'false');
@@ -324,7 +337,7 @@
   // Dead air costs the same as talk: after the profile's seconds with
   // nobody speaking and nothing being worked on, hang up (0: never).
   const awake = () => {
-    if (!call) return;
+    if (!call || call.closing) return;
     clearTimeout(call.idle);
     const seconds = voice().idle;
     if (seconds > 0 && !call.working) call.idle = setTimeout(hangUp, seconds * 1000);
@@ -333,7 +346,7 @@
   // pulling data - working, with the typing under it. GPT-Live says "let me
   // check" mid-delegation; when it stops, the work shows again.
   const rest = () => {
-    if (!call) return;
+    if (!call || call.closing) return;
     const working = call.working > 0;
     show(phone(), working ? 'working' : 'recording');
     say(working ? 'working' : 'live');
@@ -370,6 +383,17 @@
       htmx.ajax('GET', phone().dataset.thread + data.conversation_id, { target: '#chat-thread', swap: 'innerHTML' });
     }
   };
+  // Every live minute is metered (issue 270): OpenAI reports the call's
+  // billed seconds as a running total, and the server's ledger keeps it.
+  const bill = (seconds, reason = null) => {
+    if (!call?.session || seconds == null) return;
+    fetch(phone().dataset.usage, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: call.session, seconds, reason }),
+      keepalive: true,
+    }).catch(() => {});
+  };
   const heard = (event) => {
     if (event.type === 'session.started') answer(null, phone().dataset.greeting);
     else if (event.type === 'session.input_transcript.delta') {
@@ -392,9 +416,13 @@
       }, done ? 2500 : 1200);
     } else if (event.type === 'session.delegation.created' && event.delegation?.target === 'client') {
       call.work = call.work.then(() => delegate(event.delegation.id));
+    } else if (event.type === 'session.usage.updated') {
+      bill(event.usage?.seconds);
     } else if (event.type === 'session.closed' || event.type === 'error') {
+      if (event.type === 'session.closed') bill(event.usage?.seconds, event.reason);
       if (event.type === 'error') console.warn('[live]', event);
       hangUp();
+      if (event.type === 'session.closed') finish();
     }
   };
   const dial = async (button) => {
@@ -423,7 +451,9 @@
         body: JSON.stringify({ sdp: peer.localDescription.sdp, conversation_id: conversation()?.value || null }),
       });
       if (!answer.ok) throw new Error(`live session ${answer.status}`);
-      await peer.setRemoteDescription({ type: 'answer', sdp: (await answer.json()).sdp });
+      const opened = await answer.json();
+      call.session = opened.session_id;
+      await peer.setRemoteDescription({ type: 'answer', sdp: opened.sdp });
     } catch (e) {
       console.warn('[live]', e);
       hangUp();

@@ -370,6 +370,7 @@ class StreamingMixin(ChatMixin):
                 f"stream_chat:{agent_config.slug}",
                 stream_usage,
                 user_id,
+                conversation_id=conversation.id,
             )
 
             # Extractions recorded mid-run outlive the image AND the
