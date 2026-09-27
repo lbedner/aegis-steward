@@ -1239,6 +1239,41 @@ async def test_transactions_finds_rows_without_reading_the_ledger(
 
 
 @pytest.mark.asyncio
+async def test_transactions_finds_transfer_flagged_rows_and_says_so(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A search hides nothing (#278). Dad's mortgage payments were
+    categorized Transfer, so the register's default hid them - and so did
+    this tool: asked to fix them, she said they were "already" right and
+    recategorized rows that were. The flag rides along instead."""
+    account = await seed_account(svc)
+    mortgage = await svc.create_transaction(
+        account_id=account.id,
+        amount=-130_800,
+        txn_date=date(2026, 9, 17),
+        owner_user_id=1,
+        name="Withdrawal Transfer To Loan 106271000",
+    )
+    mortgage.is_transfer = True
+    session.add(mortgage)
+    await svc.create_transaction(
+        account_id=account.id,
+        amount=-3_000,
+        txn_date=date(2026, 9, 17),
+        owner_user_id=1,
+        name="Loan Depot coffee",
+    )
+    await session.commit()
+
+    result = await ai_tools.transactions(payee="loan")
+
+    flags = {t["payee"]: t["transfer"] for t in result["transactions"]}
+    assert result["total"] == 2
+    assert list(flags.values()).count(True) == 1
+    assert list(flags.values()).count(False) == 1
+
+
+@pytest.mark.asyncio
 async def test_transactions_matches_the_amount_whichever_way_it_is_signed(
     svc: FinanceService, session: AsyncSession
 ) -> None:

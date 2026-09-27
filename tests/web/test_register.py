@@ -153,10 +153,12 @@ class TestFilters:
         assert names(page) == ["Market"]
         assert one(page, 'input[name="from"]').get("value") == today
 
-    def test_transfers_toggle_is_a_checkbox_default_off(
+    def test_transfers_show_by_default_and_hiding_is_the_opt_out(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        box = one(client.get(REGISTER).text, 'input[name="include_transfers"]')
+        """Everything by default, then opt out (#278): hiding transfers by
+        default hid Dad's mortgage from the register and from her."""
+        box = one(client.get(REGISTER).text, 'input[name="hide_transfers"]')
         assert box.get("type") == "checkbox" and box.get("checked") is None
 
     def test_a_submitted_form_with_blank_fields_is_fine(
@@ -165,10 +167,10 @@ class TestFilters:
         """The browser sends ``""`` for untouched selects and dates; ticking
         one box must not 422 the whole register."""
         response = hx.get(
-            "/accounts/all?q=&category_id=&merchant_id=&from=&to=&include_transfers=on"
+            "/accounts/all?q=&category_id=&merchant_id=&from=&to=&hide_transfers=on"
         )
         assert response.status_code == 200
-        assert one(response.text, 'input[name="include_transfers"]').get("checked")
+        assert one(response.text, 'input[name="hide_transfers"]').get("checked")
 
     def test_window_chips_start_at_all_and_narrow_the_listing(
         self, client: TestClient, ledger: Ledger
@@ -358,10 +360,10 @@ class TestSortableColumns:
     ) -> None:
         """Page 3 of one order is nothing in another."""
         # page_size=1 so page 2 exists on a small fixture.
-        page = client.get(f"{REGISTER}?include_transfers=on&page=2&page_size=1").text
+        page = client.get(f"{REGISTER}?hide_transfers=on&page=2&page_size=1").text
         link = one(select(page, "#register thead th")[1], "a").get("href") or ""
 
-        assert "include_transfers=on" in link
+        assert "hide_transfers=on" in link
         assert "page=2" not in link
 
     def test_a_column_nobody_can_click_is_not_an_order(

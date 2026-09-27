@@ -85,7 +85,9 @@ class RegisterFilters:
     # The chip row: a window in days, ALL for everything. An explicit
     # ``from`` beats it, so picking a date does not fight the chips.
     days: int = ranges.ALL
-    include_transfers: bool = False
+    # Everything shows by default; hiding transfers is the opt-out. Hidden by
+    # default, Dad's mortgage (categorized Transfer) was invisible (#278).
+    hide_transfers: bool = False
     # Fixed by a page rather than picked in the bar: the review queues are
     # the register with one of these on.
     uncategorized: bool = False
@@ -146,7 +148,7 @@ def register_filters(
     from_date: Annotated[date | None, Blank, Query(alias="from")] = None,
     to_date: Annotated[date | None, Blank, Query(alias="to")] = None,
     days: Annotated[int, Blank] = ranges.ALL,
-    include_transfers: bool = False,
+    hide_transfers: bool = False,
     uncategorized: bool = False,
     without_merchant: bool = False,
     page: int = Query(default=1, ge=1),
@@ -162,7 +164,7 @@ def register_filters(
         from_date=from_date,
         to_date=to_date,
         days=days,
-        include_transfers=include_transfers,
+        hide_transfers=hide_transfers,
         uncategorized=uncategorized,
         without_merchant=without_merchant,
         page=page,
@@ -331,7 +333,7 @@ async def register_context(
         without_merchant=filters.without_merchant,
         tag_id=filters.tag_id,
         q=filters.q,
-        include_transfers=filters.include_transfers,
+        include_transfers=not filters.hide_transfers,
         uncategorized=filters.uncategorized,
         page=filters.page,
         page_size=filters.page_size,
