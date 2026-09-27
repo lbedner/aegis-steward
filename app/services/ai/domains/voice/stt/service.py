@@ -262,9 +262,11 @@ class STTService:
             # worse than silence.
             return
 
-        # Priced by the second from the one rate table, and written to the
+        # Priced by the second at the catalog's rate, and written to the
         # usage ledger beside every other model cost (#270).
-        cost = usage_recording.rated_cost(self.model, seconds=input_duration_seconds)
+        cost = await usage_recording.speech_cost(
+            self.model, input_seconds=input_duration_seconds
+        )
         try:
             async with get_async_session() as session:
                 usage = STTUsage(

@@ -27,6 +27,7 @@ def _settings(**overrides: Any) -> SimpleNamespace:
         "VOICE_REPLY": "live",
         "VOICE_WORKING_SOUND": "typing",
         "VOICE_LIVE_IDLE_SECONDS": 30,
+        "VOICE_LIVE_ENGINE": "gpt-live",
     }
     values.update(overrides)
     return SimpleNamespace(**values)

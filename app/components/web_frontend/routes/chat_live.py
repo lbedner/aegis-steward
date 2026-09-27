@@ -22,13 +22,14 @@ from app.components.web_frontend.rendering import templates
 from app.components.web_frontend.routes.chat import SECTION, SURFACE, owned
 from app.core.chat_transcript import readable
 from app.core.config import settings
+from app.core.db import get_async_session
 from app.core.log import logger
 from app.services.ai import usage_recording
+from app.services.ai.domains.voice import live_engines, realtime_calls
 from app.services.ai.domains.voice.spoken import to_spoken
-from app.services.finance.domains.detection.analyst.prompts import (
-    FINANCE_LIVE_INSTRUCTIONS,
-    LIVE_SIGN_OFF,
-)
+from app.services.ai.models import AIProvider
+from app.services.ai.models.live_engine import LiveEngine
+from app.services.finance.domains.detection.analyst.prompts import LIVE_SIGN_OFF
 from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_VOICE_AGENT_SLUG,
     STANDALONE_USER_ID,
@@ -43,7 +44,6 @@ SESSIONS = LIVE + "/sessions"
 DELEGATIONS = LIVE + "/delegations"
 USAGE = LIVE + "/usage"
 
-LIVE_MODEL = "gpt-live-1"
 LIVE_FALLBACK_VOICE = "marin"
 # A delegation's result is spoken as commentary, capped at 500 tokens.
 LIVE_ANSWER_CHARS = 1_500
@@ -127,11 +127,27 @@ async def _history(conversation_id: str | None) -> list[dict[str, Any]]:
 
 @router.post(SESSIONS, include_in_schema=False)
 async def open_session(offer: Offer) -> Response:
-    """The browser's offer, answered by a gpt-live-1 session that hands
-    real work back to the client."""
+    """The browser's offer, answered by the engine her voice profile names
+    (#273): GPT-Live handing real work back to the page, or a realtime
+    model running her own agent. The answer says which, so the page
+    speaks that engine's events."""
+    # Its own short session: this one is BEGIN IMMEDIATE, and the call's
+    # ledger row is written in another before the answer goes back.
+    async with get_async_session() as db:
+        engine = await live_engines.resolve(db, settings.VOICE_LIVE_ENGINE)
+        # What the call bar shows: the engine, and its rate when it bills
+        # by the second; a token-billed engine is priced after the call.
+        info = engine and {
+            "label": engine.llm.title,
+            "per_second": await live_engines.per_second(db, engine),
+        }
+    if engine is None:
+        return Response(status_code=503)
+    if engine.transport == "realtime":
+        return await _open_realtime(offer, engine, info)
     session = {
-        "model": LIVE_MODEL,
-        "instructions": FINANCE_LIVE_INSTRUCTIONS,
+        "model": engine.llm.model_id,
+        "instructions": engine.instructions or "",
         "audio": {"output": {"voice": settings.TTS_VOICE or LIVE_FALLBACK_VOICE}},
         "delegation": {"type": "client"},
         "input": await _history(offer.conversation_id),
@@ -146,11 +162,58 @@ async def open_session(offer: Offer) -> Response:
     # Its ledger row opens with it (#270): every live minute is metered.
     await usage_recording.open_live_call(
         opened.session.id,
-        model=LIVE_MODEL,
+        model=engine.llm.model_id,
         conversation_id=offer.conversation_id,
         user_id=STANDALONE_USER_ID,
     )
-    return JSONResponse({"sdp": opened.transport.sdp, "session_id": opened.session.id})
+    return JSONResponse(
+        {
+            "sdp": opened.transport.sdp,
+            "session_id": opened.session.id,
+            "transport": "gpt_live",
+            "engine": info,
+        }
+    )
+
+
+async def _open_realtime(
+    offer: Offer, engine: LiveEngine, info: dict[str, Any] | None
+) -> Response:
+    """Her voice agent as the realtime model's brain. Its turns are saved
+    into a conversation, so a call without one starts one."""
+    model = live_engines.realtime_model(engine)
+    conversation = (
+        await owned(offer.conversation_id)
+        if offer.conversation_id
+        else await ai_service.conversation_manager.create_conversation(
+            provider=AIProvider.OPENAI,
+            model=model,
+            user_id=STANDALONE_USER_ID,
+            surface=SURFACE,
+        )
+    )
+    try:
+        sdp = await realtime_calls.open_call(
+            offer.sdp,
+            conversation=conversation,
+            model=model,
+            agent_slug=FINANCE_VOICE_AGENT_SLUG,
+            user_id=STANDALONE_USER_ID,
+            voice=settings.TTS_VOICE,
+            instructions=engine.instructions,
+            max_output_tokens=engine.max_output_tokens,
+        )
+    except Exception:
+        logger.exception("Opening a realtime call failed")
+        return Response(status_code=502)
+    return JSONResponse(
+        {
+            "sdp": sdp,
+            "transport": "realtime",
+            "conversation_id": conversation.id,
+            "engine": info,
+        }
+    )
 
 
 @router.post(USAGE, include_in_schema=False)

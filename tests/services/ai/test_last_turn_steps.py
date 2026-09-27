@@ -79,7 +79,8 @@ class TestTheStepsLine:
             "tool": "run_code",
             "code": "a = await transactions()",
             "result": "{'id': 1} " * 400,
-            "nested": [{"tool": "transactions", "args": "{" + '"x": 1, ' * 60 + "}"}] * 3,
+            "nested": [{"tool": "transactions", "args": "{" + '"x": 1, ' * 60 + "}"}]
+            * 3,
         }
         propose = {
             "tool": "propose_many",

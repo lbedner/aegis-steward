@@ -88,13 +88,13 @@ def _get_vendors_help() -> str:
 @app.command(help=lazy_t("llm.help_sync"))
 def sync(
     mode: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--mode",
             "-m",
             help=lazy_t("llm.opt_mode"),
         ),
-    ] = "chat",
+    ] = None,
     source: Annotated[
         str,
         typer.Option(
@@ -132,11 +132,9 @@ def sync(
     if source == "ollama":
         status_msg = f"[bold {theme.ACCENT}]{t('llm.syncing_ollama')}..."
     elif source == "all":
-        status_msg = (
-            f"[bold {theme.ACCENT}]{t('llm.syncing_catalog_all', mode=mode)}..."
-        )
+        status_msg = f"[bold {theme.ACCENT}]{t('llm.syncing_catalog_all', mode=mode or 'chat+voice')}..."
     else:
-        status_msg = f"[bold {theme.ACCENT}]{t('llm.syncing_catalog', mode=mode)}..."
+        status_msg = f"[bold {theme.ACCENT}]{t('llm.syncing_catalog', mode=mode or 'chat+voice')}..."
 
     with (
         suppress_logs(),

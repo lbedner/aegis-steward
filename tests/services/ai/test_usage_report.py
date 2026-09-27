@@ -113,3 +113,27 @@ class TestTheReport:
         # The two answers during the call, not the typed turn a day later.
         assert call["answers_cost"] == pytest.approx(0.07)
         assert call["total"] == pytest.approx(0.57)
+
+    @pytest.mark.asyncio
+    async def test_a_realtime_call_is_a_live_call_too(
+        self, ledger: AsyncSession
+    ) -> None:
+        ledger.add(
+            _row(
+                action="realtime",
+                model_id="gpt-realtime-2.1",
+                conversation_id="c-2",
+                audio_seconds=120,
+                total_cost=0.17,
+                input_tokens=30_000,
+                timestamp=NOW,
+            )
+        )
+        await ledger.commit()
+        report = await usage_report(ledger, days=30, now=NOW + timedelta(days=1))
+        kinds = {k["key"]: k for k in report["kinds"]}
+        assert kinds["live"]["cost"] == pytest.approx(0.50 + 0.17)
+        assert {c["model"] for c in report["calls"]} == {
+            "gpt-live-1",
+            "gpt-realtime-2.1",
+        }

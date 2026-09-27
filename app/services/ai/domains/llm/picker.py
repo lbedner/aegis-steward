@@ -97,8 +97,10 @@ def format_price(
     output_price: float | None,
     *,
     local: bool = False,
+    per_minute: float | None = None,
 ) -> str:
-    """Per-million-token pricing as ``$in / $out``.
+    """Per-million-token pricing as ``$in / $out``; a model billed by the
+    minute (a live call) as ``$0.05/min``, its token rates being zero.
 
     A cloud model with no pricing on file renders blank - we do not know
     what it costs, and inventing a figure is worse than admitting it. A
@@ -106,6 +108,8 @@ def format_price(
     was the answer, and running it costs nothing. Saying so beats
     leaving the one free option looking like the one we failed to price.
     """
+    if per_minute:
+        return f"{_usd(per_minute)}/min"
     if input_price is None and output_price is None:
         return FREE if local else ""
     if output_price is None:

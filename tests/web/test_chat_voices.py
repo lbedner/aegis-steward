@@ -206,13 +206,19 @@ class TestEditing:
         await async_db_session.refresh(voices["marin"])
         assert voices["marin"].tts_speed == 1.35
 
-    def test_the_live_dead_air_limit_is_saved_and_applied(
+    def test_the_form_holds_the_live_dead_air_limit(
         self, hx: TestClient, voices: dict[str, VoiceProfile]
     ) -> None:
         form = one(
             hx.get(f"{VOICES}/{voices['marin'].id}/edit").text, "form[data-voice-form]"
         )
-        assert [i.get("value") for i in form.cssselect("input[name=live_idle_seconds]")] == ["30"]
+        assert [
+            i.get("value") for i in form.cssselect("input[name=live_idle_seconds]")
+        ] == ["30"]
+
+    def test_the_live_dead_air_limit_is_saved_and_applied(
+        self, hx: TestClient, voices: dict[str, VoiceProfile]
+    ) -> None:
         response = hx.post(
             f"{VOICES}/{voices['marin'].id}",
             data=_form(voices["marin"], live_idle_seconds="0"),
@@ -229,6 +235,26 @@ class TestEditing:
             data=_form(voices["nova"], tts_voice="coral"),
         )
         assert settings.TTS_VOICE == before
+
+    async def test_the_live_engine_is_picked_with_her_models_not_here(
+        self,
+        hx: TestClient,
+        voices: dict[str, VoiceProfile],
+        async_db_session: AsyncSession,
+    ) -> None:
+        """One place picks what a call runs on (the Models dialog); the
+        voice form neither offers it nor loses it on a save."""
+        marin = voices["marin"]
+        form = one(hx.get(f"{VOICES}/{marin.id}/edit").text, "form[data-voice-form]")
+        assert form.cssselect("select[name=live_engine]") == []
+        marin.live_engine = "gpt-realtime-2.1"
+        async_db_session.add(marin)
+        await async_db_session.commit()
+
+        hx.post(f"{VOICES}/{marin.id}", data=_form(marin, tts_voice="coral"))
+
+        await async_db_session.refresh(marin)
+        assert marin.live_engine == "gpt-realtime-2.1"
 
     @pytest.mark.parametrize(
         "change",

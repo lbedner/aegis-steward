@@ -33,6 +33,9 @@ class LLMListResult(BaseModel):
     input_price: float | None
     output_price: float | None
     released_on: str | None
+    # USD a minute, for a model billed by time (a live call); None when
+    # it bills by the token.
+    per_minute: float | None = None
     # WHO MADE IT: the publishing org, resolved at sync time. None for a
     # model the registry does not know - unmarked beats mislabelled.
     lab: str | None = None
@@ -61,6 +64,7 @@ async def list_models(
     modality: str | None = None,
     limit: int = 50,
     include_disabled: bool = False,
+    mode: str = "chat",
 ) -> list[LLMListResult]:
     """List LLM models from catalog with optional filtering.
 
@@ -74,6 +78,7 @@ async def list_models(
         modality: Filter by modality (text, vision, audio, etc.)
         limit: Maximum number of results to return
         include_disabled: Include disabled models in results
+        mode: The kind of model ("chat", "realtime", ...)
 
     Returns:
         List of LLMListResult with model summary data
@@ -89,6 +94,7 @@ async def list_models(
             modality=modality,
             include_disabled=include_disabled,
             limit=None if vendors else limit,
+            mode=mode,
         )
         if vendors:
             models = _capped_per_vendor(models, limit)
@@ -124,6 +130,9 @@ def _list_result(model: LargeLanguageModel, price: LLMPrice | None) -> LLMListRe
         context_window=model.context_window,
         input_price=price.input_cost_per_token * 1_000_000 if price else None,
         output_price=price.output_cost_per_token * 1_000_000 if price else None,
+        per_minute=price.input_cost_per_second * 60
+        if price and price.input_cost_per_second
+        else None,
         lab=model.made_by.name if model.made_by else None,
         lab_icon_b64=model.made_by.icon_b64 if model.made_by else None,
         released_on=model.released_on.strftime("%Y-%m-%d")

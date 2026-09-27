@@ -205,39 +205,77 @@ async def record_usage(
 
 
 # --- voice (#270) ------------------------------------------------------------
-# Voice bills by the second (a live call, a transcription) or by the
-# character (speech), not by the token, and the catalog prices tokens
-# only. So these rates live here, the one table every voice cost reads,
-# until the voice catalog (#267) holds them. USD per unit, OpenAI's list
-# prices (2026-09).
-# ponytail: gpt-4o-mini-tts bills text and audio tokens; its per-character
-# rate is OpenAI's ~$0.015 a minute at ~900 characters a minute.
-RATES: dict[str, tuple[str, float]] = {
-    "gpt-live-1": ("second", 0.05 / 60),
-    "gpt-transcribe": ("second", 0.0045 / 60),
-    "gpt-4o-transcribe": ("second", 0.006 / 60),
-    "gpt-4o-mini-transcribe": ("second", 0.003 / 60),
-    "whisper-1": ("second", 0.006 / 60),
-    "tts-1": ("character", 15 / 1_000_000),
-    "tts-1-hd": ("character", 30 / 1_000_000),
-    "gpt-4o-mini-tts": ("character", 0.015 / 900),
-}
+# Voice bills by the second (a live call, a transcription), by the
+# character or second of speech, or by audio tokens (a realtime call).
+# Every rate is the catalog's (``llm_price``, synced with the model), so
+# a voice cost is priced exactly where a chat turn's is.
 
 
-def rated_cost(
-    model: str, *, seconds: float | None = None, characters: int | None = None
+def _measured_cost(
+    price: LLMPrice | None,
+    *,
+    input_seconds: float | None = None,
+    output_seconds: float | None = None,
+    characters: int | None = None,
 ) -> float:
-    """What a voice call cost: its measure times its model's rate. A dated
-    build ("gpt-4o-mini-tts-2025-03-20") prices as its model; an unknown
-    model, or nothing measured, is 0."""
-    rate = RATES.get(model) or next(
-        (RATES[name] for name in RATES if model.startswith(f"{name}-")), None
-    )
-    if rate is None:
+    """Each measure times the rate the model lists for it. A model lists
+    only the measures it bills by, so the others add nothing."""
+    if price is None:
         return 0.0
-    unit, price = rate
-    measured = seconds if unit == "second" else characters
-    return (measured or 0) * price
+    return (
+        (input_seconds or 0) * (price.input_cost_per_second or 0)
+        + (output_seconds or 0) * (price.output_cost_per_second or 0)
+        + (characters or 0) * (price.input_cost_per_character or 0)
+    )
+
+
+async def speech_cost(
+    model: str,
+    *,
+    input_seconds: float | None = None,
+    output_seconds: float | None = None,
+    characters: int | None = None,
+) -> float:
+    """What a transcription or a spoken reply cost; 0 for a model the
+    catalog does not price."""
+    try:
+        async with get_async_session() as session:
+            price = await _latest_price(session, _bare_model_name(model))
+    except Exception as e:
+        logger.warning("Failed to price speech", error=str(e), model=model)
+        return 0.0
+    return _measured_cost(
+        price,
+        input_seconds=input_seconds,
+        output_seconds=output_seconds,
+        characters=characters,
+    )
+
+
+def _realtime_cost(price: LLMPrice | None, usage: Any) -> float:
+    """A realtime call's tokens at the catalog's text, audio and cached
+    rates. The totals include the audio and the cached share, so each is
+    taken out and priced at its own rate."""
+    if price is None:
+        return 0.0
+
+    def count(name: str) -> int:
+        value = getattr(usage, name, 0)
+        return value if isinstance(value, int) else 0
+
+    audio_in, audio_out = count("input_audio_tokens"), count("output_audio_tokens")
+    cached, cached_audio = count("cache_read_tokens"), count("cache_audio_read_tokens")
+    text_in = max(0, count("input_tokens") - audio_in - (cached - cached_audio))
+    text_out = max(0, count("output_tokens") - audio_out)
+    input_rate = price.input_cost_per_token
+    return (
+        text_in * input_rate
+        + max(0, audio_in - cached_audio)
+        * (price.input_cost_per_audio_token or input_rate)
+        + cached * (price.cache_input_cost_per_token or input_rate)
+        + text_out * price.output_cost_per_token
+        + audio_out * (price.output_cost_per_audio_token or price.output_cost_per_token)
+    )
 
 
 async def record_speech(
@@ -324,7 +362,9 @@ async def live_call_seconds(
             return False
         billed = max(row.audio_seconds or 0.0, seconds)
         row.audio_seconds = billed
-        row.total_cost = rated_cost(row.model_id, seconds=billed)
+        row.total_cost = _measured_cost(
+            await _latest_price(session, row.model_id), input_seconds=billed
+        )
         row.duration_ms = billed * 1000
         if reason is not None:
             row.success = reason in _CLEAN_ENDINGS
@@ -332,3 +372,37 @@ async def live_call_seconds(
         session.add(row)
     return True
 
+
+REALTIME_ACTION = "realtime"
+
+
+async def record_realtime(
+    model: str,
+    usage: Any,
+    *,
+    seconds: float,
+    conversation_id: str | None,
+    user_id: str | None = None,
+) -> None:
+    """A Pydantic AI realtime call's row (#273): its tokens, priced at the
+    catalog's rates like every other model call."""
+    try:
+        async with get_async_session() as session:
+            price = await _latest_price(session, _bare_model_name(model))
+            session.add(
+                LLMUsage(
+                    action=REALTIME_ACTION,
+                    model_id=model,
+                    user_id=user_id,
+                    timestamp=datetime.now(UTC),
+                    input_tokens=usage.input_tokens or 0,
+                    output_tokens=usage.output_tokens or 0,
+                    total_cost=_realtime_cost(price, usage),
+                    audio_seconds=seconds,
+                    duration_ms=seconds * 1000,
+                    tool_calls=getattr(usage, "tool_calls", None),
+                    conversation_id=conversation_id,
+                )
+            )
+    except Exception as e:
+        logger.error("Failed to record a realtime call's usage", error=str(e))

@@ -156,6 +156,8 @@ class LLMCatalogContext:
         stmt = (
             select(LargeLanguageModel)
             .where(LargeLanguageModel.served_by_org_id.in_(vendor_ids))
+            # Her own picture of what she could chat on, not speak with.
+            .where(LargeLanguageModel.mode == "chat")
             .options(
                 selectinload(LargeLanguageModel.llm_prices),
                 selectinload(LargeLanguageModel.deployments),

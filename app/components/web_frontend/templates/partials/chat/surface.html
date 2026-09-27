@@ -2,10 +2,10 @@
    Chat page includes it and the Illiana drawer loads it; there is one
    instance on a page at a time (the drawer empties when the Chat page
    shows), so the ids the script and the composer target stay unique.
-   Needs: assistant, stream_url, turn_defaults, chip, messages,
+   Needs: assistant, stream_url, turn_defaults, messages,
    conversation_id, path (the chat section's). #}
 {% from "components/macros/form.html" import button_classes, control %}
-{% from "components/macros/chat.html" import model_chip, conversation_field, voice_states %}
+{% from "components/macros/chat.html" import conversation_field, voice_states %}
 <div id="chat" class="flex flex-col h-full"
      data-chat='{{ {"stream": stream_url, "defaults": turn_defaults, "path": path}|tojson }}'>
   <div class="relative flex-1 min-h-0">
@@ -45,19 +45,22 @@
       <span data-state="denied">The microphone is blocked. Allow it for this site, or type instead.</span>
       <span data-state="unsupported">This browser can't record here. You can type instead.</span>
       <span data-state="working">She's pulling that up...</span>
-      <span data-state="live">Talking live - just speak. Press the phone again to hang up.</span>
+      <span data-state="live">Talking live - just speak.</span>
+      <span data-state="muted">Muted - she can't hear you. Press the mic to talk again.</span>
       <span data-state="offline">Couldn't reach the app. You can type instead.</span>
     </span>
   </template>
   <template id="chat-image"><img src="" alt="" width="800" height="600" class="max-h-[75vh] h-auto w-auto max-w-full mx-auto rounded"></template>
   <p id="chat-mic-status" class="shrink-0 pt-2 text-xs text-aegis-muted empty:hidden" aria-live="polite"></p>
-  <form id="chat-composer" class="shrink-0 border-t border-aegis-border pt-3 flex items-end gap-2"
+  <form id="chat-composer" class="shrink-0 border-t border-aegis-border pt-3 flex flex-wrap items-end gap-2"
         hx-post="{{ path }}/turns" hx-target="#chat-thread" hx-swap="beforeend"
         x-data="{ text: '', staged: 0 }" @chat-staged.window="staged = $event.detail"
         @htmx:after-request="if ($event.detail.successful) { text = ''; $refs.input.style.height = 'auto' }">
     {{ conversation_field(conversation_id) }}
-    <div class="shrink-0 pb-2 flex flex-col items-start gap-1">
-      {{ model_chip(chip, path ~ "/models") }}
+    {# The chips are a row of their own above the box: beside it, in the
+       drawer, they took the width the message needs. #}
+    <div class="w-full flex flex-wrap items-center gap-x-4 gap-y-1" data-composer-chips>
+      <span id="chat-model" {{ hx_load(path ~ "/models/chip") }}></span>
       <span id="chat-voice" {{ hx_load(path ~ "/voices/chip") }}></span>
     </div>
     {# Not ``required``: a message may be images alone (the route sends the
@@ -93,4 +96,27 @@
     <button type="button" id="chat-stop" hidden class="{{ button_classes('default') }}" aria-label="Stop">Stop</button>
     <button type="submit" id="chat-send" class="{{ button_classes() }}" aria-label="Send" :disabled="!text.trim() && !staged">Send</button>
   </form>
+  {# In a call (issue 273) the composer row gives way to this: what she is
+     doing (voice_states), the engine, a timer and the running cost, mute
+     on the same mic, and hang up. voice.js swaps the two and fills the
+     figures; everything drawn is here. #}
+  <div id="chat-call" hidden data-state="idle"
+       class="group shrink-0 border-t border-aegis-border pt-3 flex items-center gap-3">
+    <span class="relative w-9 h-9 rounded-full bg-aegis-teal/10 text-aegis-teal flex items-center justify-center">
+      {% call voice_states(record=True, work=True) %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/></svg>{% endcall %}
+    </span>
+    <span class="min-w-0 flex-1 text-sm text-aegis-text tabular-nums">
+      Live · <span data-call-engine></span> · <span data-call-timer>0:00</span>
+      <span class="text-aegis-muted"> · <span data-call-cost></span><span data-call-cost-later hidden>priced after the call</span></span>
+    </span>
+    <button type="button" id="chat-mute" aria-pressed="false" aria-label="Mute" title="Mute"
+            class="group/mute {{ button_classes('default') }} aria-pressed:text-error aria-pressed:border-error">
+      <span class="group-aria-pressed/mute:hidden"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg></span>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="hidden group-aria-pressed/mute:block w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3zM3 3l18 18"/></svg>
+    </button>
+    <button type="button" id="chat-hang-up" aria-label="Hang up" title="Hang up"
+            class="{{ button_classes('default') }} text-error border-error hover:bg-error/10">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 rotate-[135deg]" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/></svg>
+    </button>
+  </div>
 </div>

@@ -23,6 +23,9 @@ from app.components.web_frontend.routes.chat_live import (
     SESSIONS,
 )
 from app.services.ai.models import StreamingMessage
+from app.services.finance.domains.detection.analyst.live_engines import (
+    REALTIME_REPLY_CAP,
+)
 from app.services.finance.domains.detection.analyst.prompts import (
     FINANCE_LIVE_INSTRUCTIONS,
 )
@@ -30,6 +33,11 @@ from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_VOICE_AGENT_SLUG,
     STANDALONE_USER_ID,
 )
+from tests._voice_catalog import VOICE_MODELS
+
+pytestmark = pytest.mark.usefixtures("live_engine_rows")
+# An engine is named by its catalog model.
+TITLES = {m["model_id"]: m["title"] for m in VOICE_MODELS}
 
 SECRET = "secret internal detail"
 
@@ -73,7 +81,15 @@ class TestOpeningASession:
         response = client.post(SESSIONS, json={"sdp": "v=0 offer"})
 
         assert response.status_code == 200
-        assert response.json() == {"sdp": "v=0 answer", "session_id": live.session_id}
+        assert response.json() == {
+            "sdp": "v=0 answer",
+            "session_id": live.session_id,
+            "transport": "gpt_live",
+            "engine": {
+                "label": TITLES["gpt-live-1"],
+                "per_second": pytest.approx(0.05 / 60),
+            },
+        }
         call = live.calls[0]
         assert call["transport"] == {"type": "webrtc", "sdp": "v=0 offer"}
         session = call["session"]
@@ -330,3 +346,126 @@ class TestTheMeter:
 
         button = one(client.get("/chat").text, "button#chat-live")
         assert button.get("data-usage") == chat_live.USAGE
+
+
+class TestTheEngine:
+    """The phone dials whichever engine her voice profile names (#273)."""
+
+    @pytest.fixture
+    def realtime(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        from app.core.config import settings
+        from app.services.ai.domains.voice import realtime_calls
+
+        calls: list[dict[str, Any]] = []
+
+        async def _open(sdp: str, **kwargs: Any) -> str:
+            calls.append({"sdp": sdp, **kwargs})
+            return "v=0 realtime answer"
+
+        monkeypatch.setattr(settings, "VOICE_LIVE_ENGINE", "gpt-realtime-2.1")
+        monkeypatch.setattr(realtime_calls, "open_call", _open)
+        return calls
+
+    def test_a_realtime_engine_runs_her_own_agent(
+        self,
+        client: TestClient,
+        realtime: list[dict[str, Any]],
+        stored: tuple[str, str],
+    ) -> None:
+        conversation_id, _ = stored
+        response = client.post(
+            SESSIONS, json={"sdp": "v=0 offer", "conversation_id": conversation_id}
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "sdp": "v=0 realtime answer",
+            "transport": "realtime",
+            "conversation_id": conversation_id,
+            "engine": {"label": TITLES["gpt-realtime-2.1"], "per_second": None},
+        }
+        (call,) = realtime
+        assert call["model"] == "openai:gpt-realtime-2.1"
+        # Her engine's call manners lead her prompt; a reply is capped.
+        assert "LIVE" in call["instructions"]
+        assert call["max_output_tokens"] == REALTIME_REPLY_CAP
+        assert call["agent_slug"] == FINANCE_VOICE_AGENT_SLUG
+        assert call["conversation"].id == conversation_id
+
+    def test_without_a_conversation_it_starts_one(
+        self, client: TestClient, realtime: list[dict[str, Any]]
+    ) -> None:
+        body = client.post(SESSIONS, json={"sdp": "v=0 offer"}).json()
+        assert body["conversation_id"]
+        assert realtime[0]["conversation"].id == body["conversation_id"]
+
+    def test_a_refused_realtime_call_is_a_502(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+        stored: tuple[str, str],
+    ) -> None:
+        from app.core.config import settings
+        from app.services.ai.domains.voice import realtime_calls
+
+        async def _refused(sdp: str, **kwargs: Any) -> str:
+            raise RuntimeError(SECRET)
+
+        monkeypatch.setattr(settings, "VOICE_LIVE_ENGINE", "gpt-realtime-2.1")
+        monkeypatch.setattr(realtime_calls, "open_call", _refused)
+        conversation_id, _ = stored
+        response = client.post(
+            SESSIONS, json={"sdp": "v=0 offer", "conversation_id": conversation_id}
+        )
+        assert response.status_code == 502
+        assert SECRET not in response.text
+
+
+class TestTheCallBar:
+    """In a call, the composer row becomes a call bar (#273): what she is
+    doing, the engine, a timer and the running cost, mute on the same mic,
+    and hang up."""
+
+    def test_the_bar_waits_hidden_in_the_page(self, client: TestClient) -> None:
+        from tests.web.dom import one
+
+        page = client.get("/chat").text
+        bar = one(page, "#chat-call")
+        assert bar.get("hidden") is not None
+        mute = one(page, "#chat-call button#chat-mute")
+        assert mute.get("aria-pressed") == "false"
+        one(page, "#chat-call button#chat-hang-up")
+        one(page, "#chat-call [data-call-timer]")
+        one(page, "#chat-call [data-call-cost]")
+        one(page, "#chat-call [data-call-engine]")
+        one(page, "template#chat-mic-states [data-state=muted]")
+
+    def test_gpt_live_says_its_rate(self, client: TestClient, live: _Live) -> None:
+        body = client.post(SESSIONS, json={"sdp": "v=0 offer"}).json()
+        assert body["engine"] == {
+            "label": TITLES["gpt-live-1"],
+            "per_second": pytest.approx(0.05 / 60),
+        }
+
+    def test_a_realtime_engine_is_priced_after_the_call(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+        stored: tuple[str, str],
+    ) -> None:
+        from app.core.config import settings
+        from app.services.ai.domains.voice import realtime_calls
+
+        async def _open(sdp: str, **kwargs: Any) -> str:
+            return "v=0 realtime answer"
+
+        monkeypatch.setattr(settings, "VOICE_LIVE_ENGINE", "gpt-realtime-2.1")
+        monkeypatch.setattr(realtime_calls, "open_call", _open)
+        conversation_id, _ = stored
+        body = client.post(
+            SESSIONS, json={"sdp": "v=0 offer", "conversation_id": conversation_id}
+        ).json()
+        assert body["engine"] == {
+            "label": TITLES["gpt-realtime-2.1"],
+            "per_second": None,
+        }

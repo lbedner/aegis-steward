@@ -25,6 +25,7 @@ from app.services.ai.domains.llm.etl.vendor_metadata import (
 )
 from app.services.ai.models.llm import (
     ROLE_SERVER,
+    VOICE_PRICE_FIELDS,
     Direction,
     LargeLanguageModel,
     LLMDeployment,
@@ -134,6 +135,7 @@ class UpsertMixin:
                     self._update_if_changed(existing, "family", data.family),
                     self._update_if_changed(existing, "served_by_org_id", vendor.id),
                     self._update_if_changed(existing, "released_on", data.created_at),
+                    self._update_if_changed(existing, "mode", data.mode),
                 ]
             )
 
@@ -156,6 +158,7 @@ class UpsertMixin:
                 family=data.family,
                 served_by_org_id=vendor.id,
                 released_on=data.created_at,
+                mode=data.mode,
             )
 
             if not dry_run:
@@ -264,6 +267,12 @@ class UpsertMixin:
                         "cache_input_cost_per_token",
                         data.cache_read_cost_per_token,
                     ),
+                    *(
+                        self._update_if_changed(
+                            existing, name, data.voice_prices.get(name)
+                        )
+                        for name in VOICE_PRICE_FIELDS
+                    ),
                 ]
             )
 
@@ -282,6 +291,7 @@ class UpsertMixin:
                 output_cost_per_token=data.output_cost_per_token,
                 cache_input_cost_per_token=data.cache_read_cost_per_token,
                 effective_date=datetime.now(UTC),
+                **data.voice_prices,
             )
 
             if not dry_run:
