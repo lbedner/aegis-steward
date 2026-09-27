@@ -136,6 +136,10 @@ async def project_balances(
         if a.classification != "liability" and a.account_type in CASH_ACCOUNT_TYPES
     ]
     cash_ids = {a.id for a in cash}
+    # The budget and goals are the household's plans: they draw only from
+    # a walk holding household cash. Narrowed to Dad's account alone, his
+    # money was charged the household's groceries (#276).
+    ours = any(a.subject_id is None for a in cash)
     totals = await accounts.account_transaction_totals(
         db, owner_user_id=owner_user_id, account_ids=[a.id for a in cash]
     )
@@ -223,13 +227,6 @@ async def project_balances(
         ],
         has_payment=bool(projected_payments),
     )
-    budget_points = await budget_drawdowns(
-        db,
-        owner_user_id=owner_user_id,
-        today=today,
-        horizon=horizon,
-        skip_categories=billed_categories,
-    )
 
     charges.sort(key=lambda item: (item[0], item[1].name.casefold()))
 
@@ -256,14 +253,23 @@ async def project_balances(
         )
         for when, stream, amount, due in charges
     ]
-    walk.extend(budget_points)
-    # Active goals drain the walk too - committing to a dream visibly
-    # costs the chart.
-    walk.extend(
-        await goal_drawdowns(
-            db, owner_user_id=owner_user_id, today=today, horizon=horizon
+    # The household's budget lines and active goals drain the walk too -
+    # committing to a dream visibly costs the chart.
+    if ours:
+        walk.extend(
+            await budget_drawdowns(
+                db,
+                owner_user_id=owner_user_id,
+                today=today,
+                horizon=horizon,
+                skip_categories=billed_categories,
+            )
         )
-    )
+        walk.extend(
+            await goal_drawdowns(
+                db, owner_user_id=owner_user_id, today=today, horizon=horizon
+            )
+        )
     walk.sort(key=lambda item: (item[0], item[1].casefold()))
 
     balance = start_balance
