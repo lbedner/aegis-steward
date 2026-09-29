@@ -121,7 +121,13 @@ from tests._sqlite import IMPATIENT_BUSY_TIMEOUT_MS, shape_like_production
 # Add project root to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.core.model_registry import import_all_models
 from app.integrations.main import create_integrated_app
+
+# Every table the app defines, registered before any test database is
+# built: the imports above name only some, so a table reached lazily
+# (the live engines) was missing from a file run on its own.
+import_all_models()
 
 
 # Swap the module-level ``cache`` singleton to the in-memory dict
@@ -469,6 +475,49 @@ async def csv_profiles(async_db_session: AsyncSession) -> None:
     for profile in CSV_IMPORT_PROFILES:
         async_db_session.add(FinanceImportProfile(is_system=True, **profile))
     await async_db_session.flush()
+
+
+@pytest.fixture
+async def live_engine_rows(async_db_session: AsyncSession) -> AsyncGenerator[None]:
+    """Her live engines and the catalog models they run on, seeded as a
+    fresh install has them: into the request's session and into the one
+    app code opens itself (``get_async_session``), which the phone and
+    the usage ledger read.
+
+    That second database lives for the whole run, so what is seeded there
+    is removed after the test: a catalog left behind made every later
+    chat turn build her catalog briefing in full, and queryspy flagged it
+    in whichever test ran next (CI on #283)."""
+    from app.core.db import get_async_session
+    from app.services.ai.domains.voice import live_engines
+    from app.services.finance.domains.detection.analyst.live_engines import (
+        ENGINE_SEEDS,
+    )
+    from tests._voice_catalog import seed_voice_catalog
+
+    await seed_voice_catalog(async_db_session)
+    await live_engines.seed_missing(async_db_session, ENGINE_SEEDS)
+    async with get_async_session() as session:
+        await seed_voice_catalog(session)
+        await live_engines.seed_missing(session, ENGINE_SEEDS)
+    yield
+    from sqlmodel import delete
+
+    from app.services.ai.models.live_engine import LiveEngine
+    from app.services.ai.models.llm import LLMOrgRole
+
+    async with get_async_session() as session:
+        # Children first: every row here hangs off a model or an org.
+        for table in (
+            LiveEngine,
+            LLMPrice,
+            LLMModality,
+            LLMDeployment,
+            LLMOrgRole,
+            LargeLanguageModel,
+            LLMOrg,
+        ):
+            await session.exec(delete(table))  # type: ignore[call-overload]
 
 
 @pytest.fixture(scope="function")

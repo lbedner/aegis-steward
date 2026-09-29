@@ -1,7 +1,7 @@
 """Hearing and speaking cost money too (#270).
 
 Every transcription and every spoken reply was recorded at $0 (a TODO in
-both services). Each is now priced from one rate table and written to
+both services). Each is now priced at the catalog's rates and written to
 the one usage ledger (``llm_usage``, action ``stt``/``tts``) beside the
 model calls and live minutes, and to its own telemetry row.
 """
@@ -21,37 +21,43 @@ from app.services.ai.domains.voice.tts import TTSService
 from app.services.ai.models.llm import LLMUsage
 from app.services.ai.models.voice_usage import STTUsage, TTSUsage
 from tests._session import opens
-
-
-class TestRates:
-    @pytest.mark.parametrize(
-        ("model", "measure", "cost"),
-        [
-            ("gpt-transcribe", {"seconds": 60}, 0.0045),
-            ("gpt-4o-mini-transcribe", {"seconds": 60}, 0.003),
-            ("gpt-live-1", {"seconds": 60}, 0.05),
-            ("tts-1", {"characters": 1_000_000}, 15.0),
-            # A dated build prices as its model.
-            ("gpt-4o-mini-tts-2025-03-20", {"characters": 900}, 0.015),
-            ("never-heard-of-it", {"seconds": 60}, 0.0),
-        ],
-    )
-    def test_a_measure_is_priced_by_its_model(
-        self, model: str, measure: dict[str, float], cost: float
-    ) -> None:
-        assert usage_recording.rated_cost(model, **measure) == pytest.approx(cost)
-
-    def test_nothing_measured_costs_nothing(self) -> None:
-        assert usage_recording.rated_cost("gpt-transcribe") == 0.0
+from tests._voice_catalog import seed_voice_catalog
 
 
 @pytest.fixture
-def ledger(
+async def ledger(
     async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncSession:
     monkeypatch.setattr(db_module, "get_async_session", opens(async_db_session))
     monkeypatch.setattr(usage_recording, "get_async_session", opens(async_db_session))
+    await seed_voice_catalog(async_db_session)
     return async_db_session
+
+
+class TestRates:
+    """Every rate is the catalog's: a model bills by the measures it lists."""
+
+    @pytest.mark.parametrize(
+        ("model", "measure", "cost"),
+        [
+            ("gpt-transcribe", {"input_seconds": 60}, 0.0045),
+            ("gpt-4o-mini-transcribe", {"input_seconds": 60}, 0.003),
+            ("tts-1", {"characters": 1_000_000}, 15.0),
+            # Billed by the second of speech, not the character.
+            ("gpt-4o-mini-tts", {"characters": 900, "output_seconds": 60}, 0.015),
+            ("never-heard-of-it", {"input_seconds": 60}, 0.0),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_measure_is_priced_by_its_model(
+        self, ledger: AsyncSession, model: str, measure: dict[str, float], cost: float
+    ) -> None:
+        priced = await usage_recording.speech_cost(model, **measure)  # type: ignore[arg-type]
+        assert priced == pytest.approx(cost)
+
+    @pytest.mark.asyncio
+    async def test_nothing_measured_costs_nothing(self, ledger: AsyncSession) -> None:
+        assert await usage_recording.speech_cost("gpt-transcribe") == 0.0
 
 
 def _settings(**values: object) -> MagicMock:

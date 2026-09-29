@@ -14,7 +14,7 @@ from typing import Any
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.llm import queries
-from app.services.ai.usage_recording import LIVE_ACTION
+from app.services.ai.usage_recording import LIVE_ACTION, REALTIME_ACTION
 
 KIND_LABELS = {
     "chat": "Chat and agents",
@@ -28,8 +28,15 @@ _CALL_GRACE = timedelta(minutes=2)
 _CALL_LIMIT = 50
 
 
+# Every way a live call is recorded: GPT-Live's metered row, and a
+# realtime engine's priced one (#273).
+CALL_ACTIONS = (LIVE_ACTION, REALTIME_ACTION)
+
+
 def kind_of(action: str) -> str:
-    return action if action in ("live", "stt", "tts") else "chat"
+    if action in CALL_ACTIONS:
+        return "live"
+    return action if action in ("stt", "tts") else "chat"
 
 
 async def usage_report(
@@ -66,12 +73,12 @@ async def usage_report(
         model["tokens"] += row.tokens
         model["cost"] += row.cost
 
-    calls = await queries.live_call_rows(session, since, LIVE_ACTION, _CALL_LIMIT)
+    calls = await queries.live_call_rows(session, since, CALL_ACTIONS, _CALL_LIMIT)
     turns = await queries.turns_in_conversations(
         session,
         {c.conversation_id for c in calls if c.conversation_id},
         since,
-        LIVE_ACTION,
+        CALL_ACTIONS,
     )
     call_rows = []
     for call in calls:

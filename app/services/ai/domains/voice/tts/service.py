@@ -324,9 +324,14 @@ class TTSService:
             # worse than silence.
             return
 
-        # Priced by the character from the one rate table, and written to
-        # the usage ledger beside every other model cost (#270).
-        cost = usage_recording.rated_cost(self.model, characters=input_characters)
+        # Priced at the catalog's rates (by the character, or by the
+        # second of speech), and written to the usage ledger beside every
+        # other model cost (#270).
+        cost = await usage_recording.speech_cost(
+            self.model,
+            characters=input_characters,
+            output_seconds=output_duration_seconds,
+        )
         try:
             async with get_async_session() as session:
                 usage = TTSUsage(

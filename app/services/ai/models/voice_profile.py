@@ -35,4 +35,6 @@ class VoiceProfile(SQLModel, table=True):
     working_sound: str = Field(default="typing")
     # A live call hangs up after this many seconds of dead air (0: never).
     live_idle_seconds: int = Field(default=30, ge=0, le=600)
+    # Which engine a live call runs on (``voice/live_engines.py``).
+    live_engine: str = Field(default="gpt-live", max_length=48)
     updated_at: datetime = Field(default_factory=utcnow)

@@ -10,6 +10,17 @@ if TYPE_CHECKING:
     from .llm_org import LLMOrg
 
 
+# The voice rates, by column name: the sync copies these from the source
+# and a voice cost reads them, so both walk this one list.
+VOICE_PRICE_FIELDS = (
+    "input_cost_per_audio_token",
+    "output_cost_per_audio_token",
+    "input_cost_per_second",
+    "output_cost_per_second",
+    "input_cost_per_character",
+)
+
+
 class LLMPrice(SQLModel, table=True):
     """
     Token pricing for an LLM model from a specific vendor.
@@ -26,6 +37,14 @@ class LLMPrice(SQLModel, table=True):
     input_cost_per_token: float = Field(ge=0)
     output_cost_per_token: float = Field(ge=0)
     cache_input_cost_per_token: float | None = Field(default=None, ge=0)
+    # Voice. A model bills by whichever measures it lists, and may list
+    # several (a realtime model: text AND audio tokens); None is "not
+    # billed this way", never zero. Named as the source catalog names them.
+    input_cost_per_audio_token: float | None = Field(default=None, ge=0)
+    output_cost_per_audio_token: float | None = Field(default=None, ge=0)
+    input_cost_per_second: float | None = Field(default=None, ge=0)
+    output_cost_per_second: float | None = Field(default=None, ge=0)
+    input_cost_per_character: float | None = Field(default=None, ge=0)
     effective_date: datetime = Field(
         default_factory=lambda: datetime.now(UTC), index=True
     )

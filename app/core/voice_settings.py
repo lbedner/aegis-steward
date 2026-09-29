@@ -46,3 +46,5 @@ class VoiceSettings(BaseSettings):
     # A live call hangs up after this many seconds of dead air (0: never):
     # GPT-Live bills by the minute, silence included.
     VOICE_LIVE_IDLE_SECONDS: int = Field(default=30, ge=0, le=600)
+    # The engine a live call runs on: a key in voice/live_engines.py.
+    VOICE_LIVE_ENGINE: str = "gpt-live"

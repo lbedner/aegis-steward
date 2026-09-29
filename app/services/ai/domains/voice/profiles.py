@@ -30,6 +30,7 @@ SETTINGS = {
     "reply": "VOICE_REPLY",
     "working_sound": "VOICE_WORKING_SOUND",
     "live_idle_seconds": "VOICE_LIVE_IDLE_SECONDS",
+    "live_engine": "VOICE_LIVE_ENGINE",
 }
 
 
@@ -56,7 +57,9 @@ IDLE_RANGE = (0, 600)
 
 
 def parse_form(form: Any) -> tuple[dict[str, Any], list[str]]:
-    """A profile's edit form as column values, and what is wrong with it."""
+    """A profile's edit form as column values, and what is wrong with it.
+    The live engine is not on the form: it is picked with her models
+    (``chat_models``)."""
     errors: list[str] = []
     name = str(form.get("name") or "").strip()
     if not name:

@@ -107,10 +107,13 @@ async def catalog_models(
     modality: str | None = None,
     include_disabled: bool = False,
     limit: int | None = None,
+    mode: str | None = "chat",
 ) -> list[LargeLanguageModel]:
     """Catalog rows newest-first with both orgs loaded.
 
     ``vendor`` is a substring match, ``vendors`` an exact whitelist.
+    ``mode`` is the kind of model (chat unless asked; None for every
+    kind), so a chat picker never offers a transcription model.
     ``limit`` caps the SQL result; a caller capping per vendor leaves it
     unset, since a global cap under newest-first ordering would let one
     vendor's fresh catalog starve the others.
@@ -140,6 +143,8 @@ async def catalog_models(
         ).where(LLMModality.modality == modality)
     if not include_disabled:
         stmt = stmt.where(LargeLanguageModel.enabled == True)  # noqa: E712
+    if mode is not None:
+        stmt = stmt.where(LargeLanguageModel.mode == mode)
     stmt = stmt.order_by(
         LargeLanguageModel.released_on.desc().nulls_last(),
         LargeLanguageModel.model_id,
@@ -406,12 +411,12 @@ async def usage_by_action_and_model(
 
 
 async def live_call_rows(
-    session: AsyncSession, since: datetime, action: str, limit: int
+    session: AsyncSession, since: datetime, actions: tuple[str, ...], limit: int
 ) -> list[LLMUsage]:
     """The live calls since ``since``, newest first."""
     stmt = (
         select(LLMUsage)
-        .where(LLMUsage.action == action, LLMUsage.timestamp >= since)
+        .where(LLMUsage.action.in_(actions), LLMUsage.timestamp >= since)
         .order_by(LLMUsage.timestamp.desc())
         .limit(limit)
     )
@@ -419,7 +424,10 @@ async def live_call_rows(
 
 
 async def turns_in_conversations(
-    session: AsyncSession, conversation_ids: set[str], since: datetime, action: str
+    session: AsyncSession,
+    conversation_ids: set[str],
+    since: datetime,
+    call_actions: tuple[str, ...],
 ) -> list[Any]:
     """(conversation_id, timestamp, cost) of every other ledger row in
     those conversations since ``since`` - one statement for all calls."""
@@ -430,6 +438,19 @@ async def turns_in_conversations(
     ).where(
         LLMUsage.conversation_id.in_(conversation_ids),
         LLMUsage.timestamp >= since,
-        LLMUsage.action != action,
+        LLMUsage.action.not_in(call_actions),
     )
     return list((await session.exec(stmt)).all())
+
+
+async def recent_model_ids(session: AsyncSession, limit: int) -> list[str]:
+    """The models most recently used, newest first, each once: from the
+    usage ledger, so chat turns and live calls alike."""
+    last = func.max(LLMUsage.timestamp)
+    rows = await session.exec(
+        select(LLMUsage.model_id)
+        .group_by(LLMUsage.model_id)
+        .order_by(last.desc())
+        .limit(limit)
+    )
+    return list(rows.all())

@@ -16,6 +16,8 @@ from app.services.ai import usage_recording
 from app.services.ai.models.llm import LLMUsage
 from tests._session import opens
 
+pytestmark = pytest.mark.usefixtures("live_engine_rows")
+
 
 @pytest.fixture(autouse=True)
 def _ledger_uses_test_session(

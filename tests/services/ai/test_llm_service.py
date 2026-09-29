@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import Engine
-from sqlmodel import Session
+from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.llm.llm_service import (
     get_current_config,
@@ -754,3 +755,39 @@ class TestGetModelInfo:
         assert details is not None
         assert details.input_price is None
         assert details.output_price is None
+
+
+class TestTheChatPickerIsChatOnly:
+    """The catalog holds voice models too (#273); a chat picker never
+    offers one, and a caller asking for every kind sees them all."""
+
+    @pytest.fixture
+    async def catalog(self, async_db_session: AsyncSession) -> AsyncSession:
+        from tests._voice_catalog import seed_voice_catalog
+
+        await seed_voice_catalog(async_db_session)
+        org = (await async_db_session.exec(select(LLMOrg))).one()
+        async_db_session.add(
+            LargeLanguageModel(
+                model_id="gpt-5.6-luna", title="Luna", served_by_org_id=org.id
+            )
+        )
+        await async_db_session.commit()
+        return async_db_session
+
+    @pytest.mark.asyncio
+    async def test_voice_models_stay_out_of_the_chat_list(
+        self, catalog: AsyncSession
+    ) -> None:
+        from app.services.ai.domains.llm import queries
+
+        chat = await queries.catalog_models(catalog)
+        assert [m.model_id for m in chat] == ["gpt-5.6-luna"]
+
+    @pytest.mark.asyncio
+    async def test_every_kind_when_asked(self, catalog: AsyncSession) -> None:
+        from app.services.ai.domains.llm import queries
+        from tests._voice_catalog import VOICE_MODELS
+
+        every = await queries.catalog_models(catalog, mode=None)
+        assert len(every) == 1 + len(VOICE_MODELS)

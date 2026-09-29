@@ -116,6 +116,7 @@ class ModelResponse(BaseModel):
     input_price: float | None
     output_price: float | None
     released_on: str | None
+    per_minute: float | None = None
 
 
 class CurrentConfigResponse(BaseModel):
@@ -269,6 +270,9 @@ async def get_models(
     usable: bool = Query(
         False, description="Only models this install can call (key configured)"
     ),
+    mode: str = Query(
+        "chat", description="Kind of model: chat, realtime, audio_transcription, ..."
+    ),
 ) -> list[ModelResponse]:
     """
     List/search LLM models from catalog.
@@ -288,6 +292,7 @@ async def get_models(
                 modality=modality,
                 limit=limit,
                 include_disabled=include_disabled,
+                mode=mode,
             )
         else:
             results = await list_models(
@@ -296,6 +301,7 @@ async def get_models(
                 modality=modality,
                 limit=limit,
                 include_disabled=include_disabled,
+                mode=mode,
             )
         return [
             ModelResponse(
@@ -308,6 +314,7 @@ async def get_models(
                 input_price=m.input_price,
                 output_price=m.output_price,
                 released_on=m.released_on,
+                per_minute=m.per_minute,
             )
             for m in results
         ]

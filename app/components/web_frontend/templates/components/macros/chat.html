@@ -204,14 +204,19 @@
 
 {# The composer's model chip: the active model's id, opening the picker.
    Re-rendered out of band by a pick. #}
-{% macro model_chip(chip, path, oob=False) %}
-<button type="button" id="chat-model" {% if oob %}hx-swap-oob="true"{% endif %} {{ hx_dialog(path) }}
-        title="Switch the active model" aria-label="Switch the active model"
+{# The composer's chips - model, voice, live engine - are one button: a
+   label that opens its dialog. ``mark`` names the attribute that says what
+   the chip shows (for scripts and tests), ``value`` its value if any. #}
+{% macro composer_chip(id, label, path, title, mark, value=None, oob=False) %}
+<button type="button" id="{{ id }}" {% if oob %}hx-swap-oob="true"{% endif %} {{ hx_dialog(path) }}
+        title="{{ title }}" aria-label="{{ title }}"
         class="inline-flex items-center gap-1 text-xs text-aegis-muted hover:text-aegis-text transition-colors whitespace-nowrap">
-  <span data-model="{{ chip.model }}">{{ chip.label }}</span>
+  <span {{ mark }}{% if value is not none %}="{{ value }}"{% endif %}>{{ label }}</span>
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
 </button>
 {% endmacro %}
+
+{% macro model_chip(chip, path, oob=False) %}{{ composer_chip("chat-model", chip.label, path, "Switch the active model", "data-model", chip.model, oob) }}{% endmacro %}
 
 {# One stored message as its bubble: the transcript and the settle swap
    draw messages through this, so the role switch has one home. #}
@@ -222,14 +227,7 @@
 {# The composer's voice chip: the active voice profile's name, opening the
    voice dialog (routes/chat_voices.py). Same place and weight as the model
    chip; it loads itself, and a switch sends it back out of band. #}
-{% macro voice_chip(active, path, oob=False) %}
-<button type="button" id="chat-voice" {% if oob %}hx-swap-oob="true"{% endif %} {{ hx_dialog(path) }}
-        title="Change her voice" aria-label="Change her voice"
-        class="inline-flex items-center gap-1 text-xs text-aegis-muted hover:text-aegis-text transition-colors whitespace-nowrap">
-  <span data-voice-name>{{ active.name if active else "Voice" }}</span>
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
-</button>
-{% endmacro %}
+{% macro voice_chip(active, path, oob=False) %}{{ composer_chip("chat-voice", active.name if active else "Voice", path, "Change her voice", "data-voice-name", oob=oob) }}{% endmacro %}
 
 {# The composer's conversation id: in the composer itself, and out of
    band when a load replaces the thread. #}

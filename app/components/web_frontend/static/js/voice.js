@@ -43,7 +43,12 @@
   const pressed = (on) => mic()?.setAttribute('aria-pressed', String(on));
   // What a voice control is doing: idle, recording, thinking, speaking. The
   // page draws each state (the voice_states macro); this only sets it.
-  const show = (control, state) => control?.setAttribute('data-state', state);
+  const show = (control, state) => {
+    control?.setAttribute('data-state', state);
+    // In a call the phone is out of sight; the call bar shows its state.
+    if (control?.id === 'chat-live') callBar()?.setAttribute('data-state', state);
+  };
+  const callBar = () => document.getElementById('chat-call');
   // The mic's state, with the status line that reads it out.
   const mood = (state) => {
     show(mic(), state);
@@ -323,21 +328,73 @@
   };
   const hangUp = () => {
     if (!call || call.closing) return;
-    try { call.channel.send(JSON.stringify({ type: 'session.close' })); } catch (_) {}
+    // Only GPT-Live has a close to ask for, and a final usage report to
+    // wait on; a realtime call just ends (its usage is the server's).
+    const live = call.transport === 'gpt_live';
+    if (live) try { call.channel.send(JSON.stringify({ type: 'session.close' })); } catch (_) {}
     for (const track of call.stream.getTracks()) track.stop();
     call.audio.srcObject = null;
     clearTimeout(call.quiet);
     clearTimeout(call.idle);
-    call.closing = setTimeout(finish, CLOSE_WAIT_MS);
+    call.closing = setTimeout(finish, live ? CLOSE_WAIT_MS : 0);
     stopTyping();
+    stopBar();
     show(phone(), 'idle');
     phone()?.setAttribute('aria-pressed', 'false');
     say(null);
   };
+  // --- The call bar (issue 273): the composer row gives way to it for the
+  // call. Timer and running cost from the engine's per-second rate (the
+  // server's); a token-billed engine is priced after the call.
+  const composer = () => document.getElementById('chat-composer');
+  const field = (name) => callBar()?.querySelector(`[data-call-${name}]`);
+  const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+  const tick = () => {
+    if (!call) return;
+    const seconds = Math.max((Date.now() - call.started) / 1000, call.billed || 0);
+    field('timer').textContent = clock(seconds);
+    if (call.rate) field('cost').textContent = `$${(seconds * call.rate).toFixed(2)}`;
+  };
+  const startBar = (engine) => {
+    call.started = Date.now();
+    call.rate = engine?.per_second || null;
+    field('engine').textContent = engine?.label || '';
+    field('cost').textContent = '';
+    field('cost-later').hidden = Boolean(call.rate);
+    composer().hidden = true;
+    callBar().hidden = false;
+    call.ticker = setInterval(tick, 1000);
+    tick();
+  };
+  const stopBar = () => {
+    clearInterval(call?.ticker);
+    muted(false);
+    if (callBar()) callBar().hidden = true;
+    if (composer()) composer().hidden = false;
+  };
+  // Mute: your audio stops going out (GPT-Live is told too), and dead air
+  // does not count while you are muted.
+  const muted = (on) => {
+    document.getElementById('chat-mute')?.setAttribute('aria-pressed', String(on));
+    if (!call) return;
+    call.muted = on;
+    for (const track of call.stream.getAudioTracks()) track.enabled = !on;
+    if (call.transport === 'gpt_live' && !call.closing) {
+      try {
+        call.channel.send(JSON.stringify({ type: on ? 'session.input_audio.mute' : 'session.input_audio.unmute' }));
+      } catch (_) {}
+    }
+    if (on) {
+      clearTimeout(call.idle);
+      say('muted');
+    } else {
+      rest();
+    }
+  };
   // Dead air costs the same as talk: after the profile's seconds with
   // nobody speaking and nothing being worked on, hang up (0: never).
   const awake = () => {
-    if (!call || call.closing) return;
+    if (!call || call.closing || call.muted) return;
     clearTimeout(call.idle);
     const seconds = voice().idle;
     if (seconds > 0 && !call.working) call.idle = setTimeout(hangUp, seconds * 1000);
@@ -349,7 +406,7 @@
     if (!call || call.closing) return;
     const working = call.working > 0;
     show(phone(), working ? 'working' : 'recording');
-    say(working ? 'working' : 'live');
+    say(call.muted ? 'muted' : working ? 'working' : 'live');
     if (working) startTyping();
     else stopTyping();
     awake();
@@ -378,15 +435,13 @@
     call.working -= 1;
     rest();
     answer(id, data.speak || phone().dataset.sorry);
-    if (data.conversation_id) {
-      conversation().value = data.conversation_id;
-      htmx.ajax('GET', phone().dataset.thread + data.conversation_id, { target: '#chat-thread', swap: 'innerHTML' });
-    }
+    showTurns(data.conversation_id);
   };
   // Every live minute is metered (issue 270): OpenAI reports the call's
   // billed seconds as a running total, and the server's ledger keeps it.
   const bill = (seconds, reason = null) => {
     if (!call?.session || seconds == null) return;
+    call.billed = seconds;
     fetch(phone().dataset.usage, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -394,12 +449,45 @@
       keepalive: true,
     }).catch(() => {});
   };
+  // The thread, reloaded so a saved turn shows with its steps and cards.
+  const showTurns = (id) => {
+    if (!id) return;
+    conversation().value = id;
+    htmx.ajax('GET', phone().dataset.thread + id, { target: '#chat-thread', swap: 'innerHTML' });
+  };
+  // A realtime engine (issue 273): her own agent is the model, so the page
+  // only follows along - greeting, speech, her tools at work, and the
+  // thread once the server has saved the turn.
+  const REALTIME_SAVE_MS = 1500;
+  const followRealtime = (event) => {
+    if (event.type === 'session.created') {
+      call.channel.send(JSON.stringify({
+        type: 'response.create', response: { instructions: phone().dataset.greeting },
+      }));
+    } else if (event.type === 'input_audio_buffer.speech_started') {
+      awake();
+    } else if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
+      call.working += 1;
+      rest();
+    } else if (event.type === 'response.done') {
+      if (call.working) {
+        call.working = 0;
+        rest();
+      }
+      setTimeout(() => call && showTurns(call.conversation), REALTIME_SAVE_MS);
+    } else if (event.type === 'error') {
+      console.warn('[live]', event);
+    }
+  };
   const heard = (event) => {
+    const speech = event.type === 'session.output_transcript.delta'
+      || event.type === 'response.output_audio_transcript.delta';
+    if (call.transport === 'realtime' && !speech) return followRealtime(event);
     if (event.type === 'session.started') answer(null, phone().dataset.greeting);
     else if (event.type === 'session.input_transcript.delta') {
       call.heard += event.delta;
       awake();
-    } else if (event.type === 'session.output_transcript.delta') {
+    } else if (speech) {
       stopTyping();
       clearTimeout(call.idle);
       show(phone(), 'speaking');
@@ -453,15 +541,22 @@
       if (!answer.ok) throw new Error(`live session ${answer.status}`);
       const opened = await answer.json();
       call.session = opened.session_id;
+      call.transport = opened.transport || 'gpt_live';
+      call.conversation = opened.conversation_id;
+      if (opened.conversation_id) conversation().value = opened.conversation_id;
       await peer.setRemoteDescription({ type: 'answer', sdp: opened.sdp });
+      call.engine = opened.engine;
     } catch (e) {
       console.warn('[live]', e);
       hangUp();
       return say('offline');
     }
+    startBar(call.engine);
     rest();
   };
   document.addEventListener('click', (event) => {
+    if (event.target.closest?.('#chat-mute')) return call && muted(!call.muted);
+    if (event.target.closest?.('#chat-hang-up')) return hangUp();
     const button = event.target.closest?.('#chat-live');
     if (!button) return;
     ear ??= new AudioContext();

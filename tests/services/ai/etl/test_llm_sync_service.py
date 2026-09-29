@@ -752,3 +752,95 @@ class TestOllamaModelsPresent:
             LLMSyncService(sync_db_session), "ollama", "gpt-oss:20b"
         )
         assert ollama_models_present(sync_db_session) is True
+
+
+class TestLLMSyncServiceVoice:
+    """The catalog keeps the voice kinds her calls, transcription and speech
+    run on, with the rates they bill by (#273)."""
+
+    RAW = {
+        "gpt-4o": {"litellm_provider": "openai", "mode": "chat"},
+        "text-embedding-3-small": {"litellm_provider": "openai", "mode": "embedding"},
+        "gpt-realtime-2.1": {
+            "litellm_provider": "openai",
+            "mode": "realtime",
+            "input_cost_per_token": 4e-06,
+            "output_cost_per_token": 2.4e-05,
+            "input_cost_per_audio_token": 3.2e-05,
+            "output_cost_per_audio_token": 6.4e-05,
+            "cache_read_input_token_cost": 4e-07,
+        },
+        "gpt-transcribe": {
+            "litellm_provider": "openai",
+            "mode": "audio_transcription",
+            "input_cost_per_second": 7.5e-05,
+        },
+    }
+
+    def _sync(self, session: Session) -> None:
+        service = LLMSyncService(session)
+        parsed = {
+            model_id: service.litellm_client._parse_model(model_id, raw)
+            for model_id, raw in self.RAW.items()
+        }
+        with (
+            patch.object(
+                service.litellm_client, "fetch_models", new_callable=AsyncMock
+            ) as mock_litellm,
+            patch.object(
+                service.openrouter_client, "fetch_models", new_callable=AsyncMock
+            ) as mock_openrouter,
+        ):
+            mock_litellm.return_value = parsed
+            mock_openrouter.return_value = []
+            import asyncio
+
+            asyncio.run(service.sync())
+
+    def test_the_default_sync_keeps_chat_and_voice(
+        self, sync_db_session: Session
+    ) -> None:
+        self._sync(sync_db_session)
+        modes = {
+            m.model_id: m.mode
+            for m in sync_db_session.exec(select(LargeLanguageModel)).all()
+        }
+        assert modes == {
+            "gpt-4o": "chat",
+            "gpt-realtime-2.1": "realtime",
+            "gpt-transcribe": "audio_transcription",
+        }
+
+    def test_a_voice_model_keeps_its_rates(self, sync_db_session: Session) -> None:
+        self._sync(sync_db_session)
+        by_id = {
+            m.model_id: m for m in sync_db_session.exec(select(LargeLanguageModel))
+        }
+        prices = {p.llm_id: p for p in sync_db_session.exec(select(LLMPrice)).all()}
+        realtime = prices[by_id["gpt-realtime-2.1"].id]
+        assert realtime.input_cost_per_audio_token == pytest.approx(3.2e-05)
+        assert realtime.output_cost_per_audio_token == pytest.approx(6.4e-05)
+        assert realtime.cache_input_cost_per_token == pytest.approx(4e-07)
+        hearing = prices[by_id["gpt-transcribe"].id]
+        assert hearing.input_cost_per_second == pytest.approx(7.5e-05)
+        assert hearing.output_cost_per_audio_token is None
+
+    def test_a_voice_model_says_what_it_hears_and_speaks(
+        self, sync_db_session: Session
+    ) -> None:
+        self._sync(sync_db_session)
+        transcribe = sync_db_session.exec(
+            select(LargeLanguageModel).where(
+                LargeLanguageModel.model_id == "gpt-transcribe"
+            )
+        ).one()
+        held = {
+            (m.modality, m.direction)
+            for m in sync_db_session.exec(
+                select(LLMModality).where(LLMModality.llm_id == transcribe.id)
+            )
+        }
+        assert held == {
+            (Modality.AUDIO, Direction.INPUT),
+            (Modality.TEXT, Direction.OUTPUT),
+        }
