@@ -19,7 +19,7 @@
 {% set committed = (buckets.get("fixed").total_allocated if buckets.get("fixed") else 0) + (buckets.get("non_monthly").total_allocated if buckets.get("non_monthly") else 0) %}
 {% set committed_count = (buckets.get("fixed").lines|length if buckets.get("fixed") else 0) + (buckets.get("non_monthly").lines|length if buckets.get("non_monthly") else 0) %}
 {% set one_time = buckets.get("one_time").total_allocated if buckets.get("one_time") else 0 %}
-<details id="commitments" class="mt-6 rounded-lg border border-aegis-border bg-aegis-card">
+<details id="commitments" class="mt-6 raised">
   <summary class="list-none cursor-pointer flex items-center justify-between gap-4 px-5 py-3 text-sm text-aegis-muted">
     <span>{{ committed|money }}/month already committed across {{ committed_count }} bill{{ "s" if committed_count != 1 }}{% if one_time %}, plus {{ one_time|money }} one-time{% endif %}</span>
     <span class="text-aegis-teal">Show bills</span>

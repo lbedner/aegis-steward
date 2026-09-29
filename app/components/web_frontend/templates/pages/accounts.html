@@ -30,7 +30,7 @@
 
 <div id="portfolio" class="space-y-6">
   {% for group in groups %}
-  <section class="bg-aegis-card border border-aegis-border rounded-lg p-2" aria-labelledby="group-{{ loop.index }}">
+  <section class="raised p-2" aria-labelledby="group-{{ loop.index }}">
     {{ group_heading(group, "px-4 pt-2 pb-1 micro-label text-aegis-muted") }}
     {% for row in group.accounts %}
     {{ portfolio_row(section.path, row, statement_lines[row.account.id], account_icons.get(row.account.id), arrived.get(row.account.id)) }}

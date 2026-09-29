@@ -35,6 +35,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine.base import Engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -267,10 +268,15 @@ async def app_owned_engine():
     schema_names = {
         table.schema for table in SQLModel.metadata.tables.values() if table.schema
     }
+    # Unpooled for the same reason: a pooled connection is bound to the
+    # loop that opened it, and handing it to TestClient's loop (the relay's
+    # price and usage writes) left its close waiting on the other loop, so
+    # the portal never shut down - CI hung at 99% (2026-09-30).
     engine = create_async_engine(
         f"sqlite+aiosqlite:///{tmp_dir / 'app_owned.sqlite'}",
         echo=False,
         connect_args={"check_same_thread": False},
+        poolclass=NullPool,
     )
 
     def attach_schemas(dbapi_connection: Any) -> None:
