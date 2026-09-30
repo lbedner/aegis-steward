@@ -499,6 +499,9 @@ async def test_propose_is_the_only_write_and_moves_nothing(
 
     assert result["status"] == "pending"
     assert result["change_type"] == "transaction.categorize"
+    # the card's subject row names its money as cents (#291)
+    subject = result["display"][0]
+    assert "amount_cents" in subject and "amount" not in subject
     row = (
         await session.exec(
             select(FinancePendingChange).where(
@@ -885,7 +888,7 @@ async def test_bills_lists_the_recurring_surface(
     eleanor = rows["Eleanor Nursing Care"]
     assert eleanor["direction"] == "outflow"
     assert eleanor["frequency"] == "monthly"
-    assert eleanor["amount"] == 100_000
+    assert eleanor["amount_cents"] == 100_000
     assert eleanor["amount_is_declared"] is True
     assert eleanor["next_expected_date"] == "2026-07-31"
     assert isinstance(eleanor["id"], int)
@@ -915,7 +918,7 @@ async def test_a_bill_the_user_never_priced_still_reports_an_amount(
     result = await ai_tools.bills()
 
     row = {b["name"]: b for b in result["bills"]}["Detected Bill"]
-    assert row["amount"] == 2_918
+    assert row["amount_cents"] == 2_918
     assert row["amount_is_declared"] is False
 
 
@@ -958,7 +961,7 @@ async def test_bill_candidates_returns_the_ranked_shortlist(
     ids = [c["id"] for c in result["candidates"]]
     assert payment.id in ids
     top = result["candidates"][0]
-    assert top["amount"] == -100_000
+    assert top["amount_cents"] == -100_000
     assert top["date"] == "2026-07-31"
     assert result["stream_id"] == stream.id
 
@@ -1135,9 +1138,13 @@ async def test_projection_walks_cash_forward_over_a_requested_window(
     result = await ai_tools.projection(days=365)
 
     assert result["horizon_days"] == 365
-    assert result["start_balance"] == 500_000
-    assert any(bill["name"] == "Rent" for bill in result["bills"])
-    assert result["end_balance"] < result["start_balance"]
+    assert result["start_balance_cents"] == 500_000
+    rent = next(bill for bill in result["bills"] if bill["name"] == "Rent")
+    assert rent["amount_cents"] > 0 and "amount" not in rent
+    assert result["end_balance_cents"] < result["start_balance_cents"]
+    assert "upcoming_total_cents" in result
+    point = result["points"][0]
+    assert {"amount_cents", "balance_cents"} <= set(point)
 
 
 @pytest.mark.asyncio
@@ -1153,7 +1160,7 @@ async def test_projection_can_be_asked_about_one_account(
 
     result = await ai_tools.projection(days=30, account_ids=[chase.id])
 
-    assert result["start_balance"] == 100_000
+    assert result["start_balance_cents"] == 100_000
 
 
 @pytest.mark.asyncio
@@ -1348,11 +1355,18 @@ async def test_budget_reports_the_limit_the_user_set(
         for row in result["limits"]
         if row["category"] == "Health & Fitness:Medicine/Drugs"
     )
-    assert line["limit"] == 20_000
+    assert line["limit_cents"] == 20_000
     # What a budget.limit card names (#265): she had no handle on a line.
     assert (line["category_id"], line["payee_key"]) == (category.id, None)
-    assert line["spent"] == 4_500
-    assert line["remaining"] == 15_500
+    assert line["spent_cents"] == 4_500
+    assert line["remaining_cents"] == 15_500
+    # every money field says it is cents (#291): the realtime model read an
+    # unlabelled 297614 as dollars
+    assert {
+        "flexible_spent_cents",
+        "flexible_allocated_cents",
+        "fixed_total_cents",
+    } <= set(result["stats"])
     assert line["status"] == "good"
 
 
