@@ -88,6 +88,17 @@ def _usable_vendor_names() -> set[str]:
     }
 
 
+async def vendor_icon_urls(names: list[str]) -> dict[str, str]:
+    """``{vendor: URL}`` for the vendors whose logo is stored, served by
+    the icon route so a browser caches each once (``vendor_icons`` has the
+    bytes, for a page that must inline them)."""
+    from app.services.finance.domains.ledger.merchant_icon import icon_url
+
+    return {
+        name: icon_url(_VENDOR_ICON_DOMAINS[name]) for name in await vendor_icons(names)
+    }
+
+
 async def vendor_icons(names: list[str]) -> dict[str, str]:
     """``{vendor: base64 png}`` via the merchant icon cache; misses
     resolve on a later request once the background fill lands."""

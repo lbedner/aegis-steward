@@ -10,6 +10,13 @@ lists only the measures it bills by. As of Sep 2026.
 """
 
 PRICES: dict[tuple[str, str], dict[str, float]] = {
+    # Google voice (Sep 2026)
+    ("google", "gemini-3.8-live"): {
+        "input": 0.75,
+        "output": 4.50,
+        "input_cost_per_audio_token": 3 / 1_000_000,
+        "output_cost_per_audio_token": 12 / 1_000_000,
+    },
     # OpenAI voice (Sep 2026)
     ("openai", "gpt-live-1"): {
         "input": 0,

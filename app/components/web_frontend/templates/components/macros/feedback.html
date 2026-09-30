@@ -7,6 +7,7 @@
    Toasts need no import: a route calls ``with_toast(response, "Saved")``
    and the region below, mounted once by base.html, shows it.
 #}
+{% from "components/macros/icons.html" import icon %}
 
 
 {# The toast surface. htmx turns the ``HX-Trigger`` header into a ``toast``
@@ -33,9 +34,7 @@
       <p class="flex-1 text-sm text-aegis-text" x-text="item.text"></p>
       <button type="button" @click="dismiss(item.id)" aria-label="Dismiss"
               class="shrink-0 text-aegis-muted/70 hover:text-aegis-text transition-colors">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-        </svg>
+        {{ icon("x-mark", "w-4 h-4") }}
       </button>
     </div>
   </template>

@@ -55,6 +55,7 @@
   {% block head_extra %}{% endblock %}
 </head>
 <body class="min-h-screen bg-aegis-bg text-aegis-text {% block body_class %}{% endblock %}">
+{% from "components/macros/icons.html" import sprite %}{{ sprite() }}
 
   {% block navbar %}
   <div class="max-w-screen-xl mx-auto px-6 lg:px-16 py-3 flex items-center justify-between border-b border-aegis-border">

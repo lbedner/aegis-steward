@@ -209,7 +209,9 @@ class TestSettledMessage:
         monkeypatch.setitem(merchant_icon._CACHE, "ollama.com", "AAAA")
         html = hx.get(f"/chat/messages/{conversation_id}/{message_id}").text
         icon = one(html, "[data-model-icon]")
-        assert icon.get("src") == "data:image/png;base64,AAAA"
+        # By URL, cached once by the browser, never the bytes per message:
+        # a long thread inlined the same logo hundreds of times.
+        assert icon.get("src") == merchant_icon.icon_url("ollama.com")
 
     def test_unknown_message_or_conversation_is_a_404(
         self, hx: TestClient, stored: tuple[str, str]
@@ -820,7 +822,7 @@ class TestIdenticalChangesReadAsOne:
         ]
 
     def test_a_group_says_the_count_the_total_and_the_span(self) -> None:
-        from app.components.web_frontend.routes.chat import batch_card
+        from app.components.web_frontend.routes.chat_changes import batch_card
 
         card = batch_card("b1", self._batch(71))
 
@@ -833,7 +835,7 @@ class TestIdenticalChangesReadAsOne:
         assert group["span"] == ("2025-12-01", "2025-12-71")
 
     def test_different_changes_stay_apart(self) -> None:
-        from app.components.web_frontend.routes.chat import batch_card
+        from app.components.web_frontend.routes.chat_changes import batch_card
 
         card = batch_card("b2", self._batch(3) + self._batch(2, payee="Amazon"))
 
@@ -841,7 +843,7 @@ class TestIdenticalChangesReadAsOne:
 
     def test_one_row_is_never_a_group(self) -> None:
         """A wrapper around a single thing is another thing to open."""
-        from app.components.web_frontend.routes.chat import batch_card
+        from app.components.web_frontend.routes.chat_changes import batch_card
 
         card = batch_card("b3", self._batch(1))
 
@@ -852,7 +854,7 @@ class TestIdenticalChangesReadAsOne:
     ) -> None:
         """What collapses is the reading, never the control."""
         from app.components.web_frontend.rendering import templates
-        from app.components.web_frontend.routes.chat import batch_card
+        from app.components.web_frontend.routes.chat_changes import batch_card
 
         card = batch_card("b4", self._batch(5))
         markup = templates.get_template(
@@ -867,3 +869,57 @@ class TestIdenticalChangesReadAsOne:
         summary = one(markup, "details summary")
         assert "Show all 5" in text(summary)
         assert "Hide" in text(summary)
+
+
+class TestALongThread:
+    """A long conversation opens on its latest page: rendering all of it
+    made the chat page megabytes (493 messages, 2026-09-28). Earlier
+    messages come a page at a time, from a row at the top."""
+
+    @pytest.fixture
+    async def long_thread(self) -> str:
+        from app.components.web_frontend.routes.chat import THREAD_PAGE
+
+        conversation = await ai_service.conversation_manager.create_conversation(
+            provider=AIProvider.OLLAMA,
+            model="gpt-5.6-luna",
+            user_id=STANDALONE_USER_ID,
+            surface="finance",
+        )
+        for turn in range(THREAD_PAGE // 2 + 5):  # a page and ten messages more
+            conversation.add_message(MessageRole.USER, f"Question {turn}")
+            conversation.add_message(MessageRole.ASSISTANT, f"Answer {turn}")
+        await ai_service.conversation_manager.save_conversation(conversation)
+        return conversation.id
+
+    def test_it_opens_on_the_latest_page(
+        self, hx: TestClient, long_thread: str
+    ) -> None:
+        from app.components.web_frontend.routes.chat import THREAD_PAGE
+
+        html = hx.get(f"/chat/conversations/{long_thread}").text
+        bubbles = select(html, "li[data-role]")
+        assert len(bubbles) == THREAD_PAGE
+        assert text(one(bubbles[-1], "[data-body]")) == f"Answer {THREAD_PAGE // 2 + 4}"
+        earlier = one(html, "#chat-earlier")
+        assert earlier.getparent().index(earlier) == 0  # it leads the thread
+        button = one(earlier, "button")
+        assert button.get("hx-target") == "#chat-earlier"
+        assert button.get("hx-swap") == "outerHTML"
+
+    def test_earlier_messages_come_in_where_the_row_was(
+        self, hx: TestClient, long_thread: str
+    ) -> None:
+        html = hx.get(f"/chat/conversations/{long_thread}").text
+        url = one(html, "#chat-earlier button").get("hx-get")
+        older = hx.get(url).text
+        bubbles = select(older, "li[data-role]")
+        assert len(bubbles) == 10  # the rest of the thread
+        assert text(one(bubbles[0], "[data-text]")) == "Question 0"
+        none(older, "#chat-earlier")  # nothing earlier than the first
+
+    def test_a_short_thread_has_no_earlier_row(
+        self, hx: TestClient, stored: tuple[str, str]
+    ) -> None:
+        conversation_id, _ = stored
+        none(hx.get(f"/chat/conversations/{conversation_id}").text, "#chat-earlier")

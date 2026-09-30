@@ -766,7 +766,9 @@ class TestTheChatPickerIsChatOnly:
         from tests._voice_catalog import seed_voice_catalog
 
         await seed_voice_catalog(async_db_session)
-        org = (await async_db_session.exec(select(LLMOrg))).one()
+        org = (
+            await async_db_session.exec(select(LLMOrg).where(LLMOrg.slug == "openai"))
+        ).one()
         async_db_session.add(
             LargeLanguageModel(
                 model_id="gpt-5.6-luna", title="Luna", served_by_org_id=org.id

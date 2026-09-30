@@ -4,6 +4,7 @@
    kind says which role a pick of it sets. Kept quiet: teal means exactly
    one thing, a role's model, and says it once (the check). Every control
    re-requests this partial into the dialog. #}
+{% from "components/macros/icons.html" import icon %}
 {% from "components/macros/chat.html" import model_chip %}
 {% from "components/macros/form.html" import control %}
 {% from "components/macros/layout.html" import dialog_title %}
@@ -24,7 +25,7 @@
         </span>
         {% if row.voice %}<span class="micro-label text-aegis-muted" data-voice>Voice</span>{% endif %}
         {% if row.facts %}<span class="text-xs text-aegis-muted whitespace-nowrap">{{ row.facts }}</span>{% endif %}
-        {% if row.model_id in picker.active %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4 text-aegis-teal shrink-0" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>{% endif %}
+        {% if row.model_id in picker.active %}{{ icon("check", "w-4 h-4 text-aegis-teal shrink-0", 2) }}{% endif %}
       </button>
     </form>
   </li>
@@ -61,7 +62,7 @@
         {% if section.icon_b64 %}<img src="data:image/png;base64,{{ section.icon_b64 }}" alt="" width="28" height="28" class="w-7 h-7 rounded-full brand-tile object-contain p-1">{% else %}<span class="w-7 h-7 rounded-full bg-aegis-border/60 text-xs font-semibold text-aegis-muted inline-flex items-center justify-center" aria-hidden="true">{{ section.name[:1]|upper }}</span>{% endif %}
         <span class="micro-label text-aegis-text flex-1">{{ section.name }}</span>
         <span class="text-xs text-aegis-muted">{{ section.count }}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4 text-aegis-muted transition-transform group-open:rotate-180" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+        {{ icon("chevron-down", "w-4 h-4 text-aegis-muted transition-transform group-open:rotate-180", 2) }}
       </summary>
       {{ rows(section, picker) }}
     </details>

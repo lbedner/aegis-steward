@@ -197,6 +197,17 @@ MODELS: dict[str, list[dict[str, Any]]] = {
         },
     ],
     "google": [
+        # Voice (#273): Gemini Live, reached through our relay.
+        {
+            "model_id": "gemini-3.8-live",
+            "title": "Gemini 3.8 Live",
+            "description": "Live speech-to-speech that runs tools itself",
+            "context_window": 131072,
+            "streamable": True,
+            "enabled": True,
+            "color": "#4285F4",
+            "mode": "realtime",
+        },
         {
             "model_id": "gemini-1.5-pro",
             "title": "Gemini 1.5 Pro",
