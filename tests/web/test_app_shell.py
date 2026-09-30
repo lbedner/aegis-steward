@@ -4,6 +4,8 @@ Rendered straight from the Jinja environment with a probe child, so the
 shell is pinned independently of any route (routes arrive in #8).
 """
 
+from fastapi.testclient import TestClient
+
 from app.components.web_frontend.rendering import templates
 from tests.web.dom import none, one, select, text
 
@@ -115,3 +117,24 @@ class TestAppShell:
         for banned in ("appShellGate", "__APP_USER", "/api/v1/auth/me"):
             assert banned not in page, banned
         none(page, "main#app-content script")
+
+
+class TestTheAssistantButton:
+    """The floating button sits over the bottom-right corner, where a
+    register's amounts are; the page leaves room under it so the last row
+    can scroll clear (#297)."""
+
+    def test_the_page_leaves_room_under_the_button(self) -> None:
+        from pathlib import Path
+
+        css = Path("app/components/web_frontend/static/input.css").read_text()
+        rule = 'html:not([data-assistant="hide"]) #app-content:not(:has(#chat))'
+        assert rule in css
+        assert "padding-bottom" in css[css.index(rule) :].split("}")[0]
+
+    def test_the_room_follows_the_button(self, client: TestClient) -> None:
+        """No room where there is no button: the chat page (its surface is
+        the page, found as app.js finds it) and the preference to hide it."""
+        chat = client.get("/chat").text
+        assert one(chat, "#app-content #chat") is not None
+        none(client.get("/overview").text, "#app-content #chat")

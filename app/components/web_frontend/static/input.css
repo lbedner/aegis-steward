@@ -186,6 +186,16 @@
   display: none !important;
 }
 
+/* Room under the assistant button (#297). It floats over the bottom-right
+   corner, where a register's amounts and row menus are, and the last row
+   had nowhere left to scroll to. Wherever the button shows - not on the
+   chat page (its surface is the page; app.js finds it the same way) and
+   not when it is hidden by preference - the page ends with its height and
+   inset to spare. */
+html:not([data-assistant="hide"]) #app-content:not(:has(#chat)) {
+  padding-bottom: 5.5rem;
+}
+
 /* The assistant button is the one floating thing that is also the
    accent: it glows. Outside the components layer, which only keeps rules
    whose class appears in a template; this one is keyed on an id. */
