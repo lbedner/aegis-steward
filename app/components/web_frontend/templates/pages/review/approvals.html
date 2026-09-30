@@ -14,7 +14,7 @@
 {% if singles or batches %}
 <ul class="grid gap-4 sm:grid-cols-2">
   {% for change in singles %}
-  <li id="change-{{ change.id }}" class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex flex-col gap-3">
+  <li id="change-{{ change.id }}" class="raised p-4 flex flex-col gap-3">
     <div class="flex items-center justify-between gap-3">
       <h3 class="text-sm font-semibold text-aegis-text">{{ change.title }}</h3>
       {% if change.proposed_by_agent %}{{ badge(change.proposed_by_agent|assistant, "ok") }}{% endif %}
@@ -24,7 +24,7 @@
   </li>
   {% endfor %}
   {% for batch in batches %}
-  <li id="batch-{{ batch.batch_id }}" class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex flex-col gap-3 sm:col-span-2">
+  <li id="batch-{{ batch.batch_id }}" class="raised p-4 flex flex-col gap-3 sm:col-span-2">
     <div class="flex items-center justify-between gap-3">
       <h3 class="text-sm font-semibold text-aegis-text">{{ batch.title }} <span class="text-aegis-muted font-normal">× {{ batch["items"]|length }}</span></h3>
       {% if batch["items"][0].proposed_by_agent %}{{ badge(batch["items"][0].proposed_by_agent|assistant, "ok") }}{% endif %}

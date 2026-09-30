@@ -63,6 +63,29 @@
     }
   }
 
+  /* The two surfaces, lit by the theme's finish (tailwind.config.js).
+
+     ``raised`` is a panel that sits on the page: a card, a stat tile, the
+     register. ``floating`` is anything over content: a menu, a picker, a
+     dialog, a toast. The matte finish is all no-ops, so a raised
+     panel is the flat card it always was and a floating one keeps its one
+     shadow; lustre lights them. Data inside stays matte either way.
+
+     Every card and popover wears one of these instead of spelling out
+     fill, border and radius itself (tests/web/test_theme.py holds that),
+     so a finish reaches every surface or none. A call site can still
+     change the radius or border colour with a utility, which wins. */
+  .raised {
+    @apply bg-aegis-card border border-aegis-border rounded-lg;
+    background-image: var(--aegis-sheen);
+    box-shadow: var(--aegis-edge), var(--aegis-elevation);
+  }
+  .floating {
+    @apply bg-aegis-card border border-aegis-border rounded-lg;
+    --tw-bg-opacity: var(--aegis-float-alpha);
+    box-shadow: var(--aegis-edge), var(--aegis-lift);
+    backdrop-filter: var(--aegis-frost);
+  }
   /* A micro-label: the small caption over a figure or a column. The
      theme decides its voice (aegis: uppercase and tracked; steward:
      sentence case), so templates never say `uppercase` themselves. */
@@ -87,6 +110,7 @@
   .chip[aria-pressed="true"],
   .peer:checked ~ .chip {
     @apply border-aegis-teal bg-aegis-teal/10 text-aegis-text font-semibold;
+    box-shadow: var(--aegis-edge), var(--aegis-glow);
   }
   .peer:focus-visible ~ .chip {
     @apply ring-2 ring-aegis-teal;
@@ -160,6 +184,13 @@
    attribute before first paint, so it never flashes). */
 [data-assistant="hide"] #illiana-fab {
   display: none !important;
+}
+
+/* The assistant button is the one floating thing that is also the
+   accent: it glows. Outside the components layer, which only keeps rules
+   whose class appears in a template; this one is keyed on an id. */
+#illiana-fab {
+  box-shadow: var(--aegis-edge), var(--aegis-lift), var(--aegis-glow);
 }
 
 /* A highlighted script or JSON (the ``code`` filter's pygments classes),

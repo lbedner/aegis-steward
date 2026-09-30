@@ -82,7 +82,7 @@
 {% macro card(title=None, subtitle=None, id=None) %}
 {% set card_id = id or ("card-" ~ title|lower|replace(" ", "-")) %}
 <section id="{{ card_id }}" {% if title %}aria-labelledby="{{ card_id }}-title"{% endif %}
-         class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
+         class="raised p-5 flex flex-col gap-4 min-w-0">
   {# A card whose page title already names it (the forecast's chart) goes
      without a header rather than repeating the words. #}
   {% if title %}
@@ -100,7 +100,7 @@
    Red once a figure goes negative and nothing otherwise: when every
    healthy number is coloured, colour stops meaning anything. #}
 {% macro stat_tile(label, value, negative=False, caption=None, attrs="") %}
-<div {{ attrs|safe }} class="bg-aegis-card border border-aegis-border rounded-lg px-5 py-4{% if attrs %} cursor-pointer hover:border-aegis-muted transition-colors{% endif %}">
+<div {{ attrs|safe }} class="raised px-5 py-4{% if attrs %} cursor-pointer hover:border-aegis-muted transition-colors{% endif %}">
   <dt class="text-aegis-muted micro-label">{{ label }}</dt>
   <dd class="mt-1 text-2xl font-semibold tabular-nums {{ 'text-error' if negative else 'text-aegis-text' }}">{{ value }}</dd>
   {% if caption %}<dd class="mt-1 text-xxs text-aegis-muted">{{ caption }}</dd>{% endif %}
@@ -161,7 +161,7 @@
 {% macro dialog() %}
 <dialog id="dialog"
         @close="$el.querySelector('#dialog-body').innerHTML = ''"
-        class="bg-aegis-card text-aegis-text border border-aegis-border rounded-lg shadow-2xl p-0 w-full max-w-4xl
+        class="floating text-aegis-text p-0 w-full max-w-4xl
                max-h-[90vh] overflow-hidden
                has-[[data-wide]]:max-w-[92rem] has-[[data-narrow]]:max-w-md
                backdrop:bg-aegis-scrim/60 backdrop:backdrop-blur-sm">
@@ -223,7 +223,7 @@
    is ``{"label", "value", "caption", "tone", "attrs"}``; ``attrs`` makes
    it a door (hx-get) and ``tone`` colours the value. #}
 {% macro stats_strip(cells, id=None, attrs="") %}
-<dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 {{ {2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4"}[cells|length] }} divide-x divide-aegis-border/60 bg-aegis-card border border-aegis-border rounded-lg">
+<dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 {{ {2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4"}[cells|length] }} divide-x divide-aegis-border/60 raised">
   {% for cell in cells %}
   <div {{ cell.attrs|safe if cell.attrs else "" }} class="group px-5 py-4 min-w-0{% if cell.attrs %} cursor-pointer hover:bg-aegis-border/20 transition-colors{% endif %}">
     {# A figure that can explain itself has to LOOK like it does: the
@@ -389,7 +389,7 @@
     {{ label }}
     {{ icon("chevron-narrow", "w-3 h-3") }}
   </summary>
-  <ul role="menu" class="absolute {{ 'right-0' if align == 'right' else 'left-0' }} top-full mt-1 z-30 min-w-[11rem] bg-aegis-card border border-aegis-border rounded-lg shadow-lg p-1">
+  <ul role="menu" class="absolute {{ 'right-0' if align == 'right' else 'left-0' }} top-full mt-1 z-30 min-w-[11rem] floating p-1">
     {{ caller() }}
   </ul>
 </details>

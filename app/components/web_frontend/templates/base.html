@@ -6,7 +6,7 @@
 #}
 {% from "components/macros/feedback.html" import toast_region %}
 <!DOCTYPE html>
-<html lang="en" data-theme="aegis-dark">
+<html lang="en" data-theme="{{ appearance_choices.theme[0] }}-{{ appearance_choices.mode[0] }}-{{ appearance_choices.finish[0] }}" data-appearance-choices='{{ appearance_choices|tojson }}'>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

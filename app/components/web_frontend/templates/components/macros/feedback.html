@@ -29,7 +29,7 @@
          x-transition:leave="transition-opacity duration-300"
          x-transition:leave-start="opacity-100"
          x-transition:leave-end="opacity-0"
-         class="bg-aegis-card border rounded-lg shadow-2xl px-4 py-3 flex items-center gap-3"
+         class="floating px-4 py-3 flex items-center gap-3"
          :class="item.tone === 'error' ? 'border-aegis-error/40' : 'border-aegis-border'">
       <p class="flex-1 text-sm text-aegis-text" x-text="item.text"></p>
       <button type="button" @click="dismiss(item.id)" aria-label="Dismiss"

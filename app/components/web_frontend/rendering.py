@@ -56,6 +56,23 @@ templates.env.globals["project_description"] = settings.PROJECT_DESCRIPTION
 # selected.
 templates.env.globals["auth_enabled"] = settings.AUTH_ENABLED
 templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
+# The appearance choices, listed once. The sidebar's picker renders the
+# ones with a legend; <html> carries all of them for static/js/theme.js,
+# which takes the first value of each as the default. The DaisyUI themes
+# themselves are generated in tailwind.config.js (tests/web/test_theme.py
+# holds the two to the same list).
+APPEARANCE: dict[str, tuple[str | None, list[tuple[str, str]]]] = {
+    "theme": ("Theme", [("aegis", "Aegis"), ("steward", "Steward")]),
+    "mode": ("Mode", [("dark", "Dark"), ("light", "Light"), ("system", "System")]),
+    "finish": ("Finish", [("matte", "Matte"), ("lustre", "Lustre")]),
+    "assistant": ("Assistant button", [("show", "Show"), ("hide", "Hide")]),
+    # railed from its own button, not the picker
+    "sidebar": (None, [("wide", "Wide"), ("rail", "Rail")]),
+}
+templates.env.globals["appearance"] = APPEARANCE
+templates.env.globals["appearance_choices"] = {
+    key: [value for value, _ in choices] for key, (_, choices) in APPEARANCE.items()
+}
 # The sidebar loops this; see nav.py.
 templates.env.globals["nav"] = NAV
 templates.env.globals["category_glyph"] = category_glyph

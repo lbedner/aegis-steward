@@ -1,5 +1,5 @@
 {% from "components/macros/form.html" import action %}
-<li id="envelope-{{ envelope.account_id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex flex-col gap-2">
+<li id="envelope-{{ envelope.account_id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="raised p-4 flex flex-col gap-2">
   <div class="flex items-center justify-between gap-3">
     <span class="text-sm text-aegis-text truncate">{{ envelope.name }}</span>
     <span class="tabular-nums text-lg font-semibold {{ 'text-error' if envelope.balance < 0 else 'text-aegis-text' }}">{{ envelope.balance|money }}</span>

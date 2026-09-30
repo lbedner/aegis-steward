@@ -9,11 +9,12 @@
 //
 // THEMES: the single rebrand point.
 //
-// Two axes. A MODE is a color palette (dark, light). A THEME is a voice and
-// a shape (aegis: operational, uppercase micro-labels, tight radius;
-// steward: personal, sentence case, softer radius, a touch larger). The
-// four DaisyUI themes below are generated from those tables, named
-// `<theme>-<mode>`, and applied as `<html data-theme>` by static/js/theme.js.
+// Three axes. A MODE is a color palette (dark, light). A THEME is a voice
+// and a shape (aegis: operational, uppercase micro-labels, tight radius;
+// steward: personal, sentence case, softer radius, a touch larger). A
+// FINISH is how surfaces are lit (matte, lustre). The eight DaisyUI themes
+// below are generated from those tables, named `<theme>-<mode>-<finish>`,
+// and applied as `<html data-theme>` by static/js/theme.js.
 //
 // Every `aegis-*` color name reads a DaisyUI variable, so `bg-aegis-card`
 // follows whatever theme is on <html> and no value is written twice. Charts
@@ -88,6 +89,50 @@ const SHAPES = {
   },
 };
 
+// A FINISH is how surfaces are lit, read by `.raised` and `.floating` in
+// input.css. matte switches each effect off with a value that is still
+// valid CSS, so no component ever asks which finish is on; lustre lights
+// them, per mode: a white top edge is the highlight on a dark card and
+// invisible on a white one. Any theme takes either finish.
+//
+// Gloss what floats, keep data matte: raised panels get a sheen, a lit
+// edge and a soft layered shadow; menus, dialogs and toasts get more lift,
+// a frosted see-through fill; the accent glows on the assistant button and
+// the chosen chip. Table rows are never touched.
+const MATTE = {
+  "--aegis-sheen": "none", // raised: a gradient laid over the fill
+  "--aegis-edge": "0 0 #0000", // inset top highlight, light catching an edge
+  "--aegis-elevation": "0 0 #0000", // raised: resting shadow
+  "--aegis-lift": "0 25px 50px -12px rgb(0 0 0 / 0.25)", // floating shadow
+  "--aegis-glow": "0 0 #0000", // the accent's halo
+  "--aegis-frost": "none", // floating: backdrop-filter
+  "--aegis-float-alpha": "1", // floating: fill opacity, <1 lets frost show
+};
+
+const FINISHES = {
+  matte: { dark: MATTE, light: MATTE },
+  lustre: {
+    dark: {
+      "--aegis-sheen": "linear-gradient(180deg, rgb(255 255 255 / 0.035), transparent 40%)",
+      "--aegis-edge": "inset 0 1px 0 rgb(255 255 255 / 0.06)",
+      "--aegis-elevation": "0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25)",
+      "--aegis-lift": "0 2px 4px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.4), 0 32px 64px -16px rgb(0 0 0 / 0.5)",
+      "--aegis-glow": "0 0 16px oklch(var(--p) / 0.3)",
+      "--aegis-frost": "blur(14px) saturate(1.4)",
+      "--aegis-float-alpha": "0.82",
+    },
+    light: {
+      "--aegis-sheen": "linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(0 0 0 / 0.012))",
+      "--aegis-edge": "inset 0 -1px 0 rgb(0 0 0 / 0.04)",
+      "--aegis-elevation": "0 1px 2px rgb(16 24 40 / 0.06), 0 6px 16px rgb(16 24 40 / 0.06)",
+      "--aegis-lift": "0 2px 4px rgb(16 24 40 / 0.06), 0 12px 32px rgb(16 24 40 / 0.12)",
+      "--aegis-glow": "0 0 14px oklch(var(--p) / 0.25)",
+      "--aegis-frost": "blur(14px) saturate(1.6)",
+      "--aegis-float-alpha": "0.85",
+    },
+  },
+};
+
 // Where a theme wants a different tint of a mode's palette: steward's
 // light mode is warmer and its borders quieter, so it reads as a personal
 // product rather than a console.
@@ -103,9 +148,17 @@ const TINTS = {
 };
 
 const themes = Object.entries(SHAPES).flatMap(([theme, shape]) =>
-  Object.entries(PALETTES).map(([mode, palette]) => ({
-    [`${theme}-${mode}`]: { ...palette, ...(TINTS[theme]?.[mode] ?? {}), ...shape },
-  })),
+  Object.entries(PALETTES).flatMap(([mode, palette]) =>
+    Object.entries(FINISHES).map(([finish, lit]) => ({
+      [`${theme}-${mode}-${finish}`]: {
+        ...palette,
+        ...(TINTS[theme]?.[mode] ?? {}),
+        ...shape,
+        ...MATTE,
+        ...lit[mode],
+      },
+    })),
+  ),
 );
 
 // DaisyUI stores each theme color as an oklch triplet in a short variable.

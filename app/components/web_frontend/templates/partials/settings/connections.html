@@ -7,7 +7,7 @@
 {% if cards %}
 <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
   {% for card in cards %}
-  <li id="connection-{{ card.id }}" class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex flex-col gap-2">
+  <li id="connection-{{ card.id }}" class="raised p-4 flex flex-col gap-2">
     <div class="flex items-center justify-between gap-3">
       <span class="text-sm text-aegis-text truncate">{{ card.label }}</span>
       {{ badge(card.status.label, card.status.tone) }}

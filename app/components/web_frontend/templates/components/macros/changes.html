@@ -96,7 +96,7 @@
 {% macro pending_change_card(card, base) %}
 {% set change = card.change %}
 {% set target = "chat-change-" ~ change.id %}
-<div id="{{ target }}" data-component="pending_change" class="rounded-lg border border-aegis-border bg-aegis-card p-4 max-w-md">
+<div id="{{ target }}" data-component="pending_change" class="raised p-4 max-w-md">
   {% if card.pending %}
   <div class="flex items-center justify-between gap-3 mb-3">
     <h3 class="text-sm font-semibold text-aegis-text">{{ change.title or change.change_type }}</h3>
@@ -154,7 +154,7 @@
 
 {% macro pending_change_batch_card(card, base) %}
 {% set target = "chat-batch-" ~ card.batch_id %}
-<div id="{{ target }}" data-component="pending_change_batch" class="rounded-lg border border-aegis-border bg-aegis-card p-4">
+<div id="{{ target }}" data-component="pending_change_batch" class="raised p-4">
   {% if card.pending %}
   <div class="flex items-center justify-between gap-3 mb-2">
     <h3 class="text-sm font-semibold text-aegis-text">{{ card.title }} <span class="text-aegis-muted font-normal">× {{ card.rows|length }}</span></h3>

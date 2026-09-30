@@ -5,7 +5,7 @@
 {% from "components/macros/form.html" import search_input, range_chips %}
 {% from "components/macros/bills.html" import stream_actions %}
 {% from "components/macros/layout.html" import tab_bar, tab_item %}
-<section id="streams" class="bg-aegis-card border border-aegis-border rounded-lg p-5 flex flex-col gap-4 min-w-0">
+<section id="streams" class="raised p-5 flex flex-col gap-4 min-w-0">
   {# The tab links carry the filter bar's state, so switching tabs keeps
      the window and the search rather than resetting them. #}
   {% set carried = ("&q=" ~ q if q else "") ~ ("&days=" ~ days if days != all_days else "") %}

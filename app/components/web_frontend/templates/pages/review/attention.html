@@ -13,7 +13,7 @@
 {% if insights %}
 <ul class="flex flex-col gap-3">
   {% for insight, tone in insights %}
-  <li id="insight-{{ insight.id }}" class="rounded-lg border border-aegis-border bg-aegis-card p-4 flex items-start gap-4">
+  <li id="insight-{{ insight.id }}" class="raised p-4 flex items-start gap-4">
     <div class="flex-1 min-w-0">
       <p class="text-sm text-aegis-text">{{ badge(insight.title, tone) }}</p>
       {% if insight.body %}<p class="mt-1 text-xs text-aegis-muted">{{ insight.body }}</p>{% endif %}

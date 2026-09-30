@@ -1,9 +1,10 @@
-"""Theming: theme x mode, generated from one palette table.
+"""Theming: theme x mode x finish, generated from one palette table.
 
-Two axes. ``theme`` is voice and shape (aegis: operational, steward:
-personal); ``mode`` is light or dark (or system, resolved client-side).
-``tailwind.config.js`` combines them into four DaisyUI themes named
-``<theme>-<mode>``; every color a template uses is a ``aegis-*`` name that
+Three axes. ``theme`` is voice and shape (aegis: operational, steward:
+personal); ``mode`` is light or dark (or system, resolved client-side);
+``finish`` is how surfaces are lit (matte, lustre).
+``tailwind.config.js`` combines them into eight DaisyUI themes named
+``<theme>-<mode>-<finish>``; every color a template uses is a ``aegis-*`` name that
 reads DaisyUI's variables, so nothing is defined twice. These tests keep
 that single rebrand point single.
 """
@@ -24,7 +25,27 @@ INPUT_CSS = WEB / "static/input.css"
 TAILWIND = Path("tailwind.config.js")
 THEMES = ("aegis", "steward")
 MODES = ("dark", "light")
-DEFAULT = "aegis-dark"
+FINISHES = ("matte", "lustre")
+DEFAULT = "aegis-dark-matte"
+# The finish tokens: how a surface is lit. Matte sets every one to a no-op,
+# so the classes that read them never need to know which theme is on.
+FINISH = (
+    "--aegis-sheen",
+    "--aegis-edge",
+    "--aegis-elevation",
+    "--aegis-lift",
+    "--aegis-glow",
+    "--aegis-frost",
+    "--aegis-float-alpha",
+)
+# The floating shadow is spelled once, in ``.floating``; a template that
+# writes its own is a second finish the theme cannot reach.
+SHADOW_RECIPE = re.compile(r"\bshadow-(?:sm|md|lg|xl|2xl)\b")
+# The raised surface is spelled once, in ``.raised``.
+RAISED_RECIPE = re.compile(
+    r"bg-aegis-card border border-aegis-border rounded-lg"
+    r"|rounded-lg border border-aegis-border bg-aegis-card"
+)
 
 HEX = re.compile(r"#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b(?![\w-])")
 # Classes that hard-code what a theme decides: a literal color (looks
@@ -73,7 +94,9 @@ class TestMatrix:
     def test_every_theme_mode_pair_ships(
         self, daisy_themes: dict[str, dict[str, str]]
     ) -> None:
-        assert set(daisy_themes) == {f"{t}-{m}" for t in THEMES for m in MODES}
+        assert set(daisy_themes) == {
+            f"{t}-{m}-{f}" for t in THEMES for m in MODES for f in FINISHES
+        }
 
     def test_pairs_define_the_same_keys(
         self, daisy_themes: dict[str, dict[str, str]]
@@ -94,12 +117,52 @@ class TestMatrix:
     ) -> None:
         for mode in MODES:
             aegis, steward = (
-                daisy_themes[f"aegis-{mode}"],
-                daisy_themes[f"steward-{mode}"],
+                daisy_themes[f"aegis-{mode}-matte"],
+                daisy_themes[f"steward-{mode}-matte"],
             )
             assert aegis["--rounded-box"] != steward["--rounded-box"]
             assert aegis["--aegis-label-case"] == "uppercase"
             assert steward["--aegis-label-case"] == "none"
+
+    def test_matte_leaves_the_finish_off(
+        self, daisy_themes: dict[str, dict[str, str]]
+    ) -> None:
+        """Matte is how every theme has always looked: each finish token is
+        the same no-op whatever the theme, so gloss is something people
+        pick, never a change to what they already use."""
+        for mode in MODES:
+            aegis, steward = (
+                daisy_themes[f"aegis-{mode}-matte"],
+                daisy_themes[f"steward-{mode}-matte"],
+            )
+            assert {k: aegis[k] for k in FINISH} == {k: steward[k] for k in FINISH}
+            assert aegis["--aegis-sheen"] == "none"
+            assert aegis["--aegis-frost"] == "none"
+            assert aegis["--aegis-float-alpha"] == "1"
+
+    def test_lustre_lights_the_finish_and_nothing_else(
+        self, daisy_themes: dict[str, dict[str, str]]
+    ) -> None:
+        """Lustre on any theme is that theme, lit: every finish token
+        changes, and its palette, shape and voice do not."""
+        for theme in THEMES:
+            for mode in MODES:
+                matte = daisy_themes[f"{theme}-{mode}-matte"]
+                lustre = daisy_themes[f"{theme}-{mode}-lustre"]
+                assert all(lustre[k] != matte[k] for k in FINISH), (theme, mode)
+                rest = set(matte) - set(FINISH)
+                assert {k: lustre[k] for k in rest} == {k: matte[k] for k in rest}
+        # a white edge vanishes on a white card: light gets its own values
+        assert daisy_themes["aegis-light-lustre"]["--aegis-edge"] != (
+            daisy_themes["aegis-dark-lustre"]["--aegis-edge"]
+        )
+
+    def test_surfaces_read_the_finish(self) -> None:
+        css = INPUT_CSS.read_text()
+        for cls in (".raised", ".floating"):
+            assert cls in css
+        for token in FINISH:
+            assert f"var({token})" in css, token
 
     def test_chart_ramp_is_a_token_set(
         self, daisy_themes: dict[str, dict[str, str]]
@@ -150,6 +213,16 @@ class TestNoLiterals:
 class TestOneRecipe:
     @pytest.mark.parametrize(
         "path",
+        sorted(WEB.rglob("*.html")),
+        ids=lambda p: str(p.relative_to(WEB)),
+    )
+    def test_surfaces_come_from_the_surface_classes(self, path: Path) -> None:
+        source = path.read_text()
+        found = SHADOW_RECIPE.findall(source) + RAISED_RECIPE.findall(source)
+        assert not found, found
+
+    @pytest.mark.parametrize(
+        "path",
         sorted(p for p in WEB.rglob("*.html") if p != FORM_MACROS),
         ids=lambda p: str(p.relative_to(WEB)),
     )
@@ -185,6 +258,18 @@ class TestSwitching:
     def test_html_carries_the_default_theme(self, client: TestClient) -> None:
         assert one(client.get("/overview").text, "html").get("data-theme") == DEFAULT
 
+    def test_choices_are_listed_once(self, client: TestClient) -> None:
+        """The server owns the list: the sidebar renders it and <html>
+        carries it for theme.js, so a new theme is one line in Python
+        rather than one in each of three files."""
+        html = one(client.get("/overview").text, "html")
+        choices = json.loads(html.get("data-appearance-choices") or "{}")
+        assert choices["theme"] == list(THEMES)
+        assert choices["mode"] == [*MODES, "system"]
+        assert choices["finish"] == list(FINISHES)
+        script = (WEB / "static/js/theme.js").read_text()
+        assert "'steward'" not in script and "'lustre'" not in script
+
     def test_sidebar_offers_every_theme_and_mode(self, client: TestClient) -> None:
         aside = one(client.get("/overview").text, "aside#sidebar")
         assert one(aside, "button[data-appearance]").get("aria-label")
@@ -194,6 +279,9 @@ class TestSwitching:
         assert {
             b.get("data-set-mode") for b in select(aside, "button[data-set-mode]")
         } == set(MODES) | {"system"}
+        assert {
+            b.get("data-set-finish") for b in select(aside, "button[data-set-finish]")
+        } == set(FINISHES)
 
 
 class TestHidden:
