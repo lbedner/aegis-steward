@@ -186,15 +186,6 @@ async def create_matter(
                 kind=kind,
                 reference=reference,
             )
-        # The subject and the counterpart are participants too: the
-        # columns say who the case is ABOUT and who it is WITH, and the
-        # participant list is what a page reads, so both have to be true.
-        for party_id, role in (
-            (matter.subject_party_id, "subject"),
-            (matter.counterpart_party_id, "agency"),
-        ):
-            if party_id:
-                await matters.add_participant(matter.id, party_id, role)
         await db.commit()
         opened = matter.id
     return dialog_done(f"{SECTION.path}/{opened}", "Opened")

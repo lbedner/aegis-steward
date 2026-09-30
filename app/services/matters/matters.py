@@ -108,11 +108,30 @@ class MatterService:
         )
         self.db.add(matter)
         await self.db.flush()
+        # The subject and the counterpart are participants too: the
+        # columns say who the case is ABOUT and who it is WITH, and the
+        # participant list is what a page reads, so both have to be true.
+        # Here rather than at each caller (the form, her card), so no way
+        # of opening a case can forget it.
+        for party_id, role in (
+            (subject_party_id, "subject"),
+            (counterpart_party_id, "agency"),
+        ):
+            if party_id:
+                await self.add_participant(int(matter.id), party_id, role)
         return matter
 
     async def get(self, matter_id: int) -> Matter | None:
         matter = await self.db.get(Matter, matter_id)
         return matter if matter and matter.deleted_at is None else None
+
+    async def require(self, matter_id: int) -> Matter:
+        """The case a card names, or the one refusal every caller gives
+        when it is not on file."""
+        matter = await self.get(matter_id)
+        if matter is None:
+            raise ValueError(f"No matter with id {matter_id}")
+        return matter
 
     async def by_reference(self, reference: str) -> Matter | None:
         """The matter an agency's own case number names.

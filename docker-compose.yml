@@ -75,10 +75,17 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
+    # No swap past the limit, on every service with one: at the ceiling the
+    # kernel then kills the process and restart brings it back in seconds.
+    # With Compose's default (swap as large again) it swapped instead, and
+    # the webserver crawled at 95% CPU answering nothing, /health included,
+    # until restarted by hand (2026-09-30). Compose restarts on exit, never
+    # on "unhealthy", so a process that limps is never recovered.
+    memswap_limit: &webserver-memory 768M
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: *webserver-memory
           # A ceiling the kernel enforces by FREEZING the process when it
           # is reached, and this one was reached constantly: 1,515 stalls
           # in 12,803 periods, 83s frozen (cpu.stat, 2026-09-20). One
@@ -114,10 +121,11 @@ services:
       # not restorable and only cost disk.
       - DATABASE_BACKUP_DIR=/var/backups/app
     restart: unless-stopped
+    memswap_limit: &scheduler-memory 256M  # see webserver
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: *scheduler-memory
           # 231 throttles in 4,164 periods on 0.25 - its jobs touch the
           # same database and services everything else does.
           cpus: '0.5'
@@ -136,6 +144,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    memswap_limit: &worker-load-test-memory 256M  # see webserver
     tty: true
     environment:
       # Docker container marker for entrypoint script
@@ -148,7 +157,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: *worker-load-test-memory
           # Left at a whole core deliberately. It looked wrong sitting
           # above the webserver's 0.5, but the webserver was the thing
           # that was wrong - and a ceiling costs nothing until it is hit,
@@ -172,6 +181,7 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    memswap_limit: &worker-system-memory ${SYSTEM_WORKER_MEMORY:-1G}  # see webserver
     tty: true
     environment:
       # Docker container marker for entrypoint script
@@ -197,7 +207,7 @@ services:
           # a pure read, before a single write - so 256M killed it twelve
           # seconds in, and restart + WORKER_MAX_TRIES made that a retry
           # loop. 0.25 CPU made it slow as well as dead.
-          memory: ${SYSTEM_WORKER_MEMORY:-1G}
+          memory: *worker-system-memory
           cpus: '${SYSTEM_WORKER_CPUS:-1.0}'
     profiles:
       - dev
@@ -215,10 +225,11 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+    memswap_limit: &redis-memory 128M  # see webserver
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: *redis-memory
           cpus: '0.25'
     profiles:
       - dev

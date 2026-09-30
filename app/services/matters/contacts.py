@@ -227,10 +227,7 @@ def _amended(party: Any, payload: AmendContactPayload) -> dict[str, Any]:
 async def _contact_being_amended(db: AsyncSession, party_id: int) -> Any:
     from app.services.matters.service import PartyService
 
-    party = await PartyService(db).get(party_id)
-    if party is None:
-        raise ValueError(f"No contact with id {party_id}")
-    return party
+    return await PartyService(db).require(party_id)
 
 
 async def amend_contact_execute(

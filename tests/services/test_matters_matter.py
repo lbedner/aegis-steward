@@ -45,9 +45,9 @@ class TestAMatter:
             counterpart_party_id=cast["dss"],
             opened_on=date(2026, 8, 20),
         )
+        # the subject and the agency joined as the case opened; the rest
+        # are added
         for party, role in (
-            ("james", "subject"),
-            ("dss", "agency"),
             ("eleanor", "facility"),
             ("leonard", "representative"),
         ):

@@ -1,14 +1,20 @@
 """Building a PydanticAI model for a provider."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
 import importlib
 import os
 from typing import Any
 
 from openai import AsyncOpenAI
+from pydantic_ai.exceptions import ModelHTTPError
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.tools import RunContext
 
 from app.services.ai.config import AIServiceConfig, api_key_env
 from app.services.ai.domains.llm.base import (
@@ -32,17 +38,109 @@ def _get_model_class(provider: AIProvider):
     return getattr(module, spec.model[1])
 
 
+# Models that refused a temperature this process, learned from the refusal
+# (``tolerant``). The prefixes below are the starting guess; this is what a
+# model newer than them teaches (gpt-6.1-sol, 2026-09-30).
+# ponytail: per process - a restart relearns it at the cost of one refused
+# request; persist it on the catalog row if that ever shows up in the logs.
+_REJECTS_TEMPERATURE: set[str] = set()
+
+
+def _bare_name(model: str) -> str:
+    return model.split("/")[-1].split(":")[-1].lower()  # "provider/", "provider:"
+
+
 def _supports_custom_temperature(model: str | None) -> bool:
     """Whether a model accepts a non-default ``temperature``.
 
     OpenAI reasoning models (o1/o3/o4) and the gpt-5 family reject any
     temperature other than the default (1) — sending one returns a 400. Omit
-    temperature for those; every other model accepts a custom value.
+    temperature for those, and for any model that has refused one since
+    this process started; every other model accepts a custom value.
     """
     if not model:
         return True
-    name = model.split("/")[-1].lower()  # strip any "provider/" prefix
-    return not name.startswith(("o1", "o3", "o4", "gpt-5"))
+    name = _bare_name(model)
+    return not (
+        name.startswith(("o1", "o3", "o4", "gpt-5")) or name in _REJECTS_TEMPERATURE
+    )
+
+
+def _refused_temperature(error: ModelHTTPError, settings: ModelSettings) -> bool:
+    """A 400 whose complaint is the temperature this request carried."""
+    return (
+        error.status_code == 400
+        and "temperature" in settings
+        and "temperature" in str(error.body)
+    )
+
+
+def _without_temperature(model_name: str, settings: ModelSettings) -> ModelSettings:
+    """``settings`` minus the temperature ``model_name`` just refused, which
+    it is never sent again."""
+    _REJECTS_TEMPERATURE.add(_bare_name(model_name))
+    kept = dict(settings)
+    kept.pop("temperature", None)
+    return ModelSettings(**kept)  # type: ignore[typeddict-item]
+
+
+class _TemperatureTolerant(WrapperModel):
+    """A model that, refused a temperature, retries the request once
+    without it: a turn on a model the prefix list has not heard of still
+    answers, instead of 400ing every time until somebody edits the list."""
+
+    async def request(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> ModelResponse:
+        try:
+            return await super().request(
+                messages, model_settings, model_request_parameters
+            )
+        except ModelHTTPError as error:
+            if model_settings is None or not _refused_temperature(
+                error, model_settings
+            ):
+                raise
+            settings = _without_temperature(self.model_name, model_settings)
+            return await super().request(messages, settings, model_request_parameters)
+
+    @asynccontextmanager
+    async def request_stream(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+        run_context: RunContext[Any] | None = None,
+    ) -> AsyncIterator[StreamedResponse]:
+        # The refusal comes as the request opens, before anything streams,
+        # so only the opening is retried - never a stream already under way.
+        async with AsyncExitStack() as stack:
+            try:
+                stream = await stack.enter_async_context(
+                    super().request_stream(
+                        messages, model_settings, model_request_parameters, run_context
+                    )
+                )
+            except ModelHTTPError as error:
+                if model_settings is None or not _refused_temperature(
+                    error, model_settings
+                ):
+                    raise
+                settings = _without_temperature(self.model_name, model_settings)
+                stream = await stack.enter_async_context(
+                    super().request_stream(
+                        messages, settings, model_request_parameters, run_context
+                    )
+                )
+            yield stream
+
+
+def tolerant(model: Any) -> Any:
+    """``model``, able to recover from refusing a temperature."""
+    return _TemperatureTolerant(model)
 
 
 def _model_settings(config: Any) -> ModelSettings:
@@ -139,7 +237,7 @@ def model_for(config: AIServiceConfig, settings: Any) -> tuple[Any, str]:
     ``get_agent`` for those.
     """
     if config.provider == AIProvider.OLLAMA:
-        return _ollama_model(config, settings), config.model
+        return tolerant(_ollama_model(config, settings)), config.model
     if config.provider in (AIProvider.PUBLIC, AIProvider.POLLINATIONS):
         raise ProviderError(
             f"model_for() does not support the {config.provider.value} provider; "
@@ -159,8 +257,12 @@ def model_for(config: AIServiceConfig, settings: Any) -> tuple[Any, str]:
     spec = PROVIDERS.get(config.provider)
     if spec is not None and spec.base_url:
         key = config.get_provider_config(settings).api_key
-        return _openai_compatible(config.model, spec.base_url, key), config.model
-    return _get_model_class(config.provider)(model_name=config.model), config.model
+        return tolerant(
+            _openai_compatible(config.model, spec.base_url, key)
+        ), config.model
+    return tolerant(
+        _get_model_class(config.provider)(model_name=config.model)
+    ), config.model
 
 
 def validate_provider_support(provider: AIProvider) -> bool:

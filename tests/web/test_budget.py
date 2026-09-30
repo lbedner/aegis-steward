@@ -11,6 +11,7 @@ import json
 
 from fastapi.testclient import TestClient
 
+from app.services.finance.utils import current_date
 from tests.web.conftest import Budget, Ledger
 from tests.web.dom import none, one, oob, select, text, triggers
 
@@ -174,7 +175,11 @@ class TestLines:
             budget.groceries
         )
         assert one(form, 'input[name="allocated_amount"]').get("value") == "200.00"
-        assert "$45.00" in text(line)  # spent so far
+        # Spent so far this month: the ledger's groceries are $30.00 today
+        # and $15.00 yesterday, and on the 1st yesterday is last month's
+        # (CI, 2026-10-01).
+        spent = 3_000 + (1_500 if current_date().day > 1 else 0)
+        assert f"${spent / 100:,.2f}" in text(line)
         one(line, f'[hx-delete="/budget/lines/{budget.line}"]')
 
     def test_editing_the_amount_swaps_the_row_and_the_strip(
@@ -529,7 +534,10 @@ class TestEnvelopes:
         card = one(saved.text, f"#envelope-{budget.envelope}[hx-swap-oob]")
         assert "from Aug 1" in text(one(card, "[data-pays-for]"))
         form = one(hx.get(f"/budget/envelopes/{budget.envelope}/edit").text, "form")
-        assert one(form, 'input[name="tag_since"][type="date"]').get("value") == "2026-08-01"
+        assert (
+            one(form, 'input[name="tag_since"][type="date"]').get("value")
+            == "2026-08-01"
+        )
 
     def test_unknown_envelope_is_404(self, client: TestClient, ledger: Ledger) -> None:
         assert client.get("/budget/envelopes/999999/credit").status_code == 404
