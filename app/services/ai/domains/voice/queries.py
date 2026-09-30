@@ -5,7 +5,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.models.live_engine import LiveEngine
-from app.services.ai.models.llm import LargeLanguageModel
+from app.services.ai.models.llm import LargeLanguageModel, LLMOrg
 from app.services.ai.models.voice_profile import VoiceProfile
 
 
@@ -66,6 +66,18 @@ async def engine_for_model(session: AsyncSession, model_id: str) -> LiveEngine |
             .where(LargeLanguageModel.model_id == model_id)
         )
     ).first()
+
+
+async def model_vendor(session: AsyncSession, model_id: str) -> tuple[int, str] | None:
+    """A catalog model's id and the slug of the org that serves it."""
+    row = (
+        await session.exec(
+            select(LargeLanguageModel.id, LLMOrg.slug)
+            .join(LLMOrg, col(LargeLanguageModel.served_by_org_id) == LLMOrg.id)
+            .where(LargeLanguageModel.model_id == model_id)
+        )
+    ).first()
+    return (row[0], row[1]) if row and row[0] is not None else None
 
 
 async def catalog_ids(session: AsyncSession, model_ids: list[str]) -> dict[str, int]:

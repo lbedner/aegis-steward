@@ -323,7 +323,7 @@
   const finish = () => {
     if (!call) return;
     clearTimeout(call.closing);
-    call.peer.close();
+    call.peer?.close();
     call = null;
   };
   const hangUp = () => {
@@ -333,7 +333,15 @@
     const live = call.transport === 'gpt_live';
     if (live) try { call.channel.send(JSON.stringify({ type: 'session.close' })); } catch (_) {}
     for (const track of call.stream.getTracks()) track.stop();
-    call.audio.srcObject = null;
+    if (call.audio) call.audio.srcObject = null;
+    if (call.transport === 'relay') {
+      call.ws.close();
+      call.mic?.close();
+      call.speaker?.close();
+      // A turn saved as the call closed never reached this page.
+      const id = call.conversation;
+      setTimeout(() => showTurns(id), REALTIME_SAVE_MS);
+    }
     clearTimeout(call.quiet);
     clearTimeout(call.idle);
     call.closing = setTimeout(finish, live ? CLOSE_WAIT_MS : 0);
@@ -406,7 +414,8 @@
     if (!call || call.closing) return;
     const working = call.working > 0;
     show(phone(), working ? 'working' : 'recording');
-    say(call.muted ? 'muted' : working ? 'working' : 'live');
+    // The step she is running (the relay names it, as the trail will).
+    say(call.muted ? 'muted' : working ? 'working' : 'live', working ? call.step : null);
     if (working) startTyping();
     else stopTyping();
     awake();
@@ -462,14 +471,20 @@
   const followRealtime = (event) => {
     if (event.type === 'session.created') {
       call.channel.send(JSON.stringify({
-        type: 'response.create', response: { instructions: phone().dataset.greeting },
+        // The server's opening: a greeting, or picking up a dropped call.
+        type: 'response.create', response: { instructions: call.greeting || phone().dataset.greeting },
       }));
     } else if (event.type === 'input_audio_buffer.speech_started') {
       awake();
     } else if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
-      call.working += 1;
-      rest();
+      // Her end_call: hang up once this response (her goodbye) is done.
+      if (event.item.name === phone().dataset.endCall) call.ending = true;
+      else {
+        call.working += 1;
+        rest();
+      }
     } else if (event.type === 'response.done') {
+      if (call.ending) setTimeout(hangUp, 2500);
       if (call.working) {
         call.working = 0;
         rest();
@@ -514,6 +529,17 @@
     }
   };
   const dial = async (button) => {
+    // How to dial: WebRTC (GPT-Live, OpenAI realtime) or the relay (Gemini).
+    let route = {};
+    try {
+      const asked = await fetch(button.dataset.engine);
+      if (!asked.ok) throw new Error(`live engine ${asked.status}`);
+      route = await asked.json();
+    } catch (e) {
+      console.warn('[live]', e);
+      return say('offline');
+    }
+    if (route.transport === 'relay') return relay(button);
     if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) return say('unsupported');
     let stream;
     try {
@@ -542,6 +568,7 @@
       const opened = await answer.json();
       call.session = opened.session_id;
       call.transport = opened.transport || 'gpt_live';
+      call.greeting = opened.greeting;
       call.conversation = opened.conversation_id;
       if (opened.conversation_id) conversation().value = opened.conversation_id;
       await peer.setRemoteDescription({ type: 'answer', sdp: opened.sdp });
@@ -553,6 +580,141 @@
     }
     startBar(call.engine);
     rest();
+  };
+  // --- The relay (issue 273): Gemini Live has no WebRTC, so the call's
+  // audio goes through our server's WebSocket. The mic is captured at the
+  // model's input rate (an AudioWorklet, mic-worklet.js) and sent as PCM16;
+  // her voice comes back as PCM16 at its output rate and is scheduled
+  // gap-free. The server says what the call is doing in small JSON events.
+  const FRAME = 640; // samples a frame: 40ms at 16 kHz
+  const pcm16 = (samples) => {
+    const out = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i++) out[i] = Math.max(-1, Math.min(1, samples[i])) * 0x7fff;
+    return out.buffer;
+  };
+  const listen = async (rate) => {
+    call.mic = new AudioContext({ sampleRate: rate });
+    await call.mic.audioWorklet.addModule(phone().dataset.worklet);
+    const node = new AudioWorkletNode(call.mic, 'mic-pcm');
+    let batch = [];
+    node.port.onmessage = ({ data }) => {
+      if (!call || call.muted || call.ws.readyState !== WebSocket.OPEN) return;
+      batch.push(...data);
+      if (batch.length < FRAME) return;
+      call.ws.send(pcm16(batch));
+      batch = [];
+    };
+    call.mic.createMediaStreamSource(call.stream).connect(node);
+  };
+  // Her voice, each chunk queued behind the last; the call shows her
+  // speaking until the queue has played out.
+  const voiceChunk = (data) => {
+    if (!call?.speaker) return;
+    const samples = new Int16Array(data);
+    const buffer = call.speaker.createBuffer(1, samples.length, call.speaker.sampleRate);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) channel[i] = samples[i] / 0x8000;
+    const node = call.speaker.createBufferSource();
+    node.buffer = buffer;
+    node.connect(call.speaker.destination);
+    const at = Math.max(call.speaker.currentTime, call.playhead);
+    node.start(at);
+    call.playhead = at + buffer.duration;
+    call.sources.push(node);
+    node.onended = () => { if (call) call.sources = call.sources.filter((s) => s !== node); };
+    stopTyping();
+    clearTimeout(call.idle);
+    show(phone(), 'speaking');
+    clearTimeout(call.quiet);
+    call.quiet = setTimeout(spoken, (call.playhead - call.speaker.currentTime) * 1000 + 300);
+  };
+  // Her audio has played out: listening again, or - after the sign-off -
+  // hanging up.
+  const spoken = () => {
+    if (!call) return;
+    if (call.signingOff) return hangUp();
+    rest();
+  };
+  // The call is ending (her end_call, or her sign-off): hang up once her
+  // audio has played out, or shortly if none is queued.
+  const signOff = () => {
+    call.signingOff = true;
+    if (!call.sources.length) setTimeout(spoken, 1500);
+  };
+  const hush16 = () => {
+    for (const node of call.sources) try { node.stop(); } catch (_) {}
+    call.sources = [];
+    call.playhead = 0;
+    clearTimeout(call.quiet);
+    rest();
+  };
+  const relayed = async (event) => {
+    if (!call) return;
+    if (event.type === 'ready') {
+      call.ready = true;
+      call.conversation = event.conversation_id;
+      if (event.conversation_id) conversation().value = event.conversation_id;
+      call.speaker = new AudioContext({ sampleRate: event.output_rate });
+      try {
+        await listen(event.input_rate);
+      } catch (e) {
+        console.warn('[live]', e);
+        hangUp();
+        return say('unsupported');
+      }
+      startBar(event.engine);
+      rest();
+    } else if (event.type === 'interrupted') {
+      hush16(); // she was spoken over: drop what was not yet heard
+    } else if (event.type === 'heard') {
+      awake();
+    } else if (event.type === 'said') {
+      if ((event.text || '').includes(phone().dataset.signOff)) signOff();
+    } else if (event.type === 'hang_up') {
+      signOff();
+    } else if (event.type === 'working') {
+      call.working += 1;
+      call.step = event.label;
+      rest();
+    } else if (event.type === 'done' && call.working) {
+      call.working = 0;
+      call.step = null;
+      rest();
+    } else if (event.type === 'saved') {
+      showTurns(call.conversation);
+      // Token-billed: the server prices the call at each saved turn.
+      if (event.cost != null) {
+        field('cost').textContent = `$${event.cost.toFixed(2)}`;
+        field('cost-later').hidden = true;
+      }
+    }
+  };
+  const relay = async (button) => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) return say('unsupported');
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      return say(e.name === 'NotAllowedError' ? 'denied' : 'unsupported');
+    }
+    const url = new URL(button.dataset.relay, location.href);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (conversation()?.value) url.searchParams.set('conversation_id', conversation().value);
+    const ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    call = {
+      ws, stream, transport: 'relay', sources: [], playhead: 0,
+      heard: '', said: '', work: Promise.resolve(), working: 0, quiet: null, idle: null,
+    };
+    show(button, 'thinking');
+    button.setAttribute('aria-pressed', 'true');
+    ws.addEventListener('message', ({ data }) => (typeof data === 'string' ? relayed(JSON.parse(data)) : voiceChunk(data)));
+    ws.addEventListener('close', () => {
+      if (call?.ws !== ws || call.closing) return;
+      const opened = call.ready;
+      hangUp();
+      if (!opened) say('offline');
+    });
   };
   document.addEventListener('click', (event) => {
     if (event.target.closest?.('#chat-mute')) return call && muted(!call.muted);

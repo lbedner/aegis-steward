@@ -376,19 +376,36 @@ async def live_call_seconds(
 REALTIME_ACTION = "realtime"
 
 
+async def realtime_price(model: str) -> LLMPrice | None:
+    """A realtime model's catalog rates, read once when its call opens; None
+    when it cannot be priced (the call goes on either way)."""
+    try:
+        async with get_async_session() as session:
+            return await _latest_price(session, _bare_model_name(model))
+    except Exception as e:
+        logger.error("Failed to price a realtime call", error=str(e))
+        return None
+
+
+def realtime_cost(price: LLMPrice | None, usage: Any) -> float:
+    """A realtime call's cost so far, at ``price`` (``realtime_price``)."""
+    return _realtime_cost(price, usage)
+
+
 async def record_realtime(
     model: str,
     usage: Any,
     *,
     seconds: float,
     conversation_id: str | None,
+    price: LLMPrice | None,
     user_id: str | None = None,
 ) -> None:
     """A Pydantic AI realtime call's row (#273): its tokens, priced at the
-    catalog's rates like every other model call."""
+    catalog's rates like every other model call (``price``, read once when
+    the call opened - ``realtime_price``)."""
     try:
         async with get_async_session() as session:
-            price = await _latest_price(session, _bare_model_name(model))
             session.add(
                 LLMUsage(
                     action=REALTIME_ACTION,

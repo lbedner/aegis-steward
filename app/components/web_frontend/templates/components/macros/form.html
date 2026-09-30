@@ -3,6 +3,7 @@
 
        {% from "components/macros/form.html" import select, date_input, checkbox, search_input %}
 #}
+{% from "components/macros/icons.html" import icon %}
 
 
 {# The section-wide filter: a time window and a set of accounts. Every
@@ -314,10 +315,7 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
   <span x-show="!loading">{{ idle_label }}</span>
   <span x-show="loading" x-cloak class="inline-flex items-center gap-2">
     {# Tailwind's `animate-spin` + a minimal ring-quarter SVG. No deps. #}
-    <svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-    </svg>
+    {{ icon("spinner", "animate-spin w-4 h-4") }}
     {{ loading_label }}
   </span>
 </button>

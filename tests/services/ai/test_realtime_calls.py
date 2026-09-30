@@ -25,7 +25,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.backend.api.ai.router import ai_service
 from app.services.ai import usage_recording
-from app.services.ai.domains.voice.realtime_calls import TurnLog, save_turn
+from app.services.ai.domains.voice.realtime_calls import (
+    CALL_TOOLS,
+    END_CALL,
+    RESUME_WINDOW,
+    TurnLog,
+    resumed,
+    save_turn,
+)
 from app.services.ai.models import AIProvider
 from app.services.ai.models.llm import LLMUsage
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
@@ -82,7 +89,14 @@ class TestATurn:
         assert turn is not None
         heard, said, trace = turn
 
-        await save_turn(conversation.id, heard, said, trace, model="gpt-realtime-2.1")
+        await save_turn(
+            conversation.id,
+            heard,
+            said,
+            trace,
+            model="gpt-realtime-2.1",
+            provider="openai",
+        )
 
         stored = await ai_service.get_conversation(conversation.id)
         user, reply = stored.messages[-2:]
@@ -90,6 +104,123 @@ class TestATurn:
         assert reply.content == "You're $199.39 over."
         assert reply.metadata["tool_trace"][0]["tool"] == "run_code"
         assert reply.metadata["model"] == "gpt-realtime-2.1"
+
+
+class TestHangingUp:
+    """Every realtime call can end itself: a phrase to listen for is one
+    the model can drop (Gemini said "Have a great day!"), a tool is not."""
+
+    def test_every_call_carries_the_end_call_tool(self) -> None:
+        tool = CALL_TOOLS.tools[END_CALL]
+        assert "goodbye" in (tool.description or "")
+
+    def test_ending_the_call_is_not_one_of_her_steps(self) -> None:
+        log = TurnLog()
+        part = ToolCallPart(tool_name=END_CALL, args={}, tool_call_id="e1")
+        for event in (
+            PartEndEvent(index=0, part=SpeechPart(speaker="user", transcript="Bye")),
+            FunctionToolCallEvent(part=part),
+            FunctionToolResultEvent(
+                part=ToolReturnPart(tool_name=END_CALL, content="ok", tool_call_id="e1")
+            ),
+            RealtimeTurnCompleteEvent(),
+        ):
+            log.observe(event)
+        turn = log.take()
+        assert turn is not None and turn[2] == []
+
+
+class TestACutCall:
+    """A call can drop mid-answer (a restart, the network, a hang-up). What
+    was said and run so far is kept, marked, and a call soon after picks
+    up where it stopped."""
+
+    @pytest.mark.asyncio
+    async def test_a_turn_cut_off_is_kept_and_marked(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        from app.services.ai.domains.voice.realtime_calls import drive
+        from tests._realtime import FakeRealtime
+
+        monkeypatch.setattr(
+            usage_recording, "get_async_session", opens(async_db_session)
+        )
+        await seed_voice_catalog(async_db_session)
+        conversation = await ai_service.conversation_manager.create_conversation(
+            provider=AIProvider.GOOGLE,
+            model="gemini-3.8-live",
+            user_id=STANDALONE_USER_ID,
+            surface="finance",
+        )
+        realtime = FakeRealtime(_turn()[:2])  # you asked; she started working
+
+        async def hang_up(session: object) -> None:
+            await asyncio.sleep(0.05)
+            await session.close()  # type: ignore[attr-defined]
+
+        await drive(
+            realtime,
+            conversation_id=conversation.id,
+            model="google:gemini-3.8-live",
+            agent_slug="finance-voice",
+            user_id=STANDALONE_USER_ID,
+            alongside=hang_up,
+        )
+
+        stored = await ai_service.get_conversation(conversation.id)
+        user, reply = stored.messages[-2:]
+        assert user.content == "How much is left?"
+        assert reply.metadata["interrupted"] is True
+        assert [step["tool"] for step in reply.metadata["tool_trace"]] == ["run_code"]
+
+    @pytest.mark.asyncio
+    async def test_a_call_soon_after_picks_up_the_question(self) -> None:
+        from datetime import UTC, datetime
+
+        conversation = await ai_service.conversation_manager.create_conversation(
+            provider=AIProvider.GOOGLE,
+            model="gemini-3.8-live",
+            user_id=STANDALONE_USER_ID,
+            surface="finance",
+        )
+        await save_turn(
+            conversation.id,
+            "How much is left?",
+            "",
+            [],
+            model="gemini-3.8-live",
+            provider="google",
+            interrupted=True,
+        )
+        stored = await ai_service.get_conversation(conversation.id)
+        at = stored.messages[-1].timestamp
+        at = at if at.tzinfo else at.replace(tzinfo=UTC)
+
+        assert resumed(stored, now=at) == "How much is left?"
+        # after the window it is a new call, not a dropped one
+        assert resumed(stored, now=at + RESUME_WINDOW * 2) is None
+        assert resumed(stored, now=datetime.now(UTC) + RESUME_WINDOW * 2) is None
+
+    @pytest.mark.asyncio
+    async def test_a_finished_turn_is_not_picked_up(self) -> None:
+        conversation = await ai_service.conversation_manager.create_conversation(
+            provider=AIProvider.GOOGLE,
+            model="gemini-3.8-live",
+            user_id=STANDALONE_USER_ID,
+            surface="finance",
+        )
+        await save_turn(
+            conversation.id,
+            "How much is left?",
+            "You're $199.39 over.",
+            [],
+            model="gemini-3.8-live",
+            provider="google",
+        )
+        stored = await ai_service.get_conversation(conversation.id)
+        assert resumed(stored) is None
 
 
 class TestTheLedger:
@@ -115,7 +246,11 @@ class TestTheLedger:
         )
 
         await usage_recording.record_realtime(
-            "gpt-realtime-2.1", usage, seconds=49.9, conversation_id="c-1"
+            "gpt-realtime-2.1",
+            usage,
+            seconds=49.9,
+            conversation_id="c-1",
+            price=await usage_recording.realtime_price("gpt-realtime-2.1"),
         )
 
         (row,) = (await async_db_session.exec(select(LLMUsage))).all()
@@ -131,3 +266,99 @@ class TestTheLedger:
         )
         assert (row.input_tokens, row.output_tokens, row.tool_calls) == (15_299, 887, 2)
         assert row.audio_seconds == pytest.approx(49.9)
+
+
+class TestTheSettings:
+    """Each provider's session settings, from one place."""
+
+    def test_openai_speaks_her_voice_and_transcribes_what_you_said(self) -> None:
+        from app.services.ai.domains.voice.realtime_calls import (
+            INPUT_TRANSCRIPTION,
+            _model_settings,
+        )
+
+        assert _model_settings("openai:gpt-realtime-2.1", "cedar", 1200) == {
+            "openai_voice": "cedar",
+            "input_transcription_model": INPUT_TRANSCRIPTION,
+            "max_tokens": 1200,
+        }
+
+    def test_gemini_keeps_its_own_voice_and_transcription(self) -> None:
+        """Gemini transcribes by default and has no OpenAI voices; sending
+        OpenAI's settings would name a voice it does not have."""
+        from app.services.ai.domains.voice.realtime_calls import _model_settings
+
+        assert _model_settings("google:gemini-3.8-live", "cedar", 1200) == {
+            "max_tokens": 1200
+        }
+
+
+class TestDrivingACall:
+    """``drive`` runs a call to its end, whichever way its audio travels."""
+
+    @pytest.mark.asyncio
+    async def test_it_saves_each_turn_tells_the_page_and_prices_the_call(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import asyncio
+
+        from app.services.ai.domains.voice.realtime_calls import drive
+        from tests._realtime import FakeRealtime
+
+        monkeypatch.setattr(
+            usage_recording, "get_async_session", opens(async_db_session)
+        )
+        await seed_voice_catalog(async_db_session)
+        conversation = await ai_service.conversation_manager.create_conversation(
+            provider=AIProvider.GOOGLE,
+            model="gemini-3.8-live",
+            user_id=STANDALONE_USER_ID,
+            surface="finance",
+        )
+        realtime = FakeRealtime(_turn())
+        seen: list[object] = []
+        saved: list[bool] = []
+        beside: list[object] = []
+
+        async def alongside(session: object) -> None:
+            beside.append(session)
+            await asyncio.sleep(0)
+            await session.close()  # type: ignore[attr-defined]
+
+        async def on_event(event: object) -> None:
+            seen.append(event)
+
+        async def on_saved(cost: float) -> None:
+            saved.append(cost)
+
+        await drive(
+            realtime,
+            conversation_id=conversation.id,
+            model="google:gemini-3.8-live",
+            agent_slug="finance-voice",
+            user_id=STANDALONE_USER_ID,
+            alongside=alongside,
+            on_event=on_event,
+            on_saved=on_saved,
+        )
+
+        assert realtime.provider_session is None  # the relay's own session
+        assert beside == [realtime.live]
+        assert len(seen) == len(_turn()) and len(saved) == 1
+        assert saved[0] > 0  # the call's running cost, for the call bar
+        stored = await ai_service.get_conversation(conversation.id)
+        reply = stored.messages[-1]
+        assert reply.content == "You're $199.39 over."
+        assert (reply.metadata["provider"], reply.metadata["model"]) == (
+            "google",
+            "gemini-3.8-live",
+        )
+        # the turn's own share of the call, for its footer, like a typed turn
+        assert (reply.metadata["input_tokens"], reply.metadata["output_tokens"]) == (
+            100,
+            40,
+        )
+        assert reply.metadata["cost"] == pytest.approx(saved[0])
+        (row,) = (await async_db_session.exec(select(LLMUsage))).all()
+        assert (row.action, row.model_id) == ("realtime", "gemini-3.8-live")
+        assert row.total_cost > 0  # priced at the catalog's Gemini rates

@@ -48,4 +48,13 @@ ENGINE_SEEDS: tuple[dict[str, Any], ...] = (
         "max_output_tokens": REALTIME_REPLY_CAP,
         "sort_order": 2,
     },
+    {
+        "key": "gemini-live",
+        "transport": "relay",
+        "model": "gemini-3.8-live",
+        "note": "turn-taking, her agent's own brain, through our server",
+        "instructions": FINANCE_REALTIME_INSTRUCTIONS,
+        "max_output_tokens": REALTIME_REPLY_CAP,
+        "sort_order": 3,
+    },
 )

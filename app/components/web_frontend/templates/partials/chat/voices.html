@@ -2,6 +2,7 @@
    preview; switch, make one from the active, or edit one. ``view`` picks
    the piece: the composer's chip, the list, or one voice's form.
    Previews play through voice.js's Listen handler ([data-speak]). #}
+{% from "components/macros/icons.html" import icon %}
 {% from "components/macros/chat.html" import voice_chip, speak_button %}
 {% from "components/macros/form.html" import action, field, text_input, select, textarea, primary_button, control %}
 {% from "components/macros/feedback.html" import error_banner, empty_state %}
@@ -25,7 +26,7 @@
         <span class="block text-xs text-aegis-muted truncate">{{ voice.tts_voice }} · {{ voice.tts_model }} · {{ voice.tts_speed }}×{% if voice.tts_instructions %} · styled{% endif %}</span>
       </span>
       {% if voice.is_active %}
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4 text-aegis-teal shrink-0" aria-label="In use"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+      {{ icon("check", "w-4 h-4 text-aegis-teal shrink-0", 2, '', label="In use") }}
       {% else %}
       {{ action("Use", hx_dialog_post(path ~ "/" ~ voice.id ~ "/active")) }}
       {% endif %}

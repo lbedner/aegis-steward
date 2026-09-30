@@ -39,6 +39,7 @@ class TestTheRows:
             "gpt-live",
             "gpt-realtime-2.1",
             "gpt-realtime-2.1-mini",
+            "gemini-live",
         ]
         assert live_engines.DEFAULT == "gpt-live"
 
@@ -121,3 +122,59 @@ class TestResolving:
 
         found = await live_engines.resolve(async_db_session, "gpt-realtime-2.1")
         assert found is not None and found.key == live_engines.DEFAULT
+
+
+class TestChoosing:
+    @pytest.mark.asyncio
+    async def test_a_gemini_model_is_reached_through_the_relay(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Picking a Gemini Live model with no engine makes one that the
+        phone reaches through our server, talking like the seeded relay."""
+        from app.services.ai.models.llm import LargeLanguageModel, LLMOrg
+
+        await seed_voice_catalog(async_db_session)
+        google = (
+            await async_db_session.exec(select(LLMOrg).where(LLMOrg.slug == "google"))
+        ).one()
+        async_db_session.add(
+            LargeLanguageModel(
+                model_id="gemini-3.1-flash-live-preview",
+                title="Gemini 3.1 Flash Live",
+                mode="realtime",
+                served_by_org_id=google.id,
+            )
+        )
+        await async_db_session.commit()
+
+        made = await live_engines.choose(
+            async_db_session, "gemini-3.1-flash-live-preview", ENGINE_SEEDS
+        )
+
+        assert made is not None and made.transport == "relay"
+        seeded = next(s for s in ENGINE_SEEDS if s["transport"] == "relay")
+        assert made.instructions == seeded["instructions"]
+
+    @pytest.mark.asyncio
+    async def test_a_vendor_no_call_can_reach_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.ai.models.llm import LargeLanguageModel, LLMOrg
+
+        xai = LLMOrg(slug="xai", name="xai")
+        async_db_session.add(xai)
+        await async_db_session.flush()
+        async_db_session.add(
+            LargeLanguageModel(
+                model_id="grok-voice",
+                title="Grok Voice",
+                mode="realtime",
+                served_by_org_id=xai.id,
+            )
+        )
+        await async_db_session.commit()
+
+        assert (
+            await live_engines.choose(async_db_session, "grok-voice", ENGINE_SEEDS)
+            is None
+        )

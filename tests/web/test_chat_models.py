@@ -19,7 +19,7 @@ from app.core.db import get_async_session
 from app.services.ai.domains.voice import profiles
 from app.services.ai.models.live_engine import LiveEngine
 from app.services.ai.models.voice_profile import VoiceProfile
-from tests._voice_catalog import VOICE_MODELS
+from tests._voice_catalog import VOICE_MODELS, VOICED
 from tests.web.dom import none, one, select, text, triggers
 
 TITLES = {m["model_id"]: m["title"] for m in VOICE_MODELS}
@@ -81,19 +81,21 @@ def catalog(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
     async def models(mode: str = "chat", **_: Any) -> list[Any]:
         if mode == "realtime":
+            voiced = [(vendor, m) for vendor, m in VOICED if m["mode"] == "realtime"]
+            # A routed copy of a live model: in the catalog, never callable.
+            voiced.append(("google", {**voiced[-1][1], "model_id": "gemini/copy"}))
             return [
                 llm.ModelResponse(
                     model_id=m["model_id"],
                     title=m["title"],
-                    vendor="openai",
+                    vendor=vendor,
                     context_window=m["context_window"],
                     input_price=None,
                     output_price=None,
                     released_on=None,
                     per_minute=0.05 if m["model_id"] == "gpt-live-1" else None,
                 )
-                for m in VOICE_MODELS
-                if m["mode"] == "realtime"
+                for vendor, m in voiced
             ]
         return [
             llm.ModelResponse(
@@ -283,6 +285,18 @@ class TestTheLiveRole:
         assert {
             i.get("value") for i in select(html, "input[name=show][type=hidden]")
         } == {show}
+
+    def test_every_vendor_a_call_reaches_and_only_its_own_ids(
+        self, hx: TestClient, catalog: dict[str, Any], live: int
+    ) -> None:
+        """OpenAI's live models and Gemini's (through the relay); the
+        catalog's routed copies ("gemini/...") are not callable."""
+        html = hx.get(MODELS, params={"show": "voice"}).text
+        ids = {
+            b.get("data-model-id") for b in select(html, "button[data-kind=realtime]")
+        }
+        assert "gemini-3.8-live" in ids and "gpt-realtime-2.1" in ids
+        assert "gemini/copy" not in ids
 
     def test_a_live_model_is_priced_by_the_minute(
         self, hx: TestClient, catalog: dict[str, Any], live: int

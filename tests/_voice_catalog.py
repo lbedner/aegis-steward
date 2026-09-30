@@ -14,37 +14,56 @@ from app.services.ai.fixtures.llm_catalog import MODELS, PRICES
 from app.services.ai.fixtures.llm_fixtures import price_row
 from app.services.ai.models.llm import LargeLanguageModel, LLMOrg
 
-VENDOR = "openai"
-VOICE_MODELS = [m for m in MODELS[VENDOR] if m.get("mode", "chat") != "chat"]
+# Every vendor's voice models, as (vendor, model) pairs.
+VOICED = [
+    (vendor, model)
+    for vendor, models in MODELS.items()
+    for model in models
+    if model.get("mode", "chat") != "chat"
+]
+VOICE_MODELS = [model for _, model in VOICED]
 
 
 async def seed_voice_catalog(session: AsyncSession) -> None:
-    org = (await session.exec(select(LLMOrg).where(LLMOrg.slug == VENDOR))).first()
-    if org is None:
-        org = LLMOrg(slug=VENDOR, name=VENDOR)
-        session.add(org)
-        await session.flush()
-    assert org.id is not None
-    ids = [m["model_id"] for m in VOICE_MODELS]
+    """Every vendor's voice models and their prices; one read per table."""
+    vendors = list(dict.fromkeys(vendor for vendor, _ in VOICED))
+    orgs = {
+        org.slug: org
+        for org in (
+            await session.exec(select(LLMOrg).where(col(LLMOrg.slug).in_(vendors)))
+        ).all()
+    }
+    missing = [
+        LLMOrg(slug=vendor, name=vendor) for vendor in vendors if vendor not in orgs
+    ]
+    session.add_all(missing)
+    await session.flush()
+    orgs.update({org.slug: org for org in missing})
     have = set(
         (
             await session.exec(
                 select(LargeLanguageModel.model_id).where(
-                    col(LargeLanguageModel.model_id).in_(ids)
+                    col(LargeLanguageModel.model_id).in_(
+                        [model["model_id"] for model in VOICE_MODELS]
+                    )
                 )
             )
         ).all()
     )
     added = [
-        LargeLanguageModel(served_by_org_id=org.id, **m)
-        for m in VOICE_MODELS
-        if m["model_id"] not in have
+        (vendor, LargeLanguageModel(served_by_org_id=orgs[vendor].id, **model))
+        for vendor, model in VOICED
+        if model["model_id"] not in have
     ]
-    session.add_all(added)
+    session.add_all(model for _, model in added)
     await session.flush()
     session.add_all(
-        price_row(PRICES[(VENDOR, m.model_id)], org_id=org.id, llm_id=m.id)
-        for m in added
-        if m.id is not None
+        price_row(
+            PRICES[(vendor, model.model_id)],
+            org_id=orgs[vendor].id or 0,
+            llm_id=model.id,
+        )
+        for vendor, model in added
+        if model.id is not None
     )
     await session.commit()

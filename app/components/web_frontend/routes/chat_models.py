@@ -189,21 +189,30 @@ def _recent(
     ]
 
 
+def _callable(model: Any, kind: str) -> bool:
+    """A live model must be one a call can reach: its vendor has a
+    transport (``CALL_TRANSPORTS``), and its id is the vendor's own - the
+    catalog's routed copies ("gemini/...", "vertex_ai/...") are not."""
+    if kind != "realtime":
+        return True
+    return model.vendor in live_engines.CALL_TRANSPORTS and "/" not in model.model_id
+
+
 async def _catalog(kind: str) -> list[dict[str, Any]]:
     # Every argument spelled out: called in-process, the handler's Query
-    # defaults are not values. A live model must be one a browser call
-    # can reach (``CALL_VENDOR``).
+    # defaults are not values.
     return [
         m.model_dump()
         for m in await get_models(
             pattern=None,
-            vendor=live_engines.CALL_VENDOR if kind == "realtime" else None,
+            vendor=None,
             modality=None,
             limit=CATALOG_LIMIT,
             include_disabled=False,
             usable=True,
             mode=kind,
         )
+        if _callable(m, kind)
     ]
 
 

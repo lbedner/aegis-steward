@@ -20,12 +20,13 @@ from app.services.ai.domains.llm.queries import latest_prices_by_llm_ids
 from app.services.ai.domains.voice import queries
 from app.services.ai.models.live_engine import LiveEngine
 
-Transport = Literal["gpt_live", "realtime"]
+Transport = Literal["gpt_live", "realtime", "relay"]
 DEFAULT = "gpt-live"
-# Whose realtime models a browser call can reach: the phone answers a
-# WebRTC offer, which Pydantic AI speaks for OpenAI (and Azure) only.
-# ponytail: Gemini Live needs a server-side audio bridge (WebSocket) first.
-CALL_VENDOR = "openai"
+# Whose realtime models a browser call can reach, and how. Pydantic AI
+# answers the browser's WebRTC offer for OpenAI, so audio goes straight
+# there ("realtime"); Gemini Live speaks only a WebSocket holding the key,
+# so our server carries the audio both ways ("relay", chat_live.py).
+CALL_TRANSPORTS: dict[str, Transport] = {"openai": "realtime", "google": "relay"}
 
 enabled = queries.enabled_engines
 
@@ -63,19 +64,22 @@ async def choose(
     it was turned off, or made on the spot: the seeded engine of its
     transport lends its instructions and reply cap, so a new pick talks
     like a call at once and is tuned on its row afterwards. None when the
-    catalog lacks the model."""
+    catalog lacks the model or no call can reach its vendor."""
     engine = await queries.engine_for_model(session, model_id)
     if engine is None:
-        ids = await queries.catalog_ids(session, [model_id])
-        if model_id not in ids:
+        found = await queries.model_vendor(session, model_id)
+        if found is None or found[1] not in CALL_TRANSPORTS:
             return None
+        llm_id, vendor = found
         # GPT-Live is its own API (our client delegation); every other
-        # realtime model runs her agent itself.
-        transport = "gpt_live" if model_id.startswith("gpt-live") else "realtime"
+        # realtime model runs her agent itself, by its vendor's transport.
+        transport = (
+            "gpt_live" if model_id.startswith("gpt-live") else CALL_TRANSPORTS[vendor]
+        )
         template = next(seed for seed in seeds if seed["transport"] == transport)
         engine = LiveEngine(
             key=model_id,
-            llm_id=ids[model_id],
+            llm_id=llm_id,
             transport=transport,
             instructions=template.get("instructions"),
             max_output_tokens=template.get("max_output_tokens"),

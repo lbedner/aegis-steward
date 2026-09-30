@@ -21,16 +21,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import JSONResponse, Response
 
 from app.components.backend.api.ai.router import ai_service, sync_active_model
-from app.components.backend.api.finance.changes import (
-    approve_batch,
-    approve_change,
-    get_batch,
-    get_change,
-    reject_batch,
-    reject_change,
-)
 from app.components.backend.api.llm.routes import (
-    vendor_icons,
+    vendor_icon_urls,
 )
 from app.components.web_frontend.chat_markers import components
 from app.components.web_frontend.filters import assistant
@@ -41,8 +33,6 @@ from app.components.web_frontend.rendering import (
     or_404,
     render,
     templates,
-    trigger,
-    with_toast,
 )
 from app.core.chat_transcript import (
     footer_line,
@@ -57,13 +47,7 @@ from app.services.ai.domains.chat.attachments import lift_pastes
 from app.services.ai.domains.llm.picker import (
     is_local_model,
 )
-from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
-from app.services.finance.schemas.changes import (
-    BatchResolveRequest,
-    PendingChangeResponse,
-)
-from app.services.finance.service import FinanceService
 
 SECTION = section("chat")
 router = APIRouter()
@@ -132,112 +116,6 @@ def trail(
 
 COMPONENTS = SECTION.path + "/components"
 
-
-STATUS_COPY = {
-    "pending": ("Awaiting your approval", "warn"),
-    "approved": ("Approved", "ok"),
-    "rejected": ("Rejected", "error"),
-    "withdrawn": ("Withdrawn", "muted"),
-    "expired": ("Expired", "muted"),
-}
-
-
-def status_of(change: PendingChangeResponse) -> tuple[str, str, str | None]:
-    """The status word to show, its tone, and a note under it. A
-    withdrawal lands in the queue as a rejection with a note, so the
-    audit trail stays one shape; on the card it is the assistant taking
-    its own proposal back, and its reason is the line worth reading."""
-    status = change.status
-    note = change.note
-    if status == "rejected" and note and note.startswith("Withdrawn"):
-        status = "withdrawn"
-    else:
-        note = None
-    label, tone = STATUS_COPY.get(status, (status.title(), "muted"))
-    return label, tone, note
-
-
-def change_card(change: PendingChangeResponse) -> dict[str, Any]:
-    label, tone, note = status_of(change)
-    return {
-        "change": change,
-        "status": label,
-        "tone": tone,
-        "note": note,
-        "pending": change.status == "pending",
-    }
-
-
-def same_change(change: PendingChangeResponse) -> tuple[Any, ...]:
-    """What makes two proposals THE SAME proposal, for grouping.
-
-    Everything the card says except which row it is about: the payee and
-    every label/value line under the subject. Seventy-one rows tagged
-    Pool Loan differ only in a date, and reading seventy-one of them is
-    not review, it is scrolling.
-
-    The payee is part of it because the group's summary NAMES one, and
-    "71 transactions · GreenSky" is only true if they all are.
-    """
-    return (
-        change.payee,
-        tuple((row.label, row.value) for row in change.display[1:]),
-    )
-
-
-def group_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Rows folded into groups of identical changes, in first-seen order.
-
-    A group carries the rows themselves, so the per-row veto survives
-    behind an expander: what collapses is the READING, never the
-    control. One row is never a group - a wrapper around a single thing
-    is just another thing to open.
-    """
-    order: list[tuple[Any, ...]] = []
-    found: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-    for row in rows:
-        key = same_change(row["change"])
-        if key not in found:
-            order.append(key)
-            found[key] = []
-        found[key].append(row)
-    return [summarize(found[key]) for key in order]
-
-
-def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """One group: what its rows have in common, and what varies."""
-    first = rows[0]["change"]
-    subjects = [r["change"].display[0] for r in rows if r["change"].display]
-    amounts = [s.amount for s in subjects if s.amount is not None]
-    dates = sorted(s.at for s in subjects if s.at)
-    return {
-        "rows": rows,
-        "change": first,
-        "count": len(rows),
-        # The number worth seeing before approving seventy-one of
-        # anything, and the one the card never showed.
-        "total": sum(amounts) if len(amounts) == len(rows) else None,
-        "span": (dates[0], dates[-1]) if dates else None,
-        "pending": any(r["pending"] for r in rows),
-        "single": len(rows) == 1,
-    }
-
-
-def batch_card(batch_id: str, items: list[PendingChangeResponse]) -> dict[str, Any]:
-    rows = [change_card(c) for c in items]
-    counts: dict[str, int] = {}
-    for row in rows:
-        counts[row["status"].lower()] = counts.get(row["status"].lower(), 0) + 1
-    return {
-        "batch_id": batch_id,
-        "title": items[0].title if items else "",
-        "rows": rows,
-        "groups": group_rows(rows),
-        "pending": any(r["pending"] for r in rows),
-        "outcome": ", ".join(f"{n} {word}" for word, n in sorted(counts.items())),
-    }
-
-
 ATTACHMENTS = SECTION.path + "/attachments"
 PASTES = SECTION.path + "/pastes"
 SPEECH = SECTION.path + "/speech"  # routes/chat_speech.py
@@ -261,8 +139,9 @@ def attachment_url(stored: dict[str, Any]) -> str:
 
 
 async def model_icons(messages: list[Any]) -> dict[str, str]:
-    """``{provider: base64 png}`` for the providers that answered these
-    messages, from the same icon store the picker's vendors use."""
+    """``{provider: icon URL}`` for the providers that answered these
+    messages, from the same icon store the picker's vendors use. A URL,
+    not the bytes: a long thread inlined one logo hundreds of times."""
     providers = sorted(
         {
             str((m.metadata or {}).get("provider"))
@@ -270,7 +149,7 @@ async def model_icons(messages: list[Any]) -> dict[str, str]:
             if (m.metadata or {}).get("provider")
         }
     )
-    return await vendor_icons(providers) if providers else {}
+    return await vendor_icon_urls(providers) if providers else {}
 
 
 def settled(
@@ -280,7 +159,7 @@ def settled(
     meta = message.metadata or {}
     trace = meta.get("tool_trace") or []
     return {
-        "model_icon_b64": (icons or {}).get(str(meta.get("provider") or "")),
+        "model_icon": (icons or {}).get(str(meta.get("provider") or "")),
         # The images a user message carried, served by key so a reopened
         # conversation still shows what was pasted.
         "attachments": [
@@ -328,13 +207,36 @@ async def _conversations() -> list[Any]:
     return await ai_service.list_conversations(STANDALONE_USER_ID, surface=SURFACE)
 
 
-async def _transcript(conversation: Any | None) -> dict[str, Any]:
+# A thread opens on its latest messages, and earlier ones come a page at a
+# time from a row at the top: rendering all of a long one made the chat
+# page megabytes (493 messages, 2.6 MB, 2026-09-28).
+THREAD_PAGE = 40
+
+
+def earlier_url(conversation_id: str, before: str) -> str:
+    return f"{SECTION.path}/conversations/{conversation_id}/earlier?before={before}"
+
+
+async def _transcript(
+    conversation: Any | None, before: str | None = None
+) -> dict[str, Any]:
+    """A page of the thread: the latest messages, or those just before
+    ``before`` (a message id); ``earlier`` is where the page before it
+    loads from, when there is one."""
     if conversation is None:
         return {"conversation_id": None, "messages": []}
-    icons = await model_icons(conversation.messages)
+    messages = conversation.messages
+    if before:
+        ids = [m.id for m in messages]
+        messages = messages[: ids.index(before)] if before in ids else []
+    page = messages[-THREAD_PAGE:]
+    icons = await model_icons(page)
     return {
         "conversation_id": conversation.id,
-        "messages": [settled(m, conversation.id, icons) for m in conversation.messages],
+        "messages": [settled(m, conversation.id, icons) for m in page],
+        "earlier": earlier_url(conversation.id, page[0].id)
+        if len(messages) > len(page)
+        else None,
     }
 
 
@@ -405,6 +307,24 @@ async def load_conversation(request: Request, conversation_id: str) -> Response:
         },
     )
     return close_dialog(response)
+
+
+@router.get(
+    SECTION.path + "/conversations/{conversation_id}/earlier",
+    include_in_schema=False,
+)
+async def earlier(request: Request, conversation_id: str, before: str) -> Response:
+    """The page of the thread before ``before``, in place of the row that
+    asked for it (and the next such row, when there is more)."""
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/chat/transcript.html",
+        context={
+            "assistant": ASSISTANT_NAME,
+            "page": True,
+            **await _transcript(await owned(conversation_id), before),
+        },
+    )
 
 
 @router.post(SECTION.path + "/turns", include_in_schema=False)
@@ -520,165 +440,6 @@ async def message(request: Request, conversation_id: str, message_id: str) -> Re
             "message": settled(found, conversation_id, await model_icons([found])),
         },
     )
-
-
-def _gone(request: Request) -> Response:
-    """The answer for a card whose subject is no longer there.
-
-    A transcript is a record and the queue moves on: a proposal gets
-    purged, or a whole ledger is replaced under one. The card loads
-    itself when the page opens, so a 404 here reaches the reader as an
-    error toast every single visit — for something that is simply
-    history. It says so instead, and stays a 200.
-    """
-    return templates.TemplateResponse(request=request, name="partials/chat/gone.html")
-
-
-async def _card(
-    request: Request,
-    name: str,
-    card: dict[str, Any],
-    service: FinanceService,
-    owner_user_id: int | None,
-) -> Response:
-    """A card, and when the page behind it is a Review queue, that page's
-    counts out of band: a decision made in the drawer must reach the tab
-    bar the reader is looking at. The tab stays whichever one shows."""
-    from app.components.web_frontend.routes.finance import review
-
-    context: dict[str, Any] = {"card": card, "base": COMPONENTS}
-    current = request.headers.get("HX-Current-URL", "")
-    path = current.split("//", 1)[-1].split("/", 1)[-1] if "//" in current else current
-    if ("/" + path).startswith(review.SECTION.path):
-        tab = next(
-            (
-                key
-                for key, _l, suffix in review.QUEUES
-                if ("/" + path).startswith(review.SECTION.path + suffix) and suffix
-            ),
-            "approvals",
-        )
-        context.update(
-            await review.nav_context(service, owner_user_id, tab), nav_oob=True
-        )
-    return templates.TemplateResponse(request=request, name=name, context=context)
-
-
-@router.get(COMPONENTS + "/change/{change_id:int}", include_in_schema=False)
-async def change_component(
-    request: Request,
-    change_id: int,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    try:
-        change = await get_change(
-            change_id, service=service, owner_user_id=owner_user_id
-        )
-    except HTTPException as exc:
-        if exc.status_code != 404:
-            raise
-        return _gone(request)
-    return await _card(
-        request,
-        "partials/chat/change.html",
-        change_card(change),
-        service,
-        owner_user_id,
-    )
-
-
-@router.post(COMPONENTS + "/change/{change_id:int}/{verb}", include_in_schema=False)
-async def resolve_change_component(
-    request: Request,
-    change_id: int,
-    verb: str,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    """The card re-renders from whatever the queue says afterwards, never
-    an optimistic guess."""
-    handler = {"approve": approve_change, "reject": reject_change}.get(verb)
-    or_404(handler)
-    refused: str | None = None
-    try:
-        change = await handler(change_id, service=service, owner_user_id=owner_user_id)
-    except HTTPException as exc:
-        # A refused execution is an ANSWER, not a failure to respond.
-        # The queue already recorded why and left the row pending (the
-        # decision is still the user's), but a 400 does not swap - see
-        # the htmx-config responseHandling - so letting it out meant
-        # clicking Approve did nothing at all, forever, with no hint
-        # that the split did not add up. Re-render the card: it carries
-        # the recorded error, and the toast says it out loud.
-        refused = str(exc.detail)
-        await service.db.commit()
-        change = await get_change(
-            change_id, service=service, owner_user_id=owner_user_id
-        )
-    await service.db.commit()
-    response = await _card(
-        request,
-        "partials/chat/change.html",
-        change_card(change),
-        service,
-        owner_user_id,
-    )
-    if refused is not None:
-        return with_toast(response, refused, tone="error")
-    # So the page behind can redraw what it changed (pages/contact.html).
-    return trigger(response, "change:resolved")
-
-
-@router.get(COMPONENTS + "/batch/{batch_id}", include_in_schema=False)
-async def batch_component(
-    request: Request,
-    batch_id: str,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    listing = await get_batch(batch_id, service=service, owner_user_id=owner_user_id)
-    if not listing.items:
-        return _gone(request)
-    return await _card(
-        request,
-        "partials/chat/batch.html",
-        batch_card(batch_id, listing.items),
-        service,
-        owner_user_id,
-    )
-
-
-@router.post(COMPONENTS + "/batch/{batch_id}/{verb}", include_in_schema=False)
-async def resolve_batch_component(
-    request: Request,
-    batch_id: str,
-    verb: str,
-    exclude_ids: Annotated[list[int], Form()] = [],
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    if verb == "approve":
-        await approve_batch(
-            batch_id,
-            BatchResolveRequest(exclude_ids=exclude_ids),
-            service=service,
-            owner_user_id=owner_user_id,
-        )
-    elif verb == "reject":
-        await reject_batch(batch_id, service=service, owner_user_id=owner_user_id)
-    else:
-        raise HTTPException(status_code=404)
-    await service.db.commit()
-    listing = await get_batch(batch_id, service=service, owner_user_id=owner_user_id)
-    response = await _card(
-        request,
-        "partials/chat/batch.html",
-        batch_card(batch_id, listing.items),
-        service,
-        owner_user_id,
-    )
-    return trigger(response, "change:resolved")
 
 
 @router.get(

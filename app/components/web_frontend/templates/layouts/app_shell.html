@@ -12,6 +12,7 @@
    Local UI state (the mobile drawer, the Illiana drawer) lives on this
    wrapper as the ``shell`` Alpine component (app.js), so the sidebar,
    scrim, toggle and drawer share it without a global store. #}
+{% from "components/macros/icons.html" import icon %}
 {% extends "base.html" %}
 {% from "components/macros/layout.html" import dialog %}
 
@@ -51,10 +52,7 @@
               aria-controls="sidebar"
               aria-label="Toggle navigation"
               class="md:hidden flex items-center justify-center w-8 h-8 text-aegis-muted hover:text-aegis-text transition-colors">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-             stroke-width="1.75" stroke="currentColor" class="w-5 h-5" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
-        </svg>
+        {{ icon("bars", "w-5 h-5", 1.75) }}
       </button>
     </div>
 

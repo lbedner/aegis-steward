@@ -22,6 +22,7 @@ from app.components.web_frontend.routes.chat_live import (
     LIVE_SORRY,
     SESSIONS,
 )
+from app.services.ai.domains.voice.realtime_calls import END_CALL
 from app.services.ai.models import StreamingMessage
 from app.services.finance.domains.detection.analyst.live_engines import (
     REALTIME_REPLY_CAP,
@@ -266,6 +267,8 @@ class TestHangingUp:
         assert chat_live.LIVE_SIGN_OFF in FINANCE_LIVE_INSTRUCTIONS
         button = one(client.get("/chat").text, "button#chat-live")
         assert button.get("data-sign-off") == chat_live.LIVE_SIGN_OFF
+        # a realtime call ends on her tool; the page knows its name
+        assert button.get("data-end-call") == END_CALL
         # What she says when the page has no answer: the server's words.
         assert button.get("data-sorry") == LIVE_SORRY
         assert button.get("data-not-heard") == chat_live.LIVE_NOT_HEARD
@@ -358,11 +361,15 @@ class TestTheEngine:
 
         calls: list[dict[str, Any]] = []
 
+        async def _built(**kwargs: Any) -> dict[str, Any]:
+            return kwargs  # stands in for the realtime agent it describes
+
         async def _open(sdp: str, **kwargs: Any) -> str:
             calls.append({"sdp": sdp, **kwargs})
             return "v=0 realtime answer"
 
         monkeypatch.setattr(settings, "VOICE_LIVE_ENGINE", "gpt-realtime-2.1")
+        monkeypatch.setattr(realtime_calls, "realtime_for", _built)
         monkeypatch.setattr(realtime_calls, "open_call", _open)
         return calls
 
@@ -383,21 +390,25 @@ class TestTheEngine:
             "transport": "realtime",
             "conversation_id": conversation_id,
             "engine": {"label": TITLES["gpt-realtime-2.1"], "per_second": None},
+            # the page opens the call with this (a dropped one picks up)
+            "greeting": chat_live.LIVE_GREETING,
         }
         (call,) = realtime
         assert call["model"] == "openai:gpt-realtime-2.1"
-        # Her engine's call manners lead her prompt; a reply is capped.
-        assert "LIVE" in call["instructions"]
-        assert call["max_output_tokens"] == REALTIME_REPLY_CAP
         assert call["agent_slug"] == FINANCE_VOICE_AGENT_SLUG
-        assert call["conversation"].id == conversation_id
+        assert call["conversation_id"] == conversation_id
+        # Her engine's call manners lead her prompt; a reply is capped.
+        built = call["realtime"]
+        assert "LIVE" in built["instructions"]
+        assert built["max_output_tokens"] == REALTIME_REPLY_CAP
+        assert built["conversation"].id == conversation_id
 
     def test_without_a_conversation_it_starts_one(
         self, client: TestClient, realtime: list[dict[str, Any]]
     ) -> None:
         body = client.post(SESSIONS, json={"sdp": "v=0 offer"}).json()
         assert body["conversation_id"]
-        assert realtime[0]["conversation"].id == body["conversation_id"]
+        assert realtime[0]["conversation_id"] == body["conversation_id"]
 
     def test_a_refused_realtime_call_is_a_502(
         self,
@@ -469,3 +480,138 @@ class TestTheCallBar:
             "label": TITLES["gpt-realtime-2.1"],
             "per_second": None,
         }
+
+
+class TestTheRelay:
+    """Gemini Live has no WebRTC hand-off: the call's audio comes through
+    our server's WebSocket, both ways (#273)."""
+
+    @pytest.fixture
+    def gemini(self, monkeypatch: pytest.MonkeyPatch) -> Any:
+        from pydantic_ai.messages import (
+            FunctionToolCallEvent,
+            PartEndEvent,
+            RealtimeTurnCompleteEvent,
+            SpeechPart,
+            ToolCallPart,
+        )
+
+        from app.core.config import settings
+        from app.services.ai.domains.voice import realtime_calls
+        from tests._realtime import FakeRealtime
+
+        fake = FakeRealtime(
+            [
+                PartEndEvent(
+                    index=0, part=SpeechPart(speaker="user", transcript="Hi there")
+                ),
+                FunctionToolCallEvent(
+                    part=ToolCallPart(
+                        tool_name="run_code",
+                        args={"code": "result = await budget()"},
+                        tool_call_id="t1",
+                    )
+                ),
+                PartEndEvent(
+                    index=1,
+                    part=SpeechPart(
+                        speaker="assistant", transcript="Hello! Talk soon."
+                    ),
+                ),
+                FunctionToolCallEvent(
+                    part=ToolCallPart(
+                        tool_name=realtime_calls.END_CALL, args={}, tool_call_id="e1"
+                    )
+                ),
+                RealtimeTurnCompleteEvent(),
+            ],
+            after_audio=True,
+        )
+
+        async def _built(**kwargs: Any) -> Any:
+            return fake
+
+        monkeypatch.setattr(settings, "VOICE_LIVE_ENGINE", "gemini-live")
+        monkeypatch.setattr(realtime_calls, "realtime_for", _built)
+        return fake
+
+    def test_the_phone_asks_how_to_dial(self, client: TestClient, gemini: Any) -> None:
+        body = client.get(chat_live.ENGINE).json()
+        assert body == {
+            "transport": "relay",
+            "engine": {"label": TITLES["gemini-3.8-live"], "per_second": None},
+        }
+
+    def test_a_webrtc_engine_dials_as_before(self, client: TestClient) -> None:
+        assert client.get(chat_live.ENGINE).json()["transport"] == "gpt_live"
+
+    def test_the_call_carries_audio_both_ways(
+        self, client: TestClient, gemini: Any
+    ) -> None:
+        import json
+
+        from tests._realtime import VOICE
+
+        heard: list[bytes] = []
+        told: list[dict[str, Any]] = []
+        with client.websocket_connect(chat_live.RELAY) as ws:
+            ready = ws.receive_json()
+            ws.send_bytes(b"\x10\x20")
+            for _ in range(20):  # a bound, never a hang
+                message = ws.receive()
+                if message.get("bytes"):
+                    heard.append(message["bytes"])
+                elif message.get("text"):
+                    told.append(json.loads(message["text"]))
+                if heard and any(t["type"] == "saved" for t in told):
+                    break
+
+        assert ready["type"] == "ready"
+        assert (ready["input_rate"], ready["output_rate"]) == (16_000, 24_000)
+        assert ready["conversation_id"]  # a call without one starts one
+        assert heard == [VOICE]  # her voice, as the model spoke it
+        assert gemini.live.audio == [b"\x10\x20"]  # yours, as the page sent it
+        assert gemini.live.sent == [chat_live.LIVE_GREETING]  # she speaks first
+        said = [t["text"] for t in told if t["type"] == "said"]
+        assert said == ["Hello! Talk soon."]
+        # each step as it runs, labelled as the thread's trail labels it
+        steps = [t.get("label") for t in told if t["type"] == "working"]
+        assert steps == ["run_code: result = await budget()"]
+        # she ended the call: the page hangs up once her audio has played
+        assert {"type": "hang_up"} in told
+        saved = told[-1]
+        assert saved["type"] == "saved"  # the thread reloads
+        assert saved["cost"] > 0  # and the call bar shows the running cost
+
+    def test_a_dropped_call_picks_up_where_it_stopped(
+        self, client: TestClient, gemini: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.ai.domains.voice import realtime_calls
+
+        monkeypatch.setattr(
+            realtime_calls, "resumed", lambda conversation: "How much is left?"
+        )
+        with client.websocket_connect(chat_live.RELAY) as ws:
+            ws.receive_json()
+            ws.send_bytes(b"\x10\x20")  # the fake plays once it hears you
+        (opening,) = gemini.live.sent
+        assert opening != chat_live.LIVE_GREETING
+        assert "How much is left?" in opening
+
+    def test_a_webrtc_engine_is_refused_on_the_relay(self, client: TestClient) -> None:
+        from starlette.websockets import WebSocketDisconnect
+
+        with (
+            pytest.raises(WebSocketDisconnect) as refused,
+            client.websocket_connect(chat_live.RELAY) as ws,
+        ):
+            ws.receive_json()
+        assert refused.value.code == 1008
+
+    def test_the_phone_knows_the_relay(self, client: TestClient) -> None:
+        from tests.web.dom import one
+
+        button = one(client.get("/chat").text, "button#chat-live")
+        assert button.get("data-engine") == chat_live.ENGINE
+        assert button.get("data-relay") == chat_live.RELAY
+        assert "mic-worklet" in (button.get("data-worklet") or "")

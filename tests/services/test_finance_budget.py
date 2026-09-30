@@ -442,7 +442,16 @@ class TestAccountScoping:
         assert stats.income_count == 2
 
 
+def _days_ago(day: int) -> date:
+    """Four weekly rows (``day`` 1, 8, 15, 22) inside the 90-day window."""
+    return current_date() - timedelta(days=day)
+
+
 class TestParseBudgetGoal:
+    """The goal's baseline is the payee's or category's last 90 days, so the
+    rows are dated from today: pinned dates age out of the window (these
+    broke on 2026-09-30, when 1 July fell out)."""
+
     @pytest.mark.asyncio
     async def test_matches_payee_with_default_fifty_percent(
         self, svc: FinanceService
@@ -450,7 +459,7 @@ class TestParseBudgetGoal:
         checking = await _account(svc)
         for day in (1, 8, 15, 22):
             await _txn(
-                svc, checking.id, -600, date(2026, 7, day), name="Starbucks Store 123"
+                svc, checking.id, -600, _days_ago(day), name="Starbucks Store 123"
             )
 
         result = await svc.parse_budget_goal(
@@ -471,7 +480,7 @@ class TestParseBudgetGoal:
     async def test_explicit_percentage_in_text(self, svc: FinanceService) -> None:
         checking = await _account(svc)
         for day in (1, 8, 15, 22):
-            await _txn(svc, checking.id, -1_000, date(2026, 7, day), name="Starbucks")
+            await _txn(svc, checking.id, -1_000, _days_ago(day), name="Starbucks")
 
         result = await svc.parse_budget_goal(
             owner_user_id=1, text="cut Starbucks to 30%"
@@ -491,7 +500,7 @@ class TestParseBudgetGoal:
                 svc,
                 checking.id,
                 -4_000,
-                date(2026, 7, day),
+                _days_ago(day),
                 category_id=groceries.id,
             )
 
