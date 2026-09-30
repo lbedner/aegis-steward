@@ -13,7 +13,7 @@ from typing import Any
 
 from app.core.db import get_async_session
 from app.services.ai.domains.chat.tools import register_tool
-from app.services.finance.domains.writes.display import candidate_row
+from app.services.finance.domains.writes.display import candidate_row, for_model
 
 
 async def propose_many(
@@ -51,7 +51,7 @@ async def propose_many(
                         # Tool results serialize into the model's context:
                         # typed rows become plain dicts at this boundary.
                         "display": [
-                            line.model_dump()
+                            for_model(line)
                             for line in await writes.describe_change(session, row)
                         ],
                     }
@@ -101,7 +101,7 @@ async def categories() -> dict[str, Any]:
 
 async def bills() -> dict[str, Any]:
     """Every live bill and income stream: 'id', 'name', 'direction'
-    ('outflow' | 'inflow'), 'frequency', 'amount' (cents - ALWAYS a
+    ('outflow' | 'inflow'), 'frequency', 'amount_cents' (ALWAYS a
     number, never null: the figure the user declared, else the one
     measured from the bill's own payments), 'amount_is_declared'
     (whether a human typed it), 'next_expected_date' and 'last_date'
@@ -124,7 +124,7 @@ async def bills() -> dict[str, Any]:
                 "name": s.name,
                 "direction": s.direction,
                 "frequency": s.frequency,
-                "amount": s.amount,
+                "amount_cents": s.amount,
                 "amount_is_declared": s.expected_amount is not None,
                 "next_expected_date": (
                     s.next_expected_date.isoformat() if s.next_expected_date else None
@@ -197,7 +197,7 @@ async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
                     conversation_id=current_conversation_id.get(),
                 )
                 display = [
-                    line.model_dump()
+                    for_model(line)
                     for line in await writes.describe_change(session, row)
                 ]
                 await session.commit()

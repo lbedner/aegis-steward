@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 import re
+from typing import Any
 
 
 def format_slug(slug: str) -> str:
@@ -76,6 +77,39 @@ ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
 # Symbols for the codes a household ledger actually sees; anything else
 # shows its code.
 CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
+
+
+def cents_named(data: dict[str, Any], *keys: str) -> dict[str, Any]:
+    """``data`` with each of ``keys`` renamed to ``<key>_cents``: a shape
+    built elsewhere, named for a model that must not guess its unit (#291).
+    """
+    return {f"{k}_cents" if k in keys else k: v for k, v in data.items()}
+
+
+def with_dollars(value: Any) -> Any:
+    """``value`` with every ``*_cents`` whole number joined by its dollars
+    as ``*_usd`` (``-149203`` -> ``"-$1,492.03"``), all the way down.
+
+    What a model reads (#291): tools keep cents - scripts, cards and
+    proposals compute with them - and a model left to convert read an
+    unlabelled 297614 as dollars and put -149203 at -$149. The cents stay
+    so a later script can reuse the exact figure. Anything else, printed
+    text included, passes through."""
+    if isinstance(value, list):
+        return [with_dollars(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    out: dict[Any, Any] = {}
+    for key, item in value.items():
+        out[key] = with_dollars(item)
+        if (
+            isinstance(key, str)
+            and key.endswith("_cents")
+            and isinstance(item, int)
+            and not isinstance(item, bool)
+        ):
+            out[f"{key.removesuffix('_cents')}_usd"] = format_money(item)
+    return out
 
 
 def format_money(cents: int | None, currency: str = "USD", whole: bool = False) -> str:

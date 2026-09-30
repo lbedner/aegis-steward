@@ -21,7 +21,7 @@ from datetime import date
 from typing import Any
 
 from app.core.db import get_async_session
-from app.core.formatting import payee_label
+from app.core.formatting import cents_named, payee_label
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.finance.constants import UNCATEGORIZED_CATEGORY_NAMES
 from app.services.finance.domains.investments import queries as investment_queries
@@ -187,11 +187,12 @@ async def projection(
     account_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Cash walked forward from today through the scheduled bills and
-    income, over any window: 'as_of', 'horizon_days', 'start_balance',
-    'end_balance', 'upcoming_total' (signed cents, net of the window),
-    'bills' (what is due, positive amounts, soonest first) and 'points'
-    (every occurrence with the running 'balance' after it, so the low
-    point and the date it happens are read off the walk rather than
+    income, over any window: 'as_of', 'horizon_days',
+    'start_balance_cents', 'end_balance_cents', 'upcoming_total_cents'
+    (signed, net of the window), 'bills' (what is due, positive
+    'amount_cents', soonest first) and 'points' (every occurrence with its
+    signed 'amount_cents' and the running 'balance_cents' after it, so the
+    low point and the date it happens are read off the walk rather than
     re-derived).
 
     ``days`` is the window - 365 for a year, 30 for the month - and
@@ -213,12 +214,12 @@ async def projection(
     return {
         "as_of": walk.as_of.isoformat(),
         "horizon_days": walk.horizon_days,
-        "start_balance": walk.start_balance,
-        "end_balance": walk.end_balance,
-        "upcoming_total": walk.upcoming_total,
+        "start_balance_cents": walk.start_balance,
+        "end_balance_cents": walk.end_balance,
+        "upcoming_total_cents": walk.upcoming_total,
         "bills": [
             {
-                **bill,
+                **cents_named(bill, "amount"),
                 "date": bill["date"].isoformat(),
                 "due_date": bill["due_date"].isoformat() if bill["due_date"] else None,
             }
@@ -229,8 +230,8 @@ async def projection(
                 "date": p.date.isoformat(),
                 "name": p.name,
                 "direction": p.direction,
-                "amount": p.amount,
-                "balance": p.balance,
+                "amount_cents": p.amount,
+                "balance_cents": p.balance,
                 "account": p.account,
                 "category": p.category,
             }
@@ -324,8 +325,8 @@ async def transactions(
 async def budget(period_month: int | None = None) -> dict[str, Any]:
     """The limits the user actually set, and how the month is going
     against them: 'period_month' (YYYYMM), 'limits' (every FLEXIBLE
-    line - 'category' or 'payee', 'limit' and 'spent' in cents,
-    'remaining', and 'status' of good/warn/critical), 'commitments' (the
+    line - 'category' or 'payee', 'limit_cents', 'spent_cents',
+    'remaining_cents', and 'status' of good/warn/critical), 'commitments' (the
     recurring bills shown for context, which are NOT limits anyone set),
     and 'stats' (the month's totals, how many limits are over, and the
     days left in the period).
@@ -338,7 +339,7 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
     an earlier month; omitted means the current period.
 
     Only 'limits' carry a real spend-vs-limit status. A commitment's
-    'limit' is just what that bill typically costs, so never report one
+    'limit_cents' is just what that bill typically costs, so never report one
     as a budget the user set, or as being over or under.
     """
     from app.services.finance.domains.planning.budgets.summary import budget_summary
@@ -354,9 +355,9 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
             "category_id": row.category_id,
             "payee": row.payee_label,
             "payee_key": row.payee_key,
-            "limit": row.allocated_amount,
-            "spent": row.spent_amount,
-            "remaining": row.allocated_amount - row.spent_amount,
+            "limit_cents": row.allocated_amount,
+            "spent_cents": row.spent_amount,
+            "remaining_cents": row.allocated_amount - row.spent_amount,
             "status": row.status,
         }
 
@@ -378,12 +379,12 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
         "limits": limits,
         "commitments": commitments,
         "stats": {
-            "flexible_spent": stats.flexible_spent,
-            "flexible_allocated": stats.flexible_allocated,
+            "flexible_spent_cents": stats.flexible_spent,
+            "flexible_allocated_cents": stats.flexible_allocated,
             "days_left_in_period": stats.days_left_in_period,
             "over_budget_count": stats.over_budget_count,
             "over_budget_labels": stats.over_budget_labels,
-            "fixed_total": stats.fixed_total,
+            "fixed_total_cents": stats.fixed_total,
         },
     }
 

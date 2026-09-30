@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.formatting import format_date, payee_label
+from app.core.formatting import cents_named, format_date, payee_label
 from app.services.finance.domains.detection.insights.formatting import format_usd
 from app.services.finance.domains.ledger import transactions
 from app.services.finance.schemas import ChangeDisplayRow
@@ -77,6 +77,12 @@ def candidate_row(txn: Any) -> dict[str, Any]:
         "id": txn.id,
         "date": txn.date_.isoformat(),
         "payee": payee_label(None, txn.merchant_name, txn.name),
-        "amount": txn.amount,
+        "amount_cents": txn.amount,
         "account_id": txn.account_id,
     }
+
+
+def for_model(row: Any) -> dict[str, Any]:
+    """A card's display row as a tool result carries it: its money named
+    as the cents it is (#291), so the model is told dollars beside it."""
+    return cents_named(row.model_dump(), "amount")

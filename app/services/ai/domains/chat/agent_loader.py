@@ -210,11 +210,27 @@ def _tool_output_limits(*, code_mode: bool = False) -> Any:
     measurement raises on such values, which would kill the whole turn.
     Those returns are coerced to their ``repr`` instead.
     """
+    from dataclasses import replace
+
+    from pydantic_ai.messages import ToolReturn
+    from pydantic_ai.tools import matches_tool_selector
     from pydantic_ai_harness import ToolOutputLimits
     from pydantic_ai_harness.tool_output_limits import Band, Truncate
 
+    from app.core.formatting import with_dollars
+
     class _SafeToolOutputLimits(ToolOutputLimits):  # type: ignore[misc]
         async def after_tool_execute(self, ctx: Any, **kwargs: Any) -> Any:
+            # What reaches the model says its money in dollars too (#291);
+            # the same tools the cap covers, so a script's helpers keep
+            # their payloads exactly as built.
+            if await matches_tool_selector(self.tool_filter, ctx, kwargs["tool_def"]):
+                result = kwargs["result"]
+                kwargs["result"] = (
+                    replace(result, return_value=with_dollars(result.return_value))
+                    if isinstance(result, ToolReturn)
+                    else with_dollars(result)
+                )
             try:
                 return await super().after_tool_execute(ctx, **kwargs)
             except Exception as exc:
