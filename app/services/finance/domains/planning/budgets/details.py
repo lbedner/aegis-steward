@@ -7,19 +7,15 @@ from datetime import date
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection.insights.commitments import (
-    MONTHLY_FACTOR,
     commitment_rollup,
-    is_commitment,
-    is_paused,
+    income_rows,
     monthly_share,
-    monthly_share_of,
     shown_cadence,
 )
 from app.services.finance.domains.ledger import categories
 from app.services.finance.domains.planning import recurring
 from app.services.finance.domains.planning.budgets.uncovered import (
     uncovered_spend,
-    uncovered_spend_filters,
 )
 from app.services.finance.schemas import (
     BudgetStatDetailsResponse,
@@ -50,25 +46,14 @@ async def budget_stat_details(
     # way: a popup that explains a number has to be about that number.
     # Without this, narrowing to one account left the cell filtered and
     # its detail listing every account the owner has.
-    streams = await recurring.list_recurring(db, owner_user_id=owner_user_id)
-    transfer_ids = await recurring.transfer_stream_ids(db, [s.id for s in streams])
-    streams = [s for s in streams if s.id not in transfer_ids]
-    streams = [s for s in streams if recurring.in_account_scope(s, account_ids)]
+    book = await recurring.stream_book(db, owner_user_id=owner_user_id)
+    streams = book.counted(account_ids)
 
-    income_rows = [
-        StatDetailRow(
-            label=s.name,
-            value=monthly_share_of(s.amount, s.frequency),
-            frequency=shown_cadence(s.frequency),
-        )
-        for s in streams
-        if s.direction == "inflow"
-        and not s.is_muted
-        and not is_paused(s, today)
-        and is_commitment(s)
-        and MONTHLY_FACTOR.get(s.frequency, 0.0) > 0
+    income = [
+        StatDetailRow(label=s.name, value=value, frequency=shown_cadence(s.frequency))
+        for s, value in income_rows(streams, today)
     ]
-    income_rows.sort(key=lambda r: -r.value)
+    income.sort(key=lambda r: -r.value)
 
     rollup = commitment_rollup(streams, today=today)
     bills_rows = [
@@ -84,9 +69,6 @@ async def budget_stat_details(
     ]
     bills_rows.sort(key=lambda r: -r.value)
 
-    _filters, (window_start, window_end) = await uncovered_spend_filters(
-        db, owner_user_id=owner_user_id, today=today, account_ids=account_ids
-    )
     uncovered = await uncovered_spend(
         db, owner_user_id=owner_user_id, today=today, account_ids=account_ids
     )
@@ -112,10 +94,10 @@ async def budget_stat_details(
     one_off_rows = _rows(uncovered.one_off_by_category)
 
     return BudgetStatDetailsResponse(
-        income=income_rows,
+        income=income,
         bills=bills_rows,
         everything_else=else_rows,
         one_offs=one_off_rows,
-        window_start=window_start,
-        window_end=window_end,
+        window_start=uncovered.window_start,
+        window_end=uncovered.window_end,
     )

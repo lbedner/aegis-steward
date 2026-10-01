@@ -10,7 +10,6 @@ and re-sends the strip out of band, so the verdict never goes stale.
 
 from __future__ import annotations
 
-import calendar
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -20,7 +19,6 @@ from app.components.backend.api.finance.budgets import (
     budget_outlook,
     budget_stat_details,
     budget_suggestions,
-    budget_summary,
     dismiss_budget_suggestions,
     parse_budget_goal,
     restore_budget_suggestions,
@@ -34,33 +32,36 @@ from app.components.backend.api.finance.planning import (
     list_envelopes,
 )
 from app.components.backend.api.finance.register import hydrate_transactions
-from app.components.web_frontend.filters import money, money_to_cents
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.filters import account_params, money
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
     or_404,
     render,
-    templates,
     with_toast,
 )
 from app.components.web_frontend.routes.finance.budget_display import (
-    equation_rows,
+    SECTION,
+    budget_dialog,
     eta_caption,
-    outlook_cells,
-    stats_cells,
+    remove_dialog,
+    removed,
+    stats_context,
+    with_strip,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.planning.budgets import strip
 from app.services.finance.schemas import (
     BudgetLineUpsert,
     BudgetSuggestionIds,
-    BudgetSummaryResponse,
     GoalParseRequest,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import positive_cents
 
-SECTION = section("budget")
 router = APIRouter(prefix=SECTION.path)
+
+_LIMIT_IN_DOLLARS = "Enter the monthly limit in dollars."
 
 TABS: tuple[tuple[str, str], ...] = (
     ("limits", "Limits"),
@@ -69,28 +70,9 @@ TABS: tuple[tuple[str, str], ...] = (
     ("envelopes", "Envelopes"),
 )
 OUTLOOK_MONTHS = 6
-# The strip's cells, in order, and the dialog each opens.
-STAT_KEYS = ("income", "bills", "budgets", "everything", "month")
-COMMITMENT_BUCKETS = (
-    ("fixed", "Monthly bills", "the same every month"),
-    ("non_monthly", "Non-monthly bills", "at their monthly share"),
-    ("one_time", "One-time", "this month only"),
-)
 
 
 # --- context --------------------------------------------------------------
-
-
-async def _stats_context(
-    service: FinanceService, owner_user_id: int | None, account_ids: list[int] | None
-) -> tuple[BudgetSummaryResponse, dict[str, Any]]:
-    summary = await budget_summary(
-        month=None,
-        account_ids=account_ids,
-        service=service,
-        owner_user_id=owner_user_id,
-    )
-    return summary, {"cells": stats_cells(summary.stats), "clickable": True}
 
 
 async def budget_context(
@@ -101,7 +83,7 @@ async def budget_context(
     account_ids: list[int] | None,
 ) -> dict[str, Any]:
     """Everything ``components/budget.html`` renders."""
-    summary, stats = await _stats_context(service, owner_user_id, account_ids)
+    summary, stats = await stats_context(service, owner_user_id, account_ids)
     outlook = await budget_outlook(
         months=OUTLOOK_MONTHS,
         account_ids=account_ids,
@@ -110,44 +92,43 @@ async def budget_context(
     )
     month = max(0, min(month, len(outlook.items) - 1)) if outlook.items else 0
     if month > 0:
-        stats = {"cells": outlook_cells(outlook.items[month]), "clickable": False}
+        stats = {"cells": strip.outlook_cells(outlook.items[month]), "clickable": False}
+    tab = tab if tab in dict(TABS) else TABS[0][0]
+
+    def url(at_month: int, at_tab: str) -> str:
+        """One URL per link: its href and its swap are the same request."""
+        params = [f"month={at_month}", f"tab={at_tab}", *account_params(account_ids)]
+        return f"{SECTION.path}?{'&'.join(params)}"
+
     pager = [
-        {
-            "index": i,
-            "label": (
-                f"Now {money(e.start_balance, whole=True)}"
-                if i == 0
-                else f"{calendar.month_abbr[e.period_month % 100]} "
-                f"{money(e.end_balance, whole=True)}"
-            ),
-            "tone": "error" if i and e.end_balance < 0 else None,
-        }
-        for i, e in enumerate(outlook.items)
+        {"index": i, "label": chip.label, "tone": chip.tone, "url": url(i, tab)}
+        for i, chip in enumerate(strip.pager_chips(outlook.items))
     ]
     goals = await list_goals(service=service, owner_user_id=owner_user_id)
     envelopes = await list_envelopes(service=service, owner_user_id=owner_user_id)
     suggestions = await budget_suggestions(service=service, owner_user_id=owner_user_id)
-    tab = tab if tab in dict(TABS) else TABS[0][0]
     counts = {
         "suggested": suggestions.total,
         "goals": goals.total,
         "envelopes": envelopes.total,
     }
-    query = "".join(f"&account_ids={i}" for i in (account_ids or []))
     return {
         "path": SECTION.path,
         "tab": tab,
         "month": month,
-        "query": query,
         "tabs": [
-            (key, f"{label} ({counts[key]})" if counts.get(key) else label)
+            (
+                key,
+                f"{label} ({counts[key]})" if counts.get(key) else label,
+                url(month, key),
+            )
             for key, label in TABS
         ],
         "stats": stats,
         "pager": pager,
         "summary": summary,
-        "buckets": {b.name: b for b in summary.buckets},
-        "commitments": COMMITMENT_BUCKETS,
+        "commitments": strip.COMMITMENT_BUCKETS,
+        "commitments_line": strip.commitments_line(summary),
         "suggestions": suggestions,
         "goals": [(g, eta_caption(g)) for g in goals.items],
         "envelopes": envelopes.items,
@@ -156,26 +137,6 @@ async def budget_context(
         )[0],
         "selected_ids": account_ids or [],
     }
-
-
-async def _with_strip(
-    request: Request,
-    service: FinanceService,
-    owner_user_id: int | None,
-    template: str,
-    context: dict[str, Any],
-    status_code: int = 200,
-) -> Response:
-    """A write's answer: ``template`` as the primary content (may render
-    nothing) plus the stats strip out of band."""
-    await service.db.commit()
-    _summary, stats = await _stats_context(service, owner_user_id, None)
-    return templates.TemplateResponse(
-        request=request,
-        name=template,
-        context={**context, "stats": stats, "strip_oob": True},
-        status_code=status_code,
-    )
 
 
 # --- the page, the strip, the details ----------------------------------------
@@ -212,57 +173,24 @@ async def stat_details(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    """The rows behind one cell. The verdict and Budgets come from the
-    summary already on screen; the rest from the details endpoint."""
-    if key not in STAT_KEYS:
+    """The rows behind one cell, as ``strip`` words them."""
+    if key not in strip.STAT_KEYS:
         raise HTTPException(status_code=404)
-    summary = await budget_summary(
-        month=None,
-        account_ids=account_ids,
-        service=service,
-        owner_user_id=owner_user_id,
-    )
-    footer = ""
-    if key == "month":
-        title, rows = "The month, line by line", equation_rows(summary.stats)
-    elif key == "budgets":
-        flexible = next((b for b in summary.buckets if b.name == "flexible"), None)
-        rows = sorted(
-            (
-                {
-                    "label": line.category_name or line.payee_label or "Overall",
-                    "value": line.allocated_amount,
-                    "caption": f"{money(line.spent_amount)} spent",
-                }
-                for line in (flexible.lines if flexible else [])
-            ),
-            key=lambda r: -r["value"],
-        )
-        title = "Limits you've set"
-    else:
-        details = await budget_stat_details(
+    summary, _stats = await stats_context(service, owner_user_id, account_ids)
+    details = (
+        await budget_stat_details(
             account_ids=account_ids, service=service, owner_user_id=owner_user_id
         )
-        source = {
-            "income": ("Confirmed income", details.income),
-            "bills": ("Bills, monthly equivalent", details.bills),
-            "everything": ("Everything else", details.everything_else),
-        }[key]
-        title = source[0]
-        rows = [
-            {"label": r.label, "value": r.value, "caption": r.frequency}
-            for r in source[1]
-        ]
-        if key == "bills":
-            footer = "Non-monthly bills shown at their monthly share"
-        elif key == "everything":
-            footer = "Spending no bill or limit covers"
+        if key in strip.DETAIL_KEYS
+        else None
+    )
+    popup = strip.stat_popup(key, summary, details)
     return dialog(
         request,
         "partials/budget/stat_details.html",
-        title=title,
-        rows=rows,
-        footer=footer,
+        title=popup.title,
+        rows=popup.rows,
+        footer=popup.footer,
     )
 
 
@@ -272,7 +200,7 @@ async def stat_details(
 def _line_response(
     request: Request, service: FinanceService, owner_user_id: int | None, line: Any
 ) -> Any:
-    return _with_strip(
+    return with_strip(
         request, service, owner_user_id, "partials/budget/line.html", {"line": line}
     )
 
@@ -290,30 +218,19 @@ async def line_transactions(
     rows = await service.budget_line_transactions(
         line_id, owner_user_id=owner_user_id, account_ids=account_ids
     )
-    summary = await budget_summary(
-        month=None,
-        account_ids=account_ids,
-        service=service,
-        owner_user_id=owner_user_id,
-    )
+    summary, _stats = await stats_context(service, owner_user_id, account_ids)
     # The FLEXIBLE bucket only. A commitment line's ``id`` is its
     # recurring stream's, not a budget line's, so searching every bucket
     # matches the wrong row on a collision - which it promptly did.
     line = next(
-        (
-            item
-            for bucket in summary.buckets
-            if bucket.name == "flexible"
-            for item in bucket.lines
-            if item.id == line_id
-        ),
+        (item for item in summary.bucket("flexible").lines if item.id == line_id),
         None,
     )
     or_404(line)
     return dialog(
         request,
         "partials/transactions_dialog.html",
-        title=line.category_name or line.payee_label or "Limit",
+        title=line.label,
         subtitle=(
             f"{money(line.spent_amount)} of {money(line.allocated_amount)} this month"
         ),
@@ -329,7 +246,7 @@ async def new_line_form(
     service: FinanceService = Depends(get_finance_service),
 ) -> Response:
     categories = await list_category_options(service=service)
-    return dialog(
+    return budget_dialog(
         request, "partials/budget/line_new.html", categories=categories.items, errors=[]
     )
 
@@ -347,20 +264,18 @@ async def upsert_line(
 ) -> Response:
     """Set a limit. From a row (the inline amount) the answer is the row;
     from a dialog or the goal parser it is a navigation back to the page."""
-    cents = money_to_cents(allocated_amount)
-    if cents is None or cents <= 0:
+    cents = positive_cents(allocated_amount)
+    if cents is None:
         if source == "dialog":
             categories = await list_category_options(service=service)
-            return dialog(
+            return budget_dialog(
                 request,
                 "partials/budget/line_new.html",
                 422,
                 categories=categories.items,
-                errors=["Enter the monthly limit in dollars."],
+                errors=[_LIMIT_IN_DOLLARS],
             )
-        raise HTTPException(
-            status_code=422, detail="Enter the monthly limit in dollars."
-        )
+        raise HTTPException(status_code=422, detail=_LIMIT_IN_DOLLARS)
     line = await upsert_budget_line(
         BudgetLineUpsert(
             category_id=int(category_id) if category_id else None,
@@ -375,8 +290,17 @@ async def upsert_line(
     if source == "row":
         return await _line_response(request, service, owner_user_id, line)
     await service.db.commit()
-    label = line.category_name or line.payee_label or "Overall"
-    return dialog_done(SECTION.path, f"Limit set for {label}.")
+    return dialog_done(SECTION.path, f"Limit set for {line.label}.")
+
+
+@router.get("/lines/{line_id:int}/remove", include_in_schema=False)
+async def remove_line_form(request: Request, line_id: int) -> Response:
+    return remove_dialog(
+        request,
+        title="Remove this limit?",
+        body="The month stays decided: last month's limit is not copied back in.",
+        url=f"{SECTION.path}/lines/{line_id}",
+    )
 
 
 @router.delete("/lines/{line_id:int}", include_in_schema=False)
@@ -388,8 +312,8 @@ async def remove_line(
 ) -> Response:
     if not await service.delete_budget_line(line_id, owner_user_id=owner_user_id):
         raise HTTPException(status_code=404)
-    return await _with_strip(
-        request, service, owner_user_id, "partials/budget/stats.html", {}
+    return await removed(
+        request, service, owner_user_id, f"line-{line_id}", "Limit removed."
     )
 
 
@@ -401,12 +325,12 @@ async def _suggestions_response(
 ) -> Response:
     await service.db.commit()
     suggestions = await budget_suggestions(service=service, owner_user_id=owner_user_id)
-    return await _with_strip(
+    return await with_strip(
         request,
         service,
         owner_user_id,
         "partials/budget/suggestions.html",
-        {"suggestions": suggestions, "path": SECTION.path},
+        {"suggestions": suggestions},
     )
 
 
@@ -449,11 +373,9 @@ async def accept_suggestion(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """The suggested median becomes a limit; the card goes with it."""
-    cents = money_to_cents(amount)
-    if cents is None or cents <= 0:
-        raise HTTPException(
-            status_code=422, detail="Enter the monthly limit in dollars."
-        )
+    cents = positive_cents(amount)
+    if cents is None:
+        raise HTTPException(status_code=422, detail=_LIMIT_IN_DOLLARS)
     await upsert_budget_line(
         BudgetLineUpsert(category_id=category_id, allocated_amount=cents),
         month=None,
@@ -477,11 +399,11 @@ async def goal_parse(
         GoalParseRequest(text=text), service=service, owner_user_id=owner_user_id
     )
     if not result.matched:
-        return dialog(
+        return budget_dialog(
             request,
             "partials/budget/goal_parse.html",
             422,
             result=None,
             errors=["Couldn't find a category or recent payee matching that."],
         )
-    return dialog(request, "partials/budget/goal_parse.html", result=result, errors=[])
+    return budget_dialog(request, "partials/budget/goal_parse.html", result=result, errors=[])

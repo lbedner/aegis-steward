@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.services.finance import jobs
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
+from tests.services._finance_factories import seed_limit
 
 
 @pytest.fixture
@@ -143,14 +144,7 @@ async def test_the_budget_and_goals_are_not_bills(
     so neither belongs in the mail or its total."""
     finance = FinanceService(async_db_session)
     groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
-    await finance.upsert_budget_line(
-        owner_user_id=None,
-        period_month=None,
-        category_id=groceries.id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=40_000,
-    )
+    await seed_limit(finance, groceries.id, 40_000, owner_user_id=None)
     goal = await finance.create_virtual_goal(
         owner_user_id=None, name="Emergency Fund", target_amount=500_000
     )

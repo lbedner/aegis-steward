@@ -68,7 +68,6 @@ BUDGET: dict[str, int] = {
     "services/finance/domains/detection/recurring/detect.py": 591,
     "services/finance/domains/ledger/queries/transactions.py": 581,
     "services/finance/domains/ledger/merchants.py": 570,
-    "services/finance/domains/planning/budgets/summary.py": 563,
     "services/system/health_db_sqlite.py": 550,
     "core/config.py": 586,
     "services/finance/domains/detection/transfers.py": 511,

@@ -7,18 +7,37 @@ envelopes are row actions (pattern 2) and dialog forms (pattern 1); each
 change ships the strip back out of band so the verdict never goes stale.
 """
 
-import json
+from typing import Any
 
 from fastapi.testclient import TestClient
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
+from tests.components.frontend._payloads import budget_line_model
 from tests.web.conftest import Budget, Ledger
-from tests.web.dom import none, one, oob, select, text, triggers
+from tests.web.dom import (
+    id_of,
+    location,
+    none,
+    one,
+    oob,
+    select,
+    stats,
+    text,
+    triggers,
+)
 
 
-def cells(page: str) -> dict[str, str]:
-    """The stats strip as ``{label: value}``."""
-    return {text(dt): text(dt.getnext()) for dt in select(page, "#budget-stats dt")}
+def _line(allocated: int, spent: int) -> Any:
+    """A flexible line as the page receives it."""
+    return budget_line_model(
+        category_id=1,
+        category_name="Gas & Fuel",
+        allocated_amount=allocated,
+        spent_amount=spent,
+    )
 
 
 class TestPage:
@@ -26,7 +45,7 @@ class TestPage:
         page = client.get("/budget").text
         tabs = [text(a) for a in select(page, "#budget [role=tablist] a")]
         assert tabs == ["Limits", "Suggested", "Goals (1)", "Envelopes (1)"]
-        strip = cells(page)
+        strip = stats(page)
         assert list(strip)[:3] == ["Income", "Bills", "Budgets"]
         assert strip["Budgets"] == "$200.00"
         assert "This month" in strip
@@ -49,15 +68,32 @@ class TestPage:
         ahead = client.get("/budget?month=1").text
         # A future month's verdict is titled with the month, and the cells
         # are figures, not doors: nothing to drill into yet.
-        assert "This month" not in cells(ahead)
+        assert "This month" not in stats(ahead)
         none(ahead, "#budget-stats [hx-get]")
         assert (
-            one(ahead, "#month-pager a[aria-current]").get("href") == "/budget?month=1"
+            one(ahead, "#month-pager a[aria-current]").get("href")
+            == "/budget?month=1&tab=limits"
         )
         assert (
             one(ahead, '#month-pager a[aria-label="Previous month"]').get("href")
-            == "/budget?month=0"
+            == "/budget?month=0&tab=limits"
         )
+
+    def test_every_pager_and_tab_link_goes_where_it_swaps(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """Each link built its URL twice, and the href dropped the tab or the
+        month that the hx-get kept: opened in a new tab, it lost its place."""
+        page = client.get("/budget?month=1&tab=goals").text
+        links = select(page, "#month-pager a") + select(
+            page, "#budget [role=tablist] a"
+        )
+
+        assert links
+        for link in links:
+            href = link.get("href") or ""
+            assert href == link.get("hx-get"), href
+            assert "month=" in href and "tab=" in href, href
 
     def test_filters_replace_the_page_in_place(
         self, client: TestClient, budget: Budget
@@ -91,6 +127,29 @@ class TestStatDetails:
     ) -> None:
         dialog = hx.get("/budget/stats/bills").text
         assert "Rent" in text(one(dialog, "#stat-rows"))
+
+    def test_everything_else_names_its_window(
+        self, hx: TestClient, budget: Budget
+    ) -> None:
+        """The Flet popup said which months the average covers; the web's
+        only said what the spending was not."""
+        dialog = hx.get("/budget/stats/everything").text
+        assert text(one(dialog, "#stat-footer")).endswith(
+            "average - spending no bill or limit covers"
+        )
+
+    def test_the_budgets_cell_says_what_is_spent(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """The Flet card said what the limits had spent; the web's cell
+        only counted them. Both draw ``budgets.strip``'s cell now."""
+        page = client.get("/budget").text
+        cell = next(
+            div
+            for div in select(page, "#budget-stats > div")
+            if text(one(div, "dt")) == "Budgets"
+        )
+        assert text(select(cell, "dd")[-1]).endswith("spent so far · 1 limit")
 
     def test_a_limit_opens_what_it_is_made_of(
         self, client: TestClient, hx: TestClient, budget: Budget
@@ -180,7 +239,7 @@ class TestLines:
         # (CI, 2026-10-01).
         spent = 3_000 + (1_500 if current_date().day > 1 else 0)
         assert f"${spent / 100:,.2f}" in text(line)
-        one(line, f'[hx-delete="/budget/lines/{budget.line}"]')
+        one(line, f'[hx-get="/budget/lines/{budget.line}/remove"]')
 
     def test_editing_the_amount_swaps_the_row_and_the_strip(
         self, client: TestClient, budget: Budget
@@ -198,13 +257,47 @@ class TestLines:
         strip = next(s for s in siblings if s.get("id") == "budget-stats")
         assert "$250.00" in text(strip)
 
-    def test_removing_a_line_empties_the_row_and_moves_the_strip(
+    def test_the_strip_a_write_ships_still_opens_its_cells(
         self, client: TestClient, budget: Budget
     ) -> None:
+        """The strip a line write sends back was rendered without the section
+        path, so after an edit or a removal every cell asked for
+        /stats/<key>, which is no route."""
+        edited = client.post(
+            "/budget/lines",
+            data={"category_id": str(budget.groceries), "allocated_amount": "250"},
+        )
+        removed = client.delete(f"/budget/lines/{budget.line}")
+        for response in (edited, removed):
+            _primary, siblings = oob(response.text)
+            strip = next(s for s in siblings if s.get("id") == "budget-stats")
+            openers = [cell.get("hx-get") for cell in select(strip, "[hx-get]")]
+            assert openers, "the strip ships no openers"
+            assert all(url.startswith("/budget/stats/") for url in openers), openers
+
+    def test_removing_a_limit_asks_then_takes_the_row_away(
+        self, client: TestClient, hx: TestClient, budget: Budget
+    ) -> None:
+        """Every removal asks in the app's own dialog (limits used the
+        browser's confirm()); the answer takes the row off the page and
+        moves the strip."""
+        row = one(client.get("/budget").text, f"#line-{budget.line}")
+        opener = one(row, f'[hx-get="/budget/lines/{budget.line}/remove"]')
+        assert opener.get("hx-target") == "#dialog-body"
+        none(row, "[hx-confirm]")
+        confirm = hx.get(f"/budget/lines/{budget.line}/remove").text
+        one(confirm, f'[hx-delete="/budget/lines/{budget.line}"]')
+
         response = client.delete(f"/budget/lines/{budget.line}")
+
         primary, siblings = oob(response.text)
-        assert primary == [] and siblings[0].get("id") == "budget-stats"
-        assert cells(client.get("/budget").text)["Budgets"] == "$0.00"
+        assert primary == []
+        assert {s.get("id"): s.get("hx-swap-oob") for s in siblings} == {
+            f"line-{budget.line}": "delete",
+            "budget-stats": "outerHTML",
+        }
+        assert "dialog:close" in triggers(response)
+        assert stats(client.get("/budget").text)["Budgets"] == "$0.00"
 
     def test_add_a_limit_from_the_dialog(
         self, client: TestClient, hx: TestClient, budget: Budget
@@ -222,7 +315,7 @@ class TestLines:
                 "source": "dialog",
             },
         )
-        assert json.loads(response.headers["HX-Location"])["path"] == "/budget"
+        assert location(response) == "/budget"
         assert "dialog:close" in triggers(response)
         assert "Auto:Fuel" in text(one(client.get("/budget").text, "#limits"))
 
@@ -241,6 +334,33 @@ class TestLines:
         # monthly figure, not by name.
         assert "$1,500.00" in text(one(page, "#commitments"))
 
+    async def test_a_one_off_reads_by_the_name_it_was_given(
+        self,
+        client: TestClient,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+    ) -> None:
+        """A plan typed in as "Dentist" reads "Dentist", as the card shows
+        it, not as the category it was filed under."""
+        dentist = await finance.create_recurring_stream(
+            owner_user_id=None,
+            name="Dentist",
+            direction="outflow",
+            frequency="once",
+            expected_amount=23_000,
+            next_expected_date=current_date(),
+        )
+        dentist.category_id = budget.fuel
+        async_db_session.add(dentist)
+        await async_db_session.commit()
+
+        page = client.get("/budget").text
+
+        names = [text(s) for s in select(page, "#commitments li > span:first-child")]
+        assert "Dentist" in names
+        assert "Auto:Fuel" not in names
+
 
 class TestSuggestions:
     def test_empty_when_history_is_thin(
@@ -248,6 +368,16 @@ class TestSuggestions:
     ) -> None:
         page = client.get("/budget?tab=suggested").text
         assert "Nothing to suggest" in text(one(page, "#suggestions"))
+
+    def test_the_card_names_the_window_its_picks_came_from(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """The window is the gate's, sent with the picks; the card and the
+        Flet panel each used to say "six" on their own."""
+        page = client.get("/budget?tab=suggested").text
+        assert "what 6 months of spending already imply" in text(
+            one(page, "#suggestions")
+        )
 
     def test_dismiss_then_restore_re_render_the_section(
         self, client: TestClient, budget: Budget
@@ -308,9 +438,27 @@ class TestGoals:
 
         allocated, spent = 20_000, 15_992  # 79.96%
 
-        assert int(spent / allocated * 100) == 79
+        assert _line(allocated, spent).spent_percent == 79
         assert budget_line_status(allocated, spent) == "good"
         assert budget_line_status(allocated, 16_000) == "warn"
+
+    @pytest.mark.parametrize(
+        ("spent", "red"), [(19_999, False), (20_000, True), (25_000, True)]
+    )
+    def test_the_percent_turns_red_where_the_bar_does(
+        self, spent: int, red: bool
+    ) -> None:
+        """At exactly 100% the bar turned red and the percent did not: the
+        template judged the percent itself, at more than 100%."""
+        from app.components.web_frontend.rendering import templates
+
+        row = templates.get_template("partials/budget/line.html").render(
+            line=_line(20_000, spent), path="/budget"
+        )
+
+        assert (
+            "text-error" in (one(row, "li span.tabular-nums").get("class") or "")
+        ) is red
 
     def test_a_limit_bar_carries_its_tone_as_a_text_colour(
         self, client: TestClient, ledger: Ledger
@@ -389,12 +537,10 @@ class TestGoals:
                 "monthly_contribution": "200",
             },
         )
-        assert (
-            json.loads(response.headers["HX-Location"])["path"] == "/budget?tab=goals"
-        )
+        assert location(response) == "/budget?tab=goals"
         page = client.get("/budget?tab=goals").text
         card = next(c for c in select(page, "[id^=goal-]") if "Car" in text(c))
-        goal_id = (card.get("id") or "").removeprefix("goal-")
+        goal_id = id_of(card, "goal-")
         form = one(hx.get(f"/budget/goals/{goal_id}/edit").text, "form")
         assert one(form, 'input[name="name"]').get("value") == "Car"
         assert one(form, 'input[name="target_amount"]').get("value") == "5,000.00"
@@ -420,11 +566,27 @@ class TestGoals:
         one(response.text, '[role="alert"]')
 
     def test_remove(self, client: TestClient, hx: TestClient, budget: Budget) -> None:
+        """The confirm swaps nothing in, and the answer was empty: the card
+        stayed on the page until the next load."""
         confirm = hx.get(f"/budget/goals/{budget.goal}/remove").text
         one(confirm, f'[hx-delete="/budget/goals/{budget.goal}"]')
         response = client.delete(f"/budget/goals/{budget.goal}")
-        assert response.status_code == 200 and response.text == ""
+        _primary, siblings = oob(response.text)
+        assert {s.get("id"): s.get("hx-swap-oob") for s in siblings} == {
+            f"goal-{budget.goal}": "delete",
+            "budget-stats": "outerHTML",
+        }
         none(client.get("/budget?tab=goals").text, f"#goal-{budget.goal}")
+
+    def test_a_goal_write_moves_the_strip(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """A goal's ask is a term of the verdict, and its writes sent no
+        strip: pausing one left the month's figure stale."""
+        response = client.post(f"/budget/goals/{budget.goal}/pause")
+        primary, siblings = oob(response.text)
+        assert primary[0].get("id") == f"goal-{budget.goal}"
+        assert [s.get("id") for s in siblings] == ["budget-stats"]
 
 
 class TestEnvelopes:
@@ -479,13 +641,10 @@ class TestEnvelopes:
                 "starting_balance": "5",
             },
         )
-        assert (
-            json.loads(created.headers["HX-Location"])["path"]
-            == "/budget?tab=envelopes"
-        )
+        assert location(created) == "/budget?tab=envelopes"
         page = client.get("/budget?tab=envelopes").text
         card = next(c for c in select(page, "[id^=envelope-]") if "Dog" in text(c))
-        envelope_id = (card.get("id") or "").removeprefix("envelope-")
+        envelope_id = id_of(card, "envelope-")
         form = one(hx.get(f"/budget/envelopes/{envelope_id}/edit").text, "form")
         assert one(form, 'input[name="monthly_credit"]').get("value") == "15.00"
         saved = client.post(
@@ -495,8 +654,27 @@ class TestEnvelopes:
         assert "+$20.00/mo" in text(
             one(saved.text, f"#envelope-{envelope_id}[hx-swap-oob]")
         )
+        confirm = hx.get(f"/budget/envelopes/{envelope_id}/remove").text
+        one(confirm, f'[hx-delete="/budget/envelopes/{envelope_id}"]')
         response = client.delete(f"/budget/envelopes/{envelope_id}")
-        assert response.status_code == 200 and response.text == ""
+        _primary, siblings = oob(response.text)
+        assert {s.get("id"): s.get("hx-swap-oob") for s in siblings} == {
+            f"envelope-{envelope_id}": "delete",
+            "budget-stats": "outerHTML",
+        }
+
+    def test_an_envelope_write_moves_the_strip(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """An auto-credit is a term of the verdict too."""
+        response = client.post(
+            f"/budget/envelopes/{budget.envelope}/credit", data={"amount": "5"}
+        )
+        _primary, siblings = oob(response.text)
+        assert [s.get("id") for s in siblings] == [
+            f"envelope-{budget.envelope}",
+            "budget-stats",
+        ]
 
     def test_an_envelope_can_pay_for_a_tag(
         self, client: TestClient, hx: TestClient, budget: Budget

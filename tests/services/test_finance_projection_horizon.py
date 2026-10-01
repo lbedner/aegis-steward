@@ -12,21 +12,16 @@ from datetime import date, timedelta
 import pytest
 
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_period_month
+from tests.services._finance_factories import seed_limit
 
 TODAY = date(2026, 9, 3)
-MONTH = TODAY.year * 100 + TODAY.month
+MONTH = current_period_month(TODAY)
 
 
 async def _budgeted(svc: FinanceService, name: str, cents: int) -> None:
     category = await svc.get_or_create_category_from_hint(name)
-    await svc.upsert_budget_line(
-        owner_user_id=1,
-        period_month=MONTH,
-        category_id=category.id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=cents,
-    )
+    await seed_limit(svc, category.id, cents, period_month=MONTH)
 
 
 @pytest.mark.asyncio

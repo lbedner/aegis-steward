@@ -27,7 +27,6 @@ from app.services.finance.domains.ledger import queries as ledger_queries
 from app.services.finance.domains.ledger.queries.accounts import EVERYONE, HOUSEHOLD
 from app.services.finance.domains.planning import allocation, budgets, goals, queries
 from app.services.finance.domains.planning.recurring import queries as recurring_queries
-from app.services.finance.domains.planning.recurring import queries as stream_queries
 from app.services.finance.domains.planning.recurring.schedule import occurrences
 from app.services.finance.domains.planning.recurring.streams import (
     in_account_scope,
@@ -39,6 +38,7 @@ from app.services.finance.models import FinanceRecurringStream
 from app.services.finance.schemas import (
     ProjectionPoint,
     ProjectionResponse,
+    line_label,
 )
 from app.services.finance.utils import (
     current_date,
@@ -50,11 +50,6 @@ from app.services.finance.utils import (
 # smaller than its allocation, with nothing to explain it, reads as a bug
 # in the forecast rather than as the overage being made up.
 _BUDGET_CARRY_NOTE = " (tightened by last month's overspend)"
-
-
-def _period_month_for(day: date) -> int:
-    """The YYYYMM period a date falls in."""
-    return day.year * 100 + day.month
 
 
 def _month_end(day: date) -> date:
@@ -145,7 +140,7 @@ async def project_balances(
     )
     start_balance = display_cash_balance(cash, totals)
 
-    streams = await stream_queries.active_streams(
+    streams = await recurring_queries.active_streams(
         db, owner_user_id=owner_user_id, subject_id=scope
     )
     transfer_ids = await transfer_stream_ids(db, [s.id for s in streams])
@@ -403,15 +398,12 @@ async def budget_drawdowns(
     what I expect to spend", which is what a budget is.
     """
     this_period = current_period_month(today)
-    budget = await budgets.get_or_create_budget(
-        db, owner_user_id=owner_user_id, period_month=this_period
-    )
     # This period's envelopes, not every period's: the forecast walks
     # forward from the budget in force, and older months are history.
     lines = [
         line
         for line in await budgets.lines_in_force(
-            db, budget_id=budget.id, period_month=this_period
+            db, owner_user_id=owner_user_id, period_month=this_period
         )
         if line.allocated_amount > 0
     ]
@@ -425,47 +417,19 @@ async def budget_drawdowns(
     # What is LEFT of each month's envelope, not the whole of it. Money
     # already spent has left the account and is in the starting balance;
     # charging the allocation on top counts it twice, and every new
-    # transaction widens the gap. Spend for ALL lines lands in two
-    # queries (one grouped by category, one payee-key bucket), never one
-    # query per line.
-    start, end = budgets.month_bounds(_period_month_for(today))
-    spent_by_category = await queries.spend_by_category(
-        db,
-        owner_user_id=owner_user_id,
-        start=start,
-        end=end,
-        category_ids=line_category_ids - skip_categories,
-    )
-    spent_by_payee = await queries.spend_by_payee_key(
-        db,
-        owner_user_id=owner_user_id,
-        start=start,
-        end=end,
-        payee_keys={
-            line.payee_key
-            for line in lines
-            if line.category_id is None and line.payee_key
-        },
+    # transaction widens the gap. Spend for ALL lines lands in a fixed
+    # number of queries, never one query per line.
+    lines = [line for line in lines if line.category_id not in skip_categories]
+    start, end = budgets.month_bounds(this_period)
+    spends = await budgets.spend_by_line(
+        db, lines, owner_user_id=owner_user_id, start=start, end=end
     )
 
     out: list[tuple[date, str, int, dict[str, Any]]] = []
-    for line in lines:
-        if line.category_id is not None and line.category_id in skip_categories:
-            continue
-        label = (
-            names.get(line.category_id)
-            or getattr(line, "payee_label", None)
-            or "Budget"
-        )
+    for line, spent in zip(lines, spends, strict=True):
+        label = line_label(names.get(line.category_id), line.payee_label)
         allocated = int(line.allocated_amount)
         extra = {"direction": "outflow", "category": names.get(line.category_id)}
-
-        if line.category_id is not None:
-            spent = spent_by_category.get(line.category_id, 0)
-        elif line.payee_key:
-            spent = spent_by_payee.get(line.payee_key, 0)
-        else:
-            spent = 0
         remaining = allocated - spent
         this_month = _month_end(today)
         if remaining > 0 and this_month <= horizon:

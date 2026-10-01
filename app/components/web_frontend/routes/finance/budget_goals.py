@@ -11,6 +11,7 @@ from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from pydantic import BaseModel
 from starlette.responses import Response
 
 from app.components.backend.api.finance.goals import (
@@ -19,19 +20,28 @@ from app.components.backend.api.finance.goals import (
     preview_goal_target,
     update_goal,
 )
-from app.components.web_frontend.filters import cents_to_input, money, money_to_cents
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.filters import (
+    as_options,
+    cents_to_input,
+    money,
+    money_to_cents,
+)
 from app.components.web_frontend.rendering import (
     close_dialog,
-    dialog,
     dialog_done,
     with_toast,
 )
 from app.components.web_frontend.routes.finance.budget_display import (
-    CONTRIBUTION_KINDS,
-    TARGET_RULES,
+    SECTION,
+    budget_dialog,
     eta_caption,
+    move_dialog,
+    owned_account,
+    remove_dialog,
+    removed,
+    with_strip,
 )
+from app.services.finance.constants import GOAL_CONTRIBUTION_KINDS, GOAL_TARGET_RULES
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.planning.goals import goal_metadata
 from app.services.finance.models import FinanceAccount
@@ -41,8 +51,8 @@ from app.services.finance.schemas import (
     GoalUpdate,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import positive_cents
 
-SECTION = section("budget")
 router = APIRouter(prefix=SECTION.path)
 
 
@@ -52,10 +62,7 @@ router = APIRouter(prefix=SECTION.path)
 async def _goal(
     service: FinanceService, account_id: int, owner_user_id: int | None
 ) -> FinanceAccount:
-    account = await service.get_account(account_id, owner_user_id=owner_user_id)
-    if account is None or goal_metadata(account.metadata_) is None:
-        raise HTTPException(status_code=404)
-    return account
+    return await owned_account(service, account_id, owner_user_id, goal_metadata)
 
 
 async def _goal_card(
@@ -67,42 +74,67 @@ async def _goal_card(
 ) -> Response:
     await service.db.commit()
     goal = await goal_response(service, account)
-    return dialog(
+    return await with_strip(
         request,
+        service,
+        owner_user_id,
         "partials/budget/goal_card.html",
-        goal=goal,
-        eta=eta_caption(goal),
-        oob=oob,
-        path=SECTION.path,
+        {"goal": goal, "eta": eta_caption(goal), "oob": oob},
     )
 
 
-def _goal_values(goal: GoalResponse | None) -> dict[str, str]:
-    if goal is None:
-        return {
-            "name": "",
-            "target_rule": "fixed",
-            "target_amount": "",
-            "target_factor": "",
-            "target_date": "",
-            "contribution_kind": "fixed",
-            "monthly_contribution": "",
-            "contribution_pct": "",
-            "auto_contribute": "",
-        }
-    return {
-        "name": goal.name,
-        "target_rule": goal.target_rule,
-        "target_amount": cents_to_input(goal.target_amount),
-        "target_factor": str(goal.target_factor or ""),
-        "target_date": goal.target_date.isoformat() if goal.target_date else "",
-        "contribution_kind": goal.contribution_kind,
-        "monthly_contribution": cents_to_input(goal.monthly_contribution),
-        "contribution_pct": (
+def _contribute_dialog(
+    request: Request, account: FinanceAccount, errors: list[str], status_code: int = 200
+) -> Response:
+    return move_dialog(
+        request,
+        title=f"Add to {account.name}",
+        action=f"{SECTION.path}/goals/{account.id}/contribute",
+        label="Add",
+        note=False,
+        errors=errors,
+        status_code=status_code,
+    )
+
+
+class GoalForm(BaseModel):
+    """What the goal dialog posts, new or edited.
+
+    The nine fields were listed five times: the defaults, the rebuild for
+    a re-render, both routes' parameters and both calls passing them on.
+    """
+
+    name: str = ""
+    target_rule: str = "fixed"
+    target_amount: str = ""
+    target_factor: str = ""
+    target_date: str = ""
+    contribution_kind: str = "fixed"
+    monthly_contribution: str = ""
+    contribution_pct: str = ""
+    auto_contribute: str = ""
+    # Cash accounts the run rate is measured on; none means all of them.
+    scope: list[int] = []
+    # New goals only: flag this account as the goal instead of a virtual one.
+    linked_account_id: str = ""
+
+
+def _goal_form(goal: GoalResponse) -> GoalForm:
+    """The dialog's fields for a goal that exists."""
+    return GoalForm(
+        name=goal.name,
+        target_rule=goal.target_rule,
+        target_amount=cents_to_input(goal.target_amount),
+        target_factor=str(goal.target_factor or ""),
+        target_date=goal.target_date.isoformat() if goal.target_date else "",
+        contribution_kind=goal.contribution_kind,
+        monthly_contribution=cents_to_input(goal.monthly_contribution),
+        contribution_pct=(
             f"{goal.contribution_pct_bps / 100:g}" if goal.contribution_pct_bps else ""
         ),
-        "auto_contribute": "on" if goal.auto_contribute else "",
-    }
+        auto_contribute="on" if goal.auto_contribute else "",
+        scope=list(goal.target_scope),
+    )
 
 
 async def _goal_editor(
@@ -110,97 +142,67 @@ async def _goal_editor(
     service: FinanceService,
     owner_user_id: int | None,
     goal: GoalResponse | None,
-    values: dict[str, str],
+    values: GoalForm,
     errors: list[str],
     status_code: int = 200,
 ) -> Response:
     accounts, _total = await service.list_accounts(
         owner_user_id=owner_user_id, page_size=500
     )
-    return dialog(
+    return budget_dialog(
         request,
         "partials/budget/goal_editor.html",
         status_code,
         goal=goal,
         values=values,
         errors=errors,
-        rules=TARGET_RULES,
-        kinds=CONTRIBUTION_KINDS,
+        rules=as_options(GOAL_TARGET_RULES),
+        kinds=as_options(GOAL_CONTRIBUTION_KINDS),
         accounts=accounts,
-        scope=list(goal.target_scope) if goal else [],
-        path=SECTION.path,
     )
 
 
-def _goal_form(
-    name: str,
-    target_rule: str,
-    target_amount: str,
-    target_factor: str,
-    target_date: str,
-    contribution_kind: str,
-    monthly_contribution: str,
-    contribution_pct: str,
-    auto_contribute: str,
-) -> dict[str, str]:
-    return {
-        "name": name,
-        "target_rule": target_rule,
-        "target_amount": target_amount,
-        "target_factor": target_factor,
-        "target_date": target_date,
-        "contribution_kind": contribution_kind,
-        "monthly_contribution": monthly_contribution,
-        "contribution_pct": contribution_pct,
-        "auto_contribute": auto_contribute,
-    }
-
-
-def _parse_goal(
-    values: dict[str, str], scope: list[int]
-) -> tuple[dict[str, Any], list[str]]:
+def _parse_goal(form: GoalForm) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
-    parsed: dict[str, Any] = {"name": values["name"].strip() or None}
-    rule = values["target_rule"]
-    if rule not in {r["id"] for r in TARGET_RULES}:
+    parsed: dict[str, Any] = {"name": form.name.strip() or None}
+    rule = form.target_rule
+    if rule not in GOAL_TARGET_RULES:
         errors.append("Pick how the target is sized.")
     parsed["target_rule"] = rule
     if rule == "fixed":
-        cents = money_to_cents(values["target_amount"])
-        if cents is None or cents <= 0:
+        cents = positive_cents(form.target_amount)
+        if cents is None:
             errors.append("Enter the target in dollars.")
         parsed["target_amount"] = cents
         parsed["target_factor"] = None
         parsed["target_scope"] = []
     else:
         try:
-            parsed["target_factor"] = int(values["target_factor"])
+            parsed["target_factor"] = int(form.target_factor)
         except ValueError:
             errors.append("Enter how many months of expenses.")
         parsed["target_amount"] = None
-        parsed["target_scope"] = scope
+        parsed["target_scope"] = form.scope
     parsed["target_date"] = (
-        date.fromisoformat(values["target_date"]) if values["target_date"] else None
+        date.fromisoformat(form.target_date) if form.target_date else None
     )
-    kind = values["contribution_kind"]
-    if kind not in {k["id"] for k in CONTRIBUTION_KINDS}:
+    kind = form.contribution_kind
+    if kind not in GOAL_CONTRIBUTION_KINDS:
         errors.append("Pick how to contribute.")
     parsed["contribution_kind"] = kind
     parsed["monthly_contribution"] = None
     parsed["contribution_pct_bps"] = None
-    if kind == "fixed" and values["monthly_contribution"].strip():
-        monthly = money_to_cents(values["monthly_contribution"])
+    if kind == "fixed" and form.monthly_contribution.strip():
+        monthly = money_to_cents(form.monthly_contribution)
         if monthly is None:
             errors.append("Enter the monthly amount in dollars.")
         parsed["monthly_contribution"] = monthly
     if kind == "percent_income":
         try:
-            parsed["contribution_pct_bps"] = int(
-                float(values["contribution_pct"]) * 100
-            )
+            parsed["contribution_pct_bps"] = int(float(form.contribution_pct) * 100)
         except ValueError:
             errors.append("Enter the percent of income.")
-    parsed["auto_contribute"] = values["auto_contribute"] == "on"
+    parsed["auto_contribute"] = form.auto_contribute == "on"
     return parsed, errors
 
 
@@ -228,7 +230,7 @@ async def goal_preview(
             f"= {money(preview.target_amount)} "
             f"({factor} months × {money(preview.expenses)} of monthly expenses)"
         )
-    return dialog(request, "partials/budget/target_preview.html", text=text)
+    return budget_dialog(request, "partials/budget/target_preview.html", text=text)
 
 
 @router.get("/goals/new", include_in_schema=False)
@@ -237,56 +239,33 @@ async def new_goal_form(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    return await _goal_editor(
-        request, service, owner_user_id, None, _goal_values(None), []
-    )
+    return await _goal_editor(request, service, owner_user_id, None, GoalForm(), [])
 
 
 @router.post("/goals/new", include_in_schema=False)
 async def create_goal_route(
     request: Request,
-    name: Annotated[str, Form()] = "",
-    target_rule: Annotated[str, Form()] = "fixed",
-    target_amount: Annotated[str, Form()] = "",
-    target_factor: Annotated[str, Form()] = "",
-    target_date: Annotated[str, Form()] = "",
-    contribution_kind: Annotated[str, Form()] = "fixed",
-    monthly_contribution: Annotated[str, Form()] = "",
-    contribution_pct: Annotated[str, Form()] = "",
-    auto_contribute: Annotated[str, Form()] = "",
-    scope: Annotated[list[int], Form()] = [],
-    linked_account_id: Annotated[str, Form()] = "",
+    form: Annotated[GoalForm, Form()],
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    values = _goal_form(
-        name,
-        target_rule,
-        target_amount,
-        target_factor,
-        target_date,
-        contribution_kind,
-        monthly_contribution,
-        contribution_pct,
-        auto_contribute,
-    )
-    parsed, errors = _parse_goal(values, scope)
-    if not linked_account_id and not parsed["name"]:
+    parsed, errors = _parse_goal(form)
+    if not form.linked_account_id and not parsed["name"]:
         errors.insert(0, "Give the goal a name.")
     if errors:
         return await _goal_editor(
-            request, service, owner_user_id, None, values, errors, 422
+            request, service, owner_user_id, None, form, errors, 422
         )
-    if linked_account_id:
+    if form.linked_account_id:
         parsed["name"] = None
-        parsed["account_id"] = int(linked_account_id)
+        parsed["account_id"] = int(form.linked_account_id)
     try:
         goal = await create_goal(
             GoalCreate(**parsed), service=service, owner_user_id=owner_user_id
         )
     except HTTPException as exc:
         return await _goal_editor(
-            request, service, owner_user_id, None, values, [str(exc.detail)], 422
+            request, service, owner_user_id, None, form, [str(exc.detail)], 422
         )
     await service.db.commit()
     return dialog_done(f"{SECTION.path}?tab=goals", f"Added {goal.name}.")
@@ -301,7 +280,7 @@ async def edit_goal_form(
 ) -> Response:
     goal = await goal_response(service, await _goal(service, account_id, owner_user_id))
     return await _goal_editor(
-        request, service, owner_user_id, goal, _goal_values(goal), []
+        request, service, owner_user_id, goal, _goal_form(goal), []
     )
 
 
@@ -309,43 +288,23 @@ async def edit_goal_form(
 async def edit_goal(
     request: Request,
     account_id: int,
-    name: Annotated[str, Form()] = "",
-    target_rule: Annotated[str, Form()] = "fixed",
-    target_amount: Annotated[str, Form()] = "",
-    target_factor: Annotated[str, Form()] = "",
-    target_date: Annotated[str, Form()] = "",
-    contribution_kind: Annotated[str, Form()] = "fixed",
-    monthly_contribution: Annotated[str, Form()] = "",
-    contribution_pct: Annotated[str, Form()] = "",
-    auto_contribute: Annotated[str, Form()] = "",
-    scope: Annotated[list[int], Form()] = [],
+    form: Annotated[GoalForm, Form()],
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _goal(service, account_id, owner_user_id)
     goal = await goal_response(service, account)
-    values = _goal_form(
-        name,
-        target_rule,
-        target_amount,
-        target_factor,
-        target_date,
-        contribution_kind,
-        monthly_contribution,
-        contribution_pct,
-        auto_contribute,
-    )
-    parsed, errors = _parse_goal(values, scope)
+    parsed, errors = _parse_goal(form)
     if errors:
         return await _goal_editor(
-            request, service, owner_user_id, goal, values, errors, 422
+            request, service, owner_user_id, goal, form, errors, 422
         )
     parsed.pop("name")
     await update_goal(
         account_id, GoalUpdate(**parsed), service=service, owner_user_id=owner_user_id
     )
-    if values["name"].strip() and values["name"].strip() != account.name:
-        account.name = values["name"].strip()
+    if form.name.strip() and form.name.strip() != account.name:
+        account.name = form.name.strip()
         service.db.add(account)
     response = await _goal_card(request, service, owner_user_id, account, oob=True)
     return close_dialog(with_toast(response, f"Saved {account.name}."))
@@ -374,15 +333,7 @@ async def contribute_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _goal(service, account_id, owner_user_id)
-    return dialog(
-        request,
-        "partials/budget/move.html",
-        title=f"Add to {account.name}",
-        action=f"{SECTION.path}/goals/{account_id}/contribute",
-        label="Add",
-        note=False,
-        errors=[],
-    )
+    return _contribute_dialog(request, account, [])
 
 
 @router.post("/goals/{account_id:int}/contribute", include_in_schema=False)
@@ -394,33 +345,17 @@ async def contribute(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _goal(service, account_id, owner_user_id)
-    cents = money_to_cents(amount)
-    if cents is None or cents <= 0:
-        return dialog(
-            request,
-            "partials/budget/move.html",
-            422,
-            title=f"Add to {account.name}",
-            action=f"{SECTION.path}/goals/{account_id}/contribute",
-            label="Add",
-            note=False,
-            errors=["Enter an amount in dollars."],
+    cents = positive_cents(amount)
+    if cents is None:
+        return _contribute_dialog(
+            request, account, ["Enter an amount in dollars."], 422
         )
     try:
         await service.contribute_to_goal(
             account_id, amount=cents, owner_user_id=owner_user_id
         )
     except ValueError as exc:  # a linked goal: its contributions are real transfers
-        return dialog(
-            request,
-            "partials/budget/move.html",
-            422,
-            title=f"Add to {account.name}",
-            action=f"{SECTION.path}/goals/{account_id}/contribute",
-            label="Add",
-            note=False,
-            errors=[str(exc)],
-        )
+        return _contribute_dialog(request, account, [str(exc)], 422)
     response = await _goal_card(request, service, owner_user_id, account, oob=True)
     return close_dialog(
         with_toast(response, f"Added {money(cents)} to {account.name}.")
@@ -435,9 +370,8 @@ async def remove_goal_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _goal(service, account_id, owner_user_id)
-    return dialog(
+    return remove_dialog(
         request,
-        "partials/budget/remove.html",
         title=f"Remove {account.name}?",
         body="A virtual goal is deleted; a linked account only stops being a goal.",
         url=f"{SECTION.path}/goals/{account_id}",
@@ -446,6 +380,7 @@ async def remove_goal_form(
 
 @router.delete("/goals/{account_id:int}", include_in_schema=False)
 async def remove_goal(
+    request: Request,
     account_id: int,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
@@ -454,7 +389,10 @@ async def remove_goal(
 
     account = await _goal(service, account_id, owner_user_id)
     await delete_goal(account_id, service=service, owner_user_id=owner_user_id)
-    await service.db.commit()
-    return close_dialog(
-        with_toast(Response(status_code=200), f"Removed {account.name}.")
+    return await removed(
+        request,
+        service,
+        owner_user_id,
+        f"goal-{account_id}",
+        f"Removed {account.name}.",
     )

@@ -18,7 +18,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.finance.utils import money_to_cents, to_cents
+from app.services.finance.utils import money_to_cents, positive_cents, to_cents
 
 
 class TestTheHalfCent:
@@ -47,3 +47,23 @@ class TestWhatAPersonTypes:
         """Never a crash: ``float("inf") * 100`` made ``round`` raise
         OverflowError, which a form turned into a 500."""
         assert money_to_cents(typed) is None
+
+
+class TestAPositiveAmount:
+    """Five forms parsed money and refused zero or less by hand."""
+
+    @pytest.mark.parametrize(
+        ("typed", "cents"),
+        [
+            ("12.50", 1_250),
+            ("$1,200", 120_000),
+            ("0", None),
+            ("-5", None),
+            ("", None),
+            ("abc", None),
+        ],
+    )
+    def test_only_more_than_zero_is_an_amount(
+        self, typed: str, cents: int | None
+    ) -> None:
+        assert positive_cents(typed) == cents

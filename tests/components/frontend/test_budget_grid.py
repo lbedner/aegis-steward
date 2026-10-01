@@ -11,6 +11,7 @@ import flet as ft
 from app.components.frontend.dashboard.modals.finance_modal import (
     budget_lines_grid,
 )
+from tests.components.frontend._payloads import budget_line
 from tests.components.frontend._tree import texts as _texts
 from tests.components.frontend._tree import walk as _walk
 
@@ -45,7 +46,13 @@ class TestTheCompactRow:
             compact_budget_row,
         )
 
-        return compact_budget_row("Groceries", allocated, spent, status)
+        line = budget_line(
+            category_name="Groceries",
+            allocated_amount=allocated,
+            spent_amount=spent,
+            status=status,
+        )
+        return compact_budget_row(line)
 
     def test_it_carries_name_figures_and_percent(self) -> None:
         texts = _texts(self._row())
@@ -76,11 +83,16 @@ class TestTheCompactRow:
 
     def test_over_budget_shows_the_real_percent_on_a_full_bar(self) -> None:
         """The bar clamps (Flet has no over-100 concept) but the number
-        must not lie: 129% reads as 129%, not 100%."""
+        must not lie: 128.6% reads as 128%, not 100%."""
         row = self._row(spent=179_882, status="critical")
         bars = [c for c in _walk(row) if isinstance(c, ft.ProgressBar)]
         assert bars[0].value == 1.0
-        assert "129%" in _texts(row)
+        assert "128%" in _texts(row)
+
+    def test_the_percent_is_the_one_the_web_shows(self) -> None:
+        """Flet rounded where the web truncates: 79.96% read "80%" here and
+        "79%" there, and only one of them had reached the 80% tone."""
+        assert "79%" in _texts(self._row(allocated=20_000, spent=15_992))
 
     def test_a_zero_limit_row_does_not_divide_by_zero(self) -> None:
         texts = _texts(self._row(allocated=0, spent=1_000))

@@ -27,7 +27,6 @@ from app.components.frontend.controls.table import (
     TableNameText,
 )
 from app.components.frontend.dashboard.modals.finance_modal.budget_cards import (
-    budget_suggestion_caption,
     goal_suggestion_message,
 )
 from app.components.frontend.dashboard.modals.finance_modal.budget_panel.base import (
@@ -101,7 +100,7 @@ class SuggestionsMixin(BudgetPanelState):
             [
                 TableNameText(p.get("category_name") or "Uncategorized"),
                 NumericText(_usd(p.get("suggested_amount", 0))),
-                SecondaryText(budget_suggestion_caption(p)),
+                SecondaryText(p.get("evidence", "")),
             ]
             for p in self._suggestions
         ]
@@ -134,7 +133,8 @@ class SuggestionsMixin(BudgetPanelState):
         # jump the table down.
         summary = (
             f"{len(self._suggestions)} categories, {_usd(total)}/month · "
-            "median of the last 6 complete months, skipping transfers "
+            f"median of the last {self._suggestion_window} complete months, "
+            "skipping transfers "
             "and anything a bill already covers"
             if self._suggestions
             else "Nothing to suggest. Dismissed suggestions are below."

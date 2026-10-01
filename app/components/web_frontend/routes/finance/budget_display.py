@@ -1,145 +1,145 @@
-"""How a budget READS: month labels, the shapes a card is drawn from,
-the words a goal's progress is said in.
-
-Split out of ``budget.py`` at the 500-line budget. Everything here is
-pure - it takes rows and returns what a template renders - so it can be
-read, and tested, without a database in the room.
+"""What the budget's three route modules share: the section, its
+dialog, the strip a write re-sends, how a removal answers, the choices
+its forms offer, and the words a goal's progress is said in. The strip
+itself, its popups and the pager read the way ``budgets.strip`` words
+them, for both frontends.
 """
 
 from __future__ import annotations
 
-import calendar
+from collections.abc import Callable
 from typing import Any
 
+from fastapi import HTTPException, Request
+from starlette.responses import Response
+
+from app.components.backend.api.finance.budgets import budget_summary
 from app.components.web_frontend.filters import money
 from app.components.web_frontend.nav import section
-from app.services.finance.schemas import (
-    BudgetStatsResponse,
-    GoalResponse,
+from app.components.web_frontend.rendering import (
+    close_dialog,
+    dialog,
+    templates,
+    with_toast,
 )
+from app.services.finance.domains.planning.budgets import strip
+from app.services.finance.models import FinanceAccount
+from app.services.finance.schemas import BudgetSummaryResponse, GoalResponse
+from app.services.finance.service import FinanceService
 
 SECTION = section("budget")
 
-# The choice vocabularies a goal and an envelope are offered, read by
-# every form that draws one.
-TARGET_RULES = [
-    {"id": "fixed", "name": "A fixed amount"},
-    {"id": "months_of_expenses", "name": "Months of expenses"},
-]
-CONTRIBUTION_KINDS = [
-    {"id": "fixed", "name": "A fixed amount each month"},
-    {"id": "percent_income", "name": "A percent of income"},
-    {"id": "surplus", "name": "Whatever the month leaves over"},
-]
-CADENCES = [{"id": "weekly", "name": "Weekly"}, {"id": "monthly", "name": "Monthly"}]
 
-
-# --- pure presentation ----------------------------------------------------
-
-
-def month_label(period_month: int) -> str:
-    """``202610`` -> ``October 2026``."""
-    return f"{calendar.month_name[period_month % 100]} {period_month // 100}"
-
-
-def _cell(
-    key: str, label: str, value: int, caption: str, tone: str | None = None
-) -> dict:
-    return {
-        "key": key,
-        "label": label,
-        "value": value,
-        "caption": caption,
-        "tone": tone,
-    }
-
-
-def stats_cells(stats: BudgetStatsResponse) -> list[dict[str, Any]]:
-    """The header strip for the current month: what comes in, what the
-    bills take, what the limits take, and the signed remainder. Colour
-    only for a month in trouble."""
-    plural = "s" if stats.income_count != 1 else ""
-    budgets_caption = f"{stats.flexible_count} limits"
-    if stats.goals_total > 0:
-        budgets_caption += " · + goals"
-    cells = [
-        _cell(
-            "income",
-            "Income",
-            stats.income_total,
-            f"{stats.income_count} confirmed source{plural} / month",
-        ),
-        _cell(
-            "bills", "Bills", stats.fixed_total, f"{stats.fixed_count} bills / month"
-        ),
-        _cell("budgets", "Budgets", stats.flexible_allocated, budgets_caption),
-    ]
-    if stats.everything_else > 0:
-        cells.append(
-            _cell(
-                "everything",
-                "Everything else",
-                stats.everything_else,
-                "observed · not in bills or limits",
-            )
-        )
-    if stats.month_net >= 0:
-        caption, tone = "Left over at these settings", "ok"
-    else:
-        caption, tone = (
-            f"Short this month · {stats.days_left_in_period} days left",
-            "error",
-        )
-    cells.append(_cell("month", "This month", stats.month_net, caption, tone))
-    return cells
-
-
-def outlook_cells(entry: Any) -> list[dict[str, Any]]:
-    """The strip for a FUTURE month: bills at face value on their real
-    cadence, and the verdict titled with the month itself."""
-    cells = [
-        _cell("income", "Income", entry.income_due, "due that month"),
-        _cell("bills", "Bills", entry.bills_due, "landing that month, face value"),
-        _cell("budgets", "Budgets", entry.budgets, "standing limits"),
-    ]
-    if entry.everything_else > 0:
-        cells.append(
-            _cell(
-                "everything",
-                "Everything else",
-                entry.everything_else,
-                "observed · not in bills or limits",
-            )
-        )
-    cells.append(
-        _cell(
-            "month",
-            month_label(entry.period_month),
-            entry.month_net,
-            "at these settings",
-            "ok" if entry.month_net >= 0 else "error",
-        )
+async def stats_context(
+    service: FinanceService, owner_user_id: int | None, account_ids: list[int] | None
+) -> tuple[BudgetSummaryResponse, dict[str, Any]]:
+    """This month's summary, and the strip drawn from it."""
+    summary = await budget_summary(
+        month=None,
+        account_ids=account_ids,
+        service=service,
+        owner_user_id=owner_user_id,
     )
-    return cells
+    return summary, {"cells": strip.stats_cells(summary.stats), "clickable": True}
 
 
-def equation_rows(stats: BudgetStatsResponse) -> list[dict[str, Any]]:
-    """The verdict as its own arithmetic, from the same stats the strip
-    renders; zero terms stay out."""
-    rows = [
-        {"label": "Income", "value": stats.income_total},
-        {"label": "Bills", "value": -stats.fixed_total},
-        {"label": "Budgets", "value": -stats.flexible_allocated},
-    ]
-    for label, amount in (
-        ("Goals", stats.goals_total),
-        ("Envelopes", stats.envelopes_total),
-        ("Everything else", stats.everything_else),
-    ):
-        if amount:
-            rows.append({"label": label, "value": -amount})
-    rows.append({"label": "This month", "value": stats.month_net})
-    return rows
+async def with_strip(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    template: str,
+    context: dict[str, Any],
+    status_code: int = 200,
+) -> Response:
+    """A write's answer: ``template`` (which may render nothing) and the
+    strip out of band after it. Every budget write answers this way, so
+    the verdict never goes stale; the strip is attached here and only
+    here."""
+    await service.db.commit()
+    _summary, stats = await stats_context(service, owner_user_id, None)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/budget/with_strip.html",
+        context={
+            **context,
+            "primary": template,
+            "path": SECTION.path,
+            "stats": stats,
+            "strip_oob": True,
+        },
+        status_code=status_code,
+    )
+
+
+def budget_dialog(
+    request: Request, template: str, /, status_code: int = 200, **context: Any
+) -> Response:
+    """A budget dialog: its partials build their URLs on the section path."""
+    return dialog(request, template, status_code, path=SECTION.path, **context)
+
+
+def move_dialog(
+    request: Request,
+    *,
+    title: str,
+    action: str,
+    label: str,
+    note: bool,
+    errors: list[str],
+    status_code: int = 200,
+) -> Response:
+    """The one-amount dialog: credit or spend an envelope, add to a goal."""
+    return budget_dialog(
+        request,
+        "partials/budget/move.html",
+        status_code,
+        title=title,
+        action=action,
+        label=label,
+        note=note,
+        errors=errors,
+    )
+
+
+def remove_dialog(request: Request, *, title: str, body: str, url: str) -> Response:
+    """The question every budget removal asks first."""
+    return budget_dialog(
+        request, "partials/budget/remove.html", title=title, body=body, url=url
+    )
+
+
+async def removed(
+    request: Request,
+    service: FinanceService,
+    owner_user_id: int | None,
+    element_id: str,
+    toast: str,
+) -> Response:
+    """The answer to a confirmed removal: the element leaves the page, the
+    strip moves, the dialog closes, and the toast says what went. The
+    confirm swaps nothing in, so the element has to go out of band."""
+    response = await with_strip(
+        request,
+        service,
+        owner_user_id,
+        "partials/removed.html",
+        {"removed": element_id},
+    )
+    return close_dialog(with_toast(response, toast))
+
+
+async def owned_account(
+    service: FinanceService,
+    account_id: int,
+    owner_user_id: int | None,
+    reader: Callable[[dict[str, Any] | None], object | None],
+) -> FinanceAccount:
+    """The owner's account that ``reader`` recognises (a goal, an
+    envelope), or the one 404."""
+    account = await service.get_account(account_id, owner_user_id=owner_user_id)
+    if account is None or reader(account.metadata_) is None:
+        raise HTTPException(status_code=404)
+    return account
 
 
 def eta_caption(goal: GoalResponse) -> str:

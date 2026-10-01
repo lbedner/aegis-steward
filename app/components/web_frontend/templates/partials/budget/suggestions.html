@@ -11,14 +11,14 @@
   </form>
   <div id="goal-parse-result"></div>
   {% endcall %}
-  {% call card("Suggested limits", "what six months of spending already imply") %}
+  {% call card("Suggested limits", "what " ~ suggestions.lookback_months ~ " months of spending already imply") %}
   {% if suggestions.items %}
   <ul class="divide-y divide-aegis-border/60 text-sm">
     {% for pick in suggestions.items %}
     <li id="suggestion-{{ pick.category_id }}" class="flex items-center gap-3 py-2">
       <div class="flex-1 min-w-0">
         <p class="text-aegis-text truncate">{{ pick.category_name or "Uncategorized" }}</p>
-        <p class="text-xxs text-aegis-muted">{{ pick.months_seen }} of 6 months{% if pick.unusual_months %} · {{ pick.unusual_months }} stood out{% else %} · every month alike{% endif %}</p>
+        <p class="text-xxs text-aegis-muted">{{ pick.evidence }}</p>
       </div>
       <span class="tabular-nums text-aegis-text">{{ pick.suggested_amount|money }}/mo</span>
       {{ action("Use", hx_swap(path ~ "/suggestions/" ~ pick.category_id ~ "/accept", "#suggestions", "post"), tone="primary", vals={"amount": pick.suggested_amount|cents_to_input}) }}
@@ -44,4 +44,3 @@
   {% endif %}
   {% endcall %}
 </section>
-{% if strip_oob %}{% include "partials/budget/stats.html" %}{% endif %}

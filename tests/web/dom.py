@@ -71,12 +71,22 @@ def card(markup: Markup, title: str) -> HtmlElement:
     raise AssertionError(f"no card titled {title!r}")
 
 
+def stats(markup: Markup) -> dict[str, str]:
+    """Every stat tile as ``{label: value}``, in the order shown."""
+    return {text(dt): text(dt.getnext()) for dt in select(markup, "dl dt")}
+
+
 def stat(markup: Markup, label: str) -> str:
     """The value under a ``stat_tile`` label."""
-    for dt in select(markup, "dl dt"):
-        if text(dt) == label:
-            return text(dt.getnext())
-    raise AssertionError(f"no stat tile {label!r}")
+    shown = stats(markup)
+    if label not in shown:
+        raise AssertionError(f"no stat tile {label!r}")
+    return shown[label]
+
+
+def id_of(element: HtmlElement, prefix: str) -> str:
+    """The key in an element's ``{prefix}{key}`` id: ``goal-12`` -> ``12``."""
+    return (element.get("id") or "").removeprefix(prefix)
 
 
 def chart_data(markup: Markup, kind: str) -> dict[str, Any]:

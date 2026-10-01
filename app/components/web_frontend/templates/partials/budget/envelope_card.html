@@ -1,16 +1,17 @@
+{% from "components/macros/layout.html" import item_card, remove_button %}
 {% from "components/macros/form.html" import action %}
-<li id="envelope-{{ envelope.account_id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="raised p-4 flex flex-col gap-2">
+{% call item_card("envelope-" ~ envelope.account_id, oob) %}
   <div class="flex items-center justify-between gap-3">
     <span class="text-sm text-aegis-text truncate">{{ envelope.name }}</span>
     <span class="tabular-nums text-lg font-semibold {{ 'text-error' if envelope.balance < 0 else 'text-aegis-text' }}">{{ envelope.balance|money }}</span>
   </div>
-  <p class="text-xxs text-aegis-muted">{% if envelope.auto_credit and envelope.monthly_credit %}+{{ envelope.monthly_credit|money }}/{{ "wk" if envelope.cadence == "weekly" else "mo" }} automatically{% else %}topped up by hand{% endif %}</p>
+  <p class="text-xxs text-aegis-muted">{{ envelope.credit_caption }}</p>
   {% if envelope.tag %}<p class="text-xxs text-aegis-muted" data-pays-for>pays for what is tagged {{ envelope.tag }}{% if envelope.tag_since %}, from {{ envelope.tag_since|short_date }}{% endif %}</p>{% endif %}
   <div class="flex items-center gap-2 text-xs">
     {% set base = path ~ "/envelopes/" ~ envelope.account_id %}
     {{ action("Credit", hx_dialog(base ~ '/credit'), tone="primary") }}
     {{ action("Spend", hx_dialog(base ~ '/spend')) }}
     {{ action("Edit", hx_dialog(base ~ '/edit')) }}
-    <button type="button" {{ hx_swap(path ~ "/envelopes/" ~ envelope.account_id, "#envelope-" ~ envelope.account_id, "delete") }} hx-confirm="Remove {{ envelope.name }}? Its history goes with it." class="ml-auto text-aegis-muted hover:text-error" aria-label="Remove envelope">×</button>
+    {{ remove_button(base ~ "/remove", "Remove envelope") }}
   </div>
-</li>
+{% endcall %}

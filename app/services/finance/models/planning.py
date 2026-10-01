@@ -276,6 +276,9 @@ class FinanceBudgetCategory(SQLModel, table=True):
     currency: str = Field(
         default="usd", foreign_key=f"{_FK}finance_currency.code", max_length=16
     )
+    # A removed line. The row stays so its month reads as decided and never
+    # inherits the month before again (#320); every read of limits skips it.
+    deleted_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

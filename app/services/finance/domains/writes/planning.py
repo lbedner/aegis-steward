@@ -19,11 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.schema import known
+from app.services.finance.constants import ENVELOPE_CADENCES
 from app.services.finance.domains.detection.insights.formatting import format_usd
-from app.services.finance.domains.planning.envelopes import (
-    ENVELOPE_CADENCES,
-    envelope_metadata,
-)
+from app.services.finance.domains.planning.envelopes import envelope_metadata
 from app.services.finance.domains.planning.goals import DEFAULT_PRIORITY, goal_metadata
 from app.services.finance.schemas import ChangeDisplayRow
 
@@ -276,7 +274,7 @@ class EnvelopeCreatePayload(BaseModel):
     name: str = Field(min_length=1)
     allowance_cents: int = Field(ge=0)
     cadence: str = "monthly"
-    _known_cadence = field_validator("cadence")(known(ENVELOPE_CADENCES))
+    _known_cadence = field_validator("cadence")(known(tuple(ENVELOPE_CADENCES)))
 
 
 async def envelope_create_execute(
@@ -319,7 +317,7 @@ class EnvelopeUpdatePayload(BaseModel):
     tag: str | None = None
     # When it starts counting that tag's charges; None leaves it.
     tag_since: date | None = None
-    _known_cadence = field_validator("cadence")(known(ENVELOPE_CADENCES))
+    _known_cadence = field_validator("cadence")(known(tuple(ENVELOPE_CADENCES)))
 
     @model_validator(mode="after")
     def _says_something(self) -> EnvelopeUpdatePayload:

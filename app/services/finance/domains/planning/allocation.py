@@ -260,22 +260,47 @@ def goal_shortfall(figures: MonthlyFigures, asks: dict[str, int]) -> int:
 async def month_figures(
     db: AsyncSession, *, owner_user_id: int | None, today: date
 ) -> MonthlyFigures:
-    """This month's income and committed totals, on the same footing the
-    budget header shows them: confirmed monthly income, and bills
-    monthly-equivalent plus this period's budget allocations."""
+    """This month's figures, read fresh. See ``figures_for``."""
     from app.services.finance.domains.planning import budgets
 
-    streams = await recurring.list_recurring(db, owner_user_id=owner_user_id)
-    income_total, _count = monthly_income(streams)
-    rollup = commitment_rollup(streams, today=today)
+    book = await recurring.stream_book(db, owner_user_id=owner_user_id)
+    lines = await budgets.lines_in_force(
+        db, owner_user_id=owner_user_id, period_month=current_period_month(today)
+    )
+    return await figures_for(
+        db,
+        book,
+        allocated=sum(line.allocated_amount for line in lines),
+        owner_user_id=owner_user_id,
+        today=today,
+    )
+
+
+async def figures_for(
+    db: AsyncSession,
+    book: recurring.StreamBook,
+    *,
+    allocated: int,
+    owner_user_id: int | None,
+    today: date,
+) -> MonthlyFigures:
+    """The month's figures from streams the caller has already read, on
+    the footing the budget header shows them: confirmed monthly income,
+    and bills monthly-equivalent plus ``allocated``, the budget lines.
+    No transfers in either, so a card payment is no more a bill here
+    than in the strip."""
+    counted = book.counted()
+    income_total, _count = monthly_income(counted, today)
+    rollup = commitment_rollup(counted, today=today)
     # The per-account run rate, minus CARD payments only: an autopay and
     # the swipes it settles are the same money seen twice, and a fund
     # sized on both is sized on a number that never existed. Loan
     # payments stay - a mortgage transfer is the only record that expense
     # has, and a fund that skips it is short by a mortgage a month.
-    transfer_ids = await recurring.transfer_stream_ids(db, [s.id for s in streams])
-    card_payment_ids = await recurring.card_payment_stream_ids(db, list(transfer_ids))
-    spending = [s for s in streams if s.id not in card_payment_ids]
+    card_payment_ids = await recurring.card_payment_stream_ids(
+        db, list(book.transfer_ids)
+    )
+    spending = [s for s in book.streams if s.id not in card_payment_ids]
     by_account: dict[int, int] = {}
     for account_id in {s.account_id for s in spending if s.account_id is not None}:
         owed = commitment_rollup(
@@ -285,16 +310,6 @@ async def month_figures(
     unattached = commitment_rollup(
         [s for s in spending if s.account_id is None], today=today
     )["monthly_total"]
-    period = current_period_month(today)
-    budget = await budgets.get_or_create_budget(
-        db, owner_user_id=owner_user_id, period_month=period
-    )
-    allocated = sum(
-        line.allocated_amount
-        for line in await budgets.lines_in_force(
-            db, budget_id=budget.id, period_month=period
-        )
-    )
     observed = await observed_run_rate(db, owner_user_id=owner_user_id, today=today)
     return MonthlyFigures(
         income_total=income_total,

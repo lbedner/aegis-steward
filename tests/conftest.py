@@ -130,6 +130,16 @@ from app.integrations.main import create_integrated_app
 # (the live engines) was missing from a file run on its own.
 import_all_models()
 
+# queryspy's baseline knows a repeated statement by its shape, so a new
+# column does not turn every known entry into a new one.
+from tests import _queryspy_shape  # noqa: E402
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    # After every plugin's pytest_configure, so queryspy has read the file.
+    _queryspy_shape.shape_loaded_baseline(session.config)
+
+
 
 # Swap the module-level ``cache`` singleton to the in-memory dict
 # backend for the whole test session. The Redis-backed singleton

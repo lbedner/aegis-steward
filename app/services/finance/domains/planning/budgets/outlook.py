@@ -16,13 +16,11 @@ import re
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import (
-    CADENCES,
     CASH_ACCOUNT_TYPES,
     add_months,
 )
 from app.services.finance.domains.detection.insights.commitments import (
-    is_commitment,
-    is_paused,
+    is_active_commitment,
 )
 from app.services.finance.domains.ledger import accounts, categories
 from app.services.finance.domains.planning import (
@@ -31,15 +29,13 @@ from app.services.finance.domains.planning import (
     recurring,
 )
 from app.services.finance.domains.planning import queries as planning_queries
-from app.services.finance.domains.planning.budgets import queries
+from app.services.finance.domains.planning.budgets import queries, strip
 from app.services.finance.domains.planning.budgets.lines import (
-    get_or_create_budget,
     lines_in_force,
 )
 from app.services.finance.domains.planning.budgets.uncovered import (
     uncovered_spending_rate,
 )
-from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import BudgetMonthOutlook, GoalParseResponse
 from app.services.finance.utils import (
     current_date,
@@ -72,19 +68,11 @@ async def budget_month_outlook(
     first = date(today.year, today.month, 1)
     horizon_end = add_months(first, months)
 
-    streams = await recurring.list_recurring(db, owner_user_id=owner_user_id)
-    # Same scoping rule as budget_summary, the header this pages.
-    streams = [s for s in streams if recurring.in_account_scope(s, account_ids)]
-    transfer_ids = await recurring.transfer_stream_ids(db, [s.id for s in streams])
+    # The streams budget_summary counts, the header this pages.
+    book = await recurring.stream_book(db, owner_user_id=owner_user_id)
     due_in: dict[tuple[int, int, str], int] = {}
-    for stream in streams:
-        if (
-            stream.is_muted
-            or is_paused(stream, today)
-            or stream.id in transfer_ids
-            or not is_commitment(stream)
-            or stream.next_expected_date is None
-        ):
+    for stream in book.counted(account_ids):
+        if not is_active_commitment(stream, today) or stream.next_expected_date is None:
             continue
         amount = stream.amount
         if amount <= 0:
@@ -101,27 +89,31 @@ async def budget_month_outlook(
             due_in[key] = due_in.get(key, 0) + amount
 
     # The standing monthly asks - plans, identical every month.
-    period = current_period_month(today)
-    budget = await get_or_create_budget(
-        db, owner_user_id=owner_user_id, period_month=period
-    )
     budgets_monthly = sum(
         line.allocated_amount
-        for line in await lines_in_force(db, budget_id=budget.id, period_month=period)
+        for line in await lines_in_force(
+            db, owner_user_id=owner_user_id, period_month=current_period_month(today)
+        )
+    )
+    figures = await allocation.figures_for(
+        db,
+        book,
+        allocated=budgets_monthly,
+        owner_user_id=owner_user_id,
+        today=today,
     )
     goals_monthly = sum(
         (
             await allocation.goal_allocations(
-                db, owner_user_id=owner_user_id, today=today
+                db, owner_user_id=owner_user_id, today=today, figures=figures
             )
         ).values()
     )
     envelopes_monthly = sum(
-        int(meta.monthly_credit * CADENCES[meta.cadence].monthly_factor)
-        for account in await envelopes.list_envelopes(db, owner_user_id=owner_user_id)
-        if (meta := envelopes.envelope_metadata(account.metadata_)) is not None
-        and meta.auto_credit
-        and meta.monthly_credit
+        meta.monthly_amount
+        for _account, meta in await envelopes.auto_credited(
+            db, owner_user_id=owner_user_id
+        )
     )
     everything_else = await uncovered_spending_rate(
         db, owner_user_id=owner_user_id, today=today, account_ids=account_ids
@@ -151,17 +143,17 @@ async def budget_month_outlook(
         month_start = add_months(first, offset)
         income_due = due_in.get((month_start.year, month_start.month, "in"), 0)
         bills_due = due_in.get((month_start.year, month_start.month, "out"), 0)
-        month_net = (
-            income_due
-            - bills_due
-            - budgets_monthly
-            - goals_monthly
-            - envelopes_monthly
-            - everything_else
+        month_net = strip.month_net(
+            income=income_due,
+            bills=bills_due,
+            budgets=budgets_monthly,
+            goals=goals_monthly,
+            envelopes=envelopes_monthly,
+            everything_else=everything_else,
         )
         outlook.append(
             BudgetMonthOutlook(
-                period_month=month_start.year * 100 + month_start.month,
+                period_month=current_period_month(month_start),
                 income_due=income_due,
                 bills_due=bills_due,
                 budgets=budgets_monthly,
@@ -175,6 +167,11 @@ async def budget_month_outlook(
         )
         running += month_net
     return outlook
+
+
+# The goal box's baseline: the last three months of spend, averaged.
+_BASELINE_MONTHS = 3
+_BASELINE_DAYS = 30 * _BASELINE_MONTHS
 
 
 async def parse_budget_goal(
@@ -193,8 +190,7 @@ async def parse_budget_goal(
     percent_match = re.search(r"(\d+)\s*%", text)
     fraction = int(percent_match.group(1)) / 100 if percent_match else 0.5
 
-    cutoff = current_date() - timedelta(days=90)
-    filters = planning_queries.spend_filters(owner_user_id, cutoff)
+    cutoff = current_date() - timedelta(days=_BASELINE_DAYS)
     txn_rows = await queries.outflow_tuples(
         db, owner_user_id=owner_user_id, start=cutoff
     )
@@ -225,7 +221,7 @@ async def parse_budget_goal(
     )
 
     if matched_payee_key is not None:
-        baseline_monthly = int(payee_spend[matched_payee_key] / 3)
+        baseline_monthly = int(payee_spend[matched_payee_key] / _BASELINE_MONTHS)
         suggested_limit = round(baseline_monthly * fraction)
         label = payee_label[matched_payee_key]
         return GoalParseResponse(
@@ -234,6 +230,7 @@ async def parse_budget_goal(
             payee_key=matched_payee_key,
             payee_label=label,
             baseline_monthly=baseline_monthly,
+            baseline_days=_BASELINE_DAYS,
             suggested_limit=suggested_limit,
             label=label,
             fraction=fraction,
@@ -248,21 +245,24 @@ async def parse_budget_goal(
             break
 
     if matched_category is not None:
-        cat_filters = [
-            *filters,
-            FinanceTransaction.category_id == matched_category.id,
-        ]
-        cat_total = await queries.sum_amount_where(db, cat_filters)
-        baseline_monthly = int(-cat_total / 3)
+        # Split-aware, the way the limit's own spend will count it.
+        spent = await planning_queries.spend_by_category(
+            db,
+            owner_user_id=owner_user_id,
+            start=cutoff,
+            category_ids={matched_category.id},
+        )
+        baseline_monthly = int(spent.get(matched_category.id, 0) / _BASELINE_MONTHS)
         suggested_limit = round(baseline_monthly * fraction)
         return GoalParseResponse(
             matched=True,
             target_type="category",
             category_id=matched_category.id,
             baseline_monthly=baseline_monthly,
+            baseline_days=_BASELINE_DAYS,
             suggested_limit=suggested_limit,
             label=matched_category.name,
             fraction=fraction,
         )
 
-    return GoalParseResponse(matched=False)
+    return GoalParseResponse(matched=False, baseline_days=_BASELINE_DAYS)

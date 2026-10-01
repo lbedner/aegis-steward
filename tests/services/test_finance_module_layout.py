@@ -73,17 +73,15 @@ RECURRING_QUERIES = {
 
 BUDGET_OWNERS = {
     "get_or_create_budget": "lines",
-    "spend_for_target": "lines",
+    "spend_by_line": "lines",
     "upsert_budget_line": "lines",
     "delete_budget_line": "lines",
     "suggest_budget_lines": "suggestions",
-    "dismissal_markers": "suggestions",
     "list_dismissed_suggestions": "suggestions",
     "dismiss_budget_suggestions": "suggestions",
     "restore_budget_suggestions": "suggestions",
     "budget_summary": "summary",
     "uncovered_spending_rate": "uncovered",
-    "uncovered_spend_filters": "uncovered",
     "budget_stat_details": "details",
     "plan_budget_trims": "trims",
     "budget_month_outlook": "outlook",
@@ -100,24 +98,15 @@ BUDGET_QUERIES = {
     "budget_lines_for_period",
     "budget_lines_with_category",
     "dismissal_marker_lines",
-    "budget_line_for_target",
     "budget_line_by_id",
-    "allocated_budget_lines",
     "categorized_outflow_history",
     "outflow_tuples",
-    "sum_amount_where",
-    "grouped_category_totals_where",
 }
 
 # The auto-budget gates. service.py mirrors them onto the facade, so
 # they are API whether or not the underscore says so.
 BUDGET_GATES = {
     "_BUDGET_LOOKBACK_MONTHS",
-    "_BUDGET_MIN_MONTHS",
-    "_BUDGET_UNUSUAL_BAND",
-    "_BUDGET_MAX_UNUSUAL_MONTHS",
-    "_BUDGET_MIN_AMOUNT",
-    "_BUDGET_BILLED_SHARE",
 }
 
 
@@ -493,7 +482,6 @@ SERVICE_OWNERS = {
     "delete_recurring": "recurring",
     "dismiss_budget_suggestions": "budgets",
     "dismiss_insight": "insights",
-    "dismissal_markers": "budgets",
     "find_transaction": "transactions",
     "flag_account_as_goal": "goals",
     "get_account": "accounts",
@@ -561,7 +549,6 @@ SERVICE_OWNERS = {
     "similar_unassigned": "merchants",
     "soft_delete_account": "accounts",
     "soft_delete_transactions": "transactions",
-    "spend_for_target": "budgets",
     "spend_from_envelope": "goals",
     "spending_by_category": "categories",
     "spending_summary": "categories",
@@ -577,7 +564,6 @@ SERVICE_OWNERS = {
     "transactions_by_ids": "transactions",
     "transfer_stream_ids": "recurring",
     "uncategorized_transactions": "transactions",
-    "uncovered_spend_filters": "budgets",
     "uncovered_spending_rate": "budgets",
     "unflag_goal": "goals",
     "unmute_recurring": "recurring",

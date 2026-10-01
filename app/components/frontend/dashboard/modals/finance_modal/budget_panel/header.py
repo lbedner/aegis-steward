@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from dataclasses import asdict
 
 import flet as ft
 
@@ -11,21 +11,19 @@ from app.components.frontend.controls import (
     NumericText,
     SecondaryText,
 )
-from app.components.frontend.dashboard.modals.finance_modal.budget_cards import (
-    budget_stats_cells,
-    outlook_chip,
-    outlook_stats_cells,
-)
 from app.components.frontend.dashboard.modals.finance_modal.budget_panel.base import (
     BudgetPanelState,
 )
-from app.components.frontend.dashboard.modals.finance_modal.formatting import _usd
-from app.components.frontend.dashboard.modals.finance_modal.stat_details import (
-    _captioned,
-    equation_rows,
-    stat_window_label,
-)
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.domains.planning.budgets import strip
+from app.services.finance.schemas import (
+    BudgetMonthOutlook,
+    BudgetStatDetailsResponse,
+    BudgetSummaryResponse,
+)
+
+# The colour a strip cell's or a pager chip's tone wears here.
+_TONES = {"ok": Theme.Colors.ACCENT, "error": Theme.Colors.ERROR}
 
 
 class BudgetHeaderMixin(BudgetPanelState):
@@ -35,29 +33,31 @@ class BudgetHeaderMixin(BudgetPanelState):
     month at a time without refetching.
     """
 
-    def _stats_strip(self, stats: dict[str, Any]) -> ft.Control:
-        # Paged past "this month", the four cells recompute for that
-        # future month (bills at face value on their real cadence);
-        # index 0 keeps the classic monthly-equivalent header.
-        if self._outlook_index > 0 and self._outlook_index < len(self._outlook):
-            rows = outlook_stats_cells(self._outlook[self._outlook_index])
+    def _stats_strip(self) -> ft.Control:
+        # Paged past "this month", the cells recompute for that future
+        # month (bills at face value on their real cadence); index 0
+        # keeps the classic monthly-equivalent header.
+        if 0 < self._outlook_index < len(self._outlook):
+            month = BudgetMonthOutlook.model_validate(
+                self._outlook[self._outlook_index]
+            )
             # Future months carry no per-row backup yet, so the cells
             # stay plain there.
             cells = [
-                self._stat_cell(label, value, caption, color)
-                for label, value, caption, color in rows
+                self._stat_cell(c.label, c.display, c.caption, _TONES.get(c.tone))
+                for c in strip.outlook_cells(month)
             ]
         else:
-            rows = budget_stats_cells(stats)
+            summary = BudgetSummaryResponse.model_validate(self._summary)
             cells = [
                 self._stat_cell(
-                    label,
-                    value,
-                    caption,
-                    color,
-                    on_tap=lambda e, k=label: self._open_stat_detail(k, e),
+                    c.label,
+                    c.display,
+                    c.caption,
+                    _TONES.get(c.tone),
+                    on_tap=lambda e, k=c.key: self._open_stat_detail(k, e),
                 )
-                for label, value, caption, color in rows
+                for c in strip.stats_cells(summary.stats)
             ]
         return ft.Container(
             content=ft.Row(cells, spacing=Theme.Spacing.LG),
@@ -74,64 +74,35 @@ class BudgetHeaderMixin(BudgetPanelState):
             self.page.run_task(self._open_stat_detail_async, key, e)
 
     async def _open_stat_detail_async(self, key: str, e: ft.ControlEvent) -> None:
-        """Rows for whichever cell was clicked. The verdict and Budgets
-        build from the summary already on screen (zero fetch, cannot
-        disagree with the strip); the rest come from one cached
-        /budget/stat-details fetch."""
-        stats = (self._summary or {}).get("stats", {})
-        if key == "This month":
-            self._stat_detail.open_at(
-                e, "The month, line by line", equation_rows(stats)
-            )
-            return
-        if key == "Budgets":
-            buckets = {b["name"]: b for b in (self._summary or {}).get("buckets", [])}
-            rows = [
-                {
-                    "label": line.get("category_name")
-                    or line.get("payee_label")
-                    or "Overall",
-                    "value": line.get("allocated_amount", 0),
-                    "caption": f"{_usd(line.get('spent_amount', 0))} spent",
-                }
-                for line in buckets.get("flexible", {}).get("lines", [])
-            ]
-            rows.sort(key=lambda r: -r["value"])
-            self._stat_detail.open_at(e, "Limits you've set", rows)
-            return
-        if self._stat_details is None:
-            from app.components.frontend.state.session_state import (
-                get_session_state,
-            )
+        """Rows for whichever cell was clicked, as ``strip`` words them. The
+        verdict and Budgets build from the summary already on screen (zero
+        fetch, cannot disagree with the strip); the rest come from one
+        cached /budget/stat-details fetch."""
+        details = None
+        if key in strip.DETAIL_KEYS:
+            if self._stat_details is None:
+                from app.components.frontend.state.session_state import (
+                    get_session_state,
+                )
 
-            api = get_session_state(self.page).api_client
-            data = await api.get(
-                "/api/v1/finance/budget/stat-details",
-                params=self._account_filter.params(),
-            )
-            if not isinstance(data, dict):
-                return
-            self._stat_details = data
-        details = self._stat_details
-        if key == "Income":
-            self._stat_detail.open_at(
-                e, "Confirmed income", _captioned(details["income"])
-            )
-        elif key == "Bills":
-            self._stat_detail.open_at(
-                e,
-                "Bills, monthly equivalent",
-                _captioned(details["bills"]),
-                footer="Non-monthly bills shown at their monthly share",
-            )
-        elif key == "Everything else":
-            self._stat_detail.open_at(
-                e,
-                "Everything else",
-                _captioned(details["everything_else"]),
-                footer=f"{stat_window_label(details)} - spending no bill "
-                "or limit covers",
-            )
+                api = get_session_state(self.page).api_client
+                data = await api.get(
+                    "/api/v1/finance/budget/stat-details",
+                    params=self._account_filter.params(),
+                )
+                if not isinstance(data, dict):
+                    return
+                self._stat_details = data
+            details = BudgetStatDetailsResponse.model_validate(self._stat_details)
+        popup = strip.stat_popup(
+            key, BudgetSummaryResponse.model_validate(self._summary), details
+        )
+        self._stat_detail.open_at(
+            e,
+            popup.title,
+            [asdict(row) for row in popup.rows],
+            footer=popup.footer or None,
+        )
 
     def _month_pager(self) -> ft.Control:
         """The months ahead as one row: arrows page the header, the chips
@@ -151,12 +122,10 @@ class BudgetHeaderMixin(BudgetPanelState):
             self._render()
 
         chips: list[ft.Control] = []
-        for i, entry in enumerate(self._outlook):
-            if i == 0:
-                label = f"Now ${round(entry.get('start_balance', 0) / 100):,}"
-                color = Theme.Colors.TEXT_SECONDARY
-            else:
-                label, color = outlook_chip(entry)
+        months = [BudgetMonthOutlook.model_validate(e) for e in self._outlook]
+        for i, chip in enumerate(strip.pager_chips(months)):
+            label = chip.label
+            color = _TONES.get(chip.tone, Theme.Colors.TEXT_SECONDARY)
             selected = i == self._outlook_index
             chips.append(
                 ft.Container(

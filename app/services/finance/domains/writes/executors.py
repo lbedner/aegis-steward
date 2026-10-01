@@ -361,6 +361,13 @@ for change_type, title, model, execute, describe in (
         budgets.budget_limit_describe,
     ),
     (
+        "budget.remove",
+        "Remove a budget limit",
+        budgets.BudgetRemovePayload,
+        budgets.budget_remove_execute,
+        budgets.budget_remove_describe,
+    ),
+    (
         "envelope.balance",
         "Correct what is in an envelope",
         planning.EnvelopeBalancePayload,

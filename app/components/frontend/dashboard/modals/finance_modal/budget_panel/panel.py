@@ -45,6 +45,7 @@ from app.components.frontend.dashboard.modals.modal_sections import (
     EmptyStatePlaceholder,
 )
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.schemas import BudgetSummaryResponse
 
 
 class BudgetPanel(
@@ -93,6 +94,7 @@ class BudgetPanel(
         # actually set, which is the only part of this page you act on.
         self._show_commitments = False
         self._suggestions: list[dict[str, Any]] = []
+        self._suggestion_window = 0
         self._dismissed_suggestions: list[dict[str, Any]] = []
         self._show_dismissed = False
         self._suggestion_selection: set[int] = set()
@@ -242,6 +244,9 @@ class BudgetPanel(
         self._outlook = outlook.get("items", []) if isinstance(outlook, dict) else []
         picks = await api.get("/api/v1/finance/budget/suggestions")
         self._suggestions = picks.get("items", []) if isinstance(picks, dict) else []
+        self._suggestion_window = (
+            picks.get("lookback_months", 0) if isinstance(picks, dict) else 0
+        )
         self._dismissed_suggestions = (
             picks.get("dismissed", []) if isinstance(picks, dict) else []
         )
@@ -256,8 +261,8 @@ class BudgetPanel(
             if self.page:
                 self.update()
             return
-        buckets = {b["name"]: b for b in self._summary.get("buckets", [])}
-        self._stats.content = self._stats_strip(self._summary.get("stats", {}))
+        summary = BudgetSummaryResponse.model_validate(self._summary)
+        self._stats.content = self._stats_strip()
         self._pager_slot.content = self._month_pager()
         # Your budget first. The commitment sections are collapsed behind
         # one line so the page opens on what you set, not on 76 bills that
@@ -311,10 +316,12 @@ class BudgetPanel(
         trims = self._summary.get("trims") or []
         if trims:
             children.append(self._trims_section(trims))
-        children.append(self._flexible_section(buckets.get("flexible")))
-        children.append(self._commitments_toggle(buckets))
+        children.append(
+            self._flexible_section(summary.bucket("flexible").model_dump(mode="json"))
+        )
+        children.append(self._commitments_toggle(summary))
         if self._show_commitments:
-            children.extend(self._commitment_sections(buckets))
+            children.extend(self._commitment_sections(summary))
         self._body.content = ft.Column(
             children,
             spacing=Theme.Spacing.LG,

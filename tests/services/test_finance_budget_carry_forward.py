@@ -17,33 +17,23 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
+from tests.services._finance_factories import seed_limit
 
 AUGUST = 202608
 SEPTEMBER = 202609
+OCTOBER = 202610
 
 
 def _flexible(summary) -> list:
     """The bucket that holds the limits a person chose."""
-    return [
-        line
-        for bucket in summary.buckets
-        if bucket.name == "flexible"
-        for line in bucket.lines
-    ]
+    return summary.bucket("flexible").lines
 
 
 async def _august_budget(svc: FinanceService) -> tuple[int, int]:
     groceries = await svc.get_or_create_category_from_hint("Food:Groceries")
     fuel = await svc.get_or_create_category_from_hint("Auto:Gas")
     for category_id, cents in ((groceries.id, 100_000), (fuel.id, 20_000)):
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=AUGUST,
-            category_id=category_id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=cents,
-        )
+        await seed_limit(svc, category_id, cents, period_month=AUGUST)
     return groceries.id, fuel.id
 
 
@@ -84,14 +74,7 @@ async def test_a_month_you_have_edited_is_left_alone(svc: FinanceService) -> Non
     edit used to BE the month, and every other limit was gone from it
     and from each month copied after it (#265)."""
     groceries, fuel = await _august_budget(svc)
-    await svc.upsert_budget_line(
-        owner_user_id=1,
-        period_month=SEPTEMBER,
-        category_id=fuel,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=5_000,
-    )
+    await seed_limit(svc, fuel, 5_000, period_month=SEPTEMBER)
 
     summary = await svc.budget_summary(
         owner_user_id=1, period_month=SEPTEMBER, today=date(2026, 9, 3)
@@ -208,14 +191,55 @@ async def test_two_pages_opening_the_month_at_once_do_not_collide(
 
     monkeypatch.setattr(queries, "budget_lines_for_period", looks_empty_once)
 
-    budget = await lines.get_or_create_budget(
-        async_db_session, owner_user_id=1, period_month=SEPTEMBER
-    )
     carried = await lines.lines_in_force(
-        async_db_session, budget_id=budget.id, period_month=SEPTEMBER
+        async_db_session, owner_user_id=1, period_month=SEPTEMBER
     )
 
     allocated = {line.category_id: line.allocated_amount for line in carried}
     assert allocated.get(groceries) == 100_000, (
         "the losing caller returned nothing instead of the rows already there"
     )
+
+
+async def _september_cleared(svc: FinanceService) -> None:
+    """Every limit September inherited, removed one by one."""
+    summary = await svc.budget_summary(
+        owner_user_id=1, period_month=SEPTEMBER, today=date(2026, 9, 3)
+    )
+    for line in _flexible(summary):
+        assert await svc.delete_budget_line(line.id, owner_user_id=1)
+
+
+@pytest.mark.asyncio
+async def test_a_month_whose_limits_were_all_removed_stays_empty(
+    svc: FinanceService,
+) -> None:
+    """Removing a month's last limit left it with no rows of its own, so the
+    next read inherited the month before all over again (#320). A removed
+    limit is a decision, and the month after inherits it too."""
+    await _august_budget(svc)
+    await _september_cleared(svc)
+
+    september = await svc.budget_summary(
+        owner_user_id=1, period_month=SEPTEMBER, today=date(2026, 9, 3)
+    )
+    october = await svc.budget_summary(
+        owner_user_id=1, period_month=OCTOBER, today=date(2026, 10, 3)
+    )
+
+    assert _flexible(september) == [], "August's limits came back into September"
+    assert _flexible(october) == [], "October skipped September and inherited August"
+
+
+@pytest.mark.asyncio
+async def test_a_removed_limit_can_be_set_again(svc: FinanceService) -> None:
+    groceries, _fuel = await _august_budget(svc)
+    await _september_cleared(svc)
+
+    await seed_limit(svc, groceries, 80_000, period_month=SEPTEMBER)
+
+    summary = await svc.budget_summary(
+        owner_user_id=1, period_month=SEPTEMBER, today=date(2026, 9, 3)
+    )
+    allocated = {line.category_id: line.allocated_amount for line in _flexible(summary)}
+    assert allocated == {groceries: 80_000}, "the removed fuel limit came back"

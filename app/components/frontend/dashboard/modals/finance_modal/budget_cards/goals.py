@@ -215,10 +215,7 @@ def envelope_card(
     credit as a caption when it books itself. Spend is the primary verb -
     an allowance exists to be drawn down."""
     balance = envelope.get("balance", 0)
-    caption = ""
-    if envelope.get("auto_credit") and envelope.get("monthly_credit"):
-        per = "wk" if envelope.get("cadence") == "weekly" else "mo"
-        caption = f"+{_usd(envelope['monthly_credit'])}/{per}"
+    caption = envelope.get("credit_caption", "")
     body = ft.Column(
         [
             ft.Row(

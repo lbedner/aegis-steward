@@ -17,16 +17,16 @@ value.
 from datetime import date
 from typing import Any, NamedTuple
 
-from sqlmodel import or_, select
+from sqlmodel import or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import add_months
 from app.services.finance.domains.planning.budgets import queries
 from app.services.finance.domains.planning.budgets.lines import (
-    get_or_create_budget,
     lines_in_force,
 )
-from app.services.finance.models import FinanceAccount, FinanceTransaction
+from app.services.finance.domains.planning.queries import spend_filters
+from app.services.finance.models import FinanceTransaction
 from app.services.finance.utils import current_date, current_period_month
 
 UNCOVERED_WINDOW_MONTHS = 3
@@ -49,6 +49,9 @@ class UncoveredSpend(NamedTuple):
     rate_by_category: dict[int | None, int]
     one_off_by_category: dict[int | None, int]
     counts: dict[int | None, int]
+    # The months the rate averages, ``[start, end)``.
+    window_start: date
+    window_end: date
 
 
 async def uncovered_spend(
@@ -145,6 +148,8 @@ async def uncovered_spend(
         rate_by_category=rate_by_category,
         one_off_by_category=one_off_by_category,
         counts=counts,
+        window_start=window_start,
+        window_end=window_end,
     )
 
 
@@ -185,26 +190,17 @@ async def uncovered_spend_filters(
     window_end = date(today.year, today.month, 1)
     window_start = add_months(window_end, -lookback_months)
 
-    period = current_period_month(today)
-    budget = await get_or_create_budget(
-        db, owner_user_id=owner_user_id, period_month=period
-    )
     budgeted_category_ids = {
         line.category_id
-        for line in await lines_in_force(db, budget_id=budget.id, period_month=period)
+        for line in await lines_in_force(
+            db, owner_user_id=owner_user_id, period_month=current_period_month(today)
+        )
         if line.category_id is not None
     }
 
-    live_accounts = select(FinanceAccount.id).where(FinanceAccount.deleted_at.is_(None))
     filters: list[Any] = [
-        FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
-        FinanceTransaction.excluded_from_reports.is_(False),
+        *spend_filters(owner_user_id, window_start, window_end, account_ids),
         FinanceTransaction.is_transfer.is_(False),
-        FinanceTransaction.account_id.in_(live_accounts),
-        FinanceTransaction.amount < 0,
-        FinanceTransaction.date_ >= window_start,
-        FinanceTransaction.date_ < window_end,
         FinanceTransaction.recurring_stream_id.is_(None),
         # A reconciliation adjustment is bookkeeping, not spending.
         or_(
@@ -212,10 +208,6 @@ async def uncovered_spend_filters(
             FinanceTransaction.external_id_source != "reconcile",
         ),
     ]
-    if owner_user_id is not None:
-        filters.append(FinanceTransaction.owner_user_id == owner_user_id)
-    if account_ids is not None:
-        filters.append(FinanceTransaction.account_id.in_(account_ids))
     if budgeted_category_ids:
         filters.append(
             or_(

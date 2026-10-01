@@ -13,11 +13,9 @@ import statistics
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.finance.constants import UNCATEGORIZED_CATEGORY_NAMES
+from app.services.finance.constants import UNCATEGORIZED_CATEGORY_NAMES, add_months
 from app.services.finance.domains.detection.insights.commitments import (
-    MONTHLY_FACTOR,
-    is_commitment,
-    is_paused,
+    is_active_commitment,
 )
 from app.services.finance.domains.ledger import categories
 from app.services.finance.domains.ledger import queries as ledger_queries
@@ -62,9 +60,15 @@ _BUDGET_MAX_UNUSUAL_MONTHS = 1
 _BUDGET_MIN_AMOUNT = 2_000
 
 
-# Share of a category's monthly spend that bills must already account
-# for before a budget line on it would be double-counting.
-_BUDGET_BILLED_SHARE = 0.6
+def _evidence(months_seen: int, unusual: int) -> str:
+    """What the gate measured: the months with spend, and how many of
+    those did not look like the others."""
+    odd = (
+        "every month alike"
+        if unusual == 0
+        else f"{unusual} month{'' if unusual == 1 else 's'} stood out"
+    )
+    return f"{months_seen} of {_BUDGET_LOOKBACK_MONTHS} months · {odd}"
 
 
 async def suggest_budget_lines(
@@ -86,18 +90,19 @@ async def suggest_budget_lines(
     already set a line for.
     """
     today = today or current_date()
-    current = today.year * 12 + today.month - 1
-    first = current - _BUDGET_LOOKBACK_MONTHS
-
-    rows = await queries.categorized_outflow_history(db, owner_user_id=owner_user_id)
+    # Complete months only - the current one is still filling up and
+    # would drag every suggestion down.
+    end = date(today.year, today.month, 1)
+    rows = await queries.categorized_outflow_history(
+        db,
+        owner_user_id=owner_user_id,
+        start=add_months(end, -_BUDGET_LOOKBACK_MONTHS),
+        end=end,
+    )
 
     per_month: dict[int, dict[int, int]] = {}
     for txn in rows:
         index = txn.date_.year * 12 + txn.date_.month - 1
-        # Complete months only - the current one is still filling up
-        # and would drag every suggestion down.
-        if not (first <= index < current):
-            continue
         per_month.setdefault(txn.category_id, {}).setdefault(index, 0)
         per_month[txn.category_id][index] += -txn.amount
 
@@ -109,14 +114,6 @@ async def suggest_budget_lines(
     # subscription was suggested as a budget line while also being
     # billed, which would charge the forecast twice.
     live_streams = await recurring.queries.all_live_streams(db)
-    # How much of each category the bills already account for, per
-    # month. Presence is the wrong test: nearly every stream INFERS a
-    # category from its transactions, so one detected rhythm holding a
-    # single grocery charge would block the whole groceries budget
-    # (19 suggestions collapsed to 2 when tried that way). Magnitude
-    # is the right test - if bills already cover most of what a
-    # category costs, budgeting it too charges the forecast twice; if
-    # they cover a sliver, the budget is still the useful number.
     all_categories = await ledger_queries.all_categories(db)
     by_name = {c.name: c.id for c in all_categories}
     # A budget line is about money SPENT. Categories carry their own
@@ -128,49 +125,31 @@ async def suggest_budget_lines(
     # accounts.
     spendable = {c.id for c in all_categories if c.classification == "expense"}
     inferred = await recurring.stream_category_names(db, [s.id for s in live_streams])
-    billed_per_month: dict[int, int] = {}
-    # Categories a CONFIRMED bill claims. Presence, not magnitude: the
+    # Categories a confirmed bill claims. Presence, not magnitude: the
     # user already said this money is a bill, so no arithmetic gets to
-    # re-suggest it - the magnitude test below stays for unconfirmed
-    # detector rhythms only (where it is what keeps one grocery-store
-    # rhythm from blocking the whole groceries budget).
+    # re-suggest it. A detector rhythm nobody confirmed claims nothing:
+    # the forecast never charges it, so it cannot count anything twice.
+    bills = [s for s in live_streams if is_active_commitment(s, today)]
     # A confirmed bill stripped of its members infers nothing from them
     # (the Mortgage bill sat at 0 members and Mortgage got suggested).
     # The stream's own name through the alias table is the fallback
     # signal - resolved for every such stream in one query up front.
     fallback_names = {
         stream.name
-        for stream in live_streams
-        if not (stream.is_muted or is_paused(stream))
-        and bool(stream.is_user_confirmed or stream.source == "user")
-        and (stream.category_id or by_name.get(inferred.get(stream.id, ""))) is None
+        for stream in bills
+        if (stream.category_id or by_name.get(inferred.get(stream.id, ""))) is None
     }
     alias_fallback = await ledger_queries.category_alias_ids(db, fallback_names)
-
-    confirmed_categories: set[int] = set()
-    for stream in live_streams:
-        if stream.is_muted or is_paused(stream):
-            continue
-        confirmed = bool(stream.is_user_confirmed or stream.source == "user")
-        category_id = stream.category_id or by_name.get(inferred.get(stream.id, ""))
-        if category_id is None and confirmed:
-            category_id = alias_fallback.get(stream.name)
-        if category_id is None:
-            continue
-        if confirmed:
-            confirmed_categories.add(category_id)
-            continue
-        # Only what the FORECAST charges can double-count. Most
-        # merchant rhythms fail the commitment gate and project
-        # nothing - counting them here blocked groceries with 19
-        # shopping streams that never touch the balance.
-        if not is_commitment(stream):
-            continue
-        amount = stream.amount
-        factor = MONTHLY_FACTOR.get(stream.frequency, 0)
-        billed_per_month[category_id] = billed_per_month.get(category_id, 0) + int(
-            amount * factor
+    confirmed_categories = {
+        category_id
+        for stream in bills
+        if (
+            category_id := stream.category_id
+            or by_name.get(inferred.get(stream.id, ""))
+            or alias_fallback.get(stream.name)
         )
+        is not None
+    }
     budget = await get_or_create_budget(
         db, owner_user_id=owner_user_id, period_month=current_period_month(today)
     )
@@ -178,7 +157,7 @@ async def suggest_budget_lines(
         line.category_id
         for line in await queries.budget_lines_with_category(db, budget.id)
     }
-    names = {c.id: c.name for c in await ledger_queries.all_categories(db)}
+    names = {c.id: c.name for c in all_categories}
 
     picks: list[BudgetSuggestion] = []
     for category_id, months in per_month.items():
@@ -210,11 +189,6 @@ async def suggest_budget_lines(
         unusual = sum(1 for v in spends if v < low or v > high)
         if unusual > _BUDGET_MAX_UNUSUAL_MONTHS:
             continue
-        # Bills already cover most of this category - the forecast has
-        # counted it once, and a budget line would count it again.
-        covered = billed_per_month.get(category_id, 0)
-        if covered >= amount * _BUDGET_BILLED_SHARE:
-            continue
         picks.append(
             BudgetSuggestion(
                 category_id=category_id,
@@ -222,6 +196,7 @@ async def suggest_budget_lines(
                 suggested_amount=amount,
                 months_seen=len(spends),
                 unusual_months=unusual,
+                evidence=_evidence(len(spends), unusual),
             )
         )
     picks.sort(key=lambda p: -p.suggested_amount)
@@ -266,7 +241,7 @@ async def dismiss_budget_suggestions(
         db, owner_user_id=owner_user_id, period_month=current_period_month()
     )
     existing = {
-        m.category_id for m in await dismissal_markers(db, owner_user_id=owner_user_id)
+        m.category_id for m in await queries.dismissal_marker_lines(db, budget.id)
     }
     added = 0
     for category_id in dict.fromkeys(category_ids):

@@ -28,6 +28,7 @@ from tests._session import opens
 from tests.services._finance_factories import (
     seed_account,
     seed_category,
+    seed_limit,
     seed_stream,
     seed_txn,
 )
@@ -1330,14 +1331,7 @@ async def test_budget_reports_the_limit_the_user_set(
     category = await svc.get_or_create_category_from_hint(
         "Health & Fitness:Medicine/Drugs"
     )
-    await svc.upsert_budget_line(
-        owner_user_id=1,
-        period_month=None,
-        category_id=category.id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=20_000,
-    )
+    await seed_limit(svc, category.id, 20_000)
     await svc.create_transaction(
         account_id=account.id,
         amount=-4_500,
@@ -1378,14 +1372,7 @@ async def test_budget_keeps_commitments_out_of_the_limits(
     a budget - or as over it - is how a mortgage becomes "overspending"."""
     await seed_account(svc)
     category = await svc.get_or_create_category_from_hint("Food & Dining:Groceries")
-    await svc.upsert_budget_line(
-        owner_user_id=1,
-        period_month=None,
-        category_id=category.id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=50_000,
-    )
+    await seed_limit(svc, category.id, 50_000)
     await session.commit()
 
     result = await ai_tools.budget()

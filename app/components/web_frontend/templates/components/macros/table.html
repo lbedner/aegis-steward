@@ -45,7 +45,7 @@
 -
 {%- elif col.kind == "money" -%}
 {%- set currency = row.currency -%}
-{{ "+" if col.signed and value > 0 }}{{ value|money(currency if currency is string else "USD") }}
+{{ value|money(currency if currency is string else "USD", signed=col.signed) }}
 {%- elif col.kind == "status" -%}
 {{ badge(value.label, value.tone) }}
 {%- elif col.kind == "avatar" -%}

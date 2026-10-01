@@ -16,13 +16,13 @@
     {% call field("Months of expenses") %}{{ text_input("target_factor", values.target_factor, placeholder="e.g. 3") }}{% endcall %}
     {% call field("Target date (optional)") %}{{ date_input("target_date", values.target_date, block=True) }}{% endcall %}
   </div>
-  <p id="target-preview" hx-get="{{ path }}/goals/preview" hx-trigger="change from:closest form" hx-include="closest form" hx-swap="outerHTML" class="text-xs text-aegis-muted tabular-nums min-h-4"></p>
+  {% with text="" %}{% include "partials/budget/target_preview.html" %}{% endwith %}
   {% if accounts %}
   <fieldset class="text-xs text-aegis-muted">
     <legend class="micro-label">Sized against (months of expenses)</legend>
     <div class="flex flex-wrap gap-3 mt-1">
       {% for account in accounts %}
-      <label class="inline-flex items-center gap-1"><input type="checkbox" name="scope" value="{{ account.id }}" {% if account.id in scope %}checked{% endif %} class="{{ control('checkbox') }}">{{ account.name }}</label>
+      <label class="inline-flex items-center gap-1"><input type="checkbox" name="scope" value="{{ account.id }}" {% if account.id in values.scope %}checked{% endif %} class="{{ control('checkbox') }}">{{ account.name }}</label>
       {% endfor %}
     </div>
   </fieldset>

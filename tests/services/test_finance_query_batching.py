@@ -8,31 +8,13 @@ with a cursor-level listener, so ORM caching cannot mask a round trip.
 from datetime import date
 
 import pytest
-from sqlalchemy import event
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection import declare_recurring
 from app.services.finance.domains.planning import budgets
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_period_month
-
-
-class QueryCounter:
-    """Counts statements hitting the database through a sync engine."""
-
-    def __init__(self, async_engine) -> None:
-        self._engine = async_engine.sync_engine
-        self.count = 0
-
-    def _increment(self, *args: object, **kwargs: object) -> None:
-        self.count += 1
-
-    def __enter__(self) -> QueryCounter:
-        event.listen(self._engine, "before_cursor_execute", self._increment)
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        event.remove(self._engine, "before_cursor_execute", self._increment)
+from tests.services._finance_factories import QueryCounter, seed_limit
 
 
 async def _checking(svc: FinanceService) -> int:
@@ -49,14 +31,7 @@ async def _checking(svc: FinanceService) -> int:
 async def _budget_line(svc: FinanceService, hint: str, cents: int) -> None:
     category = await svc.get_or_create_category_from_hint(hint)
     assert category is not None
-    await svc.upsert_budget_line(
-        owner_user_id=1,
-        period_month=current_period_month(),
-        category_id=category.id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=cents,
-    )
+    await seed_limit(svc, category.id, cents, period_month=current_period_month())
 
 
 class TestProjectionDrawdownsAreBatched:

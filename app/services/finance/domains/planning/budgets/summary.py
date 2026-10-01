@@ -14,27 +14,21 @@ from typing import Literal
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.finance.constants import CADENCES, add_months
 from app.services.finance.domains.detection.insights.commitments import (
-    MONTHLY_FACTOR,
     commitment_rollup,
-    is_commitment,
-    is_paused,
     monthly_share,
-    monthly_share_of,
-    shown_cadence,
 )
 from app.services.finance.domains.ledger import categories
 from app.services.finance.domains.planning import envelopes, goals, recurring
-from app.services.finance.domains.planning.budgets import queries
+from app.services.finance.domains.planning.budgets import queries, strip
 from app.services.finance.domains.planning.budgets.lines import (
-    budget_line_status,
-    get_or_create_budget,
+    line_response,
+    line_spent,
     lines_in_force,
 )
+from app.services.finance.domains.planning.budgets.trims import plan_budget_trims
 from app.services.finance.domains.planning.budgets.uncovered import (
     uncovered_spend,
-    uncovered_spend_filters,
 )
 from app.services.finance.models import (
     FinanceBudgetCategory,
@@ -43,114 +37,17 @@ from app.services.finance.models import (
 from app.services.finance.schemas import (
     BudgetBucketResponse,
     BudgetLineResponse,
-    BudgetStatDetailsResponse,
     BudgetStatsResponse,
     BudgetSummaryResponse,
-    BudgetTrimPlan,
-    BudgetTrimResponse,
     GoalAsk,
-    StatDetailRow,
 )
 from app.services.finance.utils import (
     current_date,
     current_period_month,
     monthly_income,
+    shift_period,
     transaction_payee_key,
 )
-
-
-def plan_budget_trims(
-    lines: list[BudgetLineResponse],
-    *,
-    deficit: int,
-    goals: list[GoalAsk] | None = None,
-) -> BudgetTrimPlan:
-    """Deterministic cuts that close a negative month.
-
-    The rules, stated once so the UI and any later decision layer share
-    them. TIER 1: pause a goal before cutting a budget - a dream
-    deferred beats groceries squeezed. Goals pause largest-need-first
-    (fewest dreams disturbed), each recovering its whole monthly need
-    (a pause is all-or-nothing), until the gap is covered or goals run
-    out. TIER 2: a line's FLOOR is what it has already spent this period
-    (a budget below money already gone is a lie, not a plan); cuts
-    distribute proportionally to each line's slack above its floor,
-    largest-remainder rounded so they sum exactly. Whatever neither tier
-    covers is returned as ``residual`` - the part of the gap that
-    belongs to bills or income. Every row carries ``kind``
-    (``pause_goal`` | ``cut_budget``).
-    """
-    if deficit <= 0:
-        return BudgetTrimPlan()
-    pauses: list[BudgetTrimResponse] = []
-    for goal in sorted(
-        goals or [],
-        key=lambda g: (-g.monthly_need, g.label.casefold()),
-    ):
-        if deficit <= 0:
-            break
-        need = goal.monthly_need
-        if need <= 0:
-            continue
-        pauses.append(
-            BudgetTrimResponse(
-                kind="pause_goal",
-                account_id=goal.account_id,
-                label=goal.label or "Goal",
-                recovered=need,
-            )
-        )
-        deficit -= need
-    if deficit <= 0:
-        return BudgetTrimPlan(cuts=pauses)
-    slack = [
-        (line, max(0, line.allocated_amount - max(line.spent_amount, 0)))
-        for line in lines
-    ]
-    slack = [(line, room) for line, room in slack if room > 0]
-    total_slack = sum(room for _line, room in slack)
-    if total_slack == 0:
-        return BudgetTrimPlan(cuts=pauses, residual=deficit)
-    take = min(deficit, total_slack)
-    raw = [(line, room, take * room / total_slack) for line, room in slack]
-    cuts = [(line, room, int(share)) for line, room, share in raw]
-    remainder = take - sum(cut for _l, _r, cut in cuts)
-    # Largest fractional parts absorb the leftover cents, never past slack.
-    by_fraction = sorted(
-        range(len(cuts)), key=lambda i: raw[i][2] - cuts[i][2], reverse=True
-    )
-    for i in by_fraction:
-        if remainder <= 0:
-            break
-        line, room, cut = cuts[i]
-        if cut < room:
-            cuts[i] = (line, room, cut + 1)
-            remainder -= 1
-    return BudgetTrimPlan(
-        cuts=pauses
-        + [
-            BudgetTrimResponse(
-                kind="cut_budget",
-                id=line.id,
-                label=line.category_name or line.payee_label or "Overall",
-                category_id=line.category_id,
-                payee_key=line.payee_key,
-                allocated_amount=line.allocated_amount,
-                spent_amount=line.spent_amount,
-                cut=cut,
-                suggested_amount=line.allocated_amount - cut,
-            )
-            for line, _room, cut in cuts
-            if cut > 0
-        ],
-        residual=deficit - take,
-    )
-
-
-def _prior_period_month(period_month: int) -> int:
-    start, _ = queries.month_bounds(period_month)
-    prior_start = add_months(start, -1)
-    return prior_start.year * 100 + prior_start.month
 
 
 def _commitment_variance_status(
@@ -194,15 +91,12 @@ async def budget_summary(
     today = today or current_date()
     month = period_month or current_period_month(today)
     start, end = queries.month_bounds(month)
-    prior_start, prior_end = queries.month_bounds(_prior_period_month(month))
+    prior_start, prior_end = queries.month_bounds(shift_period(month, -1))
 
-    # 1-2. The budget + its explicit lines for this period.
-    budget = await get_or_create_budget(
-        db, owner_user_id=owner_user_id, period_month=month
-    )
-    # An empty month inherits the last one that was set; a month with
-    # its own lines is left exactly as it is.
-    lines = await lines_in_force(db, budget_id=budget.id, period_month=month)
+    # 1-2. The budget's explicit lines for this period. An empty month
+    # inherits the last one that was set; a month with its own lines is
+    # left exactly as it is.
+    lines = await lines_in_force(db, owner_user_id=owner_user_id, period_month=month)
 
     # 3. Category display names, batched.
     names = await categories.category_names(
@@ -257,10 +151,8 @@ async def budget_summary(
 
     # 6. Recurring commitments (existing detection, ~3 fixed queries),
     # reused rather than re-derived - same source /recurring reads.
-    streams = await recurring.list_recurring(db, owner_user_id=owner_user_id)
-    transfer_ids = await recurring.transfer_stream_ids(db, [s.id for s in streams])
-    streams = [s for s in streams if s.id not in transfer_ids]
-    streams = [s for s in streams if recurring.in_account_scope(s, account_ids)]
+    book = await recurring.stream_book(db, owner_user_id=owner_user_id)
+    streams = book.counted(account_ids)
     rollup = commitment_rollup(streams, today=today)
     stream_category_names = await recurring.stream_category_names(
         db,
@@ -277,7 +169,9 @@ async def budget_summary(
         return BudgetLineResponse(
             id=stream.id,
             category_id=stream.category_id,
-            category_name=stream_category_names.get(stream.id),
+            # Named by its category, so one with none says so rather than
+            # reading as the overall limit.
+            category_name=stream_category_names.get(stream.id, "Uncategorized"),
             payee_key=None,
             payee_label=None,
             allocated_amount=typical,
@@ -287,23 +181,10 @@ async def budget_summary(
         )
 
     def user_line(line: FinanceBudgetCategory) -> BudgetLineResponse:
-        spent = (
-            spent_by_category.get(line.category_id, 0)
-            if line.category_id is not None
-            else spent_by_payee.get(line.payee_key or "", 0)
-        )
-        return BudgetLineResponse(
-            id=line.id,
-            category_id=line.category_id,
-            category_name=names.get(line.category_id)
-            if line.category_id is not None
-            else None,
-            payee_key=line.payee_key,
-            payee_label=line.payee_label,
-            allocated_amount=line.allocated_amount,
-            spent_amount=spent,
-            status=budget_line_status(line.allocated_amount, spent),
-            variance_amount=None,
+        return line_response(
+            line,
+            names.get(line.category_id) if line.category_id is not None else None,
+            line_spent(line, spent_by_category, spent_by_payee),
         )
 
     def bucket(
@@ -364,7 +245,7 @@ async def budget_summary(
     # lines are the flexible ones only; a category a bill covers is
     # already excluded from budgets by the suggestion guards.
 
-    income_total, income_count = monthly_income(streams)
+    income_total, income_count = monthly_income(streams, today)
     # Goals ask their monthly need of the month, the same
     # commitment-gate discipline bills ride:
     # paused/reached goals ask nothing, by the pure-math contract.
@@ -372,8 +253,14 @@ async def budget_summary(
     from app.services.finance.domains.planning import allocation
 
     goal_accounts = await goals.list_goals(db, owner_user_id=owner_user_id)
-    figures = allocation.MonthlyFigures(
-        income_total=income_total, committed=fixed_total + flexible_allocated
+    # The household's figures, the ones the Goals tab and the outlook
+    # ask against: a goal is the household's plan, whatever the filter.
+    figures = await allocation.figures_for(
+        db,
+        book,
+        allocated=flexible_allocated,
+        owner_user_id=owner_user_id,
+        today=today,
     )
     asks = allocation.asks_by_account(goal_accounts, figures, today=today)
     goal_asks = [
@@ -390,15 +277,12 @@ async def budget_summary(
         figures, {str(g.account_id): g.monthly_need for g in goal_asks}
     )
 
-    # Auto-credit envelopes are spoken-for money too: the allowance
-    # leaves the spendable month whether or not anyone clicks. Manual
-    # envelopes ask nothing - crediting them is a choice made live.
+    # Auto-credit envelopes are spoken-for money too.
     envelope_credits = [
-        int(meta.monthly_credit * CADENCES[meta.cadence].monthly_factor)
-        for account in await envelopes.list_envelopes(db, owner_user_id=owner_user_id)
-        if (meta := envelopes.envelope_metadata(account.metadata_)) is not None
-        and meta.auto_credit
-        and meta.monthly_credit
+        meta.monthly_amount
+        for _account, meta in await envelopes.auto_credited(
+            db, owner_user_id=owner_user_id
+        )
     ]
     envelopes_total = sum(envelope_credits)
 
@@ -411,13 +295,13 @@ async def budget_summary(
     # them recomputed here - the cells and this verdict are one
     # arithmetic statement, and a reader checking it by hand has to
     # get the same answer.
-    month_net = (
-        income_total
-        - fixed_total
-        - flexible_allocated
-        - goals_total
-        - envelopes_total
-        - uncovered.rate
+    month_net = strip.month_net(
+        income=income_total,
+        bills=fixed_total,
+        budgets=flexible_allocated,
+        goals=goals_total,
+        envelopes=envelopes_total,
+        everything_else=uncovered.rate,
     )
 
     # 9. When the month lands negative, the summary carries its own
@@ -438,9 +322,7 @@ async def budget_summary(
         flexible_count=len(flexible_lines),
         on_track_count=len(flexible_lines) - len(over_budget),
         over_budget_count=len(over_budget),
-        over_budget_labels=[
-            row.category_name or row.payee_label or "Overall" for row in over_budget
-        ],
+        over_budget_labels=[row.label for row in over_budget],
         fixed_total=fixed_total,
         fixed_count=len(fixed_lines) + len(non_monthly_lines),
         income_total=income_total,
@@ -466,98 +348,4 @@ async def budget_summary(
         ],
         stats=stats,
         trims=plan.cuts,
-    )
-
-
-# How many of the window's months a category must have spent in before
-# its total is treated as a monthly rate. One month is an event; two is
-# a habit. Below this the spending is reported as a one-off instead.
-async def budget_stat_details(
-    db: AsyncSession,
-    *,
-    owner_user_id: int | None = None,
-    today: date | None = None,
-    account_ids: list[int] | None = None,
-) -> BudgetStatDetailsResponse:
-    """Per-row backup for the header cells, for the click-a-cell popup.
-
-    Income and Bills mirror the cells' own math row for row (same
-    commitment gate, same monthly-equivalent factors as
-    ``monthly_income``/``commitment_rollup``), so the rows always sum
-    to the cell. Everything-else is the uncovered-spend bucket grouped
-    by category, over the SAME filters as the rate.
-    """
-    today = today or current_date()
-    # The same stream set the cells are computed from, filtered the same
-    # way: a popup that explains a number has to be about that number.
-    # Without this, narrowing to one account left the cell filtered and
-    # its detail listing every account the owner has.
-    streams = await recurring.list_recurring(db, owner_user_id=owner_user_id)
-    transfer_ids = await recurring.transfer_stream_ids(db, [s.id for s in streams])
-    streams = [s for s in streams if s.id not in transfer_ids]
-    streams = [s for s in streams if recurring.in_account_scope(s, account_ids)]
-
-    income_rows = [
-        StatDetailRow(
-            label=s.name,
-            value=monthly_share_of(s.amount, s.frequency),
-            frequency=shown_cadence(s.frequency),
-        )
-        for s in streams
-        if s.direction == "inflow"
-        and not s.is_muted
-        and not is_paused(s, today)
-        and is_commitment(s)
-        and MONTHLY_FACTOR.get(s.frequency, 0.0) > 0
-    ]
-    income_rows.sort(key=lambda r: -r.value)
-
-    rollup = commitment_rollup(streams, today=today)
-    bills_rows = [
-        StatDetailRow(
-            label=s.name,
-            value=monthly_share(s),
-            frequency=shown_cadence(s.frequency),
-            per_period_amount=None
-            if shown_cadence(s.frequency) is None
-            else int(s.average_amount or 0),
-        )
-        for s in rollup["fixed"] + rollup["non_monthly"]
-    ]
-    bills_rows.sort(key=lambda r: -r.value)
-
-    _filters, (window_start, window_end) = await uncovered_spend_filters(
-        db, owner_user_id=owner_user_id, today=today, account_ids=account_ids
-    )
-    uncovered = await uncovered_spend(
-        db, owner_user_id=owner_user_id, today=today, account_ids=account_ids
-    )
-    names = await categories.category_names(
-        db, {cid for cid in uncovered.counts if cid}
-    )
-
-    def _rows(by_category: dict[int | None, int]) -> list[StatDetailRow]:
-        rows = [
-            StatDetailRow(
-                label=names.get(category_id) or "Uncategorized",
-                value=value,
-                transaction_count=uncovered.counts.get(category_id, 0),
-            )
-            for category_id, value in by_category.items()
-        ]
-        rows.sort(key=lambda r: -r.value)
-        return rows
-
-    # Two lists, because they are two different units: a monthly rate and
-    # a window total. Each sums to the figure it explains.
-    else_rows = _rows(uncovered.rate_by_category)
-    one_off_rows = _rows(uncovered.one_off_by_category)
-
-    return BudgetStatDetailsResponse(
-        income=income_rows,
-        bills=bills_rows,
-        everything_else=else_rows,
-        one_offs=one_off_rows,
-        window_start=window_start,
-        window_end=window_end,
     )

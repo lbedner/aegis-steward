@@ -25,6 +25,7 @@ from app.services.ai.models import AIProvider, MessageRole
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
+from tests.services._finance_factories import seed_limit
 
 _SESSION: dict[str, AsyncSession] = {}
 
@@ -261,14 +262,7 @@ async def budget(
     """
     groceries = await finance.get_or_create_category_from_hint("Food:Groceries")
     fuel = await finance.get_or_create_category_from_hint("Auto:Fuel")
-    line = await finance.upsert_budget_line(
-        owner_user_id=None,
-        period_month=None,
-        category_id=groceries.id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=20_000,
-    )
+    line = await seed_limit(finance, groceries.id, 20_000, owner_user_id=None)
     goal = await finance.create_virtual_goal(
         owner_user_id=None, name="Vacation", target_amount=100_000
     )

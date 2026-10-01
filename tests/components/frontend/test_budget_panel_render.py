@@ -69,6 +69,18 @@ class TestTheLimitsPage:
         assert "Rent" in expanded
         assert "already committed" in collapsed  # the toggle line stays
 
+    def test_the_folded_bills_wear_the_webs_names(self) -> None:
+        """Flet called them "Fixed" and "Non-monthly" while the web said
+        "Monthly bills": both read ``budgets.strip``'s names now."""
+        panel = _panel(budget_summary())
+        panel._show_commitments = True
+        panel._render()
+        expanded = rendered(panel._body.content)
+
+        assert "Monthly bills" in expanded
+        assert "Non-monthly bills" in expanded
+        assert "Fixed" not in expanded
+
     def test_the_one_time_section_appears_only_when_it_has_rows(self) -> None:
         """The section that silently fell off the page once: present with
         a one-off plan, absent - not an empty shell - without one."""

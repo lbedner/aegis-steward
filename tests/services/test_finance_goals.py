@@ -997,6 +997,50 @@ class TestExpenseBaseExcludesCardPaymentsOnly:
         await session.flush()
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # the engine's figures and the strip's, compared
+    async def test_committed_is_the_strips_bills_and_budgets(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """What the goals ask against is what the strip shows as owed: a
+        payment into a card is a transfer there, not a bill."""
+        checking = await svc.create_manual_account(
+            owner_user_id=1,
+            name="Checking",
+            account_type="checking",
+            classification="asset",
+            current_balance=0,
+        )
+        card = await svc.create_manual_account(
+            owner_user_id=1,
+            name="AMEX",
+            account_type="credit_card",
+            classification="liability",
+            current_balance=0,
+        )
+        await self._payment(
+            async_db_session,
+            cash_id=checking.id,
+            liability_id=card.id,
+            amount=98_300,
+            name="American Express",
+        )
+        await seed_stream(
+            svc,
+            name="Water",
+            expected_amount=4_500,
+            next_expected_date=date(2026, 8, 10),
+            account_id=checking.id,
+        )
+        await async_db_session.commit()
+        today = date(2026, 8, 20)
+
+        figures = await month_figures(async_db_session, owner_user_id=1, today=today)
+        stats = (await svc.budget_summary(owner_user_id=1, today=today)).stats
+
+        assert stats.fixed_total + stats.flexible_allocated == 4_500
+        assert figures.committed == 4_500
+
+    @pytest.mark.asyncio
     async def test_a_card_payment_drops_out_and_a_loan_payment_stays(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
