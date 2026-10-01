@@ -175,10 +175,7 @@ async def _sender(db: AsyncSession, payload: MetadataPayload) -> Any:
         return None
     from app.services.matters.service import PartyService
 
-    party = await PartyService(db).get(int(payload.sender.value))
-    if party is None:
-        raise ValueError(f"No contact with id {payload.sender.value}")
-    return party
+    return await PartyService(db).require(int(payload.sender.value))
 
 
 async def metadata_execute(
@@ -217,10 +214,7 @@ async def _matter_of(db: AsyncSession, payload: MetadataPayload) -> Any:
 
     if payload.matter is None:
         return None
-    found = await MatterService(db).get(int(payload.matter.value))
-    if found is None:
-        raise ValueError(f"No matter with id {payload.matter.value}")
-    return found
+    return await MatterService(db).require(int(payload.matter.value))
 
 
 async def _account_of(db: AsyncSession, payload: MetadataPayload) -> Any:
@@ -343,10 +337,7 @@ class RequestPayload(BaseModel):
 async def _matter(db: AsyncSession, matter_id: int) -> Any:
     from app.services.matters.matters import MatterService
 
-    found = await MatterService(db).get(matter_id)
-    if found is None:
-        raise ValueError(f"No matter with id {matter_id}")
-    return found
+    return await MatterService(db).require(matter_id)
 
 
 async def request_execute(

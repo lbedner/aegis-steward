@@ -130,6 +130,51 @@ class TestHangingUp:
         assert turn is not None and turn[2] == []
 
 
+class TestACallRemembers:
+    """A call opens on a thread that ends with HER last reply - the one
+    before it ended there - and the history builder assumed the last
+    message was a question being asked now: it set it aside and returned
+    nothing unless it was yours. Every call started blank ("I can't see
+    our previous conversation", 2026-09-30)."""
+
+    def test_a_call_opens_with_the_thread_so_far(self) -> None:
+        from app.services.ai.models import Conversation, MessageRole
+        from app.services.ai.service.prompt import PromptMixin
+
+        conversation = Conversation(
+            id="c1", provider=AIProvider.GOOGLE, model="gemini-3.8-live"
+        )
+        conversation.add_message(MessageRole.USER, "You should see a $1,500 charge.")
+        conversation.add_message(
+            MessageRole.ASSISTANT, "Blondin Endodontics, $1,500, on your AMEX."
+        )
+
+        history = PromptMixin._build_conversation_context(  # type: ignore[arg-type]
+            None, conversation
+        )
+
+        assert "User: You should see a $1,500 charge." in history
+        assert history.rstrip().endswith(
+            "Assistant: Blondin Endodontics, $1,500, on your AMEX."
+        )
+
+    def test_a_typed_turn_still_ends_on_the_question(self) -> None:
+        from app.services.ai.models import Conversation, MessageRole
+        from app.services.ai.service.prompt import PromptMixin
+
+        conversation = Conversation(id="c2", provider=AIProvider.OPENAI, model="m")
+        conversation.add_message(MessageRole.USER, "Hi")
+        conversation.add_message(MessageRole.ASSISTANT, "Hello")
+        conversation.add_message(MessageRole.USER, "And now?")
+
+        history = PromptMixin._build_conversation_context(  # type: ignore[arg-type]
+            None, conversation
+        )
+
+        assert history.endswith("\n\nUser: And now?")
+        assert history.count("And now?") == 1
+
+
 class TestACutCall:
     """A call can drop mid-answer (a restart, the network, a hang-up). What
     was said and run so far is kept, marked, and a call soon after picks
@@ -289,8 +334,19 @@ class TestTheSettings:
         from app.services.ai.domains.voice.realtime_calls import _model_settings
 
         assert _model_settings("google:gemini-3.8-live", "cedar", 1200) == {
-            "max_tokens": 1200
+            "max_tokens": 1200,
+            "google_vad": {"start_sensitivity": "low", "end_sensitivity": "high"},
         }
+
+    def test_gemini_does_not_take_the_tv_for_you(self) -> None:
+        """A TV in the room held Gemini's turn open: it heard "speech",
+        never decided you had finished, and never answered - you could not
+        be heard until you hung up and called back (2026-09-30). Stricter
+        about what starts a turn, quicker to end one."""
+        from app.services.ai.domains.voice.realtime_calls import _model_settings
+
+        vad = _model_settings("google:gemini-3.8-live", None, None)["google_vad"]
+        assert vad == {"start_sensitivity": "low", "end_sensitivity": "high"}
 
 
 class TestDrivingACall:

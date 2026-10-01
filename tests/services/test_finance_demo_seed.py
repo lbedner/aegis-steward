@@ -56,6 +56,19 @@ class TestLedgerPlan:
         assert earliest <= anchor - timedelta(days=30 * (months - 1))
         assert max(entry.txn_date for entry in ledger) <= anchor
 
+    def test_the_planted_rows_exist_on_the_first_of_the_month(self) -> None:
+        """This month's planted rows (the overdraft fee, the vet bill) are
+        dated day 2 and 3; on the 1st that is the future, and a row past
+        the anchor is dropped - so on 2026-10-01 the demo had no anomaly
+        to show and CI went red. They are clamped to the anchor instead."""
+        anchor = date(2026, 10, 1)
+        names = {
+            entry.name: entry.txn_date
+            for entry in demo_seed.build_demo_ledger(anchor=anchor, months=12)
+        }
+        assert names["Riverside Veterinary"] == anchor
+        assert names["Overdraft Fee"] == anchor
+
     def test_ledger_carries_recurring_payees(self) -> None:
         """Salary, housing, and subscriptions repeat so stream detection has
         something to find."""

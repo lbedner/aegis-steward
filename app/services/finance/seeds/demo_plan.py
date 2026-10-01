@@ -84,6 +84,20 @@ def _day_in_month(month_start: date, day: int) -> date:
     return month_start.replace(day=min(day, last_day))
 
 
+def _planted(
+    months_list: list[date], months_back: int, day: int, anchor: date
+) -> date | None:
+    """The date of a row planted ``months_back`` months ago on ``day``, or
+    None before the window. Never past the anchor: this month's day 3 is
+    the future on the 1st, and a row past the anchor is dropped, so on
+    2026-10-01 the planted anomalies vanished and the demo had nothing to
+    show."""
+    index = len(months_list) - 1 - months_back
+    if index < 0:
+        return None
+    return min(_day_in_month(months_list[index], day), anchor)
+
+
 def _jitter(rng: random.Random, amount: int, pct: float) -> int:
     """``amount`` moved by up to +/-``pct``, keeping its sign."""
     span = int(abs(amount) * pct)
@@ -294,39 +308,18 @@ def build_demo_ledger(
         *_ONE_OFFS,
         *_QUARTERLY,
     ):
-        index = len(months_list) - 1 - months_back
-        if index < 0:
-            continue
-        entries.append(
-            PlannedTransaction(
-                account_key,
-                _day_in_month(months_list[index], day),
-                amount,
-                payee,
-                category,
+        if when := _planted(months_list, months_back, day, anchor):
+            entries.append(
+                PlannedTransaction(account_key, when, amount, payee, category)
             )
-        )
 
     for months_back, day, name, amount in _UNCATEGORIZED:
-        index = len(months_list) - 1 - months_back
-        if index >= 0:
-            entries.append(
-                PlannedTransaction(
-                    "card", _day_in_month(months_list[index], day), amount, name
-                )
-            )
+        if when := _planted(months_list, months_back, day, anchor):
+            entries.append(PlannedTransaction("card", when, amount, name))
     for months_back, day, name, amount, category in _NO_PAYEE:
-        index = len(months_list) - 1 - months_back
-        if index >= 0:
+        if when := _planted(months_list, months_back, day, anchor):
             entries.append(
-                PlannedTransaction(
-                    "card",
-                    _day_in_month(months_list[index], day),
-                    amount,
-                    name,
-                    category,
-                    payee=False,
-                )
+                PlannedTransaction("card", when, amount, name, category, payee=False)
             )
 
     in_window = [e for e in entries if e.txn_date <= anchor]

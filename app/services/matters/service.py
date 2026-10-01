@@ -57,6 +57,14 @@ class PartyService:
         party = await self.db.get(Party, party_id)
         return party if party and party.deleted_at is None else None
 
+    async def require(self, party_id: int) -> Party:
+        """The contact a card or a tool names, or the one refusal every
+        caller gives when it is not on file."""
+        party = await self.get(party_id)
+        if party is None:
+            raise ValueError(f"No contact with id {party_id}")
+        return party
+
     async def find(
         self,
         *,

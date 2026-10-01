@@ -101,8 +101,7 @@ async def policy_create_execute(
     from app.services.insurance.service import InsuranceService
     from app.services.matters.service import PartyService
 
-    if await PartyService(db).get(payload.insurer_party_id) is None:
-        raise ValueError(f"No contact with id {payload.insurer_party_id}")
+    await PartyService(db).require(payload.insurer_party_id)
     policy = await InsuranceService(db).create_policy(
         owner_user_id=owner_user_id,
         **payload.model_dump(),

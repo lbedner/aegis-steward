@@ -22,7 +22,7 @@ from app.services.finance.domains.writes import (
 from app.services.finance.domains.writes.registry import ChangeExecutor, register
 from app.services.insurance import changes as insurance
 from app.services.matters import changes as matters
-from app.services.matters import contacts, timeline
+from app.services.matters import contacts, opening, timeline
 
 register(
     ChangeExecutor(
@@ -183,6 +183,17 @@ register(
         payload_model=matters.AttachAskPayload,
         execute=matters.attach_ask_execute,
         describe=matters.attach_ask_describe,
+    )
+)
+# Opening the case itself (#284): every other part of a matter had a
+# card, so a visit with no case yet had nowhere to go.
+register(
+    ChangeExecutor(
+        change_type="matter.create",
+        title="Open a matter",
+        payload_model=opening.OpenMatterPayload,
+        execute=opening.open_matter_execute,
+        describe=opening.open_matter_describe,
     )
 )
 # The part of a case's story that leaves no paper. She hears it rather

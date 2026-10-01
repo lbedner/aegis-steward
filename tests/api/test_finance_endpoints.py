@@ -2751,6 +2751,7 @@ class TestBudgetStatDetails:
         acting_owner_user_id: int | None,
     ) -> None:
         from datetime import date as date_cls
+        from datetime import timedelta
 
         svc = FinanceService(async_db_session)
         account = await svc.create_manual_account(
@@ -2770,12 +2771,16 @@ class TestBudgetStatDetails:
         )
         # Two months of it: uncovered spending seen in only one month is
         # reported as a one-off, not amortized into the rate this cell
-        # shows (see TestOneOffsDoNotBecomeARate).
-        for month in (6, 7):
+        # shows (see TestOneOffsDoNotBecomeARate). The last two full months,
+        # counted from today: pinned months age out of the window (CI,
+        # 2026-10-01).
+        last_month = current_date().replace(day=1) - timedelta(days=1)
+        month_before = last_month.replace(day=1) - timedelta(days=1)
+        for month_end in (month_before, last_month):
             await svc.create_transaction(
                 account_id=account.id,
                 amount=-9_000,
-                txn_date=date_cls(2026, month, 2),
+                txn_date=month_end.replace(day=2),
                 owner_user_id=acting_owner_user_id,
                 name="Cash",
             )

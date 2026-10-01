@@ -250,7 +250,15 @@ class PromptMixin(ContextsMixin):
         used = 0
         dropped = 0
         replies = 0
-        for msg in reversed(conversation.messages[:-1]):
+        # The last message is set aside only when it is the question being
+        # asked now. A live call opens on a thread that ends with HER last
+        # reply, and setting that aside - then returning nothing, since it
+        # was not a question - started every call with no history at all
+        # ("I can't see our previous conversation", 2026-09-30).
+        latest_message = conversation.get_last_message()
+        asking = latest_message is not None and latest_message.role == MessageRole.USER
+        earlier = conversation.messages[:-1] if asking else conversation.messages
+        for msg in reversed(earlier):
             if msg.role == MessageRole.USER:
                 line = f"User: {msg.content}"
             elif msg.role == MessageRole.ASSISTANT:
@@ -284,8 +292,7 @@ class PromptMixin(ContextsMixin):
         )
 
         # Add the current user message
-        latest_message = conversation.get_last_message()
-        if latest_message and latest_message.role == MessageRole.USER:
+        if asking and latest_message is not None:
             if context_parts:
                 # Include conversation history + current message
                 return (
@@ -296,5 +303,5 @@ class PromptMixin(ContextsMixin):
             else:
                 # First message in conversation
                 return prefix + latest_message.content
-
-        return ""
+        # Nothing being asked (a call opening): the thread so far.
+        return prefix + "\n".join(context_parts)

@@ -151,6 +151,13 @@ def _model_settings(
     if model.startswith("openai:"):
         settings["openai_voice"] = voice or "marin"
         settings["input_transcription_model"] = INPUT_TRANSCRIPTION
+    if model.startswith("google:"):
+        # A TV in the room held Gemini's turn open: its default detector
+        # heard "speech", never decided you had finished, and never
+        # answered until you hung up (2026-09-30). Stricter about what
+        # STARTS a turn (background talk is quieter than you), quicker to
+        # END one.
+        settings["google_vad"] = {"start_sensitivity": "low", "end_sensitivity": "high"}
     if max_output_tokens:
         settings["max_tokens"] = max_output_tokens
     return settings

@@ -233,9 +233,7 @@ async def _whose(db: AsyncSession, party_id: int, owner_user_id: int | None) -> 
     from app.services.finance.domains.ledger.subjects import subject_for_party
     from app.services.matters.service import PartyService
 
-    party = await PartyService(db).get(party_id)
-    if party is None:
-        raise ValueError(f"No contact with id {party_id}")
+    party = await PartyService(db).require(party_id)
     return await subject_for_party(
         db, party_id, name=party.name, owner_user_id=owner_user_id
     )

@@ -10,6 +10,7 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.models import Model
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 import pytest
@@ -127,10 +128,13 @@ class TestModelFor:
             ) as chat_model,
             patch("app.services.ai.domains.llm.model_factory.OpenAIProvider"),
         ):
+            # a stand-in that passes as a model, since model_for wraps it
+            chat_model.return_value = MagicMock(spec=Model)
             model, model_name = model_for(config, settings)
 
         assert model_name == "qwen2.5:7b"
-        assert model is chat_model.return_value
+        # wrapped so a refused temperature is retried (model_factory.tolerant)
+        assert model.wrapped is chat_model.return_value
         # Ollama speaks OpenAI at /v1 and wants no real key.
         assert client.call_args.kwargs["base_url"] == "http://localhost:11434/v1"
         assert client.call_args.kwargs["api_key"] == "ollama"

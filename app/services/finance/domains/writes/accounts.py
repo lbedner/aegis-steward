@@ -263,9 +263,7 @@ async def _account_and_contact(
     account = await get_account(db, payload.account_id, owner_user_id=owner_user_id)
     if account is None:
         raise ValueError(f"Account {payload.account_id} not found.")
-    party = await PartyService(db).get(payload.party_id)
-    if party is None:
-        raise ValueError(f"No contact with id {payload.party_id}")
+    party = await PartyService(db).require(payload.party_id)
     return account, party
 
 
@@ -367,9 +365,7 @@ async def _account_and_holder(
 
     would = "Ours"
     if payload.whose_party_id is not None:
-        party = await parties.get(payload.whose_party_id)
-        if party is None:
-            raise ValueError(f"No contact with id {payload.whose_party_id}")
+        party = await parties.require(payload.whose_party_id)
         would = party.name
     return account, would, now
 

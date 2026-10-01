@@ -286,16 +286,12 @@ async def _matter_and_party(
     from app.services.matters.matters import MatterService
     from app.services.matters.service import PartyService
 
-    matter = await MatterService(db).get(payload.matter_id)
-    if matter is None:
-        raise ValueError(f"No matter with id {payload.matter_id}")
+    matter = await MatterService(db).require(payload.matter_id)
     party = (
-        await PartyService(db).get(payload.party_id)
+        await PartyService(db).require(payload.party_id)
         if payload.party_id is not None
         else None
     )
-    if payload.party_id is not None and party is None:
-        raise ValueError(f"No contact with id {payload.party_id}")
     return matter, party
 
 

@@ -41,7 +41,6 @@ async def _renewal(db: AsyncSession) -> tuple[int, int]:
         subject_party_id=james.id,
         counterpart_party_id=county.id,
     )
-    await matters.add_participant(matter.id, james.id, "subject")
     request = await RequestService(db).record(
         matter_id=matter.id,
         due_on=current_date() - timedelta(days=6),

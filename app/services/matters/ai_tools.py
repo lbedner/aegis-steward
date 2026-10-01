@@ -387,9 +387,10 @@ async def look_up_contact(
     known: set[str] = set()
     if party_id is not None:
         async with get_async_session() as db:
-            party = await PartyService(db).get(party_id)
-        if party is None:
-            return {"error": f"No contact with id {party_id}"}
+            try:
+                party = await PartyService(db).require(party_id)
+            except ValueError as e:
+                return {"error": str(e)}
         known = on_record(party.contact)
 
     return {
@@ -423,9 +424,10 @@ async def contact_details(party_id: int) -> dict[str, Any]:
     from app.services.matters.lookup import contact_details as read_details
 
     async with get_async_session() as db:
-        party = await PartyService(db).get(party_id)
-        if party is None:
-            return {"error": f"No contact with id {party_id}"}
+        try:
+            party = await PartyService(db).require(party_id)
+        except ValueError as e:
+            return {"error": str(e)}
         offers = await read_details(db, party_id)
     return {"party_id": party_id, "name": party.name, "offers": offers}
 
