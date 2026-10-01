@@ -130,6 +130,37 @@ class TestHangingUp:
         assert turn is not None and turn[2] == []
 
 
+class TestACallKnowsWhoSheIs:
+    """A realtime session sends the agent's INSTRUCTIONS, never its
+    system_prompt - and her whole prompt is the system prompt. Every live
+    call reached the model with the history and the tool list alone: no
+    call manners, no change types (she said she could not change a payee,
+    2026-10-01), no sandbox rules (she called propose inside run_code)."""
+
+    @pytest.mark.asyncio
+    async def test_her_prompt_leads_then_the_conversation(self) -> None:
+        from pydantic_ai import Agent
+
+        from app.services.ai.domains.voice.realtime_calls import call_instructions
+
+        agent = Agent(
+            "test", system_prompt="You are Illiana. `transaction.assign_payee`"
+        )
+        said = await call_instructions(agent, "User: hi\nAssistant: hello")
+
+        assert said.startswith("You are Illiana.")
+        assert "`transaction.assign_payee`" in said
+        assert said.index("You are Illiana.") < said.index("User: hi")
+
+    @pytest.mark.asyncio
+    async def test_a_first_call_is_her_prompt_alone(self) -> None:
+        from pydantic_ai import Agent
+
+        from app.services.ai.domains.voice.realtime_calls import call_instructions
+
+        assert await call_instructions(Agent("test", system_prompt="P"), "") == "P"
+
+
 class TestACallRemembers:
     """A call opens on a thread that ends with HER last reply - the one
     before it ended there - and the history builder assumed the last

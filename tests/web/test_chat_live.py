@@ -10,12 +10,13 @@ the conversation - and hands back what to say.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
 
-from app.components.backend.api.ai.router import ai_service
+from app.components.backend.api.ai.router import ai_service, sync_active_model
 from app.components.web_frontend.routes import chat_live
 from app.components.web_frontend.routes.chat_live import (
     DELEGATIONS,
@@ -73,6 +74,19 @@ def live(monkeypatch: pytest.MonkeyPatch) -> _Live:
     fake = _Live()
     monkeypatch.setattr(chat_live, "_live_api", lambda: fake)
     return fake
+
+
+@pytest.fixture
+def synced(client: TestClient) -> Iterator[list[bool]]:
+    """One entry each time a live route adopts the active model."""
+    calls: list[bool] = []
+
+    async def _sync() -> None:
+        calls.append(True)
+
+    client.app.dependency_overrides[sync_active_model] = _sync  # type: ignore[attr-defined]
+    yield calls
+    client.app.dependency_overrides.pop(sync_active_model)  # type: ignore[attr-defined]
 
 
 class TestOpeningASession:
@@ -236,22 +250,15 @@ class TestHerModel:
     have, and every answer failed (2026-09-25)."""
 
     def test_every_live_route_adopts_the_active_model_first(
-        self, client: TestClient, live: _Live, monkeypatch: pytest.MonkeyPatch
+        self,
+        client: TestClient,
+        live: _Live,
+        monkeypatch: pytest.MonkeyPatch,
+        synced: list[bool],
     ) -> None:
-        from app.components.backend.api.ai.router import sync_active_model
-
-        synced: list[bool] = []
-
-        async def _sync() -> None:
-            synced.append(True)
-
         TestDoingTheWork._answers(monkeypatch, "Fine.")
-        client.app.dependency_overrides[sync_active_model] = _sync  # type: ignore[attr-defined]
-        try:
-            client.post(SESSIONS, json={"sdp": "v=0 offer"})
-            client.post(DELEGATIONS, json={"text": "How am I doing?"})
-        finally:
-            client.app.dependency_overrides.pop(sync_active_model)  # type: ignore[attr-defined]
+        client.post(SESSIONS, json={"sdp": "v=0 offer"})
+        client.post(DELEGATIONS, json={"text": "How am I doing?"})
         assert synced == [True, True]
 
 
@@ -597,6 +604,17 @@ class TestTheRelay:
         (opening,) = gemini.live.sent
         assert opening != chat_live.LIVE_GREETING
         assert "How much is left?" in opening
+
+    def test_the_relay_adopts_the_active_model_first(
+        self, client: TestClient, gemini: Any, synced: list[bool]
+    ) -> None:
+        """Her prompt is built for the service's model: a call that skipped
+        adopting the active one built it for the container's default
+        (Ollama, in compact mode) instead."""
+        with client.websocket_connect(chat_live.RELAY) as ws:
+            ws.receive_json()
+            ws.send_bytes(b"\x10\x20")
+        assert synced == [True]
 
     def test_a_webrtc_engine_is_refused_on_the_relay(self, client: TestClient) -> None:
         from starlette.websockets import WebSocketDisconnect

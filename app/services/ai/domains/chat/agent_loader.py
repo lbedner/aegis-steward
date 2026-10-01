@@ -16,6 +16,7 @@ the next request sees the change.
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from pydantic_ai.settings import ModelSettings
@@ -191,9 +192,64 @@ def agent_capabilities(config: AgentConfig) -> list[Any]:
         capabilities.append(
             CodeMode(tools=[name for name in config.tool_names if name not in native])
         )
+        # Hint only at writes this agent holds: pointing a read-only agent
+        # at save_memory would send it after a tool it cannot call.
+        granted_writes = native & frozenset(config.tool_names)
+        if granted_writes:
+            capabilities.append(_native_write_hints(granted_writes))
     if config.code_mode or config.tool_names:
         capabilities.append(_tool_output_limits(code_mode=config.code_mode))
     return capabilities
+
+
+# How the sandbox says a name is not there: its checker before the script
+# runs, or the interpreter when it does.
+_NOT_IN_THE_SANDBOX = re.compile(
+    r"Unknown function: (\w+)|Name `(\w+)` used when not defined"
+)
+
+
+def native_write_hint(message: str, natives: frozenset[str]) -> str | None:
+    """What to tell a model that called a write tool from inside a script.
+
+    Writes stay out of the sandbox (they must surface as their own tool
+    call), so a script calling one fails "Unknown function". Gemini Live
+    did that with propose on a call, retried the identical script and
+    stalled (2026-10-01): an error that only says what went wrong left it
+    nothing to try. None when the missing name is not a write tool."""
+    for match in _NOT_IN_THE_SANDBOX.finditer(message):
+        name = match.group(1) or match.group(2)
+        if name in natives:
+            return (
+                f"`{name}` is its own tool, not a function inside run_code: "
+                f"work out what it needs in run_code, then call `{name}` "
+                "directly as a separate tool call."
+            )
+    return None
+
+
+def _native_write_hints(granted: frozenset[str]) -> Any:
+    """A capability that adds ``native_write_hint`` to a sandbox failure,
+    for the write tools in ``granted``."""
+    from pydantic_ai.capabilities import AbstractCapability
+    from pydantic_ai.exceptions import ToolRetryError
+
+    class _NativeWriteHints(AbstractCapability[Any]):
+        async def wrap_tool_execute(
+            self, ctx: Any, *, call: Any, tool_def: Any, args: Any, handler: Any
+        ) -> Any:
+            # The sandbox's failure arrives as the retry the model reads.
+            try:
+                return await handler(args)
+            except ToolRetryError as retry:
+                told = retry.tool_retry.content
+                hint = native_write_hint(str(retry), granted)
+                if hint is None or not isinstance(told, str):
+                    raise
+                retry.tool_retry.content = f"{told}\n\n{hint}"
+                raise
+
+    return _NativeWriteHints()
 
 
 def _tool_output_limits(*, code_mode: bool = False) -> Any:

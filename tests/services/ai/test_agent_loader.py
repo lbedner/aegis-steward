@@ -13,6 +13,11 @@ from app.services.ai.domains.chat.agent_loader import (
     invalidate_agent_cache,
     resolve_agent,
 )
+
+# Registers save_memory and its kin, the native writes these tests split
+# out of the sandbox: without it they pass in the full suite (another test
+# imported it) and fail alone.
+import app.services.ai.domains.chat.memory_tools  # noqa: F401
 from app.services.ai.models import Agent, AgentTool, Tool
 
 
@@ -30,6 +35,20 @@ def session(async_db_session: AsyncSession) -> AsyncSession:
     test). A bare local engine cannot create this project's schema-qualified
     tables (finance, scheduler, ...)."""
     return async_db_session
+
+
+def _code_mode(*tool_names: str) -> AgentConfig:
+    """A code-mode agent: the tests that use it vary only its tools."""
+    return AgentConfig(
+        slug="finance-assistant",
+        name="Finance Assistant",
+        system_prompt="...",
+        model_id=None,
+        temperature=0.4,
+        max_tokens=900,
+        tool_names=tool_names,
+        code_mode=True,
+    )
 
 
 async def _add_agent(session: AsyncSession, **overrides: object) -> Agent:
@@ -115,18 +134,9 @@ class TestCodeModeSplitsReadsFromWrites:
         return list(code_mode.tools)
 
     def test_write_tools_stay_native(self) -> None:
-        config = AgentConfig(
-            slug="finance-assistant",
-            name="Finance Assistant",
-            system_prompt="...",
-            model_id=None,
-            temperature=0.4,
-            max_tokens=900,
-            tool_names=("ledger", "accounts", "save_memory"),
-            code_mode=True,
+        sandboxed = self._code_mode_tools(
+            _code_mode("ledger", "accounts", "save_memory")
         )
-
-        sandboxed = self._code_mode_tools(config)
 
         assert "ledger" in sandboxed
         assert "accounts" in sandboxed
@@ -151,17 +161,7 @@ class TestCodeModeSplitsReadsFromWrites:
             replace=True,
         )
         try:
-            config = AgentConfig(
-                slug="finance-assistant",
-                name="Finance Assistant",
-                system_prompt="...",
-                model_id=None,
-                temperature=0.4,
-                max_tokens=900,
-                tool_names=("ledger", "propose_test_tool"),
-                code_mode=True,
-            )
-            sandboxed = self._code_mode_tools(config)
+            sandboxed = self._code_mode_tools(_code_mode("ledger", "propose_test_tool"))
         finally:
             unregister_tool("propose_test_tool")
 
@@ -169,18 +169,10 @@ class TestCodeModeSplitsReadsFromWrites:
         assert "propose_test_tool" not in sandboxed
 
     def test_read_only_agent_sandboxes_everything(self) -> None:
-        config = AgentConfig(
-            slug="reader",
-            name="Reader",
-            system_prompt="...",
-            model_id=None,
-            temperature=0.4,
-            max_tokens=900,
-            tool_names=("ledger", "accounts"),
-            code_mode=True,
-        )
-
-        assert self._code_mode_tools(config) == ["ledger", "accounts"]
+        assert self._code_mode_tools(_code_mode("ledger", "accounts")) == [
+            "ledger",
+            "accounts",
+        ]
 
 
 class TestFallback:
@@ -362,3 +354,92 @@ async def _row_id(session: AsyncSession, slug: str) -> int:
     row = (await session.exec(select(Agent).where(Agent.slug == slug))).one()
     assert row.id is not None
     return row.id
+
+
+class TestAWriteCalledFromAScript:
+    """A write tool is not in the sandbox, so calling one from a script
+    fails "Unknown function". Gemini Live did exactly that with propose
+    on a call, retried the identical script and stalled (2026-10-01).
+    The failure now says how to recover."""
+
+    def test_the_hint_names_the_tool_to_call_directly(self) -> None:
+        from app.services.ai.domains.chat.agent_loader import native_write_hint
+
+        failed = "Runtime error:\nNameError: Unknown function: propose"
+        hint = native_write_hint(failed, frozenset({"propose", "pending"}))
+        assert hint is not None and "`propose`" in hint and "directly" in hint
+        # the sandbox's checker can refuse it before it runs, too
+        checked = "error[unresolved-reference]: Name `pending` used when not defined"
+        assert "`pending`" in (native_write_hint(checked, frozenset({"pending"})) or "")
+        assert (
+            native_write_hint(
+                "Runtime error:\nNameError: Unknown function: lookup_typo",
+                frozenset({"propose"}),
+            )
+            is None
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("tool_names", "hinted"),
+        [(("ledger", "save_memory"), True), (("ledger",), False)],
+        ids=["granted", "not-granted"],
+    )
+    async def test_the_model_is_told_to_call_it_directly(
+        self, tool_names: tuple[str, ...], hinted: bool
+    ) -> None:
+        """Only at a write this agent holds: a read-only agent pointed at
+        save_memory would go after a tool it cannot call (PR #304 review)."""
+        from pydantic_ai import Agent
+        from pydantic_ai.messages import (
+            ModelMessage,
+            ModelResponse,
+            RetryPromptPart,
+            TextPart,
+            ToolCallPart,
+        )
+        from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+        from app.services.ai.domains.chat.tools import resolve_tools
+
+        config = _code_mode(*tool_names)
+        told: list[str] = []
+
+        def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            retries = [
+                part
+                for message in messages
+                for part in getattr(message, "parts", [])
+                if isinstance(part, RetryPromptPart)
+            ]
+            if not retries:
+                return ModelResponse(
+                    parts=[
+                        ToolCallPart(
+                            "run_code", {"code": 'await save_memory(text="x")'}
+                        )
+                    ]
+                )
+            told.append(str(retries[-1].content))
+            return ModelResponse(parts=[TextPart("ok")])
+
+        agent = Agent(
+            FunctionModel(model),
+            tools=resolve_tools(config.tool_names),
+            capabilities=agent_capabilities(config),
+        )
+        await agent.run("remember x")
+
+        assert told and "save_memory" in told[0]  # the sandbox's own error
+        assert ("`save_memory` is its own tool" in told[0]) is hinted
+
+
+def test_her_prompt_says_writes_are_their_own_tools() -> None:
+    """Gemini Live called propose from inside run_code (2026-10-01): the
+    prompt never said the writes are not in the sandbox."""
+    from app.services.finance.domains.detection.analyst.prompts import (
+        FINANCE_CHAT_SYSTEM_PROMPT,
+    )
+
+    assert "are NOT in the sandbox" in FINANCE_CHAT_SYSTEM_PROMPT
+    assert "`propose`" in FINANCE_CHAT_SYSTEM_PROMPT

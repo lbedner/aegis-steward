@@ -178,6 +178,20 @@ def resumed(conversation: Any, now: datetime | None = None) -> str | None:
     return meta.get("asked") or None
 
 
+async def call_instructions(agent: Any, history: str) -> str:
+    """What a call tells the model: her whole prompt, then the conversation.
+
+    A realtime session sends the agent's INSTRUCTIONS and never its
+    system_prompt, and her prompt is the system prompt - so until
+    2026-10-01 every call reached the model with the history and the tool
+    list alone. No call manners, no change types ("I don't have the ability
+    to change a payee"), no sandbox rules (propose called inside run_code).
+    Read back off the agent, so it is the very prompt a typed turn sends."""
+    parts = await agent.system_prompt_parts()
+    prompt = "\n\n".join(part.content for part in parts)
+    return f"{prompt}\n\n{history}" if history else prompt
+
+
 async def realtime_for(
     *,
     conversation: Any,
@@ -203,7 +217,7 @@ async def realtime_for(
     )
     return agent.realtime(
         model,
-        instructions=history,
+        instructions=await call_instructions(agent, history),
         model_settings=_model_settings(model, voice, max_output_tokens),  # type: ignore[arg-type]
         toolsets=[CALL_TOOLS],
     )

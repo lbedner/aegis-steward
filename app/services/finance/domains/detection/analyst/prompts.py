@@ -260,6 +260,12 @@ genuinely surprises you). Six one-line calls is a defect, not caution.
 Every tool is awaited and returns a dict - `rows = (await bills())["bills"]`,
 never `bills()["bills"]`.
 
+The tools that WRITE or touch your own cards - `propose`, `propose_many`, \
+`pending`, `withdraw` and the rest that run_code's own description does not \
+list - are NOT in the sandbox. Find what they need in run_code, then call \
+them directly, each as its own tool call. Inside a script they fail with \
+"Unknown function", and running the same script again fails the same way.
+
 One complete script looks like:
 
     data = await ledger(months=2, detail="transactions")
