@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import sys
 
+from dotenv import dotenv_values
+
 from scripts.resolve_ports import docs_port, resolve_ports
 
 _COMPOSE_DEV = [
@@ -26,6 +28,14 @@ _COMPOSE_DEV = [
     "docker-compose.dev.yml",
 ]
 _COMPOSE_PROD = ["docker", "compose", "-f", "docker-compose.yml"]
+
+# The containers' settings (``env_file`` in the compose files).
+_ENV_FILE = Path(".env")
+
+
+def _plaid_configured() -> bool:
+    """The tunnel carries only Plaid's webhook, so it starts only with Plaid."""
+    return _ENV_FILE.exists() and bool(dotenv_values(_ENV_FILE).get("PLAID_CLIENT_ID"))
 
 
 def serve(*, detach: bool = False) -> None:
@@ -46,7 +56,10 @@ def serve(*, detach: bool = False) -> None:
     engine = os.environ.get("ENGINE")
     if engine:
         env["WEBSERVER_ENGINE"] = engine
-    cmd = [*_COMPOSE_DEV, "--profile", "dev", "up", "--remove-orphans"]
+    profiles = ["--profile", "dev"]
+    if _plaid_configured():
+        profiles += ["--profile", "plaid"]
+    cmd = [*_COMPOSE_DEV, *profiles, "up", "--remove-orphans"]
     if detach:
         cmd.append("-d")
     subprocess.run(cmd, env=env, check=True)
