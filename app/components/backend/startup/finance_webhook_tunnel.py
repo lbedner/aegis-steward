@@ -50,6 +50,14 @@ PLAID_WEBHOOK_PATH = "/api/v1/finance/webhook/plaid"
 _tunnel_task: asyncio.Task[None] | None = None
 
 
+def tunnel_metrics_url() -> str | None:
+    """Where the dev overlay's tunnel reports its hostname, or None.
+
+    ``getattr``: a finance stack without Plaid has no such setting at all.
+    """
+    return getattr(settings, "PLAID_TUNNEL_METRICS_URL", None)
+
+
 async def discover_tunnel_hostname(metrics_url: str) -> str | None:
     """The quick tunnel's public hostname from cloudflared's metrics server.
 
@@ -105,7 +113,7 @@ async def _discover_and_reconcile(metrics_url: str) -> None:
 
 async def startup_finance_webhook_tunnel() -> None:
     global _tunnel_task
-    metrics_url = getattr(settings, "PLAID_TUNNEL_METRICS_URL", None)
+    metrics_url = tunnel_metrics_url()
     if not metrics_url or not settings.PLAID_CLIENT_ID:
         logger.debug("Plaid webhook tunnel not configured; skipping")
         return

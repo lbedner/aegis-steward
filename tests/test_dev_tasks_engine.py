@@ -20,8 +20,8 @@ from scripts import dev_tasks
 @pytest.fixture
 def serve_kwargs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
     """What ``serve()`` hands to ``subprocess.run``: the keyword arguments,
-    and the compose command under ``cmd``. The env file is an empty temp
-    file until a test writes to it."""
+    and the compose command under ``cmd``. The project's ``.env`` is an
+    empty temp file until a test writes to it."""
     captured: dict[str, Any] = {}
 
     def fake_run(cmd: list[str], **kwargs: Any) -> None:
@@ -29,7 +29,8 @@ def serve_kwargs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, A
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(dev_tasks, "resolve_ports", lambda **_: {})
-    monkeypatch.setattr(dev_tasks, "_ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(dev_tasks, "_DOTENV", tmp_path / ".env")
+    monkeypatch.delenv("AEGIS_STACK_ENV_FILE", raising=False)
     monkeypatch.delenv("ENGINE", raising=False)
     monkeypatch.delenv("WEBSERVER_ENGINE", raising=False)
     return captured
@@ -53,27 +54,57 @@ def test_plain_serve_pins_no_engine(serve_kwargs: dict[str, Any]) -> None:
 
 class TestThePlaidTunnel:
     """The tunnel only carries Plaid's webhook, so ``make serve`` starts it
-    only when the env file has Plaid credentials (#306). Without them it
-    served nothing and still put the whole app on a public address."""
+    only when the containers' env file has Plaid credentials (#306). That is
+    the file compose hands them: ``AEGIS_STACK_ENV_FILE`` from the shell,
+    else the one ``.env`` names, else ``.env`` itself."""
 
     def _profiles(self, cmd: list[str]) -> list[str]:
         return [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--profile"]
 
-    def test_plaid_credentials_start_the_tunnel(
-        self, serve_kwargs: dict[str, Any]
+    @pytest.mark.parametrize(
+        ("dotenv", "other", "shell", "tunnel"),
+        [
+            ("PLAID_CLIENT_ID=abc123\n", None, None, True),
+            ("", None, None, False),
+            ("PLAID_CLIENT_ID=\n", None, None, False),
+            ("", "PLAID_CLIENT_ID=abc123\n", "{other}", True),
+            ("AEGIS_STACK_ENV_FILE={other}\n", "PLAID_CLIENT_ID=abc123\n", None, True),
+            (
+                "PLAID_CLIENT_ID=abc123\nAEGIS_STACK_ENV_FILE={other}\n",
+                "",
+                None,
+                False,
+            ),
+            # Set but empty still beats .env, and compose's :- reads it as .env.
+            ("AEGIS_STACK_ENV_FILE={other}\n", "PLAID_CLIENT_ID=abc123\n", "", False),
+        ],
+        ids=[
+            "dotenv",
+            "absent",
+            "empty",
+            "shell-names-the-file",
+            "dotenv-names-the-file",
+            "unused-dotenv",
+            "empty-shell-means-dotenv",
+        ],
+    )
+    def test_the_tunnel_follows_the_containers_env_file(
+        self,
+        serve_kwargs: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+        dotenv: str,
+        other: str | None,
+        shell: str | None,
+        tunnel: bool,
     ) -> None:
-        dev_tasks._ENV_FILE.write_text("PLAID_CLIENT_ID=abc123\n")
+        other_file = dev_tasks._DOTENV.parent / "other.env"
+        if other is not None:
+            other_file.write_text(other)
+        dev_tasks._DOTENV.write_text(dotenv.format(other=other_file))
+        if shell is not None:
+            monkeypatch.setenv("AEGIS_STACK_ENV_FILE", shell.format(other=other_file))
 
         dev_tasks.serve()
 
-        assert self._profiles(serve_kwargs["cmd"]) == ["dev", "plaid"]
-
-    @pytest.mark.parametrize("env", ["", "PLAID_CLIENT_ID=\n"], ids=["absent", "empty"])
-    def test_without_plaid_the_tunnel_stays_off(
-        self, serve_kwargs: dict[str, Any], env: str
-    ) -> None:
-        dev_tasks._ENV_FILE.write_text(env)
-
-        dev_tasks.serve()
-
-        assert self._profiles(serve_kwargs["cmd"]) == ["dev"]
+        expected = ["dev", "plaid"] if tunnel else ["dev"]
+        assert self._profiles(serve_kwargs["cmd"]) == expected

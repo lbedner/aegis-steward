@@ -14,8 +14,10 @@ from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
-from app.components.backend.startup.finance_webhook_tunnel import PLAID_WEBHOOK_PATH
-from app.core.config import settings
+from app.components.backend.startup.finance_webhook_tunnel import (
+    PLAID_WEBHOOK_PATH,
+    tunnel_metrics_url,
+)
 
 
 def _through_the_tunnel(scope: Scope) -> bool:
@@ -54,5 +56,5 @@ class TunnelGuardMiddleware:
 
 def register_middleware(app: FastAPI) -> None:
     """Installed only where the dev overlay runs the tunnel."""
-    if settings.PLAID_TUNNEL_METRICS_URL:
+    if tunnel_metrics_url():
         app.add_middleware(TunnelGuardMiddleware)
