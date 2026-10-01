@@ -15,6 +15,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.components.backend.middleware import tunnel_guard
 from app.components.backend.startup.finance_webhook_tunnel import PLAID_WEBHOOK_PATH
+from app.core.config import settings
 
 THROUGH_THE_TUNNEL = {"cf-ray": "8c1d2e3f4a5b6c7d-EWR"}
 
@@ -70,9 +71,7 @@ class TestRegistration:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            tunnel_guard.settings,
-            "PLAID_TUNNEL_METRICS_URL",
-            "http://plaid-tunnel:20241",
+            settings, "PLAID_TUNNEL_METRICS_URL", "http://plaid-tunnel:20241"
         )
         app = FastAPI()
 
@@ -85,7 +84,19 @@ class TestRegistration:
     def test_without_the_overlay_there_is_nothing_to_guard(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(tunnel_guard.settings, "PLAID_TUNNEL_METRICS_URL", None)
+        monkeypatch.setattr(settings, "PLAID_TUNNEL_METRICS_URL", None)
+        app = FastAPI()
+
+        tunnel_guard.register_middleware(app)
+
+        assert app.user_middleware == []
+
+    def test_a_stack_without_plaid_settings_has_nothing_to_guard(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Finance without Plaid has no PLAID_TUNNEL_METRICS_URL setting at
+        all, and registering must not raise on every startup."""
+        monkeypatch.delattr(settings, "PLAID_TUNNEL_METRICS_URL")
         app = FastAPI()
 
         tunnel_guard.register_middleware(app)

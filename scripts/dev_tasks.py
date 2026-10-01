@@ -29,13 +29,25 @@ _COMPOSE_DEV = [
 ]
 _COMPOSE_PROD = ["docker", "compose", "-f", "docker-compose.yml"]
 
-# The containers' settings (``env_file`` in the compose files).
-_ENV_FILE = Path(".env")
+# The project's .env, which compose also reads for its own variables.
+_DOTENV = Path(".env")
+
+
+def _env_file() -> Path:
+    """The containers' env file, found the way compose finds it
+    (``${AEGIS_STACK_ENV_FILE:-.env}``): the shell's variable, else the one
+    ``.env`` names, else ``.env`` itself. A shell variable set but empty
+    still wins over ``.env``, and ``:-`` reads it as ``.env``."""
+    named = os.environ.get("AEGIS_STACK_ENV_FILE")
+    if named is None and _DOTENV.exists():
+        named = dotenv_values(_DOTENV).get("AEGIS_STACK_ENV_FILE")
+    return Path(named) if named else _DOTENV
 
 
 def _plaid_configured() -> bool:
     """The tunnel carries only Plaid's webhook, so it starts only with Plaid."""
-    return _ENV_FILE.exists() and bool(dotenv_values(_ENV_FILE).get("PLAID_CLIENT_ID"))
+    env_file = _env_file()
+    return env_file.exists() and bool(dotenv_values(env_file).get("PLAID_CLIENT_ID"))
 
 
 def serve(*, detach: bool = False) -> None:
