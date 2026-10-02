@@ -53,6 +53,15 @@ class BudgetMonthOutlook(BaseModel):
     end_balance: int = 0
 
 
+class BudgetMonthActuals(BaseModel):
+    """What came in and went out in one month, money moved between your
+    own accounts aside: a month that has ended, as it happened."""
+
+    period_month: int  # YYYYMM
+    money_in: int
+    money_out: int
+
+
 class BudgetOutlookResponse(BaseModel):
     items: list[BudgetMonthOutlook]
     total: int

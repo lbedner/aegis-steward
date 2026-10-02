@@ -10,12 +10,14 @@ how much of it was bills, and its popups lost their captions and window.
 from __future__ import annotations
 
 import calendar
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 
 from app.core.formatting import format_money
 from app.services.finance.schemas import (
+    BudgetMonthActuals,
     BudgetMonthOutlook,
     BudgetStatDetailsResponse,
     BudgetStatsResponse,
@@ -228,10 +230,44 @@ def commitments_line(summary: BudgetSummaryResponse) -> str:
     return f"{line}, plus {format_money(one_time)} one-time" if one_time else line
 
 
-def pager_chips(months: list[BudgetMonthOutlook]) -> list[Chip]:
-    """Today's cash, then the cash each month ends with - the level, not
-    the rate. Red only where the money runs out."""
-    chips = []
+def review_cells(stats: BudgetStatsResponse, actuals: BudgetMonthActuals) -> list[Cell]:
+    """A month that has ended, in actuals only: what came in, what went
+    out, what its limits held, and what it left (#359). Nothing in it is
+    rebuilt from today's bills."""
+    net = actuals.money_in - actuals.money_out
+    over = stats.over_budget_count
+    held = "every limit held" if over == 0 else f"{_count(over, 'limit')} over"
+    return [
+        Cell("income", "Money in", actuals.money_in, "deposits, refunds and interest"),
+        Cell(
+            "everything",
+            "Money out",
+            actuals.money_out,
+            "everything spent, transfers aside",
+        ),
+        Cell(
+            "budgets",
+            "Budgets",
+            stats.flexible_spent,
+            f"of {format_money(stats.flexible_allocated)} · {held}",
+        ),
+        Cell(
+            "month",
+            period_label(actuals.period_month),
+            net,
+            "left over" if net >= 0 else "short",
+            "ok" if net >= 0 else "error",
+        ),
+    ]
+
+
+def pager_chips(
+    months: list[BudgetMonthOutlook], past: Sequence[int] = ()
+) -> list[Chip]:
+    """The months behind by name, then today's cash, then the cash each
+    month ahead ends with - the level, not the rate. Red only where the
+    money runs out."""
+    chips = [Chip(calendar.month_abbr[month % 100]) for month in past]
     for index, month in enumerate(months):
         if index == 0:
             chips.append(Chip(f"Now {format_money(month.start_balance, whole=True)}"))

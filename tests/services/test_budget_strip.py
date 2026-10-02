@@ -14,6 +14,7 @@ import pytest
 from app.services.finance.domains.planning.budgets import strip
 from app.services.finance.schemas import (
     BudgetBucketResponse,
+    BudgetMonthActuals,
     BudgetMonthOutlook,
     BudgetStatDetailsResponse,
     BudgetStatsResponse,
@@ -271,3 +272,46 @@ class TestThePopups:
     def test_an_unknown_cell_has_no_popup(self) -> None:
         with pytest.raises(KeyError):
             strip.stat_popup("vibes", self._summary())
+
+
+class TestAMonthBehind:
+    """#359: a month that has ended, in actuals only."""
+
+    def test_the_cells_say_how_it_went(self) -> None:
+        stats = _stats(flexible_spent=12_000, flexible_allocated=30_000)
+        actuals = BudgetMonthActuals(
+            period_month=202608, money_in=200_000, money_out=20_000
+        )
+
+        cells = strip.review_cells(stats, actuals)
+
+        assert [(c.label, c.display, c.caption) for c in cells] == [
+            ("Money in", "$2,000.00", "deposits, refunds and interest"),
+            ("Money out", "$200.00", "everything spent, transfers aside"),
+            ("Budgets", "$120.00", "of $300.00 · every limit held"),
+            ("August 2026", "+$1,800.00", "left over"),
+        ]
+        assert cells[-1].tone == "ok"
+
+    def test_a_month_that_ran_short_and_over_says_so(self) -> None:
+        stats = _stats(over_budget_count=2)
+        actuals = BudgetMonthActuals(
+            period_month=202608, money_in=100_000, money_out=130_000
+        )
+
+        cells = strip.review_cells(stats, actuals)
+
+        assert cells[2].caption.endswith("· 2 limits over")
+        assert (cells[-1].display, cells[-1].caption, cells[-1].tone) == (
+            "-$300.00",
+            "short",
+            "error",
+        )
+
+    def test_the_pager_names_the_months_behind(self) -> None:
+        chips = strip.pager_chips([_month(period_month=202610)], past=[202608, 202609])
+        assert [(c.label, c.tone) for c in chips] == [
+            ("Aug", None),
+            ("Sep", None),
+            ("Now $1,200", None),
+        ]

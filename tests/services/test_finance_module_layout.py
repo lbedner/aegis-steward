@@ -81,6 +81,7 @@ BUDGET_OWNERS = {
     "dismiss_budget_suggestions": "suggestions",
     "restore_budget_suggestions": "suggestions",
     "budget_summary": "summary",
+    "month_actuals": "summary",
     "uncovered_spending_rate": "uncovered",
     "budget_stat_details": "details",
     "plan_budget_trims": "trims",
@@ -101,6 +102,7 @@ BUDGET_QUERIES = {
     "budget_line_by_id",
     "categorized_outflow_history",
     "outflow_tuples",
+    "money_in_and_out",
 }
 
 # The auto-budget gates. service.py mirrors them onto the facade, so
@@ -462,6 +464,7 @@ SERVICE_OWNERS = {
     "budget_drawdowns": "recurring",
     "budget_month_outlook": "budgets",
     "budget_stat_details": "budgets",
+    "budget_month_actuals": "budgets",
     "budget_summary": "budgets",
     "categorize_transaction": "categories",
     "category_names": "categories",

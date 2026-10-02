@@ -15,6 +15,7 @@ from app.services.finance.models import (
 )
 from app.services.finance.schemas import (
     BudgetLineResponse,
+    BudgetMonthActuals,
     BudgetMonthOutlook,
     BudgetStatDetailsResponse,
     BudgetSuggestion,
@@ -136,6 +137,20 @@ class BudgetsMixin(FinanceServiceBase):
             period_month=period_month,
             account_ids=account_ids,
             today=today,
+        )
+
+    async def budget_month_actuals(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        period_month: int | None = None,
+        account_ids: list[int] | None = None,
+    ) -> BudgetMonthActuals:
+        return await budgets.month_actuals(
+            self.db,
+            owner_user_id=owner_user_id,
+            period_month=period_month,
+            account_ids=account_ids,
         )
 
     async def uncovered_spending_rate(

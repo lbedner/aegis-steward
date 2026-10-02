@@ -1,25 +1,35 @@
 {# One flexible limit (pattern 2), the Flet row: name and percent on one
    line, a thin bar, "$spent of $limit" under it with the limit editable
-   in place. The answer to an edit is this row plus the strip out of band. #}
+   in place. The answer to an edit is this row plus the strip out of band.
+   A month that has ended (``period``) reads it only: an edit there would
+   set THIS month's limit, and its name opens that month's rows. #}
 {% from "components/macros/layout.html" import progress, remove_button %}
 {% from "components/macros/form.html" import money_input, target_inputs %}
 {% set tone = {"good": "ok", "warn": "warn", "critical": "error"}.get(line.status, "ok") %}
-<li id="line-{{ line.id }}" class="flex items-start gap-3">
-  <form {{ hx_swap(path ~ "/lines", "#line-" ~ line.id, "post") }} hx-trigger="submit, change" class="flex-1 min-w-0">
-    {{ target_inputs(line.category_id, line.payee_key, line.payee_label) }}
+{# The row's figures; the caller supplies the limit, a figure or an input. #}
+{% macro figures() %}
     <div class="flex items-baseline justify-between gap-3 text-sm">
       {# The name opens what the figure is made of (pattern 4). A button
          rather than the whole row: the row is a form, and its limit
          input has to stay clickable. #}
-      <button type="button" {{ hx_dialog(path ~ "/lines/" ~ line.id ~ "/transactions") }}
+      <button type="button" {{ hx_dialog(path ~ "/lines/" ~ line.id ~ "/transactions" ~ ("?month=" ~ period if period else "")) }}
               class="text-aegis-text truncate text-left hover:underline">{{ line.label }}</button>
       <span class="tabular-nums text-xs {{ 'text-error' if line.status == 'critical' else 'text-aegis-muted' }}">{{ line.spent_percent }}%</span>
     </div>
     {{ progress(line.spent_ratio, tone) }}
     <div class="flex items-center gap-1.5 text-xs text-aegis-muted tabular-nums">
       <span>{{ line.spent_amount|money }} of</span>
-      <span class="w-28">{{ money_input("allocated_amount", line.allocated_amount|cents_to_input) }}</span>
+      {{ caller() }}
     </div>
+{%- endmacro %}
+<li id="line-{{ line.id }}" class="flex items-start gap-3">
+  {% if period %}
+  <div class="flex-1 min-w-0">{% call figures() %}<span>{{ line.allocated_amount|money }}</span>{% endcall %}</div>
+  {% else %}
+  <form {{ hx_swap(path ~ "/lines", "#line-" ~ line.id, "post") }} hx-trigger="submit, change" class="flex-1 min-w-0">
+    {{ target_inputs(line.category_id, line.payee_key, line.payee_label) }}
+    {% call figures() %}<span class="w-28">{{ money_input("allocated_amount", line.allocated_amount|cents_to_input) }}</span>{% endcall %}
   </form>
   {{ remove_button(path ~ "/lines/" ~ line.id ~ "/remove", "Remove limit", "mt-0.5") }}
+  {% endif %}
 </li>

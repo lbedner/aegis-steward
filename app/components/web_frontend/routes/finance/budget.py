@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from starlette.responses import Response
 
 from app.components.backend.api.finance.budgets import (
+    budget_actuals,
     budget_outlook,
     budget_stat_details,
     budget_suggestions,
@@ -55,9 +56,15 @@ from app.services.finance.schemas import (
     BudgetLineUpsert,
     BudgetSuggestionIds,
     GoalParseRequest,
+    PeriodMonth,
 )
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import positive_cents
+from app.services.finance.utils import (
+    current_period_month,
+    period_label,
+    positive_cents,
+    shift_period,
+)
 
 router = APIRouter(prefix=SECTION.path)
 
@@ -70,6 +77,8 @@ TABS: tuple[tuple[str, str], ...] = (
     ("envelopes", "Envelopes"),
 )
 OUTLOOK_MONTHS = 6
+# How far back the pager reaches: months that have ended, read as they went.
+PAST_MONTHS = 6
 
 
 # --- context --------------------------------------------------------------
@@ -82,16 +91,30 @@ async def budget_context(
     month: int,
     account_ids: list[int] | None,
 ) -> dict[str, Any]:
-    """Everything ``components/budget.html`` renders."""
-    summary, stats = await stats_context(service, owner_user_id, account_ids)
+    """Everything ``components/budget.html`` renders. ``month`` counts from
+    this one: ahead is the outlook, behind is a month that has ended."""
     outlook = await budget_outlook(
         months=OUTLOOK_MONTHS,
         account_ids=account_ids,
         service=service,
         owner_user_id=owner_user_id,
     )
-    month = max(0, min(month, len(outlook.items) - 1)) if outlook.items else 0
-    if month > 0:
+    month = max(-PAST_MONTHS, min(month, len(outlook.items) - 1))
+    current = current_period_month()
+    period = shift_period(current, month) if month < 0 else None
+    summary, stats = await stats_context(service, owner_user_id, account_ids, period)
+    if period is not None:
+        actuals = await budget_actuals(
+            month=period,
+            account_ids=account_ids,
+            service=service,
+            owner_user_id=owner_user_id,
+        )
+        stats = {
+            "cells": strip.review_cells(summary.stats, actuals),
+            "clickable": False,
+        }
+    elif month > 0:
         stats = {"cells": strip.outlook_cells(outlook.items[month]), "clickable": False}
     tab = tab if tab in dict(TABS) else TABS[0][0]
 
@@ -100,10 +123,17 @@ async def budget_context(
         params = [f"month={at_month}", f"tab={at_tab}", *account_params(account_ids)]
         return f"{SECTION.path}?{'&'.join(params)}"
 
+    past = [shift_period(current, -back) for back in range(PAST_MONTHS, 0, -1)]
     pager = [
-        {"index": i, "label": chip.label, "tone": chip.tone, "url": url(i, tab)}
-        for i, chip in enumerate(strip.pager_chips(outlook.items))
+        {
+            "index": i - PAST_MONTHS,
+            "label": c.label,
+            "tone": c.tone,
+            "url": url(i - PAST_MONTHS, tab),
+        }
+        for i, c in enumerate(strip.pager_chips(outlook.items, past))
     ]
+    at = month + PAST_MONTHS
     goals = await list_goals(service=service, owner_user_id=owner_user_id)
     envelopes = await list_envelopes(service=service, owner_user_id=owner_user_id)
     suggestions = await budget_suggestions(service=service, owner_user_id=owner_user_id)
@@ -116,6 +146,12 @@ async def budget_context(
         "path": SECTION.path,
         "tab": tab,
         "month": month,
+        "period": period,
+        "heading": (
+            f"How did {period_label(period)} go?" if period else "Does the month work?"
+        ),
+        "prev_url": pager[at - 1]["url"] if at > 0 else None,
+        "next_url": pager[at + 1]["url"] if at + 1 < len(pager) else None,
         "tabs": [
             (
                 key,
@@ -156,7 +192,7 @@ LINE_TXN_COLUMNS = [
 async def page(
     request: Request,
     tab: str = "limits",
-    month: int = Query(default=0, ge=0),
+    month: int = Query(default=0, ge=-PAST_MONTHS),
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
@@ -209,16 +245,21 @@ def _line_response(
 async def line_transactions(
     request: Request,
     line_id: int,
+    month: Annotated[PeriodMonth | None, Query()] = None,
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    """The transactions behind one limit (pattern 4). "$535.16 of
-    $1,000.00" was a figure with no way to ask what it was made of."""
+    """The transactions behind one limit (pattern 4), this month's or, from
+    a month that has ended, that month's. "$535.16 of $1,000.00" was a
+    figure with no way to ask what it was made of."""
     rows = await service.budget_line_transactions(
-        line_id, owner_user_id=owner_user_id, account_ids=account_ids
+        line_id,
+        owner_user_id=owner_user_id,
+        period_month=month,
+        account_ids=account_ids,
     )
-    summary, _stats = await stats_context(service, owner_user_id, account_ids)
+    summary, _stats = await stats_context(service, owner_user_id, account_ids, month)
     # The FLEXIBLE bucket only. A commitment line's ``id`` is its
     # recurring stream's, not a budget line's, so searching every bucket
     # matches the wrong row on a collision - which it promptly did.
@@ -232,7 +273,8 @@ async def line_transactions(
         "partials/transactions_dialog.html",
         title=line.label,
         subtitle=(
-            f"{money(line.spent_amount)} of {money(line.allocated_amount)} this month"
+            f"{money(line.spent_amount)} of {money(line.allocated_amount)} "
+            + (f"in {period_label(month)}" if month else "this month")
         ),
         rows=await hydrate_transactions(service, rows),
         columns=LINE_TXN_COLUMNS,
@@ -406,4 +448,6 @@ async def goal_parse(
             result=None,
             errors=["Couldn't find a category or recent payee matching that."],
         )
-    return budget_dialog(request, "partials/budget/goal_parse.html", result=result, errors=[])
+    return budget_dialog(
+        request, "partials/budget/goal_parse.html", result=result, errors=[]
+    )

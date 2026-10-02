@@ -37,6 +37,7 @@ from app.services.finance.models import (
 from app.services.finance.schemas import (
     BudgetBucketResponse,
     BudgetLineResponse,
+    BudgetMonthActuals,
     BudgetStatsResponse,
     BudgetSummaryResponse,
     GoalAsk,
@@ -348,4 +349,24 @@ async def budget_summary(
         ],
         stats=stats,
         trims=plan.cuts,
+    )
+
+
+async def month_actuals(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None = None,
+    period_month: int | None = None,
+    account_ids: list[int] | None = None,
+) -> BudgetMonthActuals:
+    """What came in and went out in one month, from its transactions: a
+    month that has ended reads as it happened, and nothing in it is
+    rebuilt from today's bills (#359)."""
+    month = period_month or current_period_month()
+    start, end = queries.month_bounds(month)
+    money_in, money_out = await queries.money_in_and_out(
+        db, owner_user_id=owner_user_id, start=start, end=end, account_ids=account_ids
+    )
+    return BudgetMonthActuals(
+        period_month=month, money_in=money_in, money_out=money_out
     )

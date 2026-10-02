@@ -47,7 +47,10 @@ from app.services.finance.domains.planning.budgets.suggestions import (
     restore_budget_suggestions,
     suggest_budget_lines,
 )
-from app.services.finance.domains.planning.budgets.summary import budget_summary
+from app.services.finance.domains.planning.budgets.summary import (
+    budget_summary,
+    month_actuals,
+)
 from app.services.finance.domains.planning.budgets.trims import plan_budget_trims
 from app.services.finance.domains.planning.budgets.uncovered import (
     uncovered_spend,
@@ -55,6 +58,7 @@ from app.services.finance.domains.planning.budgets.uncovered import (
 )
 
 __all__ = [
+    "month_actuals",
     "strip",
     "budget_line_transactions",
     "_BUDGET_LOOKBACK_MONTHS",

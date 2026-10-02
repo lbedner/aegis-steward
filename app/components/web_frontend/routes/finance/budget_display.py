@@ -31,11 +31,14 @@ SECTION = section("budget")
 
 
 async def stats_context(
-    service: FinanceService, owner_user_id: int | None, account_ids: list[int] | None
+    service: FinanceService,
+    owner_user_id: int | None,
+    account_ids: list[int] | None,
+    month: int | None = None,
 ) -> tuple[BudgetSummaryResponse, dict[str, Any]]:
-    """This month's summary, and the strip drawn from it."""
+    """A month's summary (default: this one), and the strip drawn from it."""
     summary = await budget_summary(
-        month=None,
+        month=month,
         account_ids=account_ids,
         service=service,
         owner_user_id=owner_user_id,

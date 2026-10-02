@@ -25,7 +25,10 @@ from app.services.finance.domains.planning.budgets import queries
 from app.services.finance.domains.planning.budgets.lines import (
     lines_in_force,
 )
-from app.services.finance.domains.planning.queries import spend_filters
+from app.services.finance.domains.planning.queries import (
+    not_reconciliation,
+    spend_filters,
+)
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.utils import current_date, current_period_month
 
@@ -202,11 +205,7 @@ async def uncovered_spend_filters(
         *spend_filters(owner_user_id, window_start, window_end, account_ids),
         FinanceTransaction.is_transfer.is_(False),
         FinanceTransaction.recurring_stream_id.is_(None),
-        # A reconciliation adjustment is bookkeeping, not spending.
-        or_(
-            FinanceTransaction.external_id_source.is_(None),
-            FinanceTransaction.external_id_source != "reconcile",
-        ),
+        not_reconciliation(),
     ]
     if budgeted_category_ids:
         filters.append(

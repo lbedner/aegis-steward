@@ -223,7 +223,7 @@
    is ``{"label", "value", "caption", "tone", "attrs"}``; ``attrs`` makes
    it a door (hx-get) and ``tone`` colours the value. #}
 {% macro stats_strip(cells, id=None, attrs="") %}
-<dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 {{ {2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4"}[cells|length] }} divide-x divide-aegis-border/60 raised">
+<dl {% if id %}id="{{ id }}"{% endif %} {{ attrs|safe }} class="grid grid-cols-2 {{ {2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4", 5: "lg:grid-cols-5"}[cells|length] }} divide-x divide-aegis-border/60 raised">
   {% for cell in cells %}
   <div {{ cell.attrs|safe if cell.attrs else "" }} class="group px-5 py-4 min-w-0{% if cell.attrs %} cursor-pointer hover:bg-aegis-border/20 transition-colors{% endif %}">
     {# A figure that can explain itself has to LOOK like it does: the
