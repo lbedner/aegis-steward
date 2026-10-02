@@ -1,10 +1,12 @@
 {# One flexible limit (pattern 2), the Flet row: name and percent on one
-   line, a thin bar, "$spent of $limit" under it with the limit editable
-   in place. The answer to an edit is this row plus the strip out of band.
+   line, a thin bar, "$spent of $limit" under it with the limit opening
+   for an edit in place on a click. The answer to an edit is this row plus the strip out of band.
    A month that has ended (``period``) reads it only: an edit there would
-   set THIS month's limit, and its name opens that month's rows. #}
+   set THIS month's limit, and its name opens that month's rows. A limit
+   that rolls over says what it carried in, and its percent and bar read
+   against the limit plus the carry. #}
 {% from "components/macros/layout.html" import progress, remove_button %}
-{% from "components/macros/form.html" import money_input, target_inputs %}
+{% from "components/macros/form.html" import checkbox, money_edit, target_inputs %}
 {% set tone = {"good": "ok", "warn": "warn", "critical": "error"}.get(line.status, "ok") %}
 {# The row's figures; the caller supplies the limit, a figure or an input. #}
 {% macro figures() %}
@@ -17,10 +19,19 @@
       <span class="tabular-nums text-xs {{ 'text-error' if line.status == 'critical' else 'text-aegis-muted' }}">{{ line.spent_percent }}%</span>
     </div>
     {{ progress(line.spent_ratio, tone) }}
+    {# With a carry, what is left to spend leads, and the limit and the
+       carry underneath say where it came from. #}
     <div class="flex items-center gap-1.5 text-xs text-aegis-muted tabular-nums">
-      <span>{{ line.spent_amount|money }} of</span>
-      {{ caller() }}
+      <span class="whitespace-nowrap">{{ line.spent_amount|money }} of</span>
+      {% if line.carried_amount %}<span data-available class="text-aegis-text">{{ line.available_amount|money }}</span>{% else %}{{ caller() }}{% endif %}
     </div>
+    {% if line.carried_amount %}
+    <div class="mt-1 flex items-center gap-1.5 text-xs text-aegis-muted tabular-nums">
+      <span>limit</span>
+      {{ caller() }}
+      <span data-carried class="whitespace-nowrap">{{ line.carried_amount|money(signed=True) }} carried</span>
+    </div>
+    {% endif %}
 {%- endmacro %}
 <li id="line-{{ line.id }}" class="flex items-start gap-3">
   {% if period %}
@@ -28,7 +39,10 @@
   {% else %}
   <form {{ hx_swap(path ~ "/lines", "#line-" ~ line.id, "post") }} hx-trigger="submit, change" class="flex-1 min-w-0">
     {{ target_inputs(line.category_id, line.payee_key, line.payee_label) }}
-    {% call figures() %}<span class="w-28">{{ money_input("allocated_amount", line.allocated_amount|cents_to_input) }}</span>{% endcall %}
+    {% call figures() %}{{ money_edit("allocated_amount", line.allocated_amount|cents_to_input, line.allocated_amount|money, "Edit limit") }}{% endcall %}
+    {# The form says rollover whole, so an untick is a post too. #}
+    <input type="hidden" name="rollover_sent" value="1">
+    {{ checkbox("rollover", line.rollover, label="rolls over") }}
   </form>
   {{ remove_button(path ~ "/lines/" ~ line.id ~ "/remove", "Remove limit", "mt-0.5") }}
   {% endif %}

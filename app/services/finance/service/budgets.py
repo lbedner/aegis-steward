@@ -85,7 +85,7 @@ class BudgetsMixin(FinanceServiceBase):
         payee_key: str | None,
         payee_label: str | None,
         allocated_amount: int,
-        rollover_enabled: bool = False,
+        rollover_enabled: bool | None = None,
     ) -> BudgetLineResponse:
         return await budgets.upsert_budget_line(
             self.db,

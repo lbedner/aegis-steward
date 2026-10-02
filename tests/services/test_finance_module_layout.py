@@ -74,6 +74,7 @@ RECURRING_QUERIES = {
 BUDGET_OWNERS = {
     "get_or_create_budget": "lines",
     "spend_by_line": "lines",
+    "carried_amounts": "lines",
     "upsert_budget_line": "lines",
     "delete_budget_line": "lines",
     "suggest_budget_lines": "suggestions",
@@ -102,6 +103,7 @@ BUDGET_QUERIES = {
     "budget_line_by_id",
     "categorized_outflow_history",
     "outflow_tuples",
+    "budget_lines_before",
     "money_in_and_out",
 }
 

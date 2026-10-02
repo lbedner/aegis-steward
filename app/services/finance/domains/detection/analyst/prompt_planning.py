@@ -36,10 +36,13 @@ categories()), "payee_key" (a payee line in budget()), or "payee": the \
 payee in words ("Starbucks"); optional "month": YYYYMM, default this \
 month, and later months inherit what you do to it. It moves NO money.
 - `budget.limit` - payload {a budget LINE, "limit_cents": int, the \
-month's limit}: what a month allows for one category or one payee - \
-raise, lower or add a limit. Several limits in one plan go together \
-through propose_many. When you suggest cutting a limit, propose it; \
-never say you can change it and leave it there.
+month's limit, optional "rollover": bool}: what a month allows for one \
+category or one payee - raise, lower or add a limit. Several limits in \
+one plan go together through propose_many. When you suggest cutting a \
+limit, propose it; never say you can change it and leave it there. \
+"rollover": true lets what a month leaves, or overspends, carry into the \
+next and keep stacking; false stops it; leave it out to keep it as is. \
+To only turn rollover on or off, send the limit's current amount.
 - `budget.remove` - payload {a budget LINE}: take the limit off. When \
 someone says remove, drop or stop budgeting a line, this is the card - \
 never a $0 `budget.limit`, which leaves the line on the page.

@@ -8,6 +8,7 @@ is ``summary``, proposing new lines is ``suggestions``.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Literal
@@ -19,11 +20,17 @@ from app.core.time import utcnow
 from app.services.finance.domains.ledger import accounts, categories
 from app.services.finance.domains.planning import queries as planning_queries
 from app.services.finance.domains.planning.budgets import queries
-from app.services.finance.models import FinanceBudget, FinanceBudgetCategory
+from app.services.finance.models import (
+    FinanceBudget,
+    FinanceBudgetCategory,
+    FinanceTransaction,
+)
 from app.services.finance.schemas import BudgetLineResponse
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     current_period_month,
+    shift_period,
+    transaction_payee_key,
 )
 
 
@@ -241,10 +248,98 @@ async def spend_by_line(
     return [line_spent(line, by_category, by_payee) for line in lines]
 
 
+def _target(line: FinanceBudgetCategory) -> tuple[int | None, str | None]:
+    """What a line limits: a category, a payee key, or neither (overall)."""
+    return line.category_id, line.payee_key
+
+
+async def carried_amounts(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    period_month: int,
+    lines: Sequence[FinanceBudgetCategory],
+) -> dict[int, int]:
+    """What each rolling-over line carries into ``period_month``, by line id.
+
+    Leftover keeps stacking and overspending carries too (#360): the carry
+    is everything the target was allowed and did not spend, less what it
+    overspent, over the unbroken run of earlier months that rolled it
+    over. A month that ran without the limit, or with rollover off, ends
+    the run, so turning it back on starts fresh. A month nobody opened ran
+    on the latest earlier month that had limits, as ``lines_in_force``
+    reads it. Lines that do not roll over cost no query at all.
+    """
+    rolling = {_target(line): line for line in lines if line.rollover_enabled}
+    if not rolling:
+        return {}
+    budget_id = next(iter(rolling.values())).budget_id
+    by_period: dict[int, list[FinanceBudgetCategory]] = {}
+    for row in await queries.budget_lines_before(db, budget_id, period_month):
+        by_period.setdefault(row.period_month or 0, []).append(row)
+    periods = sorted(by_period)
+    runs: dict[tuple[int | None, str | None], list[tuple[int, FinanceBudgetCategory]]]
+    runs = {target: [] for target in rolling}
+    open_runs = set(rolling)
+    month = shift_period(period_month, -1)
+    while open_runs and periods and month >= periods[0]:
+        ran_on = periods[bisect_right(periods, month) - 1]
+        in_force = {_target(row): row for row in _live(by_period[ran_on])}
+        for target in list(open_runs):
+            row = in_force.get(target)
+            if row is None or not row.rollover_enabled:
+                open_runs.discard(target)
+            else:
+                runs[target].append((month, row))
+        month = shift_period(month, -1)
+    months = {month for run in runs.values() for month, _row in run}
+    if not months:
+        return {line.id: 0 for line in rolling.values() if line.id is not None}
+    start, _ = queries.month_bounds(min(months))
+    end, _ = queries.month_bounds(period_month)
+    by_category: dict[int, dict[int, int]] = {}
+    by_payee: dict[int, dict[str, int]] = {}
+    for (
+        cat_id,
+        merchant,
+        description,
+        name,
+        amount,
+        _stream,
+        day,
+    ) in await queries.outflow_tuples(
+        db,
+        owner_user_id=owner_user_id,
+        start=start,
+        end=end,
+        extra=(FinanceTransaction.date_,),
+    ):
+        month = current_period_month(day)
+        if cat_id is not None:
+            tally = by_category.setdefault(month, {})
+            tally[cat_id] = tally.get(cat_id, 0) - amount
+        if key := transaction_payee_key(merchant, description, name):
+            tally = by_payee.setdefault(month, {})
+            tally[key] = tally.get(key, 0) - amount
+    return {
+        rolling[target].id: sum(
+            row.allocated_amount
+            - line_spent(row, by_category.get(month, {}), by_payee.get(month, {}))
+            for month, row in run
+        )
+        for target, run in runs.items()
+        if rolling[target].id is not None
+    }
+
+
 def line_response(
-    line: FinanceBudgetCategory, category_name: str | None, spent: int
+    line: FinanceBudgetCategory,
+    category_name: str | None,
+    spent: int,
+    carried: int = 0,
 ) -> BudgetLineResponse:
-    """A stored limit as every surface receives it."""
+    """A stored limit as every surface receives it; a rolling-over one
+    judged against what it carried in as well."""
     return BudgetLineResponse(
         id=line.id,
         category_id=line.category_id,
@@ -253,7 +348,9 @@ def line_response(
         payee_label=line.payee_label,
         allocated_amount=line.allocated_amount,
         spent_amount=spent,
-        status=budget_line_status(line.allocated_amount, spent),
+        status=budget_line_status(line.allocated_amount + carried, spent),
+        rollover=line.rollover_enabled,
+        carried_amount=carried,
     )
 
 
@@ -266,12 +363,13 @@ async def upsert_budget_line(
     payee_key: str | None,
     payee_label: str | None,
     allocated_amount: int,
-    rollover_enabled: bool = False,
+    rollover_enabled: bool | None = None,
 ) -> BudgetLineResponse:
     """Set (create or replace) one budget line for the period. One
     lookup on the matching partial-unique key, one write, plus one
     scoped spend query so the response's status is correct immediately
-    (a category with existing spend shouldn't show "good" at 0)."""
+    (a category with existing spend shouldn't show "good" at 0).
+    ``rollover_enabled`` None leaves the line's rollover as it was."""
     month = period_month or current_period_month()
     budget, line = await _own_line(
         db,
@@ -290,7 +388,8 @@ async def upsert_budget_line(
         )
     line.payee_label = payee_label
     line.allocated_amount = allocated_amount
-    line.rollover_enabled = rollover_enabled
+    if rollover_enabled is not None:
+        line.rollover_enabled = rollover_enabled
     # Setting a removed limit again brings its row back.
     line.deleted_at = None
     line.updated_at = utcnow()
@@ -305,7 +404,10 @@ async def upsert_budget_line(
     [spent] = await spend_by_line(
         db, [line], owner_user_id=owner_user_id, start=start, end=end
     )
-    return line_response(line, category_name, spent)
+    carried = await carried_amounts(
+        db, owner_user_id=owner_user_id, period_month=month, lines=[line]
+    )
+    return line_response(line, category_name, spent, carried.get(line.id or 0, 0))
 
 
 async def delete_budget_line(

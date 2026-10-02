@@ -22,6 +22,7 @@ from app.services.finance.domains.ledger import categories
 from app.services.finance.domains.planning import envelopes, goals, recurring
 from app.services.finance.domains.planning.budgets import queries, strip
 from app.services.finance.domains.planning.budgets.lines import (
+    carried_amounts,
     line_response,
     line_spent,
     lines_in_force,
@@ -181,11 +182,18 @@ async def budget_summary(
             variance_amount=variance,
         )
 
+    # What the limits that roll over carried in (#360): household-wide,
+    # whatever the account filter, like the limits themselves.
+    carried = await carried_amounts(
+        db, owner_user_id=owner_user_id, period_month=month, lines=lines
+    )
+
     def user_line(line: FinanceBudgetCategory) -> BudgetLineResponse:
         return line_response(
             line,
             names.get(line.category_id) if line.category_id is not None else None,
             line_spent(line, spent_by_category, spent_by_payee),
+            carried.get(line.id or 0, 0),
         )
 
     def bucket(
