@@ -12,7 +12,6 @@ from typing import Any
 import typer
 
 from app.cli import theme
-from app.cli.finance_agents import agents_app
 from app.i18n import lazy_t, t
 
 app = typer.Typer(help="Finance service commands.")
@@ -638,7 +637,6 @@ async def _fire_webhook(
 
 snaptrade_app = typer.Typer(help="SnapTrade brokerage connections.")
 app.add_typer(snaptrade_app, name="snaptrade")
-app.add_typer(agents_app, name="agents")
 
 
 @snaptrade_app.command("connect")

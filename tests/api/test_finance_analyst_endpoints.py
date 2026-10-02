@@ -115,6 +115,7 @@ async def test_running_again_returns_the_same_note_without_a_model_call(
     assert len(calls) == 1, "the second request must not spin up a model"
 
 
+@pytest.mark.queryspy(threshold=4)  # each resolve reads the prompt version (#355)
 @pytest.mark.asyncio
 async def test_force_regenerates_todays_note(
     authenticated_client: TestClient,

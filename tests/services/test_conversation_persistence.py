@@ -263,6 +263,7 @@ class TestAIServiceConversationMemory:
             assert conversation is not None
             assert conversation.get_message_count() == 2  # User + AI messages
 
+    @pytest.mark.queryspy(threshold=4)  # each resolve reads the prompt version (#355)
     @pytest.mark.asyncio
     async def test_chat_uses_existing_conversation(self, mock_settings):
         """Test that chat uses existing conversation when provided."""
@@ -482,6 +483,7 @@ class TestSurfaceScopingAndTitles:
             assert len(conversation.title) == 60
             assert conversation.title.endswith("...")
 
+    @pytest.mark.queryspy(threshold=4)  # each resolve reads the prompt version (#355)
     @pytest.mark.asyncio
     async def test_list_conversations_filters_by_surface(self, mock_settings):
         with _fake_runtime("ok"):

@@ -71,6 +71,7 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "fact_account": ("column", "fact", "account_id"),
     "item_kind": ("column", "request_item", "kind"),
     "prompt_fingerprint": ("column", "agent", "prompt_fingerprint"),
+    "agent_prompt_history": ("table", "agent_prompt_change"),
     "insurance": ("table", "insurance_policy"),
     "claim_paid": ("column", "insurance_claim", "paid_transaction_id"),
     "account_identity": ("column", "finance.finance_institution", "routing_number"),
