@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 if TYPE_CHECKING:
     from app.services.finance.models import FinanceTransaction
@@ -175,6 +175,66 @@ class SpendingCategory(BaseModel):
 
     category: str
     amount: int  # positive minor units (outflow magnitude)
+
+
+class CashFlow(BaseModel):
+    """Money in and out, positive minor units, and what was kept."""
+
+    income: int
+    spending: int
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def saved(self) -> int:
+        return self.income - self.spending
+
+
+class CashFlowYear(CashFlow):
+    """One calendar year of a cash-flow range."""
+
+    year: int
+
+
+class CashFlowResponse(CashFlow):
+    """Money in and out over a range, and the years in it (#344)."""
+
+    years: list[CashFlowYear]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def savings_rate(self) -> int | None:
+        """What was kept, as a whole percent of what came in; None with
+        nothing in."""
+        return round(100 * self.saved / self.income) if self.income else None
+
+
+class SpendingPace(BaseModel):
+    """Cumulative spending by day of the month, positive minor units: this
+    month through today, and the earlier months' average, median and last
+    month at each day of this one (#305)."""
+
+    days: int
+    this_month: list[int]
+    average: list[int]
+    median: list[int]
+    last_month: list[int]
+
+
+class CategoryMove(BaseModel):
+    """One category this month to date beside the same days of last month
+    and of the typical month (None: no earlier months to compare)."""
+
+    category_id: int
+    name: str
+    this_month: int  # positive minor units
+    last_month: int
+    typical: int | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def change(self) -> int:
+        """Against the typical month; all of it when there is none."""
+        return self.this_month - (self.typical or 0)
 
 
 class TransactionCreate(BaseModel):

@@ -193,12 +193,19 @@ async def category_usage(
     ]
 
 
+def _day_after(through: date | None) -> date | None:
+    """An inclusive last day (a from-to range, #342) as the exclusive end
+    the spend filters take."""
+    return through + timedelta(days=1) if through is not None else None
+
+
 async def spending_by_category(
     db: AsyncSession,
     *,
     owner_user_id: int | None = None,
     days: int = 30,
     account_ids: list[int] | None = None,
+    through: date | None = None,
 ) -> list[tuple[str, int]]:
     """Total outflow per PARENT category over the recent window — the
     spending breakdown. Expense outflows only (amount < 0), on live
@@ -222,14 +229,47 @@ async def spending_by_category(
     ``account_ids`` narrows the breakdown to those accounts (still
     intersected with live accounts and the owner scope, so a stray id can
     never widen the view)."""
+    return await _by_parent(db, owner_user_id, days, account_ids, through)
+
+
+async def income_by_category(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None = None,
+    days: int = 30,
+    account_ids: list[int] | None = None,
+    through: date | None = None,
+) -> list[tuple[str, int]]:
+    """Money in per PARENT category over the window, largest first, as
+    positive cents (#344): ``spending_by_category`` the other way round,
+    the same predicate and rollup, so the cash-flow page's tables agree."""
+    return await _by_parent(db, owner_user_id, days, account_ids, through, inflow=True)
+
+
+async def _by_parent(
+    db: AsyncSession,
+    owner_user_id: int | None,
+    days: int,
+    account_ids: list[int] | None,
+    through: date | None,
+    inflow: bool = False,
+) -> list[tuple[str, int]]:
+    """Category totals over ``days`` back (through ``through``), rolled up
+    to the parent segment, as positive cents largest first."""
     cutoff = current_date() - timedelta(days=days)
     rows = await queries.category_spend_totals(
-        db, owner_user_id=owner_user_id, start=cutoff, account_ids=account_ids
+        db,
+        owner_user_id=owner_user_id,
+        start=cutoff,
+        end=_day_after(through),
+        account_ids=account_ids,
+        inflow=inflow,
     )
+    sign = 1 if inflow else -1  # outflows are stored negative
     totals: dict[str, int] = {}
     for name, total in rows:
         parent = name.split(":", 1)[0]
-        totals[parent] = totals.get(parent, 0) - total
+        totals[parent] = totals.get(parent, 0) + sign * total
     return sorted(totals.items(), key=lambda pair: pair[1], reverse=True)
 
 
@@ -240,6 +280,7 @@ async def spending_transactions(
     days: int = 30,
     account_ids: list[int] | None = None,
     categories: list[str] | None = None,
+    through: date | None = None,
 ) -> list[FinanceTransaction]:
     """The actual rows behind a ``spending_by_category`` slice - the
     SAME filters, verbatim, minus the ``GROUP BY``/``SUM``, so drilling
@@ -258,6 +299,7 @@ async def spending_transactions(
         db,
         owner_user_id=owner_user_id,
         start=cutoff,
+        end=_day_after(through),
         account_ids=account_ids,
         categories=categories,
     )

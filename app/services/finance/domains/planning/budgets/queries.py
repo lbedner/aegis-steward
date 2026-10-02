@@ -32,12 +32,12 @@ from app.services.finance.models import (
     FinanceTransaction,
     FinanceTransactionSplit,
 )
+from app.services.finance.utils import period_start
 
 
 def month_bounds(period_month: int) -> tuple[date, date]:
     """``[start, end)`` date range for a YYYYMM period."""
-    year, month = divmod(period_month, 100)
-    start = date(year, month, 1)
+    start = period_start(period_month)
     return start, add_months(start, 1)
 
 

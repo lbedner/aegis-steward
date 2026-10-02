@@ -48,7 +48,9 @@ from app.services.finance.domains.detection.insights.rules.shared import (
     SUBSCRIPTION_CREEP_MULTIPLE,
     UTILIZATION_CRITICAL,
     UTILIZATION_WARNING,
+    CategoryMonth,
     InsightGenerationResult,
+    category_months,
     create_insight_if_new,
     live_account_ids,
     monthly_category_spend,
@@ -78,5 +80,7 @@ __all__ = [
     "create_insight_if_new",
     "generate_insights",
     "live_account_ids",
+    "CategoryMonth",
+    "category_months",
     "monthly_category_spend",
 ]

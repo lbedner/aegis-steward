@@ -56,36 +56,69 @@ function toneColor(tone) {
 	return `${teal}88`;
 }
 
+// The series that are lines of their own: not marker dots, not the
+// dashed line another is read against.
+function plainLines(data) {
+	return data.series.filter((s) => !s.points && !s.compare);
+}
+
 function datasets(kind, data) {
 	const tail = token("--n"); // "Other" reads as tail, never as a category
+	// One line is the chart's subject, filled in the primary; several
+	// (assets and debts, account groups) each take a ramp colour, unfilled,
+	// so none hides another.
+	const single = kind === "line" && plainLines(data).length === 1;
 	return data.series.map((series, i) =>
 		series.points
 			? markers(series)
-			: series.tones
-				? {
-						label: series.label,
-						data: series.values,
-						backgroundColor: series.tones.map(toneColor),
-						borderRadius: 3,
-					}
-				: {
-					label: series.label,
-					data: series.values,
-					backgroundColor:
-						kind === "doughnut"
-							? data.labels.map((label, j) =>
-									label === "Other" ? tail : rampColor(j),
-								)
-							: kind === "line"
-								? token("--p", 0.15)
-								: rampColor(i),
-					borderColor: kind === "line" ? token("--p") : undefined,
-					borderWidth: kind === "doughnut" ? 0 : 2,
-					fill: kind === "line",
-					tension: 0.3,
-					pointRadius: 0,
-				},
+			: series.compare
+				? comparison(series)
+				: series.tones
+					? {
+							label: series.label,
+							data: series.values,
+							backgroundColor: series.tones.map(toneColor),
+							borderRadius: 3,
+						}
+					: {
+							label: series.label,
+							data: series.values,
+							backgroundColor:
+								kind === "doughnut"
+									? data.labels.map((label, j) =>
+											label === "Other" ? tail : rampColor(j),
+										)
+									: single
+										? token("--p", 0.15)
+										: rampColor(i),
+							borderColor:
+								kind !== "line"
+									? undefined
+									: single
+										? token("--p")
+										: rampColor(i),
+							borderWidth: kind === "doughnut" ? 0 : 2,
+							fill: single,
+							tension: 0.3,
+							pointRadius: 0,
+						},
 	);
+}
+
+// A comparison series: the line another series is read against (the
+// usual month under this one), dashed and muted so it never reads as data
+// of its own.
+function comparison(series) {
+	return {
+		label: series.label,
+		data: series.values,
+		borderColor: token("--n"),
+		borderDash: [5, 4],
+		borderWidth: 2,
+		fill: false,
+		tension: 0.3,
+		pointRadius: 0,
+	};
 }
 
 // A marker series: dots on the days something was overdue, no line.
@@ -196,7 +229,13 @@ function build(Chart, canvas) {
 			interaction: { mode: "index", intersect: false },
 			plugins: {
 				legend: {
-					display: kind !== "line" && !data.series[0]?.tones,
+					// A lone line's card title already names it; two or more
+					// (or one read against another) need a legend.
+					display:
+						(kind !== "line" ||
+							plainLines(data).length > 1 ||
+							data.series.some((s) => s.compare)) &&
+						!data.series[0]?.tones,
 					position: kind === "doughnut" ? "right" : "top",
 					labels: { color: muted, boxWidth: 10 },
 				},

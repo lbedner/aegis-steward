@@ -9,16 +9,21 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import Response
 
 from app.components.backend.api.finance.categories import spending_transactions
-from app.components.backend.api.finance.overview import finance_overview
+from app.components.backend.api.finance.overview import (
+    finance_overview,
+    net_worth_by_type,
+    net_worth_series,
+)
 from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import account_params, dollars, money
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import render, templates
+from app.components.web_frontend.rendering import hx_dialog, render, templates
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.accounts import effective_balance
 from app.services.finance.domains.ledger.merchant_icon import Icon, payee_icons_by_name
@@ -26,11 +31,15 @@ from app.services.finance.domains.planning.recurring.forecast import upcoming_ou
 from app.services.finance.schemas import (
     AccountResponse,
     CashflowMonth,
+    CategoryMove,
+    NetWorthByType,
     NetWorthPoint,
     ProjectionResponse,
     SpendingCategory,
+    SpendingPace,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 from app.services.matters.deadlines import due_soon, expected_soon
 
 SECTION = section("overview")
@@ -88,20 +97,53 @@ def totals(accounts: list[AccountResponse], selected: list[int]) -> dict[str, in
     }
 
 
-def net_worth_chart(points: list[NetWorthPoint]) -> dict[str, Any] | None:
+# The net worth card's views (#343): the field's value and its chip.
+WORTH_VIEWS: tuple[tuple[str, str], ...] = (
+    ("net", "Net"),
+    ("split", "Assets & debts"),
+    ("type", "By type"),
+)
+
+
+def net_worth_chart(
+    points: list[NetWorthPoint], worth: str = "net"
+) -> dict[str, Any] | None:
     """A line needs two points; the series is empty until the nightly
-    snapshot has run."""
+    snapshot has run. ``split`` draws assets and debts apart."""
     if len(points) < 2:
         return None
+    lines = (
+        [("Assets", "total_assets_amount"), ("Debts", "total_liabilities_amount")]
+        if worth == "split"
+        else [("Net worth", "net_worth_amount")]
+    )
     return {
         "labels": [p.as_of_date.isoformat() for p in points],
         "series": [
-            {
-                "label": "Net worth",
-                "values": [dollars(p.net_worth_amount) for p in points],
-            }
+            {"label": label, "values": [dollars(getattr(p, field)) for p in points]}
+            for label, field in lines
         ],
     }
+
+
+def type_chart(
+    parts: NetWorthByType,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """By type: a line per account group, and what each did over the
+    window, first day to last - where a drop came from."""
+    if len(parts.dates) < 2:
+        return None, []
+    chart = {
+        "labels": [day.isoformat() for day in parts.dates],
+        "series": [
+            {"label": g.label, "values": [dollars(v) for v in g.values]}
+            for g in parts.groups
+        ],
+    }
+    change = [
+        {"label": g.label, "change": g.values[-1] - g.values[0]} for g in parts.groups
+    ]
+    return chart, change
 
 
 def _month_label(key: str) -> str:
@@ -203,28 +245,146 @@ def ranked(
     ]
 
 
-def _query(days: int, account_ids: list[int]) -> str:
-    return "&".join([f"days={days}", *account_params(account_ids)])
+# What this month's line is drawn against (#305): the field, its chip, and
+# the series' name.
+COMPARES: tuple[tuple[str, str, str], ...] = (
+    ("average", "Average", "Average month"),
+    ("median", "Median", "Median month"),
+    ("last_month", "Last month", "Last month"),
+)
+
+
+def pace_chart(pace: SpendingPace, compare: str) -> dict[str, Any] | None:
+    """This month by day, filled, against the chosen month as a dashed line;
+    None until there is spending to draw."""
+    if not any(pace.this_month) and not any(pace.average):
+        return None
+    label = next(name for key, _chip, name in COMPARES if key == compare)
+    return {
+        "labels": [str(day) for day in range(1, pace.days + 1)],
+        "series": [
+            {"label": "This month", "values": [dollars(v) for v in pace.this_month]},
+            {
+                "label": label,
+                "values": [dollars(v) for v in getattr(pace, compare)],
+                "compare": True,
+            },
+        ],
+    }
+
+
+def move_rows(moves: list[CategoryMove]) -> list[dict[str, Any]]:
+    """``ranked_rows`` for What moved (#346): this month so far, beside what
+    a usual month had spent by now; the bar warm when it is up. The
+    month's rows are a click away."""
+    days = current_date().day
+    rows = ranked(moves, "name", "this_month")
+    for row, move in zip(rows, moves, strict=True):
+        url = f"{SECTION.path}/spending?{urlencode({'category': move.name, 'days': days})}"
+        row.update(
+            category=move.name,
+            count="new"
+            if move.typical is None
+            else f"usually {money(move.typical)} by now",
+            tone="accent" if move.change > 0 else "teal",
+            attrs=hx_dialog(url),
+        )
+    return rows
+
+
+async def _net_worth_card(
+    service: FinanceService,
+    owner_user_id: int | None,
+    window: int,
+    end: date | None,
+    account_ids: list[int] | None,
+    points: list[NetWorthPoint],
+    kept: dict[str, str],
+) -> dict[str, Any]:
+    """The net worth card's chart and, by type, what each group did. The
+    composite's line is the house-in net; any other view reads its own."""
+    without_house = kept["house"] == "out"
+    if kept["worth"] == "type":
+        chart, change = type_chart(
+            await net_worth_by_type(
+                days=window,
+                account_ids=account_ids,
+                without_house=without_house,
+                end=end,
+                service=service,
+                owner_user_id=owner_user_id,
+            )
+        )
+        return {"net_worth": chart, "net_worth_change": change}
+    if without_house:
+        points = await net_worth_series(
+            days=window,
+            account_ids=account_ids,
+            without_house=True,
+            end=end,
+            service=service,
+            owner_user_id=owner_user_id,
+        )
+    return {"net_worth": net_worth_chart(points, kept["worth"]), "net_worth_change": []}
+
+
+def _query(
+    days: int,
+    account_ids: list[int],
+    start: date | None = None,
+    end: date | None = None,
+) -> str:
+    """The filter as a query string: the chips' window, the accounts, and
+    a picked from-to range (#342) when there is one."""
+    picked = ranges.date_params(start, end)
+    return "&".join(
+        [
+            f"days={days}",
+            *account_params(account_ids),
+            *([urlencode(picked)] if picked else []),
+        ]
+    )
 
 
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
     days: int = Query(default=DEFAULT_DAYS, ge=1),
+    start: ranges.FromDate = None,
+    end: ranges.ToDate = None,
+    compare: str = "average",
+    worth: str = "net",
+    house: str = "in",
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     selected = account_ids or []
-    window = ranges.horizon(days, MAX_DAYS)
+    # The cards' own choices, kept in the URL; the filter form carries them.
+    kept = {
+        "compare": compare if compare in {k for k, *_ in COMPARES} else "average",
+        "worth": worth if worth in dict(WORTH_VIEWS) else "net",
+        "house": "out" if house == "out" else "in",
+    }
+
+    def link(**change: str) -> str:
+        """The page with one choice changed and everything else kept."""
+        query = _query(days, selected, start, end)
+        return f"{SECTION.path}?{query}&{urlencode({**kept, **change})}"
+
+    window = ranges.horizon(days, MAX_DAYS, start)
     overview = await finance_overview(
         days=window,
         months=max(1, min(36, round(window / 30))),
+        end=end,
         projection_days=30,
         preview_limit=PREVIEW,
         account_ids=account_ids,
         service=service,
         owner_user_id=owner_user_id,
+    )
+    worth_card = await _net_worth_card(
+        service, owner_user_id, window, end, account_ids, overview.net_worth, kept
     )
     pending = await service.list_pending_changes(owner_user_id=owner_user_id)
     upcoming = upcoming_bills(overview.projection)
@@ -244,10 +404,23 @@ async def page(
             "selected_ids": selected,
             "accounts": overview.accounts.items,
             "totals": totals(overview.accounts.items, selected),
-            "net_worth": net_worth_chart(overview.net_worth),
+            **worth_card,
+            "worth_views": [
+                *(
+                    (chip, key == kept["worth"], link(worth=key))
+                    for key, chip in WORTH_VIEWS
+                ),
+                (
+                    "Without the house",
+                    kept["house"] == "out",
+                    link(house="in" if kept["house"] == "out" else "out"),
+                ),
+            ],
+            "kept": kept,
             "cashflow": cashflow_chart(overview.cashflow.items),
             "spending": spending_chart(overview.spending),
-            "drilldown": f"{SECTION.path}/spending?{_query(days, selected)}",
+            "drilldown": f"{SECTION.path}/spending?{_query(days, selected, start, end)}",
+            "dates": (start, end),
             "top_payees": overview.top_payees.items,
             "payee_rows": ranked(
                 overview.top_payees.items,
@@ -256,6 +429,16 @@ async def page(
                 "transaction_count",
                 icons=icons,
             ),
+            "move_rows": move_rows(overview.category_moves),
+            "pace": pace_chart(overview.pace, kept["compare"]),
+            "pace_today": overview.pace.this_month[-1],
+            "pace_usual": getattr(overview.pace, kept["compare"])[
+                len(overview.pace.this_month) - 1
+            ],
+            "compares": [
+                (chip, key == kept["compare"], link(compare=key))
+                for key, chip, _name in COMPARES
+            ],
             "upcoming": upcoming,
             "bill_rows": ranked(upcoming, "name", "amount", tone="accent", icons=icons),
             "recent": overview.recent_transactions.items,
@@ -277,6 +460,8 @@ async def spending(
     request: Request,
     category: list[str] = Query(...),
     days: int = Query(default=DEFAULT_DAYS, ge=1),
+    start: ranges.FromDate = None,
+    end: ranges.ToDate = None,
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
@@ -284,9 +469,10 @@ async def spending(
     """The transactions behind a donut slice, for the dialog (pattern 4).
     Several categories mean the "Other" slice."""
     rows = await spending_transactions(
-        days=ranges.horizon(days, MAX_DAYS),
+        days=ranges.horizon(days, MAX_DAYS, start),
         categories=category,
         account_ids=account_ids,
+        end=end,
         service=service,
         owner_user_id=owner_user_id,
     )
@@ -295,7 +481,9 @@ async def spending(
         name="partials/transactions_dialog.html",
         context={
             "title": category[0] if len(category) == 1 else "Other",
-            "subtitle": f"last {days} days",
+            "subtitle": f"{start} to {end or 'today'}"
+            if start
+            else f"last {days} days",
             "rows": rows.items,
             "columns": TXN_COLUMNS,
             "empty": "No transactions behind this slice",

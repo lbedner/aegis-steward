@@ -116,6 +116,29 @@ async def seed_txn(
     )
 
 
+async def category_id(svc: FinanceService, hint: str) -> int:
+    """The id of the category a ``"Parent:Child"`` hint names, made if new."""
+    category = await svc.get_or_create_category_from_hint(hint)
+    assert category.id is not None
+    return category.id
+
+
+async def seed_monthly_spend(
+    svc: FinanceService, category_id: int, spends: dict[int, int]
+) -> None:
+    """``{period: cents}`` spent on one category, one charge on the 10th
+    of each month, from one account."""
+    account = await seed_account(svc)
+    for period, cents in spends.items():
+        await seed_txn(
+            svc,
+            account.id,
+            -cents,
+            date(period // 100, period % 100, 10),
+            category_id=category_id,
+        )
+
+
 async def seed_limit(
     svc: FinanceService,
     category_id: int | None,

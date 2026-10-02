@@ -1,5 +1,5 @@
 {% extends layout %}
-{% from "components/macros/layout.html" import card, chart_panel, page_header, figures, ranked_rows %}
+{% from "components/macros/layout.html" import card, chart, chart_panel, chip_nav, page_header, figures, ranked_rows %}
 {% from "components/macros/table.html" import data_table %}
 {% from "components/macros/form.html" import account_filter %}
 {% from "components/macros/feedback.html" import empty_state %}
@@ -9,7 +9,7 @@
 {% block app_content %}
 {% include "partials/review/banner.html" %}
 {% call page_header(section.label, "Net worth: everything you own, less everything you owe") %}
-  {{ account_filter(section.path, accounts, selected_ids, days, ranges) }}
+  {{ account_filter(section.path, accounts, selected_ids, days, ranges, dates) }}
   {{ figures([
     {"label": "Assets", "value": totals.assets|money, "negative": totals.assets < 0},
     {"label": "Liabilities", "value": totals.liabilities|money, "negative": totals.liabilities < 0},
@@ -18,14 +18,39 @@
 {% endcall %}
 
 
+{# The cards' own choices (what the pace is read against, the net worth
+   view): their chips re-request the page and swap just that card, and
+   these ride the filter form so a new range or account set keeps them. #}
+{% for name, value in kept.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}" form="filter">{% endfor %}
+{# This month's spending by day against the usual month: the line
+   to stay under. #}
+<div class="mb-6">
+{% call card("Spending vs. the usual month", pace_today|money ~ " so far, " ~ pace_usual|money ~ " usual by today", id="pace") %}
+  {{ chip_nav("pace-compare", "Compare with", compares, "#pace") }}
+  {% if pace %}{{ chart("pace", "line", pace, label="Spending vs. the usual month") }}{% else %}{{ empty_state("No spending to compare yet") }}{% endif %}
+{% endcall %}
+</div>
+
 {# One card row, three questions: where has it got me, where is it going,
    and am I keeping any of it. #}
 <div class="grid gap-6 lg:grid-cols-3 mb-6">
+  {# Net, assets and debts apart, or by account type with what each did
+     over the window; the house and its mortgage can sit out. #}
+  {% call card("Net worth", id="net-worth") %}
+  {{ chip_nav("net-worth-view", "Net worth view", worth_views, "#net-worth") }}
   {% if net_worth %}
-  {{ chart_panel("net-worth", "Net worth", "line", net_worth) }}
-  {% else %}
-  {% call card("Net worth") %}{{ empty_state("History appears after the nightly snapshot", "Two days of data draw the first line.") }}{% endcall %}
+  {{ chart("net-worth", "line", net_worth, label="Net worth") }}
+  {% if net_worth_change %}
+  <ul id="net-worth-change" class="mt-3 space-y-1 text-xs tabular-nums">
+    {% for row in net_worth_change %}
+    <li class="flex justify-between gap-3"><span class="text-aegis-muted">{{ row.label }}</span><span class="{{ 'text-error' if row.change < 0 else 'text-aegis-text' }}">{{ row.change|money(signed=True) }}</span></li>
+    {% endfor %}
+  </ul>
   {% endif %}
+  {% else %}
+  {{ empty_state("History appears after the nightly snapshot", "Two days of data draw the first line.") }}
+  {% endif %}
+  {% endcall %}
 
   {% if spending %}
   {{ chart_panel("spending", "Spending by category", "doughnut", spending, drilldown=drilldown) }}
@@ -40,9 +65,14 @@
   {% endif %}
 </div>
 
-<div class="grid gap-6 lg:grid-cols-2 mb-6">
+<div class="grid gap-6 lg:grid-cols-3 mb-6">
   {% call card("Top payees", "last " ~ days ~ " days") %}
   {% if top_payees %}{{ ranked_rows(payee_rows) }}{% else %}{{ empty_state("No payees in this window") }}{% endif %}
+  {% endcall %}
+  {# Everyday spending this month to date against the same days of the
+     typical month: the overspend alert's figures, bills left out. #}
+  {% call card("What moved", "this month so far, everyday spending") %}
+  {% if move_rows %}{{ ranked_rows(move_rows) }}{% else %}{{ empty_state("Nothing to compare yet") }}{% endif %}
   {% endcall %}
   {% call card("Upcoming bills", "next 30 days") %}
   {% if upcoming %}{{ ranked_rows(bill_rows) }}{% else %}{{ empty_state("Nothing due") }}{% endif %}

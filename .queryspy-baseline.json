@@ -16,12 +16,6 @@
     },
     {
       "kind": "column_load",
-      "label": "Agent",
-      "file": "tests/services/test_finance_analyst.py",
-      "function": "test_a_prompt_rewritten_in_the_dashboard_is_not_overwritten"
-    },
-    {
-      "kind": "column_load",
       "label": "FinanceAccount",
       "file": "app/components/web_frontend/routes/finance/budget_envelopes.py",
       "function": "_envelope_card"
@@ -132,12 +126,6 @@
       "kind": "repeated_statement",
       "label": "SELECT ... FROM agent AS agent_1 JOIN agent_tool AS agent_tool_1 ON agent_1.id = agent_tool_1.agent_id JOIN tool ON tool.id = agent_tool_1.tool_id WHERE agent_1.id IN (__[POSTCOMPILE_primary_keys])",
       "file": "app/services/ai/domains/chat/queries.py",
-      "function": "agent_and_parent"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM agent AS agent_1 JOIN agent_tool AS agent_tool_1 ON agent_1.id = agent_tool_1.agent_id JOIN tool ON tool.id = agent_tool_1.tool_id WHERE agent_1.id IN (__[POSTCOMPILE_primary_keys])",
-      "file": "app/services/ai/domains/chat/queries.py",
       "function": "agent_by_slug"
     },
     {
@@ -157,12 +145,6 @@
       "label": "SELECT ... FROM agent WHERE agent.slug = :slug_1",
       "file": "app/services/finance/domains/detection/analyst/seeds.py",
       "function": "load_finance_agent_fixtures"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM agent WHERE agent.slug = :slug_1 OR agent.slug = (SELECT agent.extends FROM agent WHERE agent.slug = :slug_2)",
-      "file": "app/services/ai/domains/chat/queries.py",
-      "function": "agent_and_parent"
     },
     {
       "kind": "repeated_statement",
@@ -694,9 +676,9 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_balance_snapshot JOIN finance_account ON finance_account.id = finance_balance_snapshot.account_id WHERE finance_balance_snapshot.account_id IN (__[POSTCOMPILE_account_id_1]) AND finance_balance_snapshot.balance_date >= :balance_date_1 AND finance_account.deleted_at IS NULL AND finance_account.owner_user_id = :owner_user_id_1 GROUP BY finance_balance_snapshot.balance_date, finance_account.classification ORDER BY finance_balance_snapshot.balance_date",
+      "label": "SELECT ... FROM finance_balance_snapshot JOIN finance_account ON finance_account.id = finance_balance_snapshot.account_id WHERE finance_balance_snapshot.account_id IN (__[POSTCOMPILE_account_id_1]) AND finance_balance_snapshot.balance_date >= :balance_date_1 AND finance_account.deleted_at IS NULL AND finance_account.owner_user_id = :owner_user_id_1 GROUP BY finance_balance_snapshot.balance_date, finance_account.classification, finance_account.account_type ORDER BY finance_balance_snapshot.balance_date",
       "file": "app/services/finance/domains/ledger/queries/networth.py",
-      "function": "balance_class_series"
+      "function": "balance_series"
     },
     {
       "kind": "repeated_statement",
@@ -1199,12 +1181,6 @@
     {
       "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_net_worth_snapshot WHERE finance_net_worth_snapshot.as_of_date >= :as_of_date_1 AND finance_net_worth_snapshot.currency = :currency_1 AND finance_net_worth_snapshot.owner_user_id = :owner_user_id_1 ORDER BY finance_net_worth_snapshot.as_of_date",
-      "file": "app/services/finance/domains/ledger/queries/networth.py",
-      "function": "net_worth_series_since"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_net_worth_snapshot WHERE finance_net_worth_snapshot.as_of_date >= :as_of_date_1 AND finance_net_worth_snapshot.currency = :currency_1 AND finance_net_worth_snapshot.owner_user_id IS NULL ORDER BY finance_net_worth_snapshot.as_of_date",
       "file": "app/services/finance/domains/ledger/queries/networth.py",
       "function": "net_worth_series_since"
     },
@@ -1906,12 +1882,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.is_transfer IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.date >= :date_1 AND finance_transaction.date <= :date_2",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "dated_amounts_in_window"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.is_transfer IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.date >= :date_1 AND finance_transaction.date <= :date_2 AND finance_transaction.owner_user_id = :owner_user_id_1",
       "file": "app/services/finance/domains/ledger/queries/transactions.py",
       "function": "dated_amounts_in_window"
@@ -2362,12 +2332,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM large_language_model WHERE large_language_model.model_id = :model_id_1",
-      "file": "app/services/ai/usage_recording.py",
-      "function": "_latest_price"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM llm_active_selection WHERE llm_active_selection.owner_user_id = :owner_user_id_1",
       "file": "app/services/ai/domains/llm/queries.py",
       "function": "active_selection"
@@ -2401,12 +2365,6 @@
       "label": "SELECT ... FROM llm_org WHERE llm_org.id IN (__[POSTCOMPILE_primary_keys])",
       "file": "tests/services/ai/test_llm_service.py",
       "function": "all"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM llm_org WHERE llm_org.name IN (__[POSTCOMPILE_name_1])",
-      "file": "app/services/ai/domains/chat/llm_catalog_context.py",
-      "function": "build"
     },
     {
       "kind": "repeated_statement",

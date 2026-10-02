@@ -3,6 +3,8 @@
 One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
+from datetime import date
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -19,6 +21,7 @@ from app.services.finance.deps import (
 from app.services.finance.schemas import (
     CategoryCreate,
     CategoryListResponse,
+    CategoryMove,
     CategoryOption,
     CategoryOptionListResponse,
     SpendingCategory,
@@ -96,15 +99,44 @@ async def list_category_options(
 async def spending_by_category(
     days: int = 30,
     account_ids: list[int] | None = Query(default=None),
+    end: date | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> list[SpendingCategory]:
     """Spending grouped by category over the recent window — outflows only,
-    largest first, as positive amounts. ``account_ids`` narrows the view."""
+    largest first, as positive amounts. ``account_ids`` narrows the view;
+    ``end`` (inclusive) stops the window before today."""
     rows = await service.spending_by_category(
-        owner_user_id=owner_user_id, days=days, account_ids=account_ids
+        owner_user_id=owner_user_id, days=days, account_ids=account_ids, through=end
     )
     return [SpendingCategory(category=name, amount=amount) for name, amount in rows]
+
+
+@router.get("/income", response_model=list[SpendingCategory])
+async def income_by_category(
+    days: int = 30,
+    account_ids: list[int] | None = Query(default=None),
+    end: date | None = None,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> list[SpendingCategory]:
+    """Money in grouped by category over the window (#344): the spending
+    breakdown the other way round, largest first, as positive amounts."""
+    rows = await service.income_by_category(
+        owner_user_id=owner_user_id, days=days, account_ids=account_ids, through=end
+    )
+    return [SpendingCategory(category=name, amount=amount) for name, amount in rows]
+
+
+@router.get("/spending/moves", response_model=list[CategoryMove])
+async def spending_moves(
+    limit: int = Query(default=7, ge=1, le=50),
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> list[CategoryMove]:
+    """The categories that moved most this month to date, against the same
+    days of the typical month (#346), largest change first."""
+    return await service.category_moves(owner_user_id=owner_user_id, limit=limit)
 
 
 @router.get("/spending/transactions", response_model=TransactionListResponse)
@@ -112,6 +144,7 @@ async def spending_transactions(
     days: int = 30,
     categories: list[str] | None = Query(default=None),
     account_ids: list[int] | None = Query(default=None),
+    end: date | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> TransactionListResponse:
@@ -130,6 +163,7 @@ async def spending_transactions(
         days=days,
         account_ids=account_ids,
         categories=categories,
+        through=end,
     )
     # The SAME shaping every other transaction surface uses. This built
     # its own lighter copy - category name and nothing else - so the

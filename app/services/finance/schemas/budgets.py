@@ -62,6 +62,45 @@ class BudgetMonthActuals(BaseModel):
     money_out: int
 
 
+class LineMonth(BaseModel):
+    """One ended month of one line: what it spent, and the limit that month
+    ran on (None when it ran without one)."""
+
+    period_month: int  # YYYYMM
+    spent_amount: int
+    allocated_amount: int | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def over(self) -> bool:
+        """Spent past the limit it ran on; a month without one cannot be."""
+        return self.allocated_amount is not None and (
+            self.spent_amount > self.allocated_amount
+        )
+
+
+class BudgetLineHistory(BaseModel):
+    """A line across the months that have ended, oldest first (#345)."""
+
+    line_id: int
+    months: list[LineMonth]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def average_amount(self) -> int:
+        return sum(m.spent_amount for m in self.months) // max(len(self.months), 1)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def over_count(self) -> int:
+        return sum(1 for m in self.months if m.over)
+
+
+class BudgetHistoryResponse(BaseModel):
+    months: int
+    items: list[BudgetLineHistory]
+
+
 class BudgetOutlookResponse(BaseModel):
     items: list[BudgetMonthOutlook]
     total: int

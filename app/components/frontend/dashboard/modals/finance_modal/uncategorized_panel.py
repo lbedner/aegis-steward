@@ -75,7 +75,7 @@ class UncategorizedPanel(
     (see the constructor for why - that button would otherwise be
     unreachable behind the popup).
 
-    Rows render through ``DataTable`` (controls/data_table.py) with
+    Rows render through ``DataTable`` (controls/data_table/) with
     ``scroll_height`` set, same as the account register at :1540 - that
     puts rows in a ``ft.ListView`` under the hood, so only the rows
     actually on screen get built. A plain ``ft.Column`` (the first version

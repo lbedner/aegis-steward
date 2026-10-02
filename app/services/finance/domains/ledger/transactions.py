@@ -364,6 +364,7 @@ async def monthly_cashflow(
     months: int = 6,
     today: date | None = None,
     account_ids: list[int] | None = None,
+    rows: list[tuple[date, int]] | None = None,
 ) -> list[CashflowMonth]:
     """Income and spend per calendar month, oldest first.
 
@@ -375,7 +376,8 @@ async def monthly_cashflow(
 
     Bucketing runs in Python rather than SQL date-truncation, which is
     dialect-specific - and at a few thousand rows the loop costs less
-    than a millisecond.
+    than a millisecond. ``rows`` are ``dated_amounts_in_window`` rows a
+    caller already read over a wider window (``cash_flow.overview_flows``).
     """
     today = today or current_date()
     span = max(1, months)
@@ -385,13 +387,14 @@ async def monthly_cashflow(
         first_year -= 1
     start = date(first_year, first_month, 1)
 
-    rows = await queries.dated_amounts_in_window(
-        db,
-        owner_user_id=owner_user_id,
-        start=start,
-        end=today,
-        account_ids=account_ids,
-    )
+    if rows is None:
+        rows = await queries.dated_amounts_in_window(
+            db,
+            owner_user_id=owner_user_id,
+            start=start,
+            end=today,
+            account_ids=account_ids,
+        )
 
     buckets: dict[str, dict[str, int]] = {}
     year, month = first_year, first_month
@@ -403,7 +406,7 @@ async def monthly_cashflow(
             year += 1
     for txn_date, amount in rows:
         bucket = buckets.get(f"{txn_date.year:04d}-{txn_date.month:02d}")
-        if bucket is None:
+        if bucket is None or txn_date > today:
             continue
         if amount >= 0:
             bucket["income"] += amount

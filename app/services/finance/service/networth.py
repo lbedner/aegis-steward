@@ -6,11 +6,14 @@ to the matching domain module as ``module.func(self.db, ...)``.
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.services.finance.domains.ledger import networth
 from app.services.finance.models import FinanceNetWorthSnapshot
 from app.services.finance.schemas import (
     FinanceHealth,
     FinanceStatusSummary,
+    NetWorthByType,
     NetWorthResponse,
 )
 from app.services.finance.service.base import FinanceServiceBase
@@ -60,6 +63,8 @@ class NetWorthMixin(FinanceServiceBase):
         days: int = 90,
         currency: str = DEFAULT_CURRENCY,
         account_ids: list[int] | None = None,
+        without_house: bool = False,
+        until: date | None = None,
     ) -> list[FinanceNetWorthSnapshot]:
         return await networth.get_net_worth_series(
             self.db,
@@ -67,6 +72,26 @@ class NetWorthMixin(FinanceServiceBase):
             days=days,
             currency=currency,
             account_ids=account_ids,
+            without_house=without_house,
+            until=until,
+        )
+
+    async def net_worth_by_type(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        days: int = 90,
+        account_ids: list[int] | None = None,
+        without_house: bool = False,
+        until: date | None = None,
+    ) -> NetWorthByType:
+        return await networth.net_worth_by_type(
+            self.db,
+            owner_user_id=owner_user_id,
+            days=days,
+            account_ids=account_ids,
+            without_house=without_house,
+            until=until,
         )
 
     async def get_status_summary(

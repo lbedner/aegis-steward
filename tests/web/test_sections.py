@@ -18,6 +18,7 @@ class TestNav:
     def test_lists_the_finance_sections_in_order(self) -> None:
         assert SECTION_IDS == [
             "overview",
+            "cash_flow",
             "accounts",
             "bills",
             "projected",

@@ -6,6 +6,8 @@ to the matching domain module as ``module.func(self.db, ...)``.
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.services.finance.domains.ledger import (
     categories,
 )
@@ -61,12 +63,30 @@ class CategoriesMixin(FinanceServiceBase):
         owner_user_id: int | None = None,
         days: int = 30,
         account_ids: list[int] | None = None,
+        through: date | None = None,
     ) -> list[tuple[str, int]]:
         return await categories.spending_by_category(
             self.db,
             owner_user_id=owner_user_id,
             days=days,
             account_ids=account_ids,
+            through=through,
+        )
+
+    async def income_by_category(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        days: int = 30,
+        account_ids: list[int] | None = None,
+        through: date | None = None,
+    ) -> list[tuple[str, int]]:
+        return await categories.income_by_category(
+            self.db,
+            owner_user_id=owner_user_id,
+            days=days,
+            account_ids=account_ids,
+            through=through,
         )
 
     async def spending_transactions(
@@ -76,6 +96,7 @@ class CategoriesMixin(FinanceServiceBase):
         days: int = 30,
         account_ids: list[int] | None = None,
         categories: list[str] | None = None,
+        through: date | None = None,
     ) -> list[FinanceTransaction]:
         return await categories_service.spending_transactions(
             self.db,
@@ -83,6 +104,7 @@ class CategoriesMixin(FinanceServiceBase):
             days=days,
             account_ids=account_ids,
             categories=categories,
+            through=through,
         )
 
     async def spending_summary(

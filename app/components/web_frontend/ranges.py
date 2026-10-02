@@ -9,6 +9,29 @@ the summary pages hand their day count to the API instead.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from typing import Annotated, Any
+
+from fastapi import Query
+from pydantic import BeforeValidator
+
+
+def _blank_is_none(value: Any) -> Any:
+    """A submitted form sends ``""`` for an untouched select or date input."""
+    return None if value == "" else value
+
+
+Blank = BeforeValidator(_blank_is_none)
+# A picked from-to range, as every page's query string spells it; an
+# explicit ``from`` beats the chips (``horizon``, ``since``).
+FROM, TO = "from", "to"
+FromDate = Annotated[date | None, Blank, Query(alias=FROM)]
+ToDate = Annotated[date | None, Blank, Query(alias=TO)]
+
+
+def date_params(start: date | None, end: date | None) -> dict[str, str]:
+    """A picked range as query parameters; nothing for an unpicked end."""
+    picked = {FROM: start, TO: end}
+    return {name: day.isoformat() for name, day in picked.items() if day is not None}
 
 # Big enough to mean "no cutoff", small enough to stay a plain int in a
 # query string. The API's own windows cap at 3650 days, so a summary
@@ -68,7 +91,11 @@ def since(days: int | None) -> date | None:
     return datetime.now(UTC).date() - timedelta(days=days)
 
 
-def horizon(days: int, cap: int) -> int:
+def horizon(days: int, cap: int, start: date | None = None) -> int:
     """A window as a real day count, for the endpoints that take one:
-    ``All`` is that endpoint's own ceiling."""
+    ``All`` is that endpoint's own ceiling. A picked ``start`` (a from-to
+    range, #342) beats the chips: the days from it to today."""
+    if start is not None:
+        today = datetime.now(UTC).date()
+        return max(1, min(cap, (today - start).days + 1))
     return cap if days >= ALL else min(days, cap)

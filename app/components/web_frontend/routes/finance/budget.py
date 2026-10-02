@@ -17,6 +17,7 @@ from starlette.responses import Response
 
 from app.components.backend.api.finance.budgets import (
     budget_actuals,
+    budget_history,
     budget_outlook,
     budget_stat_details,
     budget_suggestions,
@@ -75,10 +76,17 @@ TABS: tuple[tuple[str, str], ...] = (
     ("suggested", "Suggested"),
     ("goals", "Goals"),
     ("envelopes", "Envelopes"),
+    ("history", "History"),
 )
 OUTLOOK_MONTHS = 6
 # How far back the pager reaches: months that have ended, read as they went.
 PAST_MONTHS = 6
+# How far back the History tab reads each limit (#345), in ended months.
+HISTORY_WINDOWS: tuple[tuple[int, str], ...] = (
+    (3, "3 months"),
+    (6, "6 months"),
+    (12, "12 months"),
+)
 
 
 # --- context --------------------------------------------------------------
@@ -90,9 +98,11 @@ async def budget_context(
     tab: str,
     month: int,
     account_ids: list[int] | None,
+    window: int = 6,
 ) -> dict[str, Any]:
     """Everything ``components/budget.html`` renders. ``month`` counts from
-    this one: ahead is the outlook, behind is a month that has ended."""
+    this one: ahead is the outlook, behind is a month that has ended.
+    ``window`` is how many ended months the History tab reads."""
     outlook = await budget_outlook(
         months=OUTLOOK_MONTHS,
         account_ids=account_ids,
@@ -117,11 +127,14 @@ async def budget_context(
     elif month > 0:
         stats = {"cells": strip.outlook_cells(outlook.items[month]), "clickable": False}
     tab = tab if tab in dict(TABS) else TABS[0][0]
+    window = window if window in dict(HISTORY_WINDOWS) else 6
 
-    def url(at_month: int, at_tab: str) -> str:
+    def url(at_month: int, at_tab: str, at_window: int = window) -> str:
         """One URL per link: its href and its swap are the same request."""
-        params = [f"month={at_month}", f"tab={at_tab}", *account_params(account_ids)]
-        return f"{SECTION.path}?{'&'.join(params)}"
+        params = [f"month={at_month}", f"tab={at_tab}"]
+        if at_tab == "history":
+            params.append(f"window={at_window}")
+        return f"{SECTION.path}?{'&'.join([*params, *account_params(account_ids)])}"
 
     past = [shift_period(current, -back) for back in range(PAST_MONTHS, 0, -1)]
     pager = [
@@ -136,6 +149,16 @@ async def budget_context(
     at = month + PAST_MONTHS
     goals = await list_goals(service=service, owner_user_id=owner_user_id)
     envelopes = await list_envelopes(service=service, owner_user_id=owner_user_id)
+    # Read only when its tab is open: twelve months of rows is not free.
+    history = None
+    if tab == "history":
+        history = await budget_history(
+            months=window,
+            month=period,
+            account_ids=account_ids,
+            service=service,
+            owner_user_id=owner_user_id,
+        )
     suggestions = await budget_suggestions(service=service, owner_user_id=owner_user_id)
     counts = {
         "suggested": suggestions.total,
@@ -172,6 +195,11 @@ async def budget_context(
             await service.list_accounts(owner_user_id=owner_user_id, page_size=500)
         )[0],
         "selected_ids": account_ids or [],
+        "history": {item.line_id: item for item in history.items} if history else {},
+        "windows": [
+            (label, w == window, url(month, "history", w))
+            for w, label in HISTORY_WINDOWS
+        ],
     }
 
 
@@ -193,11 +221,14 @@ async def page(
     request: Request,
     tab: str = "limits",
     month: int = Query(default=0, ge=-PAST_MONTHS),
+    window: int = 6,
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    context = await budget_context(service, owner_user_id, tab, month, account_ids)
+    context = await budget_context(
+        service, owner_user_id, tab, month, account_ids, window
+    )
     return render(request, "pages/budget.html", {"section": SECTION, **context})
 
 

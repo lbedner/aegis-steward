@@ -46,6 +46,7 @@ from app.services.finance.domains.detection.insights.large_charges import (
     LARGE_TXN_THIN_FLOOR,
     LARGE_TXN_WINDOW_DAYS,
 )
+from app.services.finance.domains.detection.insights.moves import category_moves
 from app.services.finance.domains.detection.insights.rules import (
     HIGH_APR_BPS,
     HIGH_APR_MIN_BALANCE,
@@ -59,7 +60,9 @@ from app.services.finance.domains.detection.insights.rules import (
     SUBSCRIPTION_CREEP_MULTIPLE,
     UTILIZATION_CRITICAL,
     UTILIZATION_WARNING,
+    CategoryMonth,
     InsightGenerationResult,
+    category_months,
     create_insight_if_new,
     generate_insights,
     live_account_ids,
@@ -104,6 +107,9 @@ __all__ = [
     "month_is_complete",
     "month_key",
     "month_start_before",
+    "CategoryMonth",
+    "category_months",
+    "category_moves",
     "monthly_category_spend",
     "not_paused_clause",
     "pace_day",
