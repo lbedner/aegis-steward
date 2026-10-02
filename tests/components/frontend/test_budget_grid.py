@@ -41,7 +41,7 @@ class TestTheCompactRow:
     section looks amazing... show more in less space").
     """
 
-    def _row(self, allocated=139_882, spent=40_617, status="good"):
+    def _row(self, allocated=139_882, spent=40_617, status="good", **extra):
         from app.components.frontend.dashboard.modals.finance_modal import (
             compact_budget_row,
         )
@@ -51,8 +51,20 @@ class TestTheCompactRow:
             allocated_amount=allocated,
             spent_amount=spent,
             status=status,
+            **extra,
         )
         return compact_budget_row(line)
+
+    def test_a_rolling_limit_says_what_it_carried(self) -> None:
+        """#360: the web's row says it, so this one does, and the percent
+        reads against the limit plus the carry."""
+        texts = _texts(
+            self._row(
+                allocated=20_000, spent=25_000, rollover=True, carried_amount=8_000
+            )
+        )
+        assert "$250.00 of $200.00 · +$80.00 carried" in texts
+        assert "89%" in texts
 
     def test_it_carries_name_figures_and_percent(self) -> None:
         texts = _texts(self._row())

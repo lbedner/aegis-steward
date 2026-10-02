@@ -346,6 +346,23 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 </div>
 {% endmacro %}
 
+{# A money figure that opens for editing on a click (the budget row's
+   limit): it reads as text with a pencil until clicked, so a stray click
+   on its row never edits it. The input is in the form either way, and
+   Escape puts the value back. #}
+{% macro money_edit(name, value, shown, label) %}
+<span x-data="{ editing: false }" class="inline-flex">
+  <button type="button" data-edit x-show="!editing"
+          @click="editing = true; $nextTick(() => $refs.amount.focus())"
+          class="group inline-flex items-center gap-1 rounded px-1 -mx-1 text-aegis-text hover:bg-aegis-border cursor-pointer">
+    {{ shown }}{{ icon("pencil", "w-3 h-3 text-aegis-muted group-hover:text-aegis-text") }}<span class="sr-only">{{ label }}</span>
+  </button>
+  <span x-show="editing" x-cloak class="w-28"
+        @keydown.escape="$refs.amount.value = $refs.amount.defaultValue; editing = false"
+        @focusout="editing = false">{{ money_input(name, value, extra='x-ref="amount"') }}</span>
+</span>
+{% endmacro %}
+
 {% macro textarea(name, value=None, rows=6, placeholder="") %}
 <textarea name="{{ name }}" rows="{{ rows }}" placeholder="{{ placeholder }}"
           class="{{ control("textarea") }} w-full mt-1 font-mono text-xs">{{ value or "" }}</textarea>

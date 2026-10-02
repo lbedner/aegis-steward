@@ -357,7 +357,11 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
             "payee_key": row.payee_key,
             "limit_cents": row.allocated_amount,
             "spent_cents": row.spent_amount,
-            "remaining_cents": row.allocated_amount - row.spent_amount,
+            # A limit that rolls over carries last months' leftover (or
+            # overspending) into this one (#360); what remains counts it.
+            "rolls_over": row.rollover,
+            "carried_cents": row.carried_amount,
+            "remaining_cents": row.available_amount - row.spent_amount,
             "status": row.status,
         }
 

@@ -27,6 +27,7 @@ from app.services.finance.domains.planning.budgets.drilldown import (
 )
 from app.services.finance.domains.planning.budgets.lines import (
     budget_line_status,
+    carried_amounts,
     delete_budget_line,
     get_or_create_budget,
     line_in_force,
@@ -58,6 +59,7 @@ from app.services.finance.domains.planning.budgets.uncovered import (
 )
 
 __all__ = [
+    "carried_amounts",
     "month_actuals",
     "strip",
     "budget_line_transactions",

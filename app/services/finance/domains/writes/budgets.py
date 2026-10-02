@@ -26,6 +26,7 @@ from app.services.finance.domains.planning.budgets.lines import (
     upsert_budget_line,
 )
 from app.services.finance.domains.planning.budgets.outlook import parse_budget_goal
+from app.services.finance.models import FinanceBudgetCategory
 from app.services.finance.schemas import ChangeDisplayRow, LimitCents, PeriodMonth
 from app.services.finance.utils import current_period_month, period_label
 
@@ -56,6 +57,9 @@ class BudgetLimitPayload(_BudgetLine):
     """One limit and what the month allows."""
 
     limit_cents: LimitCents
+    # True: what the month leaves, or overspends, carries into the next and
+    # keeps stacking (#360). False stops it; leave it out to keep it as is.
+    rollover: bool | None = None
 
 
 class BudgetRemovePayload(_BudgetLine):
@@ -108,8 +112,8 @@ def _card(
 
 async def _now(
     db: AsyncSession, payload: _BudgetLine, owner_user_id: int | None
-) -> tuple[int | None, str | None, str, int | None]:
-    """The target, its name, and what its month allows it now."""
+) -> tuple[int | None, str | None, str, FinanceBudgetCategory | None]:
+    """The target, its name, and the limit its month runs on now."""
     category_id, payee_key, name = await _target(db, payload, owner_user_id)
     line = await line_in_force(
         db,
@@ -118,16 +122,30 @@ async def _now(
         category_id=category_id,
         payee_key=payee_key,
     )
-    return category_id, payee_key, name, None if line is None else line.allocated_amount
+    return category_id, payee_key, name, line
+
+
+def _yes(rolls: bool) -> str:
+    return "yes" if rolls else "no"
 
 
 async def budget_limit_describe(
     db: AsyncSession, payload: BudgetLimitPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    _category_id, _payee_key, name, was = await _now(db, payload, owner_user_id)
-    if was == payload.limit_cents:
+    _category_id, _payee_key, name, line = await _now(db, payload, owner_user_id)
+    was = None if line is None else line.allocated_amount
+    rolls = line is not None and line.rollover_enabled
+    if was == payload.limit_cents and payload.rollover in (None, rolls):
         raise ValueError(f"This would change nothing about the {name} limit.")
-    return _card(payload, name, was, payload.limit_cents)
+    rows = _card(payload, name, was, payload.limit_cents)
+    if payload.rollover is not None:
+        rows.insert(
+            2,
+            ChangeDisplayRow(
+                label="Rolls over", value=f"{_yes(rolls)} → {_yes(payload.rollover)}"
+            ),
+        )
+    return rows
 
 
 async def budget_limit_execute(
@@ -142,6 +160,7 @@ async def budget_limit_execute(
         payee_key=payee_key,
         payee_label=name if payee_key else None,
         allocated_amount=payload.limit_cents,
+        rollover_enabled=payload.rollover,
     )
     return {"line_id": line.id}
 
@@ -153,10 +172,10 @@ def _nothing_to_remove(name: str) -> ValueError:
 async def budget_remove_describe(
     db: AsyncSession, payload: BudgetRemovePayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    _category_id, _payee_key, name, was = await _now(db, payload, owner_user_id)
-    if was is None:
+    _category_id, _payee_key, name, line = await _now(db, payload, owner_user_id)
+    if line is None:
         raise _nothing_to_remove(name)
-    return _card(payload, name, was, None)
+    return _card(payload, name, line.allocated_amount, None)
 
 
 async def budget_remove_execute(

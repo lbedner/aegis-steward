@@ -13,6 +13,7 @@ the first half of building the predicate.
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from sqlalchemy import case, func
 from sqlmodel import select
@@ -65,6 +66,27 @@ async def budget_lines_for_period(
                     FinanceBudgetCategory.budget_id == budget_id,
                     FinanceBudgetCategory.period_month == period_month,
                 )
+            )
+        ).all()
+    )
+
+
+async def budget_lines_before(
+    db: AsyncSession, budget_id: int, before_period: int
+) -> list[FinanceBudgetCategory]:
+    """Every row of every month before ``before_period``, removed lines
+    included, oldest first: the history a rolling-over limit carries
+    from. Dismissal markers have no month and are not lines."""
+    return list(
+        (
+            await db.exec(
+                select(FinanceBudgetCategory)
+                .where(
+                    FinanceBudgetCategory.budget_id == budget_id,
+                    FinanceBudgetCategory.period_month.is_not(None),
+                    FinanceBudgetCategory.period_month < before_period,
+                )
+                .order_by(FinanceBudgetCategory.period_month)
             )
         ).all()
     )
@@ -160,12 +182,15 @@ async def outflow_tuples(
     start: date,
     end: date | None = None,
     account_ids: list[int] | None = None,
+    extra: tuple[Any, ...] = (),
 ) -> list[tuple]:
     """(category_id, merchant_name, original_description, name, amount,
-    recurring_stream_id) for every countable outflow in the window - one
-    fetch (plus one for split lines) a caller tallies by category / payee
-    key / stream in a single Python pass. This is the query that keeps
-    budget_summary O(1) in the number of lines and streams.
+    recurring_stream_id, *extra) for every countable outflow in the window
+    - one fetch (plus one for split lines) a caller tallies by category /
+    payee key / stream in a single Python pass. This is the query that
+    keeps budget_summary O(1) in the number of lines and streams.
+    ``extra`` columns of the transaction ride on the end, the date for a
+    tally by month.
 
     Split-aware: a split parent is swapped for its lines, each carrying
     the parent's payee columns and stream - so category tallies see the
@@ -180,6 +205,7 @@ async def outflow_tuples(
                 FinanceTransaction.name,
                 FinanceTransaction.amount,
                 FinanceTransaction.recurring_stream_id,
+                *extra,
             ).where(*filters, FinanceTransaction.is_split.is_(False))
         )
     ).all()
@@ -193,6 +219,7 @@ async def outflow_tuples(
                     FinanceTransaction.name,
                     FinanceTransactionSplit.amount,
                     FinanceTransaction.recurring_stream_id,
+                    *extra,
                 )
             ).where(*filters)
         )

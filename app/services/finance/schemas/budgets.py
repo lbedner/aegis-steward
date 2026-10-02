@@ -161,7 +161,10 @@ class BudgetLineUpsert(BaseModel):
     payee_key: str | None = None
     payee_label: str | None = None
     allocated_amount: LimitCents
-    rollover_enabled: bool = False
+    # Leftover and overspending carry into the next month (#360). None
+    # leaves the limit as it was: only the row's checkbox and Illiana's
+    # card say rollover, not every form that sets an amount.
+    rollover_enabled: bool | None = None
 
 
 class BudgetLineResponse(BaseModel):
@@ -187,6 +190,17 @@ class BudgetLineResponse(BaseModel):
     # One-time only: the day the plan lands. A one-off renders at face
     # value beside its date, never as a "/mo" figure.
     due_date: date | None = None
+    # A limit that rolls over (#360), and what it carries in: everything
+    # earlier months allowed and did not spend, less what they overspent.
+    rollover: bool = False
+    carried_amount: int = 0
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def available_amount(self) -> int:
+        """What the month can spend against the line: its limit plus what
+        it carried in."""
+        return self.allocated_amount + self.carried_amount
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -198,10 +212,11 @@ class BudgetLineResponse(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def spent_ratio(self) -> float:
-        """Spend against the limit. Nothing allowed and something spent
-        is wholly over, the way ``budget_line_status`` judges it."""
-        if self.allocated_amount > 0:
-            return self.spent_amount / self.allocated_amount
+        """Spend against what is available. Nothing available and
+        something spent is wholly over, the way ``budget_line_status``
+        judges it."""
+        if self.available_amount > 0:
+            return self.spent_amount / self.available_amount
         return 1.0 if self.spent_amount > 0 else 0.0
 
     @computed_field  # type: ignore[prop-decorator]

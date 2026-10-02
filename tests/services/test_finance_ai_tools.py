@@ -23,7 +23,11 @@ from app.services.finance.models.investments import (
 )
 from app.services.finance.models.reference import FinanceCurrency
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import current_date
+from app.services.finance.utils import (
+    current_date,
+    current_period_month,
+    shift_period,
+)
 from tests._session import opens
 from tests.services._finance_factories import (
     seed_account,
@@ -1317,6 +1321,35 @@ async def test_transactions_narrows_by_date(
 
     assert (await ai_tools.transactions(since="2026-09-10"))["total"] == 1
     assert (await ai_tools.transactions(until="2026-09-10"))["total"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=4)  # two rolling limits seeded, then read
+async def test_budget_says_what_a_rolling_limit_carried(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """#360: last month left its whole $200, so this month's $200 limit
+    has $400 to spend, and what remains counts the carry."""
+    account = await seed_account(svc)
+    groceries = await svc.get_or_create_category_from_hint("Food:Groceries")
+    last_month = shift_period(current_period_month(), -1)
+    await seed_limit(svc, groceries.id, 20_000, period_month=last_month, rollover=True)
+    await seed_limit(svc, groceries.id, 20_000, rollover=True)
+    await svc.create_transaction(
+        account_id=account.id,
+        amount=-4_500,
+        txn_date=current_date(),
+        owner_user_id=1,
+        name="Market",
+        category_id=groceries.id,
+    )
+    await session.commit()
+
+    result = await ai_tools.budget()
+
+    line = next(row for row in result["limits"] if row["category"] == "Food:Groceries")
+    assert (line["rolls_over"], line["carried_cents"]) == (True, 20_000)
+    assert line["remaining_cents"] == 20_000 + 20_000 - 4_500
 
 
 @pytest.mark.asyncio

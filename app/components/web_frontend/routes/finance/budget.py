@@ -273,7 +273,7 @@ async def line_transactions(
         "partials/transactions_dialog.html",
         title=line.label,
         subtitle=(
-            f"{money(line.spent_amount)} of {money(line.allocated_amount)} "
+            f"{money(line.spent_amount)} of {money(line.available_amount)} "
             + (f"in {period_label(month)}" if month else "this month")
         ),
         rows=await hydrate_transactions(service, rows),
@@ -301,11 +301,15 @@ async def upsert_line(
     payee_key: Annotated[str, Form()] = "",
     payee_label: Annotated[str, Form()] = "",
     source: Annotated[str, Form()] = "row",
+    rollover: Annotated[str, Form()] = "",
+    rollover_sent: Annotated[str, Form()] = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """Set a limit. From a row (the inline amount) the answer is the row;
-    from a dialog or the goal parser it is a navigation back to the page."""
+    from a dialog or the goal parser it is a navigation back to the page.
+    Only the row's own form says rollover (``rollover_sent``); every other
+    form leaves it as it was."""
     cents = positive_cents(allocated_amount)
     if cents is None:
         if source == "dialog":
@@ -324,6 +328,7 @@ async def upsert_line(
             payee_key=payee_key or None,
             payee_label=payee_label or None,
             allocated_amount=cents,
+            rollover_enabled=(rollover == "on") if rollover_sent else None,
         ),
         month=None,
         service=service,

@@ -108,6 +108,61 @@ class TestTheCard:
             )
 
 
+class TestRollingOver:
+    """#360: a limit can roll over, and the card says so."""
+
+    @pytest.mark.asyncio
+    async def test_the_card_says_it_will_roll_over(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        groceries = await seed_category(async_db_session, "Food & Dining:Groceries")
+        await _limit(async_db_session, groceries.id, 30_000)
+
+        said = await _said(
+            async_db_session,
+            BudgetLimitPayload(
+                category_id=groceries.id, limit_cents=30_000, rollover=True
+            ),
+        )
+
+        assert said["Rolls over"] == "no → yes"
+        assert said["Per month"] == "$300.00 → $300.00"
+
+    @pytest.mark.asyncio
+    async def test_saying_nothing_about_it_shows_nothing(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        groceries = await seed_category(async_db_session, "Food & Dining:Groceries")
+        await _limit(async_db_session, groceries.id, 30_000)
+
+        said = await _said(
+            async_db_session,
+            BudgetLimitPayload(category_id=groceries.id, limit_cents=40_000),
+        )
+
+        assert "Rolls over" not in said
+
+    @pytest.mark.asyncio
+    async def test_approving_it_rolls_over_and_keeps_the_amount(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        groceries = await seed_category(async_db_session, "Food & Dining:Groceries")
+        await _limit(async_db_session, groceries.id, 30_000)
+
+        await budget_limit_execute(
+            async_db_session,
+            BudgetLimitPayload(
+                category_id=groceries.id, limit_cents=30_000, rollover=True
+            ),
+            None,
+        )
+
+        (line,) = await lines_in_force(
+            async_db_session, owner_user_id=None, period_month=current_period_month()
+        )
+        assert (line.allocated_amount, line.rollover_enabled) == (30_000, True)
+
+
 class TestApproving:
     @pytest.mark.asyncio
     async def test_it_sets_the_limit_and_leaves_the_others(

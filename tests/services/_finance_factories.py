@@ -123,6 +123,7 @@ async def seed_limit(
     *,
     owner_user_id: int | None = 1,
     period_month: int | None = None,
+    rollover: bool | None = None,
 ):
     """One limit on a category (or on nothing: the overall limit). The
     canonical call; files with their own argument conventions keep a
@@ -134,6 +135,7 @@ async def seed_limit(
         payee_key=None,
         payee_label=None,
         allocated_amount=cents,
+        rollover_enabled=rollover,
     )
 
 

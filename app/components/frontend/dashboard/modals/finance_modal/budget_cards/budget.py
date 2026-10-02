@@ -34,6 +34,7 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import (
     _usd,
 )
 from app.components.frontend.theme import AegisTheme as Theme
+from app.core.formatting import format_money
 
 
 def budget_lines_grid(rows: list[ft.Control]) -> ft.ResponsiveRow:
@@ -98,7 +99,12 @@ def compact_budget_row(line: dict[str, Any]) -> ft.Control:
                 border_radius=2,
             ),
             SecondaryText(
-                f"{_usd(spent)} of {_usd(allocated)}",
+                f"{_usd(spent)} of {_usd(allocated)}"
+                + (
+                    f" · {format_money(carried, signed=True)} carried"
+                    if (carried := line.get("carried_amount", 0))
+                    else ""
+                ),
                 size=Theme.Typography.BODY_SMALL,
             ),
         ],

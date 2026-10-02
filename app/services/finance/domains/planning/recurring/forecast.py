@@ -424,13 +424,17 @@ async def budget_drawdowns(
     spends = await budgets.spend_by_line(
         db, lines, owner_user_id=owner_user_id, start=start, end=end
     )
+    # A limit that rolls over has what it carried in left to spend too.
+    carried = await budgets.carried_amounts(
+        db, owner_user_id=owner_user_id, period_month=this_period, lines=lines
+    )
 
     out: list[tuple[date, str, int, dict[str, Any]]] = []
     for line, spent in zip(lines, spends, strict=True):
         label = line_label(names.get(line.category_id), line.payee_label)
         allocated = int(line.allocated_amount)
         extra = {"direction": "outflow", "category": names.get(line.category_id)}
-        remaining = allocated - spent
+        remaining = allocated + carried.get(line.id or 0, 0) - spent
         this_month = _month_end(today)
         if remaining > 0 and this_month <= horizon:
             # Dated at month END: it has not happened yet, so it must

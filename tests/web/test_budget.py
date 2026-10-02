@@ -250,6 +250,80 @@ class TestLines:
         assert f"${spent / 100:,.2f}" in text(line)
         one(line, f'[hx-get="/budget/lines/{budget.line}/remove"]')
 
+    def test_the_limit_opens_for_editing_on_a_click(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """The limit reads as a figure with a pencil; a click swaps in the
+        input, so a stray click on the row never edits it."""
+        line = one(client.get("/budget").text, f"#line-{budget.line}")
+        edit = one(line, "button[data-edit]")
+        assert "$200.00" in text(edit)
+        assert "Edit limit" in text(one(edit, ".sr-only"))
+        one(edit, 'use[href="#i-pencil"]')
+        box = one(line, '[x-show="editing"][x-cloak]')
+        assert one(box, 'input[name="allocated_amount"]').get("value") == "200.00"
+
+    @pytest.mark.queryspy(threshold=3)  # the row and the strip each carry
+    def test_a_limit_rolls_over_from_its_row(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        """#360: the row's own form says rollover, so ticking it is one
+        post, and unticking it is too."""
+        row = one(client.get("/budget").text, f"#line-{budget.line}")
+        box = one(row, 'form input[type="checkbox"][name="rollover"]')
+        assert box.get("checked") is None
+
+        def post(**extra: str) -> Any:
+            response = client.post(
+                "/budget/lines",
+                data={
+                    "category_id": str(budget.groceries),
+                    "allocated_amount": "200",
+                    "rollover_sent": "1",
+                    **extra,
+                },
+            )
+            primary, _siblings = oob(response.text)
+            return one(primary[0], 'input[name="rollover"]')
+
+        assert post(rollover="on").get("checked") is not None
+        assert post().get("checked") is None
+
+    @pytest.mark.queryspy(threshold=5)  # two seeded, the page, the drill-down
+    async def test_a_rolling_limit_says_what_it_carried(
+        self,
+        client: TestClient,
+        hx: TestClient,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+    ) -> None:
+        """Last month's books limit went unspent, so this month's $100 has
+        $200 to spend: the row and its drill-down say so."""
+        books = await finance.get_or_create_category_from_hint("Shopping:Books")
+        last_month = shift_period(current_period_month(), -1)
+        await seed_limit(
+            finance,
+            books.id,
+            10_000,
+            owner_user_id=None,
+            period_month=last_month,
+            rollover=True,
+        )
+        line = await seed_limit(
+            finance, books.id, 10_000, owner_user_id=None, rollover=True
+        )
+        await async_db_session.commit()
+
+        row = one(client.get("/budget").text, f"#line-{line.id}")
+
+        assert text(one(row, "[data-available]")) == "$200.00"  # what is left leads
+        assert text(one(row, "[data-carried]")) == "+$100.00 carried"
+        one(row, 'input[name="allocated_amount"][value="100.00"]')  # still the limit
+        body = hx.get(f"/budget/lines/{line.id}/transactions").text
+        title = select(body, "h2")[0]  # the empty state carries a heading too
+        assert text(title.getnext()) == "$0.00 of $200.00 this month"
+
     def test_editing_the_amount_swaps_the_row_and_the_strip(
         self, client: TestClient, budget: Budget
     ) -> None:
