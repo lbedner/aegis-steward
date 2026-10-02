@@ -7,6 +7,8 @@ envelopes are row actions (pattern 2) and dialog forms (pattern 1); each
 change ships the strip back out of band so the verdict never goes stale.
 """
 
+import calendar
+from datetime import date, timedelta
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -14,8 +16,14 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import current_date
+from app.services.finance.utils import (
+    current_date,
+    current_period_month,
+    period_label,
+    shift_period,
+)
 from tests.components.frontend._payloads import budget_line_model
+from tests.services._finance_factories import seed_limit
 from tests.web.conftest import Budget, Ledger
 from tests.web.dom import (
     id_of,
@@ -63,8 +71,9 @@ class TestPage:
     ) -> None:
         page = client.get("/budget").text
         chips = select(page, "#month-pager a:not([aria-label])")  # the arrows aside
-        assert len(chips) == 6 and text(chips[0]).startswith("Now")
-        assert chips[1].get("hx-target") == "#budget"
+        # Six months behind (#359), now, and five ahead.
+        assert len(chips) == 12 and text(chips[6]).startswith("Now")
+        assert chips[7].get("hx-target") == "#budget"
         ahead = client.get("/budget?month=1").text
         # A future month's verdict is titled with the month, and the cells
         # are figures, not doors: nothing to drill into yet.
@@ -719,3 +728,110 @@ class TestEnvelopes:
 
     def test_unknown_envelope_is_404(self, client: TestClient, ledger: Ledger) -> None:
         assert client.get("/budget/envelopes/999999/credit").status_code == 404
+
+
+class TestAPastMonth:
+    """#359: page back to a month that has ended and read it as it went."""
+
+    @staticmethod
+    async def _two_months_back(
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+        ledger: Ledger,
+    ) -> int:
+        """Beyond the ledger's reach (its rows are the last five days): a
+        $300 fuel limit with $120 against it, $80 of groceries no limit
+        covered, a $2,000 paycheck, and $500 moved to savings."""
+        period = shift_period(current_period_month(), -2)
+        first = date(period // 100, period % 100, 1)
+        await seed_limit(
+            finance, budget.fuel, 30_000, owner_user_id=None, period_month=period
+        )
+        for day, amount, name, category in (
+            (1, 200_000, "Payroll", None),
+            (5, -12_000, "Gas", budget.fuel),
+            (6, -8_000, "Market", budget.groceries),
+            (7, -50_000, "To savings", None),
+        ):
+            txn = await finance.create_transaction(
+                account_id=ledger.checking,
+                amount=amount,
+                txn_date=first + timedelta(days=day - 1),
+                name=name,
+            )
+            txn.category_id = category
+            txn.is_transfer = name == "To savings"
+            async_db_session.add(txn)
+        await async_db_session.commit()
+        return period
+
+    def test_the_pager_reaches_back_six_months(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        pager = select(client.get("/budget").text, "#month-pager a")
+        labels = [text(a) for a in pager]
+        now = next(i for i, label in enumerate(labels) if label.startswith("Now"))
+        assert labels[now - 6 : now] == [
+            calendar.month_abbr[shift_period(current_period_month(), -n) % 100]
+            for n in range(6, 0, -1)
+        ]
+        last = pager[now - 1]
+        assert last.get("href") == "/budget?month=-1&tab=limits"
+        assert last.get("hx-get") == last.get("href")
+
+    async def test_a_past_month_reads_as_it_went(
+        self,
+        client: TestClient,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+        ledger: Ledger,
+    ) -> None:
+        period = await self._two_months_back(finance, async_db_session, budget, ledger)
+
+        page = client.get("/budget?month=-2").text
+
+        assert text(one(page, "#budget > div > h2")) == (
+            f"How did {period_label(period)} go?"
+        )
+        assert stats(page) == {
+            "Money in": "$2,000.00",
+            "Money out": "$200.00",
+            "Budgets": "$120.00",
+            period_label(period): "+$1,800.00",
+        }
+        # Figures only, like a month ahead: nothing here opens today's rows.
+        none(page, "#budget-stats [hx-get]")
+
+    async def test_its_limits_are_read_only_and_open_that_month(
+        self,
+        client: TestClient,
+        hx: TestClient,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+        ledger: Ledger,
+    ) -> None:
+        """An edit on a past month's row would have set THIS month's limit,
+        so nothing on it is editable; its name opens that month's rows."""
+        period = await self._two_months_back(finance, async_db_session, budget, ledger)
+
+        page = client.get("/budget?month=-2").text
+
+        row = one(page, "#limits li[id^=line-]")
+        assert text(row).startswith("Auto:Fuel")
+        assert "$120.00 of $300.00" in text(row)
+        none(one(page, "#limits"), "form, input")
+        none(row, '[hx-get$="/remove"]')
+        none(page, '[hx-get="/budget/lines/new"]')
+        none(page, "#commitments")
+        opener = one(row, '[hx-get*="/transactions"]').get("hx-get")
+        assert (
+            opener == f"/budget/lines/{id_of(row, 'line-')}/transactions?month={period}"
+        )
+        body = hx.get(opener).text
+        assert text(one(body, "h2").getnext()) == (
+            f"$120.00 of $300.00 in {period_label(period)}"
+        )
+        assert [text(td) for td in select(body, "tbody td")].count("Gas") == 1

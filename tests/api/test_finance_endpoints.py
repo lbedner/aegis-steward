@@ -1802,6 +1802,7 @@ async def test_a_budget_limit_is_more_than_zero(
     ("method", "path"),
     [
         ("get", "/api/v1/finance/budget/summary"),
+        ("get", "/api/v1/finance/budget/actuals"),
         ("post", "/api/v1/finance/budget/lines"),
     ],
 )

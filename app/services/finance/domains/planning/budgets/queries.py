@@ -14,12 +14,17 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import add_months
-from app.services.finance.domains.planning.queries import spend_filters, split_lines
+from app.services.finance.domains.planning.queries import (
+    countable_filters,
+    not_reconciliation,
+    spend_filters,
+    split_lines,
+)
 from app.services.finance.models import (
     FinanceBudget,
     FinanceBudgetCategory,
@@ -193,6 +198,32 @@ async def outflow_tuples(
         )
     ).all()
     return [*rows, *split_rows]
+
+
+async def money_in_and_out(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    start: date,
+    end: date,
+    account_ids: list[int] | None = None,
+) -> tuple[int, int]:
+    """(cents in, cents out) over ``[start, end)``: countable rows, with
+    money moved between your own accounts and reconciliations aside."""
+    amount = FinanceTransaction.amount
+    money_in, money_out = (
+        await db.exec(
+            select(
+                func.coalesce(func.sum(case((amount > 0, amount), else_=0)), 0),
+                func.coalesce(func.sum(case((amount < 0, -amount), else_=0)), 0),
+            ).where(
+                *countable_filters(owner_user_id, start, end, account_ids),
+                FinanceTransaction.is_transfer.is_(False),
+                not_reconciliation(),
+            )
+        )
+    ).one()
+    return int(money_in), int(money_out)
 
 
 async def outflow_rows(

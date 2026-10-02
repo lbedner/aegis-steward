@@ -1918,3 +1918,45 @@ class TestALineHasOneName:
         )
 
         assert {p.name for p in result.points if p.stream_id is None} == {"Overall"}
+
+
+class TestAMonthAsItWent:
+    """#359: a month that has ended reads as it happened - what came in and
+    what went out - with nothing rebuilt from today's bills."""
+
+    @pytest.mark.asyncio
+    async def test_money_in_and_out_leave_transfers_aside(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        checking = await _account(svc)
+        savings = await _account(svc, name="Savings", account_type="savings")
+        await _txn(svc, checking.id, 200_000, date(2026, 7, 1), name="Payroll")
+        await _txn(svc, checking.id, -12_000, date(2026, 7, 5), name="Gas")
+        await _txn(svc, savings.id, 1_500, date(2026, 7, 9), name="Interest")
+        moved = await _txn(
+            svc, checking.id, -50_000, date(2026, 7, 7), name="To savings"
+        )
+        moved.is_transfer = True
+        doubled = await _txn(svc, checking.id, -12_000, date(2026, 7, 5), name="Gas")
+        doubled.dedup_status = "duplicate"
+        async_db_session.add_all([moved, doubled])
+        # Outside the month - must not count.
+        await _txn(svc, checking.id, -99_999, date(2026, 8, 1), name="Rent")
+        await async_db_session.flush()
+
+        actuals = await svc.budget_month_actuals(owner_user_id=1, period_month=_MONTH)
+
+        assert (actuals.money_in, actuals.money_out) == (201_500, 12_000)
+
+    @pytest.mark.asyncio
+    async def test_the_account_filter_narrows_them(self, svc: FinanceService) -> None:
+        checking = await _account(svc)
+        savings = await _account(svc, name="Savings", account_type="savings")
+        await _txn(svc, checking.id, 200_000, date(2026, 7, 1), name="Payroll")
+        await _txn(svc, savings.id, 1_500, date(2026, 7, 9), name="Interest")
+
+        actuals = await svc.budget_month_actuals(
+            owner_user_id=1, period_month=_MONTH, account_ids=[savings.id]
+        )
+
+        assert (actuals.money_in, actuals.money_out) == (1_500, 0)

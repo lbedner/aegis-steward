@@ -18,7 +18,7 @@ from datetime import date
 from typing import Any
 
 from sqlalchemy import func
-from sqlmodel import col, select
+from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.models import (
@@ -36,16 +36,29 @@ def spend_filters(
     end: date | None = None,
     account_ids: list[int] | None = None,
 ) -> list[object]:
-    """The shared "countable spend" predicate: live accounts,
-    non-duplicate, report-included outflows from ``start`` (exclusive of
-    ``end`` when given, optionally scoped to ``account_ids``)."""
+    """The shared "countable spend" predicate: countable outflows."""
+    return countable_filters(
+        owner_user_id, start, end, account_ids, FinanceTransaction.amount < 0
+    )
+
+
+def countable_filters(
+    owner_user_id: int | None,
+    start: date,
+    end: date | None = None,
+    account_ids: list[int] | None = None,
+    *direction: object,
+) -> list[object]:
+    """Rows that count: live accounts, non-duplicate, report-included, in
+    ``direction`` when given, from ``start`` (exclusive of ``end`` when
+    given, optionally scoped to ``account_ids``)."""
     live_accounts = select(FinanceAccount.id).where(FinanceAccount.deleted_at.is_(None))
     filters: list[object] = [
         FinanceTransaction.deleted_at.is_(None),
         FinanceTransaction.dedup_status != "duplicate",
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.account_id.in_(live_accounts),
-        FinanceTransaction.amount < 0,
+        *direction,
         FinanceTransaction.date_ >= start,
     ]
     if end is not None:
@@ -55,6 +68,14 @@ def spend_filters(
     if owner_user_id is not None:
         filters.append(FinanceTransaction.owner_user_id == owner_user_id)
     return filters
+
+
+def not_reconciliation() -> object:
+    """A reconciliation adjustment is bookkeeping, not money moving."""
+    return or_(
+        FinanceTransaction.external_id_source.is_(None),
+        FinanceTransaction.external_id_source != "reconcile",
+    )
 
 
 def split_lines(statement: Any) -> Any:

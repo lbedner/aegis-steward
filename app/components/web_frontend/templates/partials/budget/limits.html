@@ -1,21 +1,23 @@
 {# The Limits tab: flexible lines you set in a grid, then the bills'
-   commitments folded into a footer bar. #}
+   commitments folded into a footer bar. A month that has ended (``period``)
+   shows its limits read-only, and nothing to add or fold. #}
 {% from "components/macros/layout.html" import card %}
 {% from "components/macros/form.html" import action %}
 {% from "components/macros/feedback.html" import empty_state %}
 {% set flexible = summary.bucket("flexible") %}
 <div id="limits">
-{% call card("Flexible", "limits you've set, by category or payee") %}
+{% call card("Flexible", "what each limit allowed, and what was spent" if period else "limits you've set, by category or payee") %}
   {% if flexible.lines %}
   <ul class="grid gap-x-10 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
     {% for line in flexible.lines %}{% include "partials/budget/line.html" %}{% endfor %}
   </ul>
   {% else %}
-  {{ empty_state("No limits yet", "Set one for a category you want to keep an eye on.") }}
+  {{ empty_state("No limits that month", "Nothing was set to keep an eye on.") if period else empty_state("No limits yet", "Set one for a category you want to keep an eye on.") }}
   {% endif %}
-  <div>{{ action("+ Add a limit", hx_dialog(path ~ '/lines/new')) }}</div>
+  {% if not period %}<div>{{ action("+ Add a limit", hx_dialog(path ~ '/lines/new')) }}</div>{% endif %}
 {% endcall %}
 </div>
+{% if not period %}
 <details id="commitments" class="mt-6 raised">
   <summary class="list-none cursor-pointer flex items-center justify-between gap-4 px-5 py-3 text-sm text-aegis-muted">
     <span>{{ commitments_line }}</span>
@@ -42,3 +44,4 @@
     {% endfor %}
   </div>
 </details>
+{% endif %}

@@ -181,6 +181,14 @@ class TestStatsStrip:
         assert one(strip, "[hx-get]").get("hx-get") == "/x/income"
         assert "text-error" in select(strip, "dd")[2].get("class")
 
+    def test_five_cells_share_one_row(self) -> None:
+        """The budget strip has five cells whenever there is everything
+        else, and the column lookup stopped at four: the five stacked in
+        two columns on a wide screen."""
+        cells = [{"label": str(n), "value": "$1.00"} for n in range(5)]
+        html = render("{{ stats_strip(cells, id='s') }}", cells=cells)
+        assert "lg:grid-cols-5" in one(html, "dl#s").get("class", "").split()
+
 
 class TestRankedRows:
     def test_bar_scales_to_the_ratio(self) -> None:

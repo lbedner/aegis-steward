@@ -21,6 +21,7 @@ from app.services.finance.deps import (
 from app.services.finance.schemas import (
     BudgetLineResponse,
     BudgetLineUpsert,
+    BudgetMonthActuals,
     BudgetOutlookResponse,
     BudgetStatDetailsResponse,
     BudgetSuggestionIds,
@@ -66,6 +67,20 @@ async def budget_outlook(
         owner_user_id=owner_user_id, months=months, account_ids=account_ids
     )
     return BudgetOutlookResponse(items=outlook, total=len(outlook))
+
+
+@router.get("/budget/actuals", response_model=BudgetMonthActuals)
+async def budget_actuals(
+    month: Annotated[PeriodMonth | None, Query()] = None,
+    account_ids: list[int] | None = Query(default=None),
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> BudgetMonthActuals:
+    """What came in and went out in one month (default: this one), from
+    its transactions. ``month`` is YYYYMM."""
+    return await service.budget_month_actuals(
+        owner_user_id=owner_user_id, period_month=month, account_ids=account_ids
+    )
 
 
 # -- Budget --------------------------------------------------------------
