@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.components.web_frontend.routes.finance.cash_flow import SECTION as CASH_FLOW
 from app.components.web_frontend.routes.finance.overview import COMPARES, WORTH_VIEWS
 from app.services.finance.domains.ledger import networth
 from app.services.finance.service import FinanceService
@@ -342,6 +343,35 @@ class TestADateRange:
         labels = chart_data(one(page, "#net-worth"), "line")["labels"]
         assert labels[-1] == str(end)
         assert labels[0] == str(today - timedelta(days=20))
+
+
+@pytest.mark.queryspy(threshold=4)  # three page loads a test, by design
+class TestTheRangeIsRemembered:
+    """#342: a picked range stays with this browser, across visits and
+    between Overview and Cash flow, until a chip clears it."""
+
+    def _dates(self, client: TestClient, path: str) -> tuple[str | None, str | None]:
+        form = one(client.get(path).text, "form#filter")
+        return (
+            one(form, 'input[type=date][name="from"]').get("value"),
+            one(form, 'input[type=date][name="to"]').get("value"),
+        )
+
+    def test_a_pick_comes_back_on_the_next_visit(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        start, end = current_date() - timedelta(days=9), current_date() - timedelta(days=2)
+        client.get(f"/overview?from={start}&to={end}")
+
+        assert self._dates(client, "/overview") == (str(start), str(end))
+        assert self._dates(client, CASH_FLOW.path) == (str(start), str(end))
+
+    def test_a_chip_clears_it(self, client: TestClient, ledger: Ledger) -> None:
+        start = current_date() - timedelta(days=9)
+        client.get(f"/overview?from={start}")
+        client.get("/overview?days=30&from=&to=")  # what a chip click submits
+
+        assert self._dates(client, "/overview") == (None, None)
 
 
 class TestSpendingDrilldown:

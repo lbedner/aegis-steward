@@ -349,9 +349,8 @@ def _query(
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
+    picked: ranges.PickedRange,
     days: int = Query(default=DEFAULT_DAYS, ge=1),
-    start: ranges.FromDate = None,
-    end: ranges.ToDate = None,
     compare: str = "average",
     worth: str = "net",
     house: str = "in",
@@ -360,6 +359,7 @@ async def page(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     selected = account_ids or []
+    start, end = picked
     # The cards' own choices, kept in the URL; the filter form carries them.
     kept = {
         "compare": compare if compare in {k for k, *_ in COMPARES} else "average",
@@ -394,7 +394,7 @@ async def page(
         [p.payee for p in overview.top_payees.items] + [b["name"] for b in upcoming],
         owner_user_id=owner_user_id,
     )
-    return render(
+    response = render(
         request,
         "pages/overview.html",
         {
@@ -453,6 +453,7 @@ async def page(
             "bill_columns": BILL_COLUMNS,
         },
     )
+    return ranges.remember(response, start, end)
 
 
 @router.get(SECTION.path + "/spending", include_in_schema=False)
