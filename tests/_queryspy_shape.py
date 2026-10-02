@@ -3,8 +3,10 @@
 queryspy names a repeated statement by its whole SQL, so adding a column to
 a table renames every SELECT on it, and the baseline then reads as all new.
 The shape drops the selected-column list: a new column keeps an entry, while
-a new WHERE, a new join or a new call site still makes a new one. The label
-stays readable SQL, so a baseline diff still says what changed.
+a new WHERE, a new join, ``DISTINCT``, or a call site in another function
+still makes a new one. queryspy's identity leaves out line numbers, so the
+same statement at another line of one function was never a new entry. The
+label stays readable SQL, so a baseline diff still says what changed.
 
 ponytail: rides two queryspy internals, ``_baseline.entry_for`` and the
 plugin's baseline stash, pinned by ``queryspy<0.5`` and guarded by
@@ -22,13 +24,18 @@ from queryspy import _baseline, pytest_plugin
 from queryspy._baseline import BaselineEntry
 from queryspy._detect import Finding
 
-# Everything between the first SELECT and its FROM: the selected columns.
-_SELECT_LIST = re.compile(r"^SELECT\b.*?\bFROM\b", re.DOTALL)
+# Everything between the first SELECT and its FROM: the selected columns,
+# with DISTINCT kept, since it changes what the statement returns.
+_SELECT_LIST = re.compile(r"^SELECT\b(?P<distinct> DISTINCT\b)?.*?\bFROM\b", re.DOTALL)
 
 
 def statement_shape(sql: str) -> str:
     """The statement with its selected columns collapsed to ``...``."""
-    return _SELECT_LIST.sub("SELECT ... FROM", " ".join(sql.split()), count=1)
+    return _SELECT_LIST.sub(
+        lambda match: f"SELECT{match['distinct'] or ''} ... FROM",
+        " ".join(sql.split()),
+        count=1,
+    )
 
 
 def shaped(entry: BaselineEntry) -> BaselineEntry:

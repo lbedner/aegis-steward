@@ -1570,12 +1570,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction JOIN finance_transfer ON finance_transfer.from_transaction_id = finance_transaction.id JOIN finance_transaction AS finance_transaction_1 ON finance_transaction_1.id = finance_transfer.to_transaction_id JOIN finance_account ON finance_account.id = finance_transaction_1.account_id WHERE finance_transaction.recurring_stream_id IN (__[POSTCOMPILE_recurring_stream_id_1]) AND finance_transfer.status = :status_1 AND finance_account.classification = :classification_1 AND finance_account.account_type = :account_type_1",
-      "file": "app/services/finance/domains/planning/recurring/queries.py",
-      "function": "card_payment_stream_ids"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id = :account_id_1 AND finance_transaction.deleted_at IS NULL AND coalesce(finance_transaction.external_id_source, :coalesce_1) != :coalesce_2 LIMIT :param_1",
       "file": "app/services/finance/domains/ledger/queries/accounts.py",
       "function": "has_nonreconcile_register"
@@ -2176,21 +2170,9 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.recurring_stream_id IN (__[POSTCOMPILE_recurring_stream_id_1]) AND (EXISTS (SELECT finance_transfer.id FROM finance_transfer JOIN finance_account ON finance_account.id = (SELECT finance_transaction.account_id FROM finance_transaction WHERE finance_transaction.id = finance_transfer.to_transaction_id) WHERE finance_transfer.from_transaction_id = finance_transaction.id AND finance_transfer.status = :status_1 AND finance_account.classification = :classification_1))",
-      "file": "app/services/finance/domains/planning/recurring/queries.py",
-      "function": "payment_flagged_stream_ids"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.recurring_stream_id IN (__[POSTCOMPILE_recurring_stream_id_1]) AND finance_transaction.deleted_at IS NULL AND finance_transaction.owner_user_id = :owner_user_id_1",
       "file": "app/services/finance/domains/detection/queries.py",
       "function": "member_ids_of_streams"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.recurring_stream_id IN (__[POSTCOMPILE_recurring_stream_id_1]) AND finance_transaction.is_transfer IS true",
-      "file": "app/services/finance/domains/planning/recurring/queries.py",
-      "function": "transfer_flagged_stream_ids"
     },
     {
       "kind": "repeated_statement",
@@ -2701,6 +2683,24 @@
       "label": "SELECT ... FROM tool WHERE tool.name = :name_1",
       "file": "app/services/finance/domains/detection/analyst/seeds.py",
       "function": "_attach_chat_tools"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT DISTINCT ... FROM finance_transaction JOIN finance_transfer ON finance_transfer.from_transaction_id = finance_transaction.id JOIN finance_transaction AS finance_transaction_1 ON finance_transaction_1.id = finance_transfer.to_transaction_id JOIN finance_account ON finance_account.id = finance_transaction_1.account_id WHERE finance_transaction.recurring_stream_id IN (__[POSTCOMPILE_recurring_stream_id_1]) AND finance_transfer.status = :status_1 AND finance_account.classification = :classification_1 AND finance_account.account_type = :account_type_1",
+      "file": "app/services/finance/domains/planning/recurring/queries.py",
+      "function": "card_payment_stream_ids"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT DISTINCT ... FROM finance_transaction WHERE finance_transaction.recurring_stream_id IN (__[POSTCOMPILE_recurring_stream_id_1]) AND (EXISTS (SELECT finance_transfer.id FROM finance_transfer JOIN finance_account ON finance_account.id = (SELECT finance_transaction.account_id FROM finance_transaction WHERE finance_transaction.id = finance_transfer.to_transaction_id) WHERE finance_transfer.from_transaction_id = finance_transaction.id AND finance_transfer.status = :status_1 AND finance_account.classification = :classification_1))",
+      "file": "app/services/finance/domains/planning/recurring/queries.py",
+      "function": "payment_flagged_stream_ids"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT DISTINCT ... FROM finance_transaction WHERE finance_transaction.recurring_stream_id IN (__[POSTCOMPILE_recurring_stream_id_1]) AND finance_transaction.is_transfer IS true",
+      "file": "app/services/finance/domains/planning/recurring/queries.py",
+      "function": "transfer_flagged_stream_ids"
     }
   ]
 }
