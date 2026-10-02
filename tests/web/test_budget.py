@@ -52,7 +52,7 @@ class TestPage:
     def test_tabs_and_the_strip(self, client: TestClient, budget: Budget) -> None:
         page = client.get("/budget").text
         tabs = [text(a) for a in select(page, "#budget [role=tablist] a")]
-        assert tabs == ["Limits", "Suggested", "Goals (1)", "Envelopes (1)"]
+        assert tabs == ["Limits", "Suggested", "Goals (1)", "Envelopes (1)", "History"]
         strip = stats(page)
         assert list(strip)[:3] == ["Income", "Bills", "Budgets"]
         assert strip["Budgets"] == "$200.00"
@@ -802,6 +802,42 @@ class TestEnvelopes:
 
     def test_unknown_envelope_is_404(self, client: TestClient, ledger: Ledger) -> None:
         assert client.get("/budget/envelopes/999999/credit").status_code == 404
+
+
+class TestHistory:
+    """#345: each limit across the months that have ended, with its average."""
+
+    @pytest.mark.queryspy(threshold=3)  # the page, then the fragment
+    def test_each_limit_reads_across_the_months(
+        self, client: TestClient, hx: TestClient, budget: Budget
+    ) -> None:
+        page = client.get("/budget?tab=history").text
+
+        row = one(page, f'#history [data-line="{budget.line}"]')
+        assert "Groceries" in text(row)
+        bars = select(row, "[data-month]")
+        assert len(bars) == 6  # the default window
+        last = period_label(shift_period(current_period_month(), -1))
+        assert bars[-1].get("title", "").startswith(last)
+        one(row, "[data-average]")
+        # The fragment the chips swap in is the same section, no shell.
+        fragment = hx.get("/budget?tab=history&window=3").text
+        none(fragment, "html")
+        row = one(fragment, f'#history [data-line="{budget.line}"]')
+        assert len(select(row, "[data-month]")) == 3
+
+    def test_the_window_chips_go_where_they_swap(
+        self, client: TestClient, budget: Budget
+    ) -> None:
+        page = client.get("/budget?tab=history&window=12").text
+
+        chips = select(page, "#history-window a")
+        assert [text(c) for c in chips] == ["3 months", "6 months", "12 months"]
+        current = one(page, "#history-window a[aria-current]")
+        assert current.get("href") == "/budget?month=0&tab=history&window=12"
+        for chip in chips:
+            assert chip.get("href") == chip.get("hx-get")
+            assert chip.get("hx-target") == "#budget"
 
 
 class TestAPastMonth:

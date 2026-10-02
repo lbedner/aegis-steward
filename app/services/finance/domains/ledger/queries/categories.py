@@ -207,17 +207,19 @@ def _category_outflow_filters(
     start: date,
     end: date | None,
     account_ids: list[int] | None,
+    inflow: bool = False,
 ) -> list[object]:
     """Report-included outflows on live accounts - the shared predicate
-    behind every category-spend rollup. Callers add their own "which
-    category column is non-NULL" clause: the parent's for unsplit rows,
-    the line's when reading through ``finance_transaction_split``."""
+    behind every category-spend rollup; ``inflow`` asks for the money in
+    instead (#344). Callers add their own "which category column is
+    non-NULL" clause: the parent's for unsplit rows, the line's when
+    reading through ``finance_transaction_split``."""
     filters: list[object] = [
         FinanceTransaction.deleted_at.is_(None),
         FinanceTransaction.dedup_status != "duplicate",
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.account_id.in_(live_account_ids()),
-        FinanceTransaction.amount < 0,
+        FinanceTransaction.amount > 0 if inflow else FinanceTransaction.amount < 0,
         FinanceTransaction.date_ >= start,
     ]
     if end is not None:
@@ -236,11 +238,14 @@ async def category_spend_totals(
     start: date,
     end: date | None = None,
     account_ids: list[int] | None = None,
+    inflow: bool = False,
 ) -> list[tuple[str, int]]:
     """Signed spend total per LEAF category name over the window, two
-    grouped queries (unsplit parents + split lines). Callers roll up /
-    sign-flip as their surface needs."""
-    filters = _category_outflow_filters(owner_user_id, start, end, account_ids)
+    grouped queries (unsplit parents + split lines); money in instead with
+    ``inflow``. Callers roll up / sign-flip as their surface needs."""
+    filters = _category_outflow_filters(
+        owner_user_id, start, end, account_ids, inflow=inflow
+    )
     rows = (
         await db.exec(
             select(FinanceCategory.name, func.sum(FinanceTransaction.amount))
@@ -278,6 +283,7 @@ async def spending_rows(
     *,
     owner_user_id: int | None = None,
     start: date,
+    end: date | None = None,
     account_ids: list[int] | None = None,
     categories: list[str] | None = None,
 ) -> list[FinanceTransaction]:
@@ -286,7 +292,7 @@ async def spending_rows(
     exactly or as a "name:" prefix (parent rollup drill-down). A split
     parent surfaces when one of its LINES matches - the row shown is
     still the parent, badge and lines rendered by the register."""
-    filters = _category_outflow_filters(owner_user_id, start, None, account_ids)
+    filters = _category_outflow_filters(owner_user_id, start, end, account_ids)
     if categories:
         matching_ids = select(FinanceCategory.id).where(
             or_(

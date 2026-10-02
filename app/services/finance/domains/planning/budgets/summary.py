@@ -24,9 +24,9 @@ from app.services.finance.domains.planning.budgets import queries, strip
 from app.services.finance.domains.planning.budgets.lines import (
     carried_amounts,
     line_response,
-    line_spent,
     lines_in_force,
 )
+from app.services.finance.domains.planning.budgets.months import line_spent
 from app.services.finance.domains.planning.budgets.trims import plan_budget_trims
 from app.services.finance.domains.planning.budgets.uncovered import (
     uncovered_spend,

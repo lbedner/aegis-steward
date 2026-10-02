@@ -218,7 +218,7 @@ def _liability_lines(
     """One pre-rendered line per credit/loan account that has real detail.
 
     APR, minimum payment, due date, and limit are what turn "you owe money"
-    into "this card needs attention". The checks in ``detection/insights/rules.py``
+    into "this card needs attention". The checks in ``detection/insights/rules/``
     read the same fields through the same helpers, so alerts, the snapshot,
     and the rendered report always quote the same figures. Accounts with
     nothing beyond their balance are skipped - ACCOUNTS already covers them.

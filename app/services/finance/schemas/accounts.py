@@ -26,7 +26,9 @@ from app.services.finance.schemas.properties import PropertySummary
 from app.services.finance.schemas.recurring import ProjectionResponse
 from app.services.finance.schemas.transactions import (
     CashflowResponse,
+    CategoryMove,
     SpendingCategory,
+    SpendingPace,
     TransactionListResponse,
 )
 
@@ -220,6 +222,21 @@ class FinanceStatusSummary(BaseModel):
     currency: str
 
 
+class NetWorthGroup(BaseModel):
+    """One account group's summed balance per day; debts below zero."""
+
+    label: str
+    values: list[int]
+
+
+class NetWorthByType(BaseModel):
+    """Net worth by component (#343): the Accounts page's groups, one line
+    each, over the same days; they sum to the net."""
+
+    dates: list[date]
+    groups: list[NetWorthGroup]
+
+
 class NetWorthPoint(BaseModel):
     """One day of the net-worth-over-time series (off the snapshot table)."""
 
@@ -352,6 +369,8 @@ class FinanceOverviewResponse(BaseModel):
     recent_transactions: TransactionListResponse
     uncategorized: TransactionListResponse
     spending: list[SpendingCategory]
+    category_moves: list[CategoryMove]
+    pace: SpendingPace
 
 
 class SecuredDebtUpdate(BaseModel):

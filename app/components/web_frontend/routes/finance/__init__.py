@@ -16,6 +16,7 @@ from app.components.web_frontend.routes.finance import (
     budget,
     budget_envelopes,
     budget_goals,
+    cash_flow,
     cover,
     documents,
     imports,
@@ -32,6 +33,7 @@ from app.components.web_frontend.routes.finance import (
 
 router = APIRouter()
 router.include_router(overview.router)
+router.include_router(cash_flow.router)
 router.include_router(usage.router)
 router.include_router(accounts.router)
 router.include_router(account_manage.router)

@@ -1,0 +1,37 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import card, page_header, figures, ranked_rows %}
+{% from "components/macros/table.html" import data_table %}
+{% from "components/macros/form.html" import account_filter %}
+{% from "components/macros/feedback.html" import empty_state %}
+
+{% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
+
+{% block app_content %}
+{% call page_header(section.label, "What came in, what went out, and what you kept") %}
+  {{ account_filter(section.path, accounts, selected_ids, days, ranges, dates) }}
+  {{ figures([
+    {"label": "Income", "value": flow.income|money},
+    {"label": "Spending", "value": flow.spending|money},
+    {"label": "Saved", "value": flow.saved|money, "negative": flow.saved < 0},
+    {"label": "Savings rate", "value": (flow.savings_rate ~ "%") if flow.savings_rate is not none else "-", "negative": (flow.savings_rate or 0) < 0},
+  ]) }}
+{% endcall %}
+
+<div class="grid gap-6 lg:grid-cols-2 mb-6">
+  {% call card("Income by category") %}
+  {% if income_rows %}{{ ranked_rows(income_rows) }}{% else %}{{ empty_state("No categorized income in this range") }}{% endif %}
+  {% endcall %}
+  {% call card("Spending by category") %}
+  {% if spending_rows %}{{ ranked_rows(spending_rows) }}{% else %}{{ empty_state("No categorized spending in this range") }}{% endif %}
+  {% endcall %}
+</div>
+
+{% call card("By year") %}
+{{ data_table([
+  {"key": "year", "label": "Year"},
+  {"key": "income", "label": "Income", "kind": "money", "align": "right"},
+  {"key": "spending", "label": "Spending", "kind": "money", "align": "right"},
+  {"key": "saved", "label": "Saved", "kind": "money", "align": "right"},
+], flow.years, empty="Nothing in this range") }}
+{% endcall %}
+{% endblock %}

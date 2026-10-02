@@ -14,6 +14,7 @@ from app.services.finance.models import (
     FinanceTransaction,
 )
 from app.services.finance.schemas import (
+    BudgetHistoryResponse,
     BudgetLineResponse,
     BudgetMonthActuals,
     BudgetMonthOutlook,
@@ -24,6 +25,7 @@ from app.services.finance.schemas import (
     GoalParseResponse,
 )
 from app.services.finance.service.base import FinanceServiceBase
+from app.services.finance.utils import current_period_month
 
 
 class BudgetsMixin(FinanceServiceBase):
@@ -152,6 +154,30 @@ class BudgetsMixin(FinanceServiceBase):
             period_month=period_month,
             account_ids=account_ids,
         )
+
+    async def budget_history(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        months: int,
+        period_month: int | None = None,
+        account_ids: list[int] | None = None,
+    ) -> BudgetHistoryResponse:
+        """Each of the month's limits across the ``months`` that ended
+        before it (#345)."""
+        period_month = period_month or current_period_month()
+        lines = await budgets.lines_in_force(
+            self.db, owner_user_id=owner_user_id, period_month=period_month
+        )
+        items = await budgets.line_history(
+            self.db,
+            owner_user_id=owner_user_id,
+            period_month=period_month,
+            months=months,
+            lines=lines,
+            account_ids=account_ids,
+        )
+        return BudgetHistoryResponse(months=months, items=items)
 
     async def uncovered_spending_rate(
         self,

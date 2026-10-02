@@ -10,11 +10,12 @@ from datetime import date
 
 from app.services.finance.constants import Provider
 from app.services.finance.domains.ledger import (
-    queries as ledger_queries,
-)
-from app.services.finance.domains.ledger import (
+    cash_flow,
     splits,
     transactions,
+)
+from app.services.finance.domains.ledger import (
+    queries as ledger_queries,
 )
 from app.services.finance.models import (
     FinanceTag,
@@ -23,11 +24,13 @@ from app.services.finance.models import (
 )
 from app.services.finance.schemas import (
     CashflowMonth,
+    CashFlowResponse,
     PayeeTotal,
+    SpendingPace,
     SplitPart,
 )
 from app.services.finance.service.base import FinanceServiceBase
-from app.services.finance.utils import DEFAULT_CURRENCY
+from app.services.finance.utils import DEFAULT_CURRENCY, current_date
 
 
 class TransactionsMixin(FinanceServiceBase):
@@ -263,6 +266,54 @@ class TransactionsMixin(FinanceServiceBase):
             owner_user_id=owner_user_id,
             months=months,
             today=today,
+            account_ids=account_ids,
+        )
+
+    async def spending_pace(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        months: int = 12,
+        today: date | None = None,
+        account_ids: list[int] | None = None,
+    ) -> SpendingPace:
+        return await cash_flow.spending_pace(
+            self.db,
+            owner_user_id=owner_user_id,
+            today=today or current_date(),
+            months=months,
+            account_ids=account_ids,
+        )
+
+    async def cash_flow(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        start: date,
+        end: date | None = None,
+        account_ids: list[int] | None = None,
+    ) -> CashFlowResponse:
+        return await cash_flow.cash_flow(
+            self.db,
+            owner_user_id=owner_user_id,
+            start=start,
+            end=end or current_date(),
+            account_ids=account_ids,
+        )
+
+    async def overview_flows(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        months: int = 6,
+        end: date | None = None,
+        account_ids: list[int] | None = None,
+    ) -> tuple[list[CashflowMonth], SpendingPace]:
+        return await cash_flow.overview_flows(
+            self.db,
+            owner_user_id=owner_user_id,
+            months=months,
+            end=end,
             account_ids=account_ids,
         )
 

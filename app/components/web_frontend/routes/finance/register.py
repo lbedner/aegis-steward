@@ -15,7 +15,6 @@ from typing import Annotated, Any
 from urllib.parse import urlencode
 
 from fastapi import Query
-from pydantic import BeforeValidator
 
 from app.components.backend.api.finance.categories import list_category_options
 from app.components.backend.api.finance.investments import (
@@ -41,12 +40,7 @@ from app.services.finance.service import FinanceService
 PAGE_SIZE = 50
 
 
-def _blank_is_none(value: Any) -> Any:
-    """A submitted form sends ``""`` for an untouched select or date input."""
-    return None if value == "" else value
-
-
-Blank = BeforeValidator(_blank_is_none)
+Blank = ranges.Blank
 
 # The columns a click can order by, and the only values ``sort`` takes.
 SORTABLE = {"date", "account", "payee", "category", "amount"}
@@ -104,7 +98,7 @@ class RegisterFilters:
     def query(self, **overrides: Any) -> str:
         """The filters as a query string (``from``/``to`` in URL form)."""
         values = {**asdict(self), **overrides}
-        names = {"from_date": "from", "to_date": "to"}
+        names = {"from_date": ranges.FROM, "to_date": ranges.TO}
         pairs = {
             names.get(k, k): (v.isoformat() if isinstance(v, date) else v)
             for k, v in values.items()
@@ -145,8 +139,8 @@ def register_filters(
     category_id: Annotated[int | None, Blank] = None,
     merchant_id: Annotated[int | None, Blank] = None,
     tag_id: Annotated[int | None, Blank] = None,
-    from_date: Annotated[date | None, Blank, Query(alias="from")] = None,
-    to_date: Annotated[date | None, Blank, Query(alias="to")] = None,
+    from_date: ranges.FromDate = None,
+    to_date: ranges.ToDate = None,
     days: Annotated[int, Blank] = ranges.ALL,
     hide_transfers: bool = False,
     uncategorized: bool = False,

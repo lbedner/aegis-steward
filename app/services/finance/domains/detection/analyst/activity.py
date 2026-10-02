@@ -1,7 +1,6 @@
 """Snapshot sections for the month's activity: cashflow, spending, findings, plans."""
 
 from datetime import date, timedelta
-import statistics
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -14,9 +13,9 @@ from app.services.finance.domains.detection.analyst.sections import (
 )
 from app.services.finance.domains.detection.analyst.shared import _NOTE_INSIGHT_TYPES
 from app.services.finance.domains.detection.insights import (
+    category_months,
     format_usd,
     month_key,
-    monthly_category_spend,
     pace_day,
 )
 from app.services.finance.domains.ledger import queries as ledger_queries
@@ -88,20 +87,16 @@ async def _ranked_spending(
     and the note duly reported spending as "below typical" on the 9th - true
     of almost everything on almost every 9th, and therefore worthless.
     """
-    by_category = await monthly_category_spend(
-        db, owner_user_id=owner_user_id, today=today, through_day=pace_day(today)
+    ranked = sorted(
+        (
+            (row.this_month, row.category_id, row.typical)
+            for row in await category_months(
+                db, owner_user_id=owner_user_id, today=today
+            )
+            if row.this_month > 0
+        ),
+        reverse=True,
     )
-    current = month_key(today)
-
-    ranked: list[tuple[int, int, int | None]] = []
-    for category_id, months in by_category.items():
-        this_month = months.get(current, 0)
-        if this_month <= 0:
-            continue
-        prior = [spend for key, spend in months.items() if key != current]
-        typical = int(statistics.median(prior)) if prior else None
-        ranked.append((this_month, category_id, typical))
-    ranked.sort(reverse=True)
     ranked = ranked[:limit]
 
     names = await _category_names(db, [category_id for _, category_id, _ in ranked])

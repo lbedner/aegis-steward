@@ -8,8 +8,7 @@ is ``summary``, proposing new lines is ``suggestions``.
 
 from __future__ import annotations
 
-from bisect import bisect_right
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import date
 from typing import Literal
 
@@ -20,17 +19,24 @@ from app.core.time import utcnow
 from app.services.finance.domains.ledger import accounts, categories
 from app.services.finance.domains.planning import queries as planning_queries
 from app.services.finance.domains.planning.budgets import queries
+from app.services.finance.domains.planning.budgets.months import (
+    Tallies,
+    Target,
+    line_spent,
+    live,
+    past_plans,
+    spend_by_month,
+    target,
+)
 from app.services.finance.models import (
     FinanceBudget,
     FinanceBudgetCategory,
-    FinanceTransaction,
 )
 from app.services.finance.schemas import BudgetLineResponse
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     current_period_month,
     shift_period,
-    transaction_payee_key,
 )
 
 
@@ -102,7 +108,7 @@ async def lines_in_force(
     budget = await get_or_create_budget(
         db, owner_user_id=owner_user_id, period_month=period_month
     )
-    return _live(await _period_rows(db, budget_id=budget.id, period_month=period_month))
+    return live(await _period_rows(db, budget_id=budget.id, period_month=period_month))
 
 
 async def _period_rows(
@@ -130,7 +136,7 @@ async def _period_rows(
             rollover_enabled=line.rollover_enabled,
             currency=line.currency,
         )
-        for line in _live(await queries.budget_lines_for_period(db, budget_id, source))
+        for line in live(await queries.budget_lines_for_period(db, budget_id, source))
     ]
     # The dashboard opens several panels at once and every one of them
     # asks this question, so two callers can both find the period empty
@@ -143,11 +149,6 @@ async def _period_rows(
     except IntegrityError:
         return await queries.budget_lines_for_period(db, budget_id, period_month)
     return copied
-
-
-def _live(lines: list[FinanceBudgetCategory]) -> list[FinanceBudgetCategory]:
-    """Without the removed ones, which only mark a month as decided."""
-    return [line for line in lines if line.deleted_at is None]
 
 
 async def _own_line(
@@ -202,18 +203,6 @@ async def line_in_force(
     return line if line is not None and line.deleted_at is None else None
 
 
-def line_spent(
-    line: FinanceBudgetCategory,
-    by_category: Mapping[int, int],
-    by_payee: Mapping[str, int],
-) -> int:
-    """A line's spend out of tallies by category and by payee key: its
-    category's, else its payee's. The overall line tracks neither."""
-    if line.category_id is not None:
-        return by_category.get(line.category_id, 0)
-    return by_payee.get(line.payee_key, 0) if line.payee_key else 0
-
-
 async def spend_by_line(
     db: AsyncSession,
     lines: Sequence[FinanceBudgetCategory],
@@ -248,11 +237,6 @@ async def spend_by_line(
     return [line_spent(line, by_category, by_payee) for line in lines]
 
 
-def _target(line: FinanceBudgetCategory) -> tuple[int | None, str | None]:
-    """What a line limits: a category, a payee key, or neither (overall)."""
-    return line.category_id, line.payee_key
-
-
 async def carried_amounts(
     db: AsyncSession,
     *,
@@ -270,65 +254,37 @@ async def carried_amounts(
     on the latest earlier month that had limits, as ``lines_in_force``
     reads it. Lines that do not roll over cost no query at all.
     """
-    rolling = {_target(line): line for line in lines if line.rollover_enabled}
+    rolling = {target(line): line for line in lines if line.rollover_enabled}
     if not rolling:
         return {}
-    budget_id = next(iter(rolling.values())).budget_id
-    by_period: dict[int, list[FinanceBudgetCategory]] = {}
-    for row in await queries.budget_lines_before(db, budget_id, period_month):
-        by_period.setdefault(row.period_month or 0, []).append(row)
-    periods = sorted(by_period)
-    runs: dict[tuple[int | None, str | None], list[tuple[int, FinanceBudgetCategory]]]
-    runs = {target: [] for target in rolling}
+    plans = await past_plans(db, next(iter(rolling.values())).budget_id, period_month)
+    runs: dict[Target, list[tuple[int, FinanceBudgetCategory]]]
+    runs = {key: [] for key in rolling}
     open_runs = set(rolling)
     month = shift_period(period_month, -1)
-    while open_runs and periods and month >= periods[0]:
-        ran_on = periods[bisect_right(periods, month) - 1]
-        in_force = {_target(row): row for row in _live(by_period[ran_on])}
-        for target in list(open_runs):
-            row = in_force.get(target)
+    while open_runs and plans.first is not None and month >= plans.first:
+        in_force = plans.in_force(month)
+        for key in list(open_runs):
+            row = in_force.get(key)
             if row is None or not row.rollover_enabled:
-                open_runs.discard(target)
+                open_runs.discard(key)
             else:
-                runs[target].append((month, row))
+                runs[key].append((month, row))
         month = shift_period(month, -1)
     months = {month for run in runs.values() for month, _row in run}
     if not months:
         return {line.id: 0 for line in rolling.values() if line.id is not None}
-    start, _ = queries.month_bounds(min(months))
-    end, _ = queries.month_bounds(period_month)
-    by_category: dict[int, dict[int, int]] = {}
-    by_payee: dict[int, dict[str, int]] = {}
-    for (
-        cat_id,
-        merchant,
-        description,
-        name,
-        amount,
-        _stream,
-        day,
-    ) in await queries.outflow_tuples(
-        db,
-        owner_user_id=owner_user_id,
-        start=start,
-        end=end,
-        extra=(FinanceTransaction.date_,),
-    ):
-        month = current_period_month(day)
-        if cat_id is not None:
-            tally = by_category.setdefault(month, {})
-            tally[cat_id] = tally.get(cat_id, 0) - amount
-        if key := transaction_payee_key(merchant, description, name):
-            tally = by_payee.setdefault(month, {})
-            tally[key] = tally.get(key, 0) - amount
+    spend = await spend_by_month(
+        db, owner_user_id=owner_user_id, first=min(months), before=period_month
+    )
+    empty: Tallies = ({}, {})
     return {
-        rolling[target].id: sum(
-            row.allocated_amount
-            - line_spent(row, by_category.get(month, {}), by_payee.get(month, {}))
+        rolling[key].id: sum(
+            row.allocated_amount - line_spent(row, *spend.get(month, empty))
             for month, row in run
         )
-        for target, run in runs.items()
-        if rolling[target].id is not None
+        for key, run in runs.items()
+        if rolling[key].id is not None
     }
 
 

@@ -13,8 +13,10 @@ the rules: anywhere else closes a cycle.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 import re
+import statistics
 
 from pydantic import BaseModel
 from sqlmodel import select
@@ -24,6 +26,7 @@ from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.insights.formatting import (
     month_key,
     month_start_before,
+    pace_day,
 )
 from app.services.finance.models import (
     FinanceAccount,
@@ -92,6 +95,7 @@ async def monthly_category_spend(
     today: date,
     months_back: int = OVERSPEND_MIN_HISTORY,
     through_day: int | None = None,
+    everyday: bool = False,
 ) -> dict[int, dict[str, int]]:
     """``{category_id: {"YYYY-MM": spend_cents}}`` over the trailing window.
 
@@ -105,10 +109,14 @@ async def monthly_category_spend(
     thirty, which makes almost every category look cheap and makes the
     overspend rule almost unable to fire until the month is over. Pass
     ``pace_day(today)``.
+
+    ``everyday`` leaves out the payments of a recurring stream - a bill
+    belongs to Bills & Income, and its timing is not a change in habit.
     """
     rows = await queries.transaction_rows_where(
         db,
         [
+            *([FinanceTransaction.recurring_stream_id.is_(None)] if everyday else []),
             owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
             FinanceTransaction.deleted_at.is_(None),
             FinanceTransaction.dedup_status != "duplicate",
@@ -128,6 +136,53 @@ async def monthly_category_spend(
         key = month_key(txn.date_)
         months[key] = months.get(key, 0) + abs(txn.amount)
     return by_category
+
+
+@dataclass(frozen=True)
+class CategoryMonth:
+    """One category this month to date, beside the same days of last month
+    and the typical earlier month (their median; None with no history)."""
+
+    category_id: int
+    this_month: int
+    last_month: int
+    typical: int | None
+
+
+async def category_months(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    today: date,
+    months_back: int = OVERSPEND_MIN_HISTORY,
+    everyday: bool = False,
+) -> list[CategoryMonth]:
+    """Every category with spend in the window, measured on pace
+    (``pace_day``): the analyst's snapshot ranks these by size and the
+    Overview's "What moved" by change (#346), from one set of figures;
+    ``everyday`` is ``monthly_category_spend``'s, bills left out."""
+    by_category = await monthly_category_spend(
+        db,
+        owner_user_id=owner_user_id,
+        today=today,
+        months_back=months_back,
+        through_day=pace_day(today),
+        everyday=everyday,
+    )
+    current = month_key(today)
+    last = month_key(month_start_before(today, 1))
+    rows: list[CategoryMonth] = []
+    for category_id, months in by_category.items():
+        prior = [spend for key, spend in months.items() if key != current]
+        rows.append(
+            CategoryMonth(
+                category_id=category_id,
+                this_month=months.get(current, 0),
+                last_month=months.get(last, 0),
+                typical=int(statistics.median(prior)) if prior else None,
+            )
+        )
+    return rows
 
 
 async def create_insight_if_new(

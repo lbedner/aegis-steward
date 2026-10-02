@@ -1,6 +1,7 @@
 """Budgets: the limits you set, and whether the month survives them.
 
-One concern per module - ``lines`` for setting a limit, ``suggestions``
+One concern per module - ``lines`` for setting a limit, ``months`` for
+reading a line across the months behind this one, ``suggestions``
 for proposing and declining them, ``summary`` for reading a period back,
 ``trims`` for closing a negative month, ``details`` for the rows behind
 one stat, ``outlook`` for running the same equation forward, ``queries``
@@ -12,6 +13,7 @@ The package boundary is the API: callers reach every verb as
 from app.services.finance.domains.planning.budgets import (
     details,
     lines,
+    months,
     outlook,
     queries,
     strip,
@@ -36,6 +38,7 @@ from app.services.finance.domains.planning.budgets.lines import (
     spend_by_line,
     upsert_budget_line,
 )
+from app.services.finance.domains.planning.budgets.months import line_history
 from app.services.finance.domains.planning.budgets.outlook import (
     budget_month_outlook,
     parse_budget_goal,
@@ -70,6 +73,7 @@ __all__ = [
     "details",
     "budget_summary",
     "delete_budget_line",
+    "line_history",
     "line_in_force",
     "remove_budget_line",
     "dismiss_budget_suggestions",
@@ -78,6 +82,7 @@ __all__ = [
     "lines",
     "list_dismissed_suggestions",
     "month_bounds",
+    "months",
     "outlook",
     "parse_budget_goal",
     "plan_budget_trims",

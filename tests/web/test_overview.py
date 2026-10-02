@@ -5,10 +5,15 @@ ways. Seeds go through ``finance`` (the service on the test session) and
 are committed before the page is requested, exactly as the API tests do.
 """
 
+import calendar
+from datetime import timedelta
+
 from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.components.web_frontend.routes.finance.overview import COMPARES, WORTH_VIEWS
+from app.services.finance.domains.ledger import networth
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger, Streams
@@ -158,6 +163,107 @@ class TestSeededLedger:
         assert one(first, "[style]").get("style") == "width: 100%"
 
 
+class TestNetWorthByComponent:
+    """#343: the net worth card explains itself."""
+
+    @pytest.fixture
+    async def history(self, ledger: Ledger, async_db_session: AsyncSession) -> Ledger:
+        """The ledger with its daily balances written, as the nightly job
+        would, so the card has a line to split."""
+        await networth.recompute_snapshots(async_db_session, owner_user_id=None)
+        await async_db_session.commit()
+        return ledger
+
+    def test_the_views_and_the_house_toggle(
+        self, client: TestClient, history: Ledger
+    ) -> None:
+        page = client.get("/overview").text
+        chips = select(page, "#net-worth-view a")
+        views = [chip for _key, chip in WORTH_VIEWS]
+        assert [text(c) for c in chips[:-1]] == views  # then the house toggle
+        assert text(one(page, "#net-worth-view a[aria-current]")) == views[0]
+        for chip in chips:
+            assert chip.get("hx-select") == "#net-worth"
+
+    def test_assets_and_debts_are_two_lines(
+        self, client: TestClient, history: Ledger
+    ) -> None:
+        page = client.get("/overview?worth=split").text
+        series = chart_data(one(page, "#net-worth"), "line")["series"]
+        assert [s["label"] for s in series] == ["Assets", "Debts"]
+        assert (series[0]["values"][-1], series[1]["values"][-1]) == (150.0, 25.0)
+
+    def test_by_type_says_what_each_group_did(
+        self, client: TestClient, history: Ledger
+    ) -> None:
+        page = client.get("/overview?worth=type").text
+        series = chart_data(one(page, "#net-worth"), "line")["series"]
+        assert [s["label"] for s in series] == ["Banking", "Credit Cards"]
+        rows = select(page, "#net-worth-change li")
+        assert [text(select(r, "span")[0]) for r in rows] == [
+            "Banking",
+            "Credit Cards",
+        ]
+
+    def test_the_choice_rides_the_filter(
+        self, client: TestClient, history: Ledger
+    ) -> None:
+        page = client.get("/overview?worth=type&house=out").text
+        kept = {
+            i.get("name"): i.get("value")
+            for i in select(page, 'input[type=hidden][form="filter"]')
+        }
+        assert (kept["worth"], kept["house"]) == ("type", "out")
+        # The house toggle is on, and clicking it puts the house back.
+        one(page, '#net-worth-view a[aria-current][href*="house=in"]')
+
+
+class TestSpendingPace:
+    """#305: this month's spending by day against the usual month."""
+
+    def test_this_month_runs_against_the_average_month(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get("/overview").text
+        data = chart_data(one(page, "#pace"), "line")
+        today = current_date()
+        assert len(data["labels"]) == calendar.monthrange(today.year, today.month)[1]
+        this_month, usual = data["series"]
+        assert this_month["label"] == "This month"
+        assert len(this_month["values"]) == today.day
+        assert (usual["label"], usual["compare"]) == (COMPARES[0][2], True)
+
+    def test_the_comparison_is_a_choice_that_stays(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get("/overview?compare=median").text
+
+        median = next(name for key, _chip, name in COMPARES if key == "median")
+        assert chart_data(one(page, "#pace"), "line")["series"][1]["label"] == median
+        chips = select(page, "#pace-compare a")
+        assert [text(c) for c in chips] == [chip for _key, chip, _name in COMPARES]
+        assert one(page, "#pace-compare a[aria-current]").get("hx-select") == "#pace"
+        # The range and account filter carry it, so changing them keeps it.
+        kept = one(page, 'input[type=hidden][name="compare"][form="filter"]')
+        assert kept.get("value") == "median"
+
+
+class TestWhatMoved:
+    """#346: the categories that moved most this month, each opening its rows."""
+
+    def test_each_category_opens_this_months_rows(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        section = card(client.get("/overview").text, "What moved")
+        rows = select(section, ".ranked li")
+        groceries = next(r for r in rows if "Groceries" in text(r))
+        opener = one(groceries, "button[hx-get]")
+        assert opener.get("hx-get") == (
+            f"/overview/spending?category=Food%3AGroceries&days={current_date().day}"
+        )
+        assert opener.get("hx-target") == "#dialog-body"
+
+
 class TestFilters:
     def test_account_filter_narrows_the_windowed_figures(
         self, client: TestClient, ledger: Ledger
@@ -191,6 +297,51 @@ class TestFilters:
             "9999",
         ]
         assert one(page, 'input[name="days"]:checked').get("value") == "90"
+
+
+class TestADateRange:
+    """#342: the charts take a from-to range, kept in the URL."""
+
+    def test_the_donut_stops_at_the_end_date(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Today's $30.00 of groceries falls after a range ending yesterday."""
+        today = current_date()
+        start, end = today - timedelta(days=5), today - timedelta(days=1)
+        page = client.get(f"/overview?from={start}&to={end}").text
+
+        data = chart_data(page, "doughnut")
+        assert dict(zip(data["labels"], data["series"][0]["values"], strict=True)) == {
+            "Auto": 20.0,
+            "Food": 15.0,
+        }
+        drill = one(page, 'canvas[data-chart="doughnut"]').get("data-drilldown", "")
+        assert f"to={end}" in drill and f"from={start}" in drill
+
+    def test_the_dates_are_in_the_filter(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        today = current_date()
+        start = today - timedelta(days=5)
+        page = client.get(f"/overview?from={start}&to={today}").text
+
+        form = one(page, "form#filter")
+        assert one(form, 'input[type=date][name="from"]').get("value") == str(start)
+        assert one(form, 'input[type=date][name="to"]').get("value") == str(today)
+        none(form, 'input[name="days"]:checked')  # a picked range beats the chips
+
+    async def test_net_worth_and_cash_flow_stop_at_the_end_date(
+        self, client: TestClient, ledger: Ledger, async_db_session: AsyncSession
+    ) -> None:
+        await networth.recompute_snapshots(async_db_session, owner_user_id=None)
+        await async_db_session.commit()
+        today = current_date()
+        end = today - timedelta(days=3)
+        page = client.get(f"/overview?from={today - timedelta(days=20)}&to={end}").text
+
+        labels = chart_data(one(page, "#net-worth"), "line")["labels"]
+        assert labels[-1] == str(end)
+        assert labels[0] == str(today - timedelta(days=20))
 
 
 class TestSpendingDrilldown:

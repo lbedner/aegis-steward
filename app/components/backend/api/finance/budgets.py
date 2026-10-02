@@ -19,6 +19,7 @@ from app.services.finance.deps import (
     get_owner_user_id,
 )
 from app.services.finance.schemas import (
+    BudgetHistoryResponse,
     BudgetLineResponse,
     BudgetLineUpsert,
     BudgetMonthActuals,
@@ -80,6 +81,24 @@ async def budget_actuals(
     its transactions. ``month`` is YYYYMM."""
     return await service.budget_month_actuals(
         owner_user_id=owner_user_id, period_month=month, account_ids=account_ids
+    )
+
+
+@router.get("/budget/history", response_model=BudgetHistoryResponse)
+async def budget_history(
+    months: int = Query(default=6, ge=1, le=24),
+    month: Annotated[PeriodMonth | None, Query()] = None,
+    account_ids: list[int] | None = Query(default=None),
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> BudgetHistoryResponse:
+    """Each of a month's limits (default: this one) across the ``months``
+    that ended before it: what it spent, and the limit each ran on."""
+    return await service.budget_history(
+        owner_user_id=owner_user_id,
+        months=months,
+        period_month=month,
+        account_ids=account_ids,
     )
 
 

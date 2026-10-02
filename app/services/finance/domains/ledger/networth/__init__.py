@@ -14,6 +14,7 @@ from app.services.finance.domains.ledger.networth.reads import (
     get_net_worth_series,
     get_status_summary,
     health,
+    net_worth_by_type,
 )
 from app.services.finance.domains.ledger.networth.snapshots import (
     _investment_points as _investment_points,
@@ -29,6 +30,7 @@ __all__ = [
     "connection_rollup",
     "get_net_worth",
     "get_net_worth_series",
+    "net_worth_by_type",
     "get_status_summary",
     "health",
     "recompute_snapshots",

@@ -13,11 +13,13 @@ from sqlalchemy import and_, case, func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.constants import PROPERTY_ACCOUNT_TYPE
 from app.services.finance.models import (
     FinanceAccount,
     FinanceBalanceSnapshot,
     FinanceConnection,
     FinanceHolding,
+    FinanceLiabilityDetail,
     FinanceNetWorthSnapshot,
     FinanceTrade,
     FinanceTransaction,
@@ -169,53 +171,80 @@ async def net_worth_series_since(
     owner_user_id: int | None,
     since: date,
     currency: str,
+    until: date | None = None,
 ) -> list[FinanceNetWorthSnapshot]:
     query = select(FinanceNetWorthSnapshot).where(
         FinanceNetWorthSnapshot.as_of_date >= since,
         FinanceNetWorthSnapshot.currency == currency,
     )
+    if until is not None:
+        query = query.where(FinanceNetWorthSnapshot.as_of_date <= until)
     query = _owner_scoped_net_worth(query, owner_user_id)
     query = query.order_by(FinanceNetWorthSnapshot.as_of_date)
     return list((await db.exec(query)).all())
 
 
-async def balance_class_series(
+async def balance_series(
     db: AsyncSession,
     *,
     account_ids: list[int],
     since: date,
     owner_user_id: int | None,
-) -> list[tuple[date, str, int]]:
-    """(balance_date, classification, summed balance) for the accounts -
-    the live-summed series behind a filtered Overview chart. The join to
-    ``finance_account`` keeps the owner scope authoritative."""
+    until: date | None = None,
+) -> list[tuple[date, str, str, int]]:
+    """(balance_date, classification, account_type, summed balance) for the
+    accounts - the live-summed series behind a filtered Overview chart and
+    its by-type view. The join to ``finance_account`` keeps the owner scope
+    authoritative."""
+    filters = [
+        FinanceBalanceSnapshot.account_id.in_(account_ids),
+        FinanceBalanceSnapshot.balance_date >= since,
+        FinanceAccount.deleted_at.is_(None),
+        FinanceAccount.owner_user_id.is_(None)
+        if owner_user_id is None
+        else FinanceAccount.owner_user_id == owner_user_id,
+    ]
+    if until is not None:
+        filters.append(FinanceBalanceSnapshot.balance_date <= until)
     rows = (
         await db.exec(
             select(
                 FinanceBalanceSnapshot.balance_date,
                 FinanceAccount.classification,
+                FinanceAccount.account_type,
                 func.sum(FinanceBalanceSnapshot.balance),
             )
             .join(
                 FinanceAccount,
                 FinanceAccount.id == FinanceBalanceSnapshot.account_id,
             )
-            .where(
-                FinanceBalanceSnapshot.account_id.in_(account_ids),
-                FinanceBalanceSnapshot.balance_date >= since,
-                FinanceAccount.deleted_at.is_(None),
-                FinanceAccount.owner_user_id.is_(None)
-                if owner_user_id is None
-                else FinanceAccount.owner_user_id == owner_user_id,
-            )
+            .where(*filters)
             .group_by(
                 FinanceBalanceSnapshot.balance_date,
                 FinanceAccount.classification,
+                FinanceAccount.account_type,
             )
             .order_by(FinanceBalanceSnapshot.balance_date)
         )
     ).all()
     return list(rows)
+
+
+async def house_account_ids(db: AsyncSession, *, owner_user_id: int | None) -> set[int]:
+    """The owner's property accounts and the liabilities they secure: what
+    "net worth without the house" leaves out (#343)."""
+    houses = select(FinanceAccount.id).where(
+        FinanceAccount.account_type == PROPERTY_ACCOUNT_TYPE,
+        FinanceAccount.deleted_at.is_(None),
+        FinanceAccount.owner_user_id.is_(None)
+        if owner_user_id is None
+        else FinanceAccount.owner_user_id == owner_user_id,
+    )
+    liens = select(FinanceLiabilityDetail.account_id).where(
+        FinanceLiabilityDetail.secured_by_account_id.in_(houses)
+    )
+    house_ids = set((await db.exec(houses)).all())
+    return house_ids | set((await db.exec(liens)).all())
 
 
 async def account_rollup(

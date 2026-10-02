@@ -14,9 +14,9 @@ import pytest
 from app.services.finance.service import FinanceService
 from tests.services._finance_factories import (
     budget_points,
-    seed_account,
+    category_id,
     seed_limit,
-    seed_txn,
+    seed_monthly_spend,
 )
 
 # Each rolling limit a test seeds answers with its carry, and each month it
@@ -25,25 +25,6 @@ pytestmark = pytest.mark.queryspy(threshold=5)
 
 AUGUST, SEPTEMBER, OCTOBER = 202608, 202609, 202610
 TODAY = date(2026, 10, 15)
-
-
-async def _groceries(svc: FinanceService) -> int:
-    category = await svc.get_or_create_category_from_hint("Food:Groceries")
-    assert category.id is not None
-    return category.id
-
-
-async def _spend(svc: FinanceService, category_id: int, spends: dict[int, int]) -> None:
-    """``{period: cents}`` of groceries, one charge each month."""
-    account = await seed_account(svc)
-    for period, cents in spends.items():
-        await seed_txn(
-            svc,
-            account.id,
-            -cents,
-            date(period // 100, period % 100, 10),
-            category_id=category_id,
-        )
 
 
 async def _october(svc: FinanceService, category_id: int):
@@ -61,10 +42,10 @@ class TestTheCarry:
     @pytest.mark.asyncio
     async def test_leftover_keeps_stacking(self, svc: FinanceService) -> None:
         """$50 left in August and $30 in September: October's $200 reads $280."""
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         for period in (AUGUST, SEPTEMBER, OCTOBER):
             await seed_limit(svc, groceries, 20_000, period_month=period, rollover=True)
-        await _spend(
+        await seed_monthly_spend(
             svc, groceries, {AUGUST: 15_000, SEPTEMBER: 17_000, OCTOBER: 25_000}
         )
 
@@ -77,10 +58,10 @@ class TestTheCarry:
 
     @pytest.mark.asyncio
     async def test_overspending_carries_too(self, svc: FinanceService) -> None:
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         for period in (AUGUST, SEPTEMBER, OCTOBER):
             await seed_limit(svc, groceries, 20_000, period_month=period, rollover=True)
-        await _spend(svc, groceries, {AUGUST: 15_000, SEPTEMBER: 24_000})
+        await seed_monthly_spend(svc, groceries, {AUGUST: 15_000, SEPTEMBER: 24_000})
 
         line = await _october(svc, groceries)
 
@@ -89,11 +70,11 @@ class TestTheCarry:
     @pytest.mark.asyncio
     async def test_rollover_off_ends_the_run(self, svc: FinanceService) -> None:
         """August's leftover is gone: it was not rolling over then."""
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         await seed_limit(svc, groceries, 20_000, period_month=AUGUST, rollover=False)
         for period in (SEPTEMBER, OCTOBER):
             await seed_limit(svc, groceries, 20_000, period_month=period, rollover=True)
-        await _spend(svc, groceries, {AUGUST: 5_000, SEPTEMBER: 17_000})
+        await seed_monthly_spend(svc, groceries, {AUGUST: 5_000, SEPTEMBER: 17_000})
 
         assert (await _october(svc, groceries)).carried_amount == 3_000
 
@@ -101,7 +82,7 @@ class TestTheCarry:
     async def test_a_month_without_the_limit_ends_the_run(
         self, svc: FinanceService
     ) -> None:
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         fuel = await svc.get_or_create_category_from_hint("Auto:Fuel")
         await seed_limit(svc, groceries, 20_000, period_month=AUGUST, rollover=True)
         # September ran on fuel alone: groceries' run stops there.
@@ -110,7 +91,7 @@ class TestTheCarry:
             (await _line_for(svc, SEPTEMBER, groceries)), owner_user_id=1
         )
         await seed_limit(svc, groceries, 20_000, period_month=OCTOBER, rollover=True)
-        await _spend(svc, groceries, {AUGUST: 5_000})
+        await seed_monthly_spend(svc, groceries, {AUGUST: 5_000})
 
         assert (await _october(svc, groceries)).carried_amount == 0
 
@@ -120,10 +101,10 @@ class TestTheCarry:
     ) -> None:
         """September has no limits of its own, so it ran on August's: its
         leftover against August's $200 carries."""
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         await seed_limit(svc, groceries, 20_000, period_month=AUGUST, rollover=True)
         await seed_limit(svc, groceries, 20_000, period_month=OCTOBER, rollover=True)
-        await _spend(svc, groceries, {AUGUST: 15_000, SEPTEMBER: 12_000})
+        await seed_monthly_spend(svc, groceries, {AUGUST: 15_000, SEPTEMBER: 12_000})
 
         assert (await _october(svc, groceries)).carried_amount == 5_000 + 8_000
 
@@ -131,10 +112,10 @@ class TestTheCarry:
     async def test_a_limit_that_does_not_roll_over_carries_nothing(
         self, svc: FinanceService
     ) -> None:
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         for period in (AUGUST, SEPTEMBER, OCTOBER):
             await seed_limit(svc, groceries, 20_000, period_month=period)
-        await _spend(svc, groceries, {AUGUST: 5_000})
+        await seed_monthly_spend(svc, groceries, {AUGUST: 5_000})
 
         line = await _october(svc, groceries)
 
@@ -149,7 +130,7 @@ class TestSettingIt:
     ) -> None:
         """A dialog, a suggestion or the goal box sets an amount; only the
         row's own checkbox and Illiana's card say rollover."""
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         await seed_limit(svc, groceries, 20_000, period_month=OCTOBER, rollover=True)
 
         line = await seed_limit(svc, groceries, 25_000, period_month=OCTOBER)
@@ -160,10 +141,10 @@ class TestSettingIt:
     async def test_the_answer_to_an_edit_carries_what_the_page_shows(
         self, svc: FinanceService
     ) -> None:
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         for period in (SEPTEMBER, OCTOBER):
             await seed_limit(svc, groceries, 20_000, period_month=period, rollover=True)
-        await _spend(svc, groceries, {SEPTEMBER: 17_000})
+        await seed_monthly_spend(svc, groceries, {SEPTEMBER: 17_000})
 
         line = await seed_limit(svc, groceries, 22_000, period_month=OCTOBER)
 
@@ -177,10 +158,10 @@ class TestTheProjection:
     ) -> None:
         """The Projected tab draws what is left of a limit at month end; a
         limit that rolls over has its carry left as well."""
-        groceries = await _groceries(svc)
+        groceries = await category_id(svc, "Food:Groceries")
         for period in (SEPTEMBER, OCTOBER):
             await seed_limit(svc, groceries, 20_000, period_month=period, rollover=True)
-        await _spend(svc, groceries, {SEPTEMBER: 17_000, OCTOBER: 5_000})
+        await seed_monthly_spend(svc, groceries, {SEPTEMBER: 17_000, OCTOBER: 5_000})
 
         result = await svc.project_balances(owner_user_id=1, days=20, today=TODAY)
 

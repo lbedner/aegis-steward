@@ -16,6 +16,7 @@ from app.core.formatting import format_date_range, format_money
 # Re-exported: the routes and templates here have always said
 # ``filters.money_to_cents``, and it now lives with the money.
 from app.services.finance.utils import money_to_cents as money_to_cents
+from app.services.finance.utils import period_label
 
 
 def account_params(account_ids: list[int] | None) -> list[str]:
@@ -413,6 +414,7 @@ FILTERS: dict[str, Callable[..., Any]] = {
     "cents_to_input": cents_to_input,
     "short_date": short_date,
     "date_range": date_range,
+    "period_label": period_label,
     "pct": pct,
     "markdown": markdown,
     "code": code,

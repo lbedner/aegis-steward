@@ -1,0 +1,37 @@
+{# The History tab: each limit across the months that have ended,
+   oldest first. A bar per month, scaled to the line's busiest month and
+   red when it spent past the limit that month ran on; the average beside
+   today's limit. The window chips re-request the section (pattern 3). #}
+{% from "components/macros/layout.html" import card, chip_nav %}
+{% from "components/macros/feedback.html" import empty_state %}
+{% set flexible = summary.bucket("flexible") %}
+<div id="history">
+{% call card("History", "what each limit spent, month by month") %}
+  {{ chip_nav("history-window", "Months back", windows, "#budget") }}
+  {% if flexible.lines %}
+  <ul class="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
+    {% for line in flexible.lines if history.get(line.id) %}
+    {% set item = history[line.id] %}
+    {% set peak = (item.months|map(attribute="spent_amount")|list + item.months|selectattr("allocated_amount")|map(attribute="allocated_amount")|list)|max or 1 %}
+    <li data-line="{{ line.id }}" class="flex flex-col gap-2">
+      <div class="flex items-baseline justify-between gap-3 text-sm">
+        <span class="text-aegis-text truncate">{{ line.label }}</span>
+        <span class="tabular-nums text-xs {{ 'text-error' if item.over_count else 'text-aegis-muted' }}">over {{ item.over_count }} of {{ item.months|length }}</span>
+      </div>
+      <div class="flex items-end gap-1 h-12">
+        {% for m in item.months %}
+        {% set said = m.period_month|period_label ~ ": " ~ m.spent_amount|money ~ (" of " ~ m.allocated_amount|money if m.allocated_amount is not none else ", no limit") %}
+        <span data-month title="{{ said }}" role="img" aria-label="{{ said }}"
+              class="flex-1 min-h-[2px] rounded-sm {{ 'bg-aegis-error' if m.over else 'bg-aegis-teal' }}"
+              style="height: {{ (100 * m.spent_amount / peak)|round|int }}%"></span>
+        {% endfor %}
+      </div>
+      <p class="text-xs text-aegis-muted tabular-nums"><span data-average class="text-aegis-text">{{ item.average_amount|money }}</span> a month on average; the limit is {{ line.allocated_amount|money }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("No limits to look back on", "Set one on the Limits tab.") }}
+  {% endif %}
+{% endcall %}
+</div>

@@ -27,7 +27,7 @@ def picker_trigger_cell(
     - An EXPLICIT ``width``, not ``expand=True``. There's no Row/Column
       ancestor in a plain DataTable cell for ``expand`` to mean anything
       against, and the outer cell Container's own ``alignment=`` (see
-      ``build_cell``, controls/data_table.py) makes Flet shrink-wrap the
+      ``build_cell``, controls/data_table/) makes Flet shrink-wrap the
       child then position it, rather than stretch it - without an
       explicit width matching the column, the actual clickable area is
       just the content's own snug size, not the full column (confirmed

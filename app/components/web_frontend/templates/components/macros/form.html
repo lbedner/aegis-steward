@@ -13,8 +13,8 @@
 {# The time-window chips: a row of exclusive pills that submits as one
    radio field, so a click re-requests the enclosing form. The ``chip``
    class (input.css) marks the checked one through its sibling radio. #}
-{% macro range_chips(ranges, days, field="days", aria="Time window") %}
-<fieldset class="flex flex-wrap items-center gap-1.5" aria-label="{{ aria }}">
+{% macro range_chips(ranges, days, field="days", aria="Time window", attrs="") %}
+<fieldset class="flex flex-wrap items-center gap-1.5" aria-label="{{ aria }}" {{ attrs|safe }}>
   {% for value, label in ranges %}
   <label class="cursor-pointer">
     <input type="radio" name="{{ field }}" value="{{ value }}" class="sr-only peer" {% if value == days %}checked{% endif %}>
@@ -24,11 +24,15 @@
 </fieldset>
 {% endmacro %}
 
-{% macro account_filter(action, accounts, selected_ids, days, ranges) %}
+{# ``dates`` is a picked ``(from, to)`` range for a page whose charts
+   take one: it beats the chips, so no chip is checked while it is set, and
+   picking a chip clears it. #}
+{% macro account_filter(action, accounts, selected_ids, days, ranges, dates=None) %}
 <form id="filter" method="get" action="{{ action }}"
       hx-get="{{ action }}" hx-target="#app-content" hx-push-url="true" hx-trigger="change"
-      class="flex flex-wrap items-center gap-3">
-  {% if ranges %}{{ range_chips(ranges, days) }}{% endif %}
+      class="flex flex-wrap items-center gap-3" {% if dates %}x-data{% endif %}>
+  {% if ranges %}{{ range_chips(ranges, None if dates and dates[0] else days, attrs='@change="$root.querySelectorAll(\'input[type=date]\').forEach((i) => (i.value = \'\'))"' if dates else "") }}{% endif %}
+  {% if dates %}{{ date_input("from", dates[0], label="From") }}{{ date_input("to", dates[1], label="To") }}{% endif %}
   {% if accounts %}
   <details class="relative">
     <summary class="list-none {{ button_classes("default", "xs") }}">

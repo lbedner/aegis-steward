@@ -242,14 +242,15 @@
 
 
 {# Ranked rows: name, a small count, the amount, and a thin bar scaled to
-   the largest row (the Overview's payees and bills). ``rows`` are
-   ``{"label", "count", "value", "ratio", "tone"}``. #}
+   the largest row (the Overview's payees, bills and what moved). ``rows``
+   are ``{"label", "count", "value", "ratio", "tone"}``, and ``attrs``
+   when the name opens something (``hx_dialog(...)``). #}
 {% macro ranked_rows(rows) %}
 <ol class="ranked space-y-3">
   {% for row in rows %}
   <li>
     <div class="flex items-baseline justify-between gap-3 text-sm">
-      <span class="inline-flex items-center gap-2 min-w-0"><span class="shrink-0">{{ mark(row, row.label) }}</span><span class="text-aegis-text truncate">{{ row.label }}</span></span>
+      <span class="inline-flex items-center gap-2 min-w-0"><span class="shrink-0">{{ mark(row, row.label) }}</span>{% if row.attrs %}<button type="button" {{ row.attrs }} class="text-aegis-text truncate text-left hover:underline">{{ row.label }}</button>{% else %}<span class="text-aegis-text truncate">{{ row.label }}</span>{% endif %}</span>
       <span class="shrink-0 tabular-nums">{% if row.count %}<span class="text-aegis-muted mr-2">{{ row.count }}</span>{% endif %}<span class="text-aegis-text font-medium">{{ row.value }}</span></span>
     </div>
     <div class="mt-1 h-1 rounded bg-aegis-border/60"><div class="h-1 rounded {{ 'bg-aegis-accent' if row.tone == 'accent' else 'bg-aegis-teal' }}" style="width: {{ (row.ratio * 100)|round|int }}%"></div></div>
@@ -278,6 +279,16 @@
    The ``chip`` class (input.css) marks the current one by aria-current. #}
 {% macro chip(label, active=False, href="", hx="", extra="") %}
 <a href="{{ href }}" {{ hx|safe }} {{ extra|safe }} {% if active %}aria-current="page"{% endif %} class="chip">{{ label }}</a>
+{% endmacro %}
+
+
+{# A row of choices for one card (a window, a comparison, a view): each a
+   link chip that re-requests the page and swaps ``target`` in place
+   (pattern 3). ``items`` are ``(label, active, url)``. #}
+{% macro chip_nav(id, label, items, target) %}
+<nav id="{{ id }}" aria-label="{{ label }}" class="flex flex-wrap items-center gap-1.5 mb-3">
+  {% for text, active, url in items %}{{ chip(text, active, url, hx_replace(url, target)) }}{% endfor %}
+</nav>
 {% endmacro %}
 
 

@@ -32,6 +32,17 @@ def shift_period(period_month: int, months: int) -> int:
     return (index // 12) * 100 + index % 12 + 1
 
 
+def period_start(period_month: int) -> date:
+    """``202610`` -> 1 October 2026."""
+    year, month = divmod(period_month, 100)
+    return date(year, month, 1)
+
+
+def period_days(period_month: int) -> int:
+    """How many days the month has."""
+    return calendar.monthrange(*divmod(period_month, 100))[1]
+
+
 def period_label(period_month: int) -> str:
     """``202610`` -> ``October 2026``."""
     return f"{calendar.month_name[period_month % 100]} {period_month // 100}"

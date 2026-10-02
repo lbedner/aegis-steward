@@ -85,11 +85,12 @@ from app.services.finance.domains.ledger.queries.merchants import (
 )
 from app.services.finance.domains.ledger.queries.networth import (
     account_rollup,
-    balance_class_series,
+    balance_series,
     balance_snapshots_between,
     connection_rollup,
     daily_register_deltas,
     holding_quantities,
+    house_account_ids,
     live_accounts_for_owner,
     net_worth_series_since,
     net_worth_snapshots_between,
@@ -131,7 +132,8 @@ __all__ = [
     "accounts_page",
     "alias_by_normalized_global",
     "all_categories",
-    "balance_class_series",
+    "balance_series",
+    "house_account_ids",
     "balance_snapshots_between",
     "categories",
     "categorized_history",
