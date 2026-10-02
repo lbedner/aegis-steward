@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from datetime import date
+from typing import Any
 
 from sqlalchemy import func
 from sqlmodel import col, select
@@ -56,7 +57,14 @@ def spend_filters(
     return filters
 
 
-_spend_filters = spend_filters
+def split_lines(statement: Any) -> Any:
+    """``statement`` over split lines, each joined to the parent it stands
+    in for: a split parent stops counting and its lines count instead.
+    The other half of every split-aware read is ``is_split`` False."""
+    return statement.join(
+        FinanceTransaction,
+        FinanceTransaction.id == FinanceTransactionSplit.parent_transaction_id,
+    ).where(FinanceTransaction.is_split.is_(True))
 
 
 async def spend_by_category(
@@ -64,11 +72,12 @@ async def spend_by_category(
     *,
     owner_user_id: int | None,
     start: date,
-    end: date,
+    end: date | None = None,
     category_ids: Iterable[int],
 ) -> dict[int, int]:
-    """Positive cents spent per category over ``[start, end)`` - two
-    queries regardless of how many categories are asked for.
+    """Positive cents spent per category from ``start`` (before ``end``
+    when given) - two queries regardless of how many categories are
+    asked for.
 
     Split-aware: a split parent's own category stops counting and its
     lines count instead (same window/account predicate, applied to the
@@ -76,7 +85,7 @@ async def spend_by_category(
     wanted = set(category_ids)
     if not wanted:
         return {}
-    filters = _spend_filters(owner_user_id, start, end)
+    filters = spend_filters(owner_user_id, start, end)
     parent_rows = (
         await db.exec(
             select(
@@ -93,19 +102,13 @@ async def spend_by_category(
     ).all()
     split_rows = (
         await db.exec(
-            select(
-                FinanceTransactionSplit.category_id,
-                func.sum(FinanceTransactionSplit.amount),
+            split_lines(
+                select(
+                    FinanceTransactionSplit.category_id,
+                    func.sum(FinanceTransactionSplit.amount),
+                )
             )
-            .join(
-                FinanceTransaction,
-                FinanceTransaction.id == FinanceTransactionSplit.parent_transaction_id,
-            )
-            .where(
-                *filters,
-                FinanceTransaction.is_split.is_(True),
-                FinanceTransactionSplit.category_id.in_(wanted),
-            )
+            .where(*filters, FinanceTransactionSplit.category_id.in_(wanted))
             .group_by(FinanceTransactionSplit.category_id)
         )
     ).all()
@@ -132,7 +135,7 @@ async def spend_by_payee_key(
     wanted = set(payee_keys)
     if not wanted:
         return {}
-    filters = _spend_filters(owner_user_id, start, end)
+    filters = spend_filters(owner_user_id, start, end)
     rows = (
         await db.exec(
             select(

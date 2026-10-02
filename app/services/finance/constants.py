@@ -173,6 +173,26 @@ FREQUENCY_LABELS: dict[str, str] = {
     key: cadence.label for key, cadence in CADENCES.items()
 }
 
+# A goal: how its target is sized, how it is funded, where it stands, and
+# the most months of expenses a target can ask for. The forms offer the
+# labels; the schemas and the goal metadata check against the keys.
+GOAL_TARGET_RULES: dict[str, str] = {
+    "fixed": "A fixed amount",
+    "months_of_expenses": "Months of expenses",
+}
+GOAL_CONTRIBUTION_KINDS: dict[str, str] = {
+    "fixed": "A fixed amount each month",
+    "percent_income": "A percent of income",
+    "surplus": "Whatever the month leaves over",
+}
+GOAL_STATUSES = ("active", "paused", "reached")
+GOAL_MAX_TARGET_FACTOR = 120
+
+# What an envelope's credit can repeat on.
+ENVELOPE_CADENCES: dict[str, str] = {
+    key: FREQUENCY_LABELS[key] for key in ("weekly", "monthly")
+}
+
 # What the add/edit bill forms offer: the cadences plus "One time" - a
 # dated debt ("pay Bob back on the 15th") is a bill, not a rhythm, so it
 # is statable here but never appears in cadence-only surfaces (detection,

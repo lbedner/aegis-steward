@@ -49,6 +49,7 @@ class BudgetPanelState(FinancePanel):  # type: ignore[misc]
     _subtab_index: int
     _suggestion_selection: Any
     _suggestions: Any
+    _suggestion_window: int
     _summary: dict[str, Any] | None
 
     if TYPE_CHECKING:  # the real definitions live on the mixins / panel

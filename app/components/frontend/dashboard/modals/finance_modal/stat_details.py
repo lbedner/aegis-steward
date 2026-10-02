@@ -28,33 +28,6 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import _u
 from app.components.frontend.theme import AegisTheme as Theme
 
 
-def equation_rows(stats: dict[str, Any]) -> list[dict[str, Any]]:
-    """The month verdict as its own arithmetic, line by line - built from
-    the SAME stats dict the strip renders, so the popup and the cells can
-    never disagree. Zero terms stay out (a fresh install's equation is
-    three lines, not six)."""
-    rows: list[dict[str, Any]] = [
-        {"label": "Income", "value": stats.get("income_total", 0), "caption": None},
-        {"label": "Bills", "value": -stats.get("fixed_total", 0), "caption": None},
-        {
-            "label": "Budgets",
-            "value": -stats.get("flexible_allocated", 0),
-            "caption": None,
-        },
-    ]
-    for label, key in (
-        ("Goals", "goals_total"),
-        ("Envelopes", "envelopes_total"),
-        ("Everything else", "everything_else"),
-    ):
-        if stats.get(key, 0):
-            rows.append({"label": label, "value": -stats[key], "caption": None})
-    rows.append(
-        {"label": "This month", "value": stats.get("month_net", 0), "caption": None}
-    )
-    return rows
-
-
 def _heading(text: str, *, top: int = 0, upper: bool = True) -> ft.Control:
     """A caption line, padded like the panel's rows (the sidebar's own
     group-header treatment)."""
@@ -174,41 +147,3 @@ class StatDetailPopup(Dropdown):
         )
         self.close()
         self._toggle(e)  # type: ignore[arg-type]
-
-
-def stat_detail_caption(row: dict[str, Any]) -> str | None:
-    """Caption for one stat-detail row - the copy lives with the surface.
-
-    The service ships data only: a sub-monthly bill carries its cadence
-    and face value, an everything-else row carries its transaction count.
-    """
-    count = row.get("transaction_count")
-    if count is not None:
-        return f"{count} row{'s' if count != 1 else ''}"
-    frequency = row.get("frequency")
-    if not frequency:
-        return None
-    per_period = row.get("per_period_amount")
-    if per_period is not None:
-        return f"${per_period / 100:,.2f} {frequency}"
-    return frequency
-
-
-def _captioned(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [{**row, "caption": stat_detail_caption(row)} for row in rows]
-
-
-def stat_window_label(details: dict[str, Any]) -> str:
-    """ "May - Jul 2026 average" from the [start, end) window bounds."""
-    from datetime import date as date_cls
-
-    try:
-        start = date_cls.fromisoformat(str(details.get("window_start")))
-        end = date_cls.fromisoformat(str(details.get("window_end")))
-    except (TypeError, ValueError):
-        return ""
-    last_year, last_month = end.year, end.month - 1
-    if last_month == 0:
-        last_year, last_month = last_year - 1, 12
-    last = date_cls(last_year, last_month, 1)
-    return f"{start.strftime('%b')} - {last.strftime('%b %Y')} average"

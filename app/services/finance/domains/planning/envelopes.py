@@ -18,7 +18,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import format_money
 from app.core.time import utcnow
+from app.services.finance.constants import CADENCES, ENVELOPE_CADENCES
 from app.services.finance.domains.ledger import accounts, valuations
 from app.services.finance.domains.ledger import queries as ledger_queries
 from app.services.finance.domains.planning import queries
@@ -27,7 +29,6 @@ from app.services.finance.models import (
 )
 
 ENVELOPE_ACCOUNT_TYPE = "envelope"
-ENVELOPE_CADENCES = ("weekly", "monthly")
 
 _MARKER_KEY = "envelope"
 _CREDIT_KEY = "envelope_monthly_credit"
@@ -63,6 +64,12 @@ class EnvelopeMeta(BaseModel):
     tag_id: int | None = Field(default=None, alias=TAG_KEY)
     tag_since: date | None = Field(default=None, alias=TAG_SINCE_KEY)
     tag_counted: int = Field(default=0, alias=TAG_COUNTED_KEY)
+
+    @property
+    def monthly_amount(self) -> int:
+        """The credit as a monthly figure: a weekly $20 is $86.66."""
+        factor = CADENCES[self.cadence].monthly_factor
+        return int((self.monthly_credit or 0) * factor)
 
 
 def envelope_metadata(metadata: dict[str, Any] | None) -> EnvelopeMeta | None:
@@ -281,6 +288,29 @@ async def update_envelope(
     return account
 
 
+def credit_caption(meta: EnvelopeMeta) -> str:
+    """How the envelope fills: ``+$20.00/wk automatically``, or by hand."""
+    if not (meta.auto_credit and meta.monthly_credit):
+        return "topped up by hand"
+    per = "wk" if meta.cadence == "weekly" else "mo"
+    return f"{format_money(meta.monthly_credit, signed=True)}/{per} automatically"
+
+
+async def auto_credited(
+    db: AsyncSession, *, owner_user_id: int | None
+) -> list[tuple[FinanceAccount, EnvelopeMeta]]:
+    """The envelopes that credit themselves, with their facts. Their
+    allowance leaves the month whether or not anyone clicks; a manual
+    envelope asks nothing, because crediting it is a choice made live."""
+    return [
+        (account, meta)
+        for account in await list_envelopes(db, owner_user_id=owner_user_id)
+        if (meta := envelope_metadata(account.metadata_)) is not None
+        and meta.auto_credit
+        and meta.monthly_credit
+    ]
+
+
 async def auto_credit_envelopes(
     db: AsyncSession, *, owner_user_id: int | None, today: date
 ) -> int:
@@ -288,10 +318,7 @@ async def auto_credit_envelopes(
     monthly credit as an ``envelope_auto`` valuation. Idempotent per
     month via the distinct source - catch-up safe."""
     booked = 0
-    for account in await list_envelopes(db, owner_user_id=owner_user_id):
-        meta = envelope_metadata(account.metadata_)
-        if meta is None or not meta.auto_credit or not meta.monthly_credit:
-            continue
+    for account, meta in await auto_credited(db, owner_user_id=owner_user_id):
         # The period's booking date IS the idempotency key: the 1st
         # for monthly, this week's Monday for weekly.
         if meta.cadence == "weekly":

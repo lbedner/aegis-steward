@@ -8,12 +8,32 @@ Money fields are integer minor units (cents); the frontend formats them.
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, computed_field, field_validator
 
-if TYPE_CHECKING:
-    pass
+from app.core.schema import known
+from app.services.finance.constants import ENVELOPE_CADENCES
+
+
+def _real_month(value: int) -> int:
+    if not (100_001 <= value <= 999_912 and 1 <= value % 100 <= 12):
+        raise ValueError("month is YYYYMM.")
+    return value
+
+
+# A budget month, YYYYMM. One check for the API and the cards.
+PeriodMonth = Annotated[int, AfterValidator(_real_month)]
+
+# What a month allows one line, in cents. More than zero: taking a limit
+# off is a removal, not a $0 limit.
+LimitCents = Annotated[int, Field(gt=0)]
+
+
+def line_label(category_name: str | None, payee_label: str | None) -> str:
+    """What every surface calls a budget line. A one-off's own name comes
+    before its category; a limit on neither target is the overall limit."""
+    return payee_label or category_name or "Overall"
 
 
 class BudgetMonthOutlook(BaseModel):
@@ -41,7 +61,8 @@ class BudgetOutlookResponse(BaseModel):
 class EnvelopeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     monthly_credit: int | None = Field(default=None, ge=0)
-    cadence: Literal["weekly", "monthly"] = "monthly"
+    cadence: str = "monthly"
+    _known_cadence = field_validator("cadence")(known(tuple(ENVELOPE_CADENCES)))
     starting_balance: int = Field(default=0, ge=0)
 
 
@@ -50,7 +71,8 @@ class EnvelopeUpdate(BaseModel):
 
     monthly_credit: int | None = Field(default=None, ge=0)
     auto_credit: bool = False
-    cadence: Literal["weekly", "monthly"] = "monthly"
+    cadence: str = "monthly"
+    _known_cadence = field_validator("cadence")(known(tuple(ENVELOPE_CADENCES)))
     # The tag whose charges it pays for (#240): None leaves it as it is,
     # "" stops following one.
     tag: str | None = None
@@ -73,6 +95,9 @@ class EnvelopeResponse(BaseModel):
     monthly_credit: int | None
     auto_credit: bool
     cadence: str
+    # How it fills, worded once for both frontends:
+    # "+$20.00/wk automatically", or "topped up by hand".
+    credit_caption: str
     # What it pays for: charges wearing this tag, from this date (#240).
     tag: str | None = None
     tag_since: date | None = None
@@ -94,6 +119,9 @@ class BudgetSuggestion(BaseModel):
     # +/-50% of the median). 0 is a category that never varies; more than
     # one and it is not suggested at all.
     unusual_months: int
+    # Those two counts as the row says them, worded once for both
+    # frontends: "6 of 6 months · 1 month stood out".
+    evidence: str
 
 
 class DismissedBudgetSuggestion(BaseModel):
@@ -106,6 +134,8 @@ class DismissedBudgetSuggestion(BaseModel):
 class BudgetSuggestionListResponse(BaseModel):
     items: list[BudgetSuggestion]
     total: int
+    # The complete months the picks were read from.
+    lookback_months: int
     dismissed: list[DismissedBudgetSuggestion] = Field(default_factory=list)
 
 
@@ -121,7 +151,7 @@ class BudgetLineUpsert(BaseModel):
     category_id: int | None = None
     payee_key: str | None = None
     payee_label: str | None = None
-    allocated_amount: int
+    allocated_amount: LimitCents
     rollover_enabled: bool = False
 
 
@@ -148,6 +178,30 @@ class BudgetLineResponse(BaseModel):
     # One-time only: the day the plan lands. A one-off renders at face
     # value beside its date, never as a "/mo" figure.
     due_date: date | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def label(self) -> str:
+        """See ``line_label``. A bill always arrives with a category name,
+        so it never reads as the overall limit."""
+        return line_label(self.category_name, self.payee_label)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def spent_ratio(self) -> float:
+        """Spend against the limit. Nothing allowed and something spent
+        is wholly over, the way ``budget_line_status`` judges it."""
+        if self.allocated_amount > 0:
+            return self.spent_amount / self.allocated_amount
+        return 1.0 if self.spent_amount > 0 else 0.0
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def spent_percent(self) -> int:
+        """The percent every surface shows. Truncated, never rounded: the
+        tone flips at exactly 80%, and rounding 79.96% up to "80%" showed
+        a figure that had reached the threshold beside a bar that had not."""
+        return int(self.spent_ratio * 100)
 
 
 class BudgetBucketResponse(BaseModel):
@@ -247,6 +301,15 @@ class BudgetSummaryResponse(BaseModel):
     # budgets have slack to give.
     trims: list[BudgetTrimResponse] = Field(default_factory=list)
 
+    def bucket(
+        self, name: Literal["fixed", "non_monthly", "one_time", "flexible"]
+    ) -> BudgetBucketResponse:
+        """One section by name. An absent one reads as empty."""
+        return next(
+            (b for b in self.buckets if b.name == name),
+            BudgetBucketResponse(name=name, total_allocated=0, total_spent=0, lines=[]),
+        )
+
 
 class StatDetailRow(BaseModel):
     """One row of a header cell's click-through detail.
@@ -300,6 +363,8 @@ class GoalParseResponse(BaseModel):
     # the cut fraction applied - the frontend writes the sentence.
     label: str | None = None
     fraction: float | None = None
+    # The window the baseline averages, in days.
+    baseline_days: int
 
 
 class SuggestionDismissResult(BaseModel):

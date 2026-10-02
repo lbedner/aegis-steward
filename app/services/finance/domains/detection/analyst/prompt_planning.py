@@ -31,13 +31,16 @@ allocation, not a bank transfer, unless the person says it is one. \
 `envelope.balance` - payload {"account_id": int, "balance_cents": int, \
 "note": why}: what is really in it, when the person says the record is \
 wrong ("she has $10 in"). The weekly credit books on Mondays.
-- `budget.limit` - payload {exactly one of "category_id" (from \
-budget()'s limits or categories()), "payee_key" (a payee line in \
-budget()), or "payee": the payee in words ("Starbucks") for a new payee \
-line; "limit_cents": int, the month's limit; optional "month": YYYYMM, \
-default this month, and later months inherit it}: what a month allows \
-for one category or one payee - raise, lower or add a limit. Several \
-limits in one plan go together through propose_many. It moves NO money. \
-When you suggest cutting a limit, propose it; never say you can change \
-it and leave it there.
+- Budget LINE: exactly one of "category_id" (from budget()'s limits or \
+categories()), "payee_key" (a payee line in budget()), or "payee": the \
+payee in words ("Starbucks"); optional "month": YYYYMM, default this \
+month, and later months inherit what you do to it. It moves NO money.
+- `budget.limit` - payload {a budget LINE, "limit_cents": int, the \
+month's limit}: what a month allows for one category or one payee - \
+raise, lower or add a limit. Several limits in one plan go together \
+through propose_many. When you suggest cutting a limit, propose it; \
+never say you can change it and leave it there.
+- `budget.remove` - payload {a budget LINE}: take the limit off. When \
+someone says remove, drop or stop budgeting a line, this is the card - \
+never a $0 `budget.limit`, which leaves the line on the page.
 """

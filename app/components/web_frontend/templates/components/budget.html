@@ -6,17 +6,17 @@
   <div class="flex flex-wrap items-center justify-between gap-4">
     <h2 class="text-lg font-semibold text-aegis-text">Does the month work?</h2>
     <nav id="month-pager" aria-label="Months ahead" class="flex flex-wrap items-center gap-1.5">
-      {% if month > 0 %}{{ chip("‹", False, path ~ "?month=" ~ (month - 1) ~ query, hx_replace(path ~ "?month=" ~ (month - 1) ~ "&tab=" ~ tab ~ query, "#budget"), 'aria-label="Previous month"') }}{% endif %}
+      {% if month > 0 %}{% set prev = pager[month - 1].url %}{{ chip("‹", False, prev, hx_replace(prev, "#budget"), 'aria-label="Previous month"') }}{% endif %}
       {% for entry in pager %}
-      {{ chip(badge(entry.label, entry.tone), entry.index == month, path ~ "?month=" ~ entry.index ~ query, hx_replace(path ~ "?month=" ~ entry.index ~ "&tab=" ~ tab ~ query, "#budget")) }}
+      {{ chip(badge(entry.label, entry.tone), entry.index == month, entry.url, hx_replace(entry.url, "#budget")) }}
       {% endfor %}
-      {% if month + 1 < pager|length %}{{ chip("›", False, path ~ "?month=" ~ (month + 1) ~ query, hx_replace(path ~ "?month=" ~ (month + 1) ~ "&tab=" ~ tab ~ query, "#budget"), 'aria-label="Next month"') }}{% endif %}
+      {% if month + 1 < pager|length %}{% set next = pager[month + 1].url %}{{ chip("›", False, next, hx_replace(next, "#budget"), 'aria-label="Next month"') }}{% endif %}
     </nav>
   </div>
   {% include "partials/budget/stats.html" %}
   {% call tab_bar("Budget views") %}
-    {% for key, label in tabs %}
-    {{ tab_item(label, key == tab, path ~ "?tab=" ~ key ~ query, hx_replace(path ~ "?tab=" ~ key ~ "&month=" ~ month ~ query, "#budget")) }}
+    {% for key, label, url in tabs %}
+    {{ tab_item(label, key == tab, url, hx_replace(url, "#budget")) }}
     {% endfor %}
   {% endcall %}
   {% include "partials/budget/" ~ tab ~ ".html" %}

@@ -43,40 +43,26 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import (
 )
 from app.components.frontend.dashboard.modals.modal_sections import status_dot
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.domains.planning.budgets import strip
+from app.services.finance.schemas import BudgetSummaryResponse
 
 
 class LinesTabMixin(BudgetPanelState):
     """The Budget sub-tab: commitments, flexible lines, limits, trims."""
 
-    def _commitments_toggle(self, buckets: dict[str, Any]) -> ft.Control:
+    def _commitments_toggle(self, summary: BudgetSummaryResponse) -> ft.Control:
         """One line standing in for both commitment sections.
 
         States the total rather than listing it: "what am I already
         committed to" is a number, and the rows behind it are Bills &
         Income's job.
         """
-        rows = 0
-        total = 0
-        for key in ("fixed", "non_monthly"):
-            bucket = buckets.get(key) or {}
-            lines = bucket.get("lines", []) or []
-            rows += len(lines)
-            total += sum(line.get("allocated_amount", 0) or 0 for line in lines)
-        one_time_total = sum(
-            line.get("allocated_amount", 0) or 0
-            for line in (buckets.get("one_time") or {}).get("lines", []) or []
-        )
 
         def _toggle(_e: ft.ControlEvent) -> None:
             self._show_commitments = not self._show_commitments
             self._render()
 
-        label = (
-            f"{_usd(total)}/month already committed across "
-            f"{rows:,} bill{'s' if rows != 1 else ''}"
-        )
-        if one_time_total:
-            label += f", plus {_usd(one_time_total)} one-time"
+        label = strip.commitments_line(summary)
         return ft.Container(
             content=ft.Row(
                 [
@@ -104,56 +90,37 @@ class LinesTabMixin(BudgetPanelState):
             on_click=_toggle,
         )
 
-    def _commitment_sections(self, buckets: dict[str, Any]) -> list[ft.Control]:
-        """The sections behind the Show-bills toggle, in render order."""
-        sections: list[ft.Control] = [
-            self._commitment_section(
-                "Fixed",
-                "Recurring, same amount every cycle - nothing to decide here",
-                buckets.get("fixed"),
-                "Not budgeted, just shown",
-            ),
-            self._commitment_section(
-                "Non-monthly",
-                "Real, recurring, just not every cycle - set aside a "
-                "monthly slice so it doesn't ambush you",
-                buckets.get("non_monthly"),
-                "Set aside",
-            ),
-        ]
-        if one_time := one_time_section(buckets.get("one_time")):
-            sections.append(one_time)
+    def _commitment_sections(self, summary: BudgetSummaryResponse) -> list[ft.Control]:
+        """The sections behind the Show-bills toggle, in render order, named
+        the way the web names them."""
+        sections: list[ft.Control] = []
+        for key, title, note in strip.COMMITMENT_BUCKETS:
+            bucket = summary.bucket(key).model_dump(mode="json")
+            if key == "one_time":
+                if one_time := one_time_section(bucket, title, note):
+                    sections.append(one_time)
+            else:
+                sections.append(self._commitment_section(title, note, bucket))
         return sections
 
     # -- Fixed / Non-monthly: context only, no limit to set or remove ----
 
     def _commitment_section(
-        self,
-        title: str,
-        subtitle: str,
-        bucket: dict[str, Any] | None,
-        caption_prefix: str,
+        self, title: str, note: str, bucket: dict[str, Any]
     ) -> ft.Control:
-        lines = (bucket or {}).get("lines", [])
-        total = (bucket or {}).get("total_allocated", 0)
-        header = ft.Row(
-            [H3Text(title), SecondaryText(subtitle)],
-            spacing=Theme.Spacing.SM,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
+        lines = bucket["lines"]
         if not lines:
-            body: ft.Control = SecondaryText(f"No {title.lower()} bills detected yet.")
+            body: ft.Control = SecondaryText("None this month.")
         else:
             body = budget_lines_grid([self._commitment_row(line) for line in lines])
         return SectionCard(
-            title=header,
+            title=H3Text(title),
             body=body,
-            actions=[SecondaryText(f"{caption_prefix} - {_usd(total)}/mo")],
+            actions=[SecondaryText(f"{_usd(bucket['total_allocated'])} {note}")],
             body_padding=Theme.Spacing.MD,
         )
 
     def _commitment_row(self, line: dict[str, Any]) -> ft.Control:
-        label = line.get("category_name") or "Uncategorized"
         variance = line.get("variance_amount")
         if variance is None:
             status = status_dot(
@@ -170,7 +137,7 @@ class LinesTabMixin(BudgetPanelState):
             )
         return ft.Row(
             [
-                TableNameText(label),
+                TableNameText(line["label"]),
                 ft.Container(expand=True),
                 NumericText(f"{_usd(line.get('allocated_amount', 0))} /mo", size=14),
                 status,
@@ -209,13 +176,7 @@ class LinesTabMixin(BudgetPanelState):
         )
 
     def _line_row(self, line: dict[str, Any]) -> ft.Control:
-        label = line.get("category_name") or line.get("payee_label") or "Overall"
-        progress = compact_budget_row(
-            label,
-            line.get("allocated_amount", 0),
-            line.get("spent_amount", 0),
-            line.get("status", "good"),
-        )
+        progress = compact_budget_row(line)
         # The bar itself opens the editor: a limit you cannot change
         # without deleting and re-adding it is not a dial, and tuning
         # one and watching the month react is the whole loop this tab
@@ -245,7 +206,6 @@ class LinesTabMixin(BudgetPanelState):
         """Change one limit's amount. Everything else about the line -
         its category or payee - is what identifies it, so the dialog
         edits the single number that is a decision."""
-        label = line.get("category_name") or line.get("payee_label") or "Overall"
         amount = FormTextField(
             label="Monthly limit ($)",
             value=f"{line.get('allocated_amount', 0) / 100:.2f}",
@@ -267,7 +227,7 @@ class LinesTabMixin(BudgetPanelState):
         spent = line.get("spent_amount", 0)
         dialog = StyledAlertDialog(
             handle=dialog_handle,
-            title=f"Limit for {label}",
+            title=f"Limit for {line['label']}",
             body=ft.Column(
                 [
                     amount,

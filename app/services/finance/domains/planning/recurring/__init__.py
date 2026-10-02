@@ -18,6 +18,10 @@ from app.services.finance.domains.planning.recurring import (
 from app.services.finance.domains.planning.recurring.amounts import (
     recompute_stream_amounts,
 )
+from app.services.finance.domains.planning.recurring.book import (
+    StreamBook,
+    stream_book,
+)
 from app.services.finance.domains.planning.recurring.forecast import (
     budget_drawdowns,
     goal_drawdowns,
@@ -53,6 +57,7 @@ from app.services.finance.domains.planning.recurring.streams import (
 
 __all__ = [
     "Occurrence",
+    "StreamBook",
     "_STREAM_DIRECTIONS",
     "_STREAM_FREQUENCIES",
     "attach_transaction_to_stream",
@@ -77,6 +82,7 @@ __all__ = [
     "recurring_match_candidates",
     "resume_recurring",
     "schedule",
+    "stream_book",
     "stream_category_names",
     "streams",
     "transfer_stream_ids",

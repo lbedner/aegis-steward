@@ -83,7 +83,7 @@ def plan_budget_trims(
             BudgetTrimResponse(
                 kind="cut_budget",
                 id=line.id,
-                label=line.category_name or line.payee_label or "Overall",
+                label=line.label,
                 category_id=line.category_id,
                 payee_key=line.payee_key,
                 allocated_amount=line.allocated_amount,

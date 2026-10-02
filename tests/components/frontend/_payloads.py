@@ -12,10 +12,13 @@ validation error, not a silently ignored dict key.
 from typing import Any
 
 
-def budget_line(**overrides: Any) -> dict[str, Any]:
+def budget_line_model(**overrides: Any) -> Any:
+    """A flexible limit as the server builds one: unless a test says
+    otherwise, its status is what its figures earn."""
+    from app.services.finance.domains.planning.budgets import budget_line_status
     from app.services.finance.schemas import BudgetLineResponse
 
-    defaults: dict[str, Any] = {
+    fields: dict[str, Any] = {
         "id": 1,
         "category_id": 10,
         "category_name": "Food & Dining:Groceries",
@@ -23,9 +26,17 @@ def budget_line(**overrides: Any) -> dict[str, Any]:
         "payee_label": None,
         "allocated_amount": 100_000,
         "spent_amount": 40_000,
-        "status": "good",
+        **overrides,
     }
-    return BudgetLineResponse(**{**defaults, **overrides}).model_dump(mode="json")
+    fields.setdefault(
+        "status",
+        budget_line_status(fields["allocated_amount"], fields["spent_amount"]),
+    )
+    return BudgetLineResponse(**fields)
+
+
+def budget_line(**overrides: Any) -> dict[str, Any]:
+    return budget_line_model(**overrides).model_dump(mode="json")
 
 
 def bucket(

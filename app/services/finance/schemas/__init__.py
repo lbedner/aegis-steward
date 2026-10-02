@@ -53,9 +53,12 @@ from app.services.finance.schemas.budgets import (
     GoalAsk,
     GoalParseRequest,
     GoalParseResponse,
+    LimitCents,
+    PeriodMonth,
     StatDetailRow,
     SuggestionDismissResult,
     SuggestionRestoreResult,
+    line_label,
 )
 from app.services.finance.schemas.categorization import (
     CategoryCreate,
@@ -250,6 +253,7 @@ __all__ = [
     "InvestmentImportResultResponse",
     "InstitutionUsage",
     "LiabilitySummary",
+    "LimitCents",
     "LinkTokenResponse",
     "ManualAccountCreate",
     "MerchantAssign",
@@ -269,6 +273,7 @@ __all__ = [
     "PayeeGroupListResponse",
     "PayeeListResponse",
     "PayeeTotal",
+    "PeriodMonth",
     "PlaidExchangeRequest",
     "ProjectionPoint",
     "ProjectionResponse",
@@ -325,4 +330,5 @@ __all__ = [
     "ValuationListResponse",
     "ValuationResponse",
     "WebhookAckResult",
+    "line_label",
 ]

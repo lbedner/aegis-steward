@@ -17,8 +17,6 @@ from app.components.frontend.dashboard.modals.finance_modal.accounts_tab import 
 )
 from app.components.frontend.dashboard.modals.finance_modal.budget_cards import (
     budget_lines_grid,
-    budget_stats_cells,
-    budget_suggestion_caption,
     close_gap_row_copy,
     compact_budget_row,
     contribution_preview,
@@ -27,9 +25,6 @@ from app.components.frontend.dashboard.modals.finance_modal.budget_cards import 
     goal_eta_caption,
     goal_suggestion_message,
     linkable_account_options,
-    outlook_chip,
-    outlook_month_label,
-    outlook_stats_cells,
     savings_goal_card,
 )
 from app.components.frontend.dashboard.modals.finance_modal.budget_panel import (
@@ -95,10 +90,7 @@ from app.components.frontend.dashboard.modals.finance_modal.sidebar import (
 )
 from app.components.frontend.dashboard.modals.finance_modal.stat_details import (
     StatDetailPopup,
-    equation_rows,
-    stat_detail_caption,
     stat_detail_panel,
-    stat_window_label,
 )
 from app.components.frontend.dashboard.modals.finance_modal.trades_view import (
     trade_detail_sections,
@@ -163,8 +155,6 @@ __all__ = [
     "UncategorizedPanel",
     "apply_category_picks",
     "budget_lines_grid",
-    "budget_stats_cells",
-    "budget_suggestion_caption",
     "close_gap_row_copy",
     "compact_budget_row",
     "contribution_preview",
@@ -173,7 +163,6 @@ __all__ = [
     "goal_shortfall_caption",
     "target_note_copy",
     "envelope_card",
-    "equation_rows",
     "fetch_tag_options",
     "goal_amounts_line",
     "goal_eta_caption",
@@ -185,16 +174,11 @@ __all__ = [
     "investment_import_summary_body",
     "investment_target_options",
     "linkable_account_options",
-    "outlook_chip",
-    "outlook_month_label",
-    "outlook_stats_cells",
     "post_tag",
     "register_columns",
     "register_count_label",
     "savings_goal_card",
-    "stat_detail_caption",
     "stat_detail_panel",
-    "stat_window_label",
     "trade_detail_sections",
     "trades_within_page",
     "transaction_detail_hero",

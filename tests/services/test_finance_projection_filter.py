@@ -13,7 +13,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection import detect_recurring, detect_transfers
 from app.services.finance.service import FinanceService
-from tests.services._finance_factories import declare_bill, seed_stream, seed_txn
+from tests.services._finance_factories import (
+    budget_points,
+    declare_bill,
+    seed_limit,
+    seed_stream,
+    seed_txn,
+)
 
 
 async def _bill(svc, db, account_id, name, cents):
@@ -294,20 +300,13 @@ class TestTheCardPaymentCoversWhatWasSpentOnIt:
                 name="Whole Foods Market",
                 category_id=groceries.id,
             )
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=202608,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=40_000,
-        )
+        await seed_limit(svc, groceries.id, 40_000, period_month=202608)
 
         result = await svc.project_balances(
             owner_user_id=1, days=60, today=date(2026, 8, 2)
         )
 
-        drawn = [p for p in result.points if p.category == "Food:Groceries"]
+        drawn = budget_points(result, "Food:Groceries")
         assert not drawn, "the card paid for it and the envelope charged it again"
 
     @pytest.mark.asyncio
@@ -333,20 +332,13 @@ class TestTheCardPaymentCoversWhatWasSpentOnIt:
             name="Advisor",
             category_id=fees.id,
         )
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=202608,
-            category_id=fees.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=10_000,
-        )
+        await seed_limit(svc, fees.id, 10_000, period_month=202608)
 
         result = await svc.project_balances(
             owner_user_id=1, days=60, today=date(2026, 8, 2)
         )
 
-        assert [p for p in result.points if p.category == "Fees:Advisory"], (
+        assert budget_points(result, "Fees:Advisory"), (
             "a brokerage row silenced an envelope as if a card paid it"
         )
 
@@ -374,20 +366,13 @@ class TestTheCardPaymentCoversWhatWasSpentOnIt:
                 name="Shell",
                 category_id=fuel.id,
             )
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=202608,
-            category_id=fuel.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=12_000,
-        )
+        await seed_limit(svc, fuel.id, 12_000, period_month=202608)
 
         result = await svc.project_balances(
             owner_user_id=1, days=60, today=date(2026, 8, 2)
         )
 
-        assert [p for p in result.points if p.category == "Auto:Fuel"], (
+        assert budget_points(result, "Auto:Fuel"), (
             "an unpaid card's spending was treated as settled"
         )
 
@@ -398,19 +383,12 @@ class TestTheCardPaymentCoversWhatWasSpentOnIt:
         """The suppression is about overlap, not about having a card."""
         _checking, _card = await self._household(svc, async_db_session)
         childcare = await svc.get_or_create_category_from_hint("Family:Childcare")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=202608,
-            category_id=childcare.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=60_000,
-        )
+        await seed_limit(svc, childcare.id, 60_000, period_month=202608)
 
         result = await svc.project_balances(
             owner_user_id=1, days=60, today=date(2026, 8, 2)
         )
 
-        assert [p for p in result.points if p.category == "Family:Childcare"], (
+        assert budget_points(result, "Family:Childcare"), (
             "an envelope nothing else covers was dropped"
         )

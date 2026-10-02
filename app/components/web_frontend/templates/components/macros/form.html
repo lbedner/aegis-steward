@@ -328,6 +328,14 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 <button type="button" {{ attrs|safe }} {% if vals is not none %}hx-vals='{{ vals|tojson }}'{% endif %} class="{{ button_classes(tone, "xs") }} whitespace-nowrap">{{ label }}</button>
 {% endmacro %}
 
+{# Which limit a form sets: a category, a payee key, or neither (the
+   overall limit). The row's own form and the goal parser's Confirm. #}
+{% macro target_inputs(category_id, payee_key, payee_label) %}
+<input type="hidden" name="category_id" value="{{ category_id or '' }}">
+<input type="hidden" name="payee_key" value="{{ payee_key or '' }}">
+<input type="hidden" name="payee_label" value="{{ payee_label or '' }}">
+{% endmacro %}
+
 {# ``extra`` rides along for the one input a script drives (the split's
    remainder line, made read-only by the page). #}
 {% macro money_input(name, value=None, placeholder="0.00", extra="") %}

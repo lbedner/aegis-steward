@@ -9,12 +9,17 @@ as _account``) so call sites stay short.
 
 Keep factories SUPERSETS: add keywords with the old defaults, never
 change a default - fifteen files inherit it.
+
+The readers at the bottom are the same idea for reading back: one way
+to pick a limit's projection points, one way to count queries.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from typing import Any
+
+from sqlalchemy import event
 
 from app.services.finance.models import FinanceCategory
 from app.services.finance.service import FinanceService
@@ -111,6 +116,27 @@ async def seed_txn(
     )
 
 
+async def seed_limit(
+    svc: FinanceService,
+    category_id: int | None,
+    cents: int,
+    *,
+    owner_user_id: int | None = 1,
+    period_month: int | None = None,
+):
+    """One limit on a category (or on nothing: the overall limit). The
+    canonical call; files with their own argument conventions keep a
+    two-line wrapper that delegates here."""
+    return await svc.upsert_budget_line(
+        owner_user_id=owner_user_id,
+        period_month=period_month,
+        category_id=category_id,
+        payee_key=None,
+        payee_label=None,
+        allocated_amount=cents,
+    )
+
+
 async def seed_payee_txn(
     svc: FinanceService,
     account_id: int,
@@ -200,3 +226,30 @@ async def seed_merchant(db: Any, name: str, owner_user_id: int | None = None):
     db.add(row)
     await db.flush()
     return row
+
+
+# -- reading back ---------------------------------------------------------
+
+
+def budget_points(result: Any, category: str) -> list[Any]:
+    """A projection's draws for one category's limit. A budget point has
+    no stream: a bill on the same category is not one."""
+    return [p for p in result.points if p.stream_id is None and p.category == category]
+
+
+class QueryCounter:
+    """Counts statements hitting the database through a sync engine."""
+
+    def __init__(self, async_engine: Any) -> None:
+        self._engine = async_engine.sync_engine
+        self.count = 0
+
+    def _increment(self, *args: object, **kwargs: object) -> None:
+        self.count += 1
+
+    def __enter__(self) -> QueryCounter:
+        event.listen(self._engine, "before_cursor_execute", self._increment)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        event.remove(self._engine, "before_cursor_execute", self._increment)

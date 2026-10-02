@@ -112,7 +112,9 @@ def with_dollars(value: Any) -> Any:
     return out
 
 
-def format_money(cents: int | None, currency: str = "USD", whole: bool = False) -> str:
+def format_money(
+    cents: int | None, currency: str = "USD", whole: bool = False, signed: bool = False
+) -> str:
     """Minor units -> ``-$1,234.56`` (the Flet register's ``_usd`` rule,
     widened to honour the currency code).
 
@@ -120,7 +122,8 @@ def format_money(cents: int | None, currency: str = "USD", whole: bool = False) 
     than precision - a month chip reading ``Nov $4,208`` where the
     figure is a projection, not a statement. It is the only reason to
     format money any other way, which is why it lives here instead of in
-    the f-string that wanted it.
+    the f-string that wanted it. ``signed`` marks money arriving with a
+    ``+``, for a figure whose sign is the point.
     """
     code = (currency or "USD").upper()
     if code in ZERO_DECIMAL_CURRENCIES:
@@ -131,7 +134,7 @@ def format_money(cents: int | None, currency: str = "USD", whole: bool = False) 
     else:
         value = (cents or 0) / 100
         number = f"{abs(value):,.2f}"
-    sign = "-" if value < 0 else ""
+    sign = "-" if value < 0 else "+" if signed and value > 0 else ""
     symbol = CURRENCY_SYMBOLS.get(code)
     return f"{sign}{symbol}{number}" if symbol else f"{sign}{code} {number}"
 

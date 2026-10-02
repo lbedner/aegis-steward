@@ -12,6 +12,7 @@ from datetime import date
 import pytest
 
 from app.services.finance.service import FinanceService
+from tests.services._finance_factories import budget_points, seed_limit
 
 TODAY = date(2026, 8, 2)
 
@@ -27,19 +28,8 @@ async def _world(svc: FinanceService) -> tuple[int, int, int]:
     )
     await svc.assign_subject(theirs.id, dad.id, owner_user_id=1)
     groceries = await svc.get_or_create_category_from_hint("Food:Groceries")
-    await svc.upsert_budget_line(
-        owner_user_id=1,
-        period_month=202608,
-        category_id=groceries.id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=40_000,
-    )
+    await seed_limit(svc, groceries.id, 40_000, period_month=202608)
     return ours.id, theirs.id, dad.id
-
-
-def _budget(result) -> list:
-    return [p for p in result.points if p.category == "Food:Groceries"]
 
 
 class TestWhoseBudget:
@@ -49,7 +39,7 @@ class TestWhoseBudget:
     ) -> None:
         await _world(svc)
         result = await svc.project_balances(owner_user_id=1, days=60, today=TODAY)
-        assert _budget(result)
+        assert budget_points(result, "Food:Groceries")
 
     @pytest.mark.asyncio
     async def test_someone_elses_account_alone_draws_none(
@@ -59,15 +49,19 @@ class TestWhoseBudget:
         result = await svc.project_balances(
             owner_user_id=1, days=60, today=TODAY, account_ids=[theirs]
         )
-        assert not _budget(result), "the household budget bled into Dad's account"
+        assert not budget_points(result, "Food:Groceries"), (
+            "the household budget bled into Dad's account"
+        )
 
     @pytest.mark.asyncio
-    async def test_their_money_as_a_person_draws_none(self, svc: FinanceService) -> None:
+    async def test_their_money_as_a_person_draws_none(
+        self, svc: FinanceService
+    ) -> None:
         _ours, _theirs, dad = await _world(svc)
         result = await svc.project_balances(
             owner_user_id=1, days=60, today=TODAY, subject_id=dad
         )
-        assert not _budget(result)
+        assert not budget_points(result, "Food:Groceries")
 
     @pytest.mark.asyncio
     @pytest.mark.queryspy(threshold=4)  # three projections compared, on purpose
@@ -82,5 +76,7 @@ class TestWhoseBudget:
         his = await svc.project_balances(
             owner_user_id=1, days=60, today=TODAY, account_ids=[theirs]
         )
-        assert _budget(both), "the household's cash is in view, so its budget draws"
+        assert budget_points(both, "Food:Groceries"), (
+            "the household's cash is in view, so its budget draws"
+        )
         assert both.upcoming_total == mine.upcoming_total + his.upcoming_total

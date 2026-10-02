@@ -15,7 +15,7 @@
      money arriving or leaving. The two balances are levels. #}
   {{ figures([
     {"label": "Today's balance", "value": projection.start_balance|money, "negative": projection.start_balance < 0},
-    {"label": "Upcoming total", "value": ("+" if projection.upcoming_total > 0) ~ projection.upcoming_total|money, "negative": projection.upcoming_total < 0},
+    {"label": "Upcoming total", "value": projection.upcoming_total|money(signed=True), "negative": projection.upcoming_total < 0},
     {"label": "Projected balance", "value": projection.end_balance|money, "negative": projection.end_balance < 0},
   ]) }}
 {% endcall %}

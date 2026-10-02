@@ -11,8 +11,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.finance.constants import (
+    GOAL_CONTRIBUTION_KINDS,
+    GOAL_MAX_TARGET_FACTOR,
+    GOAL_STATUSES,
+    GOAL_TARGET_RULES,
+)
+
 GOAL_ACCOUNT_TYPE = "goal"
-GOAL_STATUSES = ("active", "paused", "reached")
 _TARGET_KEY = "goal_target_amount"
 _DATE_KEY = "goal_target_date"
 _MONTHLY_KEY = "goal_monthly_contribution"
@@ -35,9 +41,6 @@ _GOAL_KEYS = (
     _FACTOR_KEY,
     _SCOPE_KEY,
 )
-CONTRIBUTION_KINDS = ("fixed", "percent_income", "surplus")
-TARGET_RULES = ("fixed", "months_of_expenses")
-MAX_TARGET_FACTOR = 120
 DEFAULT_PRIORITY = 100
 _AUTO_KEY = "goal_auto_contribute"
 
@@ -88,21 +91,22 @@ def _validated(meta: GoalMeta) -> GoalMeta:
         raise ValueError(
             f"Monthly contribution cannot be negative, got {meta.monthly_contribution}."
         )
-    if meta.contribution_kind not in CONTRIBUTION_KINDS:
+    if meta.contribution_kind not in GOAL_CONTRIBUTION_KINDS:
         raise ValueError(
             f"Unknown contribution kind {meta.contribution_kind!r}. "
-            f"Known: {', '.join(CONTRIBUTION_KINDS)}."
+            f"Known: {', '.join(GOAL_CONTRIBUTION_KINDS)}."
         )
-    if meta.target_rule not in TARGET_RULES:
+    if meta.target_rule not in GOAL_TARGET_RULES:
         raise ValueError(
-            f"Unknown target rule {meta.target_rule!r}. Known: {', '.join(TARGET_RULES)}."
+            f"Unknown target rule {meta.target_rule!r}. Known: {', '.join(GOAL_TARGET_RULES)}."
         )
     if meta.target_rule == "months_of_expenses" and not (
-        meta.target_factor is not None and 0 < meta.target_factor <= MAX_TARGET_FACTOR
+        meta.target_factor is not None
+        and 0 < meta.target_factor <= GOAL_MAX_TARGET_FACTOR
     ):
         raise ValueError(
             "months_of_expenses needs a factor in "
-            f"(0, {MAX_TARGET_FACTOR}] months; got {meta.target_factor!r}."
+            f"(0, {GOAL_MAX_TARGET_FACTOR}] months; got {meta.target_factor!r}."
         )
     if meta.target_rule == "fixed" and (
         meta.target_factor is not None or meta.target_scope

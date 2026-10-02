@@ -6,20 +6,20 @@ plus the Fixed/Non-monthly recurring split), ``parse_budget_goal``'s
 deterministic matching, and a concrete N+1 check on ``budget_summary``.
 """
 
-from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 import pytest
-from sqlalchemy import event
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import PAUSE_INDEFINITE
-from app.services.finance.schemas import BudgetLineResponse, GoalAsk
+from app.services.finance.domains.planning.allocation import goal_allocations
+from app.services.finance.schemas import BudgetLineResponse, GoalAsk, SplitPart
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
+from tests.components.frontend._payloads import budget_line_model
+from tests.services._finance_factories import QueryCounter, seed_limit, seed_stream
 from tests.services._finance_factories import seed_account as _account
 from tests.services._finance_factories import seed_category as _category
-from tests.services._finance_factories import seed_stream
 from tests.services._finance_factories import seed_txn as _txn
 
 
@@ -27,12 +27,10 @@ def _trim_line(
     id: int, label: str, allocated_amount: int, spent_amount: int
 ) -> BudgetLineResponse:
     """A flexible line as the trim planner sees it (label = category name)."""
-    return BudgetLineResponse(
+    return budget_line_model(
         id=id,
         category_id=None,
         category_name=label,
-        payee_key=None,
-        payee_label=None,
         allocated_amount=allocated_amount,
         spent_amount=spent_amount,
         status="good",
@@ -40,22 +38,6 @@ def _trim_line(
 
 
 _MONTH = 202607
-
-
-@contextmanager
-def _count_queries(async_engine):
-    count = 0
-
-    def _tick(*_args, **_kwargs):
-        nonlocal count
-        count += 1
-
-    sync_engine = async_engine.sync_engine
-    event.listen(sync_engine, "before_cursor_execute", _tick)
-    try:
-        yield lambda: count
-    finally:
-        event.remove(sync_engine, "before_cursor_execute", _tick)
 
 
 class TestGetOrCreateBudget:
@@ -83,27 +65,13 @@ class TestUpsertBudgetLine:
     ) -> None:
         groceries = await svc.get_or_create_category_from_hint("Food:Groceries")
 
-        created = await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=_MONTH,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=50_000,
-        )
+        created = await seed_limit(svc, groceries.id, 50_000, period_month=_MONTH)
         assert created.category_id == groceries.id
         assert created.allocated_amount == 50_000
         assert created.spent_amount == 0
         assert created.status == "good"
 
-        replaced = await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=_MONTH,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=75_000,
-        )
+        replaced = await seed_limit(svc, groceries.id, 75_000, period_month=_MONTH)
         # Same line, not a duplicate.
         assert replaced.id == created.id
         assert replaced.allocated_amount == 75_000
@@ -175,14 +143,7 @@ class TestBudgetSummary:
             svc, checking.id, -99_999, date(2026, 6, 15), category_id=groceries.id
         )
 
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=_MONTH,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=10_000,
-        )
+        await seed_limit(svc, groceries.id, 10_000, period_month=_MONTH)
         # The key must be the SAME normalized key ``budget_summary`` tallies
         # transactions under - a caller-chosen casing would silently miss.
         await svc.upsert_budget_line(
@@ -196,7 +157,7 @@ class TestBudgetSummary:
 
         summary = await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
         assert summary.period_month == _MONTH
-        flexible = next(b for b in summary.buckets if b.name == "flexible")
+        flexible = summary.bucket("flexible")
         by_category = {
             line.category_id: line for line in flexible.lines if line.category_id
         }
@@ -227,7 +188,7 @@ class TestBudgetSummary:
         await async_db_session.flush()
 
         summary = await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
-        fixed = next(b for b in summary.buckets if b.name == "fixed")
+        fixed = summary.bucket("fixed")
         assert len(fixed.lines) == 1
         line = fixed.lines[0]
         assert line.allocated_amount == 185_000
@@ -253,7 +214,7 @@ class TestBudgetSummary:
         await async_db_session.flush()
 
         summary = await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
-        fixed = next(b for b in summary.buckets if b.name == "fixed")
+        fixed = summary.bucket("fixed")
         line = fixed.lines[0]
         assert line.status == "warn"
         assert line.variance_amount == 800
@@ -277,7 +238,7 @@ class TestBudgetSummary:
         await async_db_session.flush()
 
         summary = await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
-        fixed = next(b for b in summary.buckets if b.name == "fixed")
+        fixed = summary.bucket("fixed")
         line = fixed.lines[0]
         assert line.status == "good"
         assert line.variance_amount == 0
@@ -289,14 +250,7 @@ class TestBudgetSummary:
         await _txn(
             svc, checking.id, -12_000, date(2026, 7, 3), category_id=groceries.id
         )
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=_MONTH,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=10_000,
-        )
+        await seed_limit(svc, groceries.id, 10_000, period_month=_MONTH)
         await seed_stream(
             svc,
             name="Rent",
@@ -331,36 +285,20 @@ class TestBudgetSummary:
         await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
 
         for cat in categories[:2]:
-            await svc.upsert_budget_line(
-                owner_user_id=1,
-                period_month=_MONTH,
-                category_id=cat.id,
-                payee_key=None,
-                payee_label=None,
-                allocated_amount=1_000,
-            )
+            await seed_limit(svc, cat.id, 1_000, period_month=_MONTH)
         # Second warm-up, same reason: the first read of a month with no
         # lines of its own seeds it from the last one that had them, and
         # that one-off copy would otherwise land inside the first count.
         await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
-        with _count_queries(async_engine) as count_at_two:
+        with QueryCounter(async_engine) as at_two:
             await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
-        queries_at_two = count_at_two()
 
         for cat in categories[2:]:
-            await svc.upsert_budget_line(
-                owner_user_id=1,
-                period_month=_MONTH,
-                category_id=cat.id,
-                payee_key=None,
-                payee_label=None,
-                allocated_amount=1_000,
-            )
-        with _count_queries(async_engine) as count_at_ten:
+            await seed_limit(svc, cat.id, 1_000, period_month=_MONTH)
+        with QueryCounter(async_engine) as at_ten:
             await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
-        queries_at_ten = count_at_ten()
 
-        assert queries_at_ten == queries_at_two
+        assert at_ten.count == at_two.count
 
 
 class TestAccountScoping:
@@ -396,20 +334,13 @@ class TestAccountScoping:
             svc, checking.id, -20_000, date(2026, 7, 5), category_id=groceries.id
         )
         await _txn(svc, savings.id, -5_000, date(2026, 7, 6), category_id=groceries.id)
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=_MONTH,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000, period_month=_MONTH)
 
         summary = await svc.budget_summary(
             owner_user_id=1, period_month=_MONTH, account_ids=[checking.id]
         )
         stats = summary.stats
-        flexible = next(b for b in summary.buckets if b.name == "flexible")
+        flexible = summary.bucket("flexible")
 
         assert stats.income_total == 500_000
         assert stats.income_count == 1
@@ -473,6 +404,7 @@ class TestParseBudgetGoal:
         # Copy is the frontend's job now - the service returns data only.
         assert not hasattr(result, "message")
         # $24 over ~90 days -> ~$8/mo baseline, 50% default -> ~$4 limit.
+        assert result.baseline_days == 90
         assert result.baseline_monthly == 800
         assert result.suggested_limit == 400
 
@@ -510,6 +442,31 @@ class TestParseBudgetGoal:
         assert result.matched is True
         assert result.target_type == "category"
         assert result.category_id == groceries.id
+
+    @pytest.mark.asyncio
+    async def test_a_category_counts_its_split_lines(self, svc: FinanceService) -> None:
+        """The category baseline summed whole parents by the parent's own
+        category, so a Target run split $25 groceries / $51 home read as
+        $76 of home and nothing of groceries. The limit's own spend counts
+        the split lines."""
+        checking = await _account(svc)
+        groceries = await svc.get_or_create_category_from_hint("Food:Groceries")
+        home = await svc.get_or_create_category_from_hint("Shopping:Home")
+        target = await _txn(
+            svc, checking.id, -7_600, _days_ago(5), name="Target", category_id=home.id
+        )
+        await svc.split_transaction(
+            target.id,
+            [SplitPart(amount=2_500, category_id=groceries.id)],
+            owner_user_id=1,
+        )
+
+        result = await svc.parse_budget_goal(
+            owner_user_id=1, text="cut back on groceries"
+        )
+
+        assert result.category_id == groceries.id
+        assert result.baseline_monthly == 2_500 // 3
 
     @pytest.mark.asyncio
     async def test_no_match_writes_nothing_and_reports_unmatched(
@@ -555,14 +512,7 @@ class TestTheMonthOutlook:
             account_id=account.id,
         )
         groceries = await _category(async_db_session, "Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=None,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000)
 
         summary = await svc.budget_summary(owner_user_id=1)
         stats = summary.stats
@@ -595,14 +545,7 @@ class TestTheMonthOutlook:
             account_id=account.id,
         )
         groceries = await _category(async_db_session, "Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=None,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000)
 
         stats = (await svc.budget_summary(owner_user_id=1)).stats
 
@@ -662,14 +605,7 @@ class TestTheMonthOutlook:
                 account_id=account.id,
             )
         groceries = await _category(async_db_session, "Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=None,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000)
 
         stats = (await svc.budget_summary(owner_user_id=1)).stats
 
@@ -793,14 +729,7 @@ class TestTrimPlan:
             account_id=account.id,
         )
         groceries = await _category(async_db_session, "Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=None,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000)
 
         summary = await svc.budget_summary(owner_user_id=1)
 
@@ -815,6 +744,39 @@ class TestGoalsJoinTheEquation:
     """GL-04 (tracker #939): active goals' monthly need rides the stats
     strip and month_net subtracts it - one arithmetic statement, checkable
     by hand: income - bills - budgets - goals = net."""
+
+    @pytest.mark.asyncio
+    async def test_the_strip_asks_what_the_goals_tab_asks(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """A fund sized in months of expenses that its stored cents call
+        full still asks once the bills have grown. The strip sized it on
+        the stored cents, with no run rate to resolve against, and asked
+        nothing while the Goals tab asked the contribution."""
+        fund = await svc.create_virtual_goal(
+            owner_user_id=1,
+            name="Emergency",
+            target_amount=1_000_000,
+            monthly_contribution=50_000,
+            target_rule="months_of_expenses",
+            target_factor=6,
+        )
+        await svc.contribute_to_goal(fund.id, amount=1_000_000, owner_user_id=1)
+        account = await _account(svc)
+        await seed_stream(
+            svc,
+            name="Rent",
+            expected_amount=300_000,
+            next_expected_date=date(2026, 8, 1),
+            account_id=account.id,
+        )
+        today = date(2026, 7, 15)
+
+        stats = (await svc.budget_summary(owner_user_id=1, today=today)).stats
+        asks = await goal_allocations(async_db_session, owner_user_id=1, today=today)
+
+        assert asks == {fund.id: 50_000}
+        assert stats.goals_total == 50_000
 
     async def _income_and_budget(self, svc: FinanceService) -> None:
         account = await _account(svc)
@@ -893,14 +855,7 @@ class TestGoalsJoinTheEquation:
             account_id=account_id,
         )
         groceries = await _category(async_db_session, "Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=None,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000)
         await svc.create_virtual_goal(
             owner_user_id=1,
             name="Vacation",
@@ -1048,16 +1003,7 @@ class TestMonthOutlook:
     ) -> None:
         await self._base(svc)
         groceries = await _category(async_db_session, "Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            # The month the outlook is asked about, not whichever month
-            # the suite runs in: allocations are keyed by period.
-            period_month=202608,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000, period_month=202608)
         await svc.create_virtual_goal(
             owner_user_id=1,
             name="Vacation",
@@ -1195,6 +1141,44 @@ class TestStatDetails:
     (commitment gate, monthly-equivalent factors) row for row; the
     everything-else rows are the run-rate bucket grouped by category, so
     the user can see WHICH spending no plan covers."""
+
+    @pytest.mark.asyncio
+    async def test_the_income_cell_is_the_sum_of_its_rows(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The cell judged a pause by the real clock and truncated one
+        float sum; the popup used the summary's day and rounded each row.
+        A pause that ends before that day and two fractional monthly
+        shares made them disagree."""
+        account = await _account(svc)
+        today = current_date() + timedelta(days=40)
+        for name in ("Paycheck", "Side gig"):
+            await seed_stream(
+                svc,
+                name=name,
+                direction="inflow",
+                frequency="biweekly",
+                expected_amount=100_001,
+                next_expected_date=today,
+                account_id=account.id,
+            )
+        rental = await seed_stream(
+            svc,
+            name="Rental",
+            direction="inflow",
+            expected_amount=50_000,
+            next_expected_date=today,
+            account_id=account.id,
+        )
+        rental.paused_until = current_date() + timedelta(days=10)
+        async_db_session.add(rental)
+        await async_db_session.flush()
+
+        stats = (await svc.budget_summary(owner_user_id=1, today=today)).stats
+        details = await svc.budget_stat_details(owner_user_id=1, today=today)
+
+        assert stats.income_total == sum(r.value for r in details.income)
+        assert stats.income_count == len(details.income) == 3
 
     @pytest.mark.asyncio
     async def test_income_and_bills_rows_mirror_the_cells(
@@ -1362,16 +1346,7 @@ class TestEverythingElse:
     ) -> None:
         account = await _account(svc)
         groceries = await _category(async_db_session, "Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            # The month the rate is asked about; None would budget
-            # whichever month the suite happens to run in.
-            period_month=202608,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=100_000,
-        )
+        await seed_limit(svc, groceries.id, 100_000, period_month=202608)
         rent = await seed_stream(
             svc,
             name="Rent",
@@ -1440,9 +1415,8 @@ def _commitment_lines(summary) -> dict[int, BudgetLineResponse]:
     its stream's - these are streams shown for context, not budget rows)."""
     return {
         line.id: line
-        for bucket in summary.buckets
-        if bucket.name in ("fixed", "non_monthly")
-        for line in bucket.lines
+        for name in ("fixed", "non_monthly")
+        for line in summary.bucket(name).lines
     }
 
 
@@ -1513,10 +1487,7 @@ class TestCommitmentLinesCarryTheirMonthlySlice:
 
         summary = await svc.budget_summary(owner_user_id=1)
         commitment_total = sum(
-            line.allocated_amount
-            for bucket in summary.buckets
-            if bucket.name in ("fixed", "non_monthly")
-            for line in bucket.lines
+            summary.bucket(name).total_allocated for name in ("fixed", "non_monthly")
         )
 
         assert commitment_total == summary.stats.fixed_total
@@ -1547,12 +1518,7 @@ class TestCommitmentLinesCarryTheirMonthlySlice:
 
 def _one_time_lines(summary) -> dict[int, BudgetLineResponse]:
     """One-time lines by stream id, same convention as ``_commitment_lines``."""
-    return {
-        line.id: line
-        for bucket in summary.buckets
-        if bucket.name == "one_time"
-        for line in bucket.lines
-    }
+    return {line.id: line for line in summary.bucket("one_time").lines}
 
 
 class TestOneTimePlansGetTheirOwnGroup:
@@ -1599,7 +1565,7 @@ class TestOneTimePlansGetTheirOwnGroup:
 
         summary = await svc.budget_summary(owner_user_id=1)
 
-        one_time = next(b for b in summary.buckets if b.name == "one_time")
+        one_time = summary.bucket("one_time")
         assert one_time.total_allocated == 354_000
         assert summary.stats.fixed_total == 0
 
@@ -1610,7 +1576,7 @@ class TestOneTimePlansGetTheirOwnGroup:
 
         summary = await svc.budget_summary(owner_user_id=1)
 
-        one_time = next(b for b in summary.buckets if b.name == "one_time")
+        one_time = summary.bucket("one_time")
         assert [line.payee_label for line in one_time.lines] == [
             "School Clothes",
             "Dentist",
@@ -1894,3 +1860,61 @@ class TestOneOffsDoNotBecomeARate:
 
         assert stats.everything_else == 30_000
         assert stats.one_off_total == 0
+
+
+class TestALineHasOneName:
+    """The rows, the dialogs, the strip's over-budget list, the trim plan
+    and the Flet card all name a line the same way, from one place."""
+
+    @pytest.mark.parametrize(
+        ("payee_label", "category_name", "label"),
+        [
+            ("Dentist", "Health", "Dentist"),  # a one-off by the name it was given
+            (None, "Groceries", "Groceries"),
+            ("Starbucks", None, "Starbucks"),
+            (None, None, "Overall"),  # a limit on neither target
+        ],
+    )
+    def test_the_label(
+        self, payee_label: str | None, category_name: str | None, label: str
+    ) -> None:
+        line = budget_line_model(
+            category_id=None, category_name=category_name, payee_label=payee_label
+        )
+        assert line.label == label
+
+    @pytest.mark.asyncio
+    async def test_a_bill_with_no_category_is_uncategorized(
+        self, svc: FinanceService
+    ) -> None:
+        """Not "Overall": that is a limit on everything, and a bill is not."""
+        await seed_stream(
+            svc,
+            name="Rent",
+            expected_amount=185_000,
+            next_expected_date=date(2026, 8, 1),
+        )
+
+        summary = await svc.budget_summary(owner_user_id=1, period_month=_MONTH)
+
+        fixed = summary.bucket("fixed")
+        assert [line.label for line in fixed.lines] == ["Uncategorized"]
+
+    @pytest.mark.asyncio
+    async def test_the_projection_names_it_the_same_way(
+        self, svc: FinanceService
+    ) -> None:
+        """The forecast called a limit on neither target "Budget"."""
+        await svc.create_manual_account(
+            name="Chase",
+            account_type="checking",
+            classification="asset",
+            owner_user_id=1,
+        )
+        await seed_limit(svc, None, 40_000, period_month=202608)
+
+        result = await svc.project_balances(
+            owner_user_id=1, days=60, today=date(2026, 8, 2)
+        )
+
+        assert {p.name for p in result.points if p.stream_id is None} == {"Overall"}

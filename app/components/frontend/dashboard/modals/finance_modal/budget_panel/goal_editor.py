@@ -38,6 +38,7 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import (
     target_note_copy,
 )
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.constants import GOAL_CONTRIBUTION_KINDS, GOAL_TARGET_RULES
 
 # Only accounts money is actually spent from can answer "months of what".
 CASH_ACCOUNT_TYPES = frozenset({"checking", "savings", "cash"})
@@ -143,10 +144,7 @@ class GoalEditorMixin(BudgetPanelState):
 
         target_rule_dd = FormDropdown(
             label="Target",
-            options=[
-                ("fixed", "A set amount"),
-                ("months_of_expenses", "Months of expenses"),
-            ],
+            options=list(GOAL_TARGET_RULES.items()),
             value=current_target_rule,
             on_change=lambda event: _paint_target(event.control.value or "fixed"),
         )
@@ -192,11 +190,7 @@ class GoalEditorMixin(BudgetPanelState):
 
         rule_dd = FormDropdown(
             label="Contribute how?",
-            options=[
-                ("fixed", "Fixed amount"),
-                ("percent_income", "% of income"),
-                ("surplus", "Whatever's left each month"),
-            ],
+            options=list(GOAL_CONTRIBUTION_KINDS.items()),
             value=current_kind,
             on_change=_rule_changed,
         )

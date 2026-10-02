@@ -361,12 +361,7 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
             "status": row.status,
         }
 
-    limits = [
-        line(row)
-        for bucket in summary.buckets
-        if bucket.name == "flexible"
-        for row in bucket.lines
-    ]
+    limits = [line(row) for row in summary.bucket("flexible").lines]
     commitments = [
         line(row)
         for bucket in summary.buckets

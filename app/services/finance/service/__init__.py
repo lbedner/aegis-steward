@@ -58,12 +58,7 @@ class FinanceService(
 
     # Mirrored so a caller holding the service can read the gate that
     # decided something without importing the domain module for it.
-    _BUDGET_BILLED_SHARE = planning_budgets._BUDGET_BILLED_SHARE
     _BUDGET_LOOKBACK_MONTHS = planning_budgets._BUDGET_LOOKBACK_MONTHS
-    _BUDGET_MAX_UNUSUAL_MONTHS = planning_budgets._BUDGET_MAX_UNUSUAL_MONTHS
-    _BUDGET_MIN_AMOUNT = planning_budgets._BUDGET_MIN_AMOUNT
-    _BUDGET_MIN_MONTHS = planning_budgets._BUDGET_MIN_MONTHS
-    _BUDGET_UNUSUAL_BAND = planning_budgets._BUDGET_UNUSUAL_BAND
     _STREAM_DIRECTIONS = planning_recurring._STREAM_DIRECTIONS
     _STREAM_FREQUENCIES = planning_recurring._STREAM_FREQUENCIES
 

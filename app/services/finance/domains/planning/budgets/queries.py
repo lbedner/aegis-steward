@@ -19,7 +19,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import add_months
-from app.services.finance.domains.planning.queries import spend_filters
+from app.services.finance.domains.planning.queries import spend_filters, split_lines
 from app.services.finance.models import (
     FinanceBudget,
     FinanceBudgetCategory,
@@ -51,6 +51,8 @@ async def monthly_budget(
 async def budget_lines_for_period(
     db: AsyncSession, budget_id: int, period_month: int
 ) -> list[FinanceBudgetCategory]:
+    """Every row of the period, removed lines included: they say the
+    month was decided. ``lines_in_force`` is the read that drops them."""
     return list(
         (
             await db.exec(
@@ -89,7 +91,8 @@ async def budget_lines_with_category(
     db: AsyncSession, budget_id: int
 ) -> list[FinanceBudgetCategory]:
     """Category-carrying lines across ALL periods, dismissal markers
-    included (period-less rows)."""
+    included (period-less rows), and removed lines too: taking a limit off
+    is a decision, not an invitation to suggest it again."""
     return list(
         (
             await db.exec(
@@ -119,52 +122,29 @@ async def dismissal_marker_lines(
     )
 
 
-async def budget_line_for_target(
-    db: AsyncSession,
-    budget_id: int,
-    *,
-    period_month: int,
-    category_id: int | None,
-    payee_key: str | None,
-) -> FinanceBudgetCategory | None:
-    """The period's line for one target: a category, a payee key, or the
-    overall (both-NULL) line."""
-    filters = [
-        FinanceBudgetCategory.budget_id == budget_id,
-        FinanceBudgetCategory.period_month == period_month,
-    ]
-    if category_id is not None:
-        filters.append(FinanceBudgetCategory.category_id == category_id)
-    elif payee_key is not None:
-        filters.append(FinanceBudgetCategory.payee_key == payee_key)
-    else:
-        filters.append(FinanceBudgetCategory.category_id.is_(None))
-        filters.append(FinanceBudgetCategory.payee_key.is_(None))
-    return (await db.exec(select(FinanceBudgetCategory).where(*filters))).first()
-
-
 async def budget_line_by_id(
     db: AsyncSession, line_id: int, *, owner_user_id: int | None = None
 ) -> FinanceBudgetCategory | None:
-    filters = [FinanceBudgetCategory.id == line_id]
+    filters = [
+        FinanceBudgetCategory.id == line_id,
+        FinanceBudgetCategory.deleted_at.is_(None),
+    ]
     if owner_user_id is not None:
         filters.append(FinanceBudgetCategory.owner_user_id == owner_user_id)
     return (await db.exec(select(FinanceBudgetCategory).where(*filters))).first()
 
 
 async def categorized_outflow_history(
-    db: AsyncSession, *, owner_user_id: int | None = None
+    db: AsyncSession, *, owner_user_id: int | None, start: date, end: date
 ) -> list[FinanceTransaction]:
-    """Live, non-transfer, categorized outflows across all time - the
-    lookback corpus budget suggestions average over."""
+    """Countable, non-transfer, categorized outflows over ``[start, end)``
+    - the corpus budget suggestions average over, under the same
+    ``spend_filters`` as every other spend figure."""
     query = select(FinanceTransaction).where(
-        FinanceTransaction.deleted_at.is_(None),
+        *spend_filters(owner_user_id, start, end),
         FinanceTransaction.is_transfer.is_(False),
-        FinanceTransaction.amount < 0,
         FinanceTransaction.category_id.is_not(None),
     )
-    if owner_user_id is not None:
-        query = query.where(FinanceTransaction.owner_user_id == owner_user_id)
     return list((await db.exec(query)).all())
 
 
@@ -200,19 +180,16 @@ async def outflow_tuples(
     ).all()
     split_rows = (
         await db.exec(
-            select(
-                FinanceTransactionSplit.category_id,
-                FinanceTransaction.merchant_name,
-                FinanceTransaction.original_description,
-                FinanceTransaction.name,
-                FinanceTransactionSplit.amount,
-                FinanceTransaction.recurring_stream_id,
-            )
-            .join(
-                FinanceTransaction,
-                FinanceTransaction.id == FinanceTransactionSplit.parent_transaction_id,
-            )
-            .where(*filters, FinanceTransaction.is_split.is_(True))
+            split_lines(
+                select(
+                    FinanceTransactionSplit.category_id,
+                    FinanceTransaction.merchant_name,
+                    FinanceTransaction.original_description,
+                    FinanceTransaction.name,
+                    FinanceTransactionSplit.amount,
+                    FinanceTransaction.recurring_stream_id,
+                )
+            ).where(*filters)
         )
     ).all()
     return [*rows, *split_rows]
@@ -248,36 +225,6 @@ async def outflow_rows(
     return list(rows)
 
 
-async def sum_amount_where(db: AsyncSession, filters: list) -> int:
-    """Signed sum of ``FinanceTransaction.amount`` under caller-built
-    predicate fragments (see ``spend_filters``)."""
-    total = (
-        await db.exec(
-            select(func.coalesce(func.sum(FinanceTransaction.amount), 0)).where(
-                *filters
-            )
-        )
-    ).one()
-    return int(total or 0)
-
-
-async def grouped_category_totals_where(db: AsyncSession, filters: list) -> list[tuple]:
-    """(category_id, count, summed amount) grouped by category under
-    caller-built predicate fragments."""
-    rows = (
-        await db.exec(
-            select(
-                FinanceTransaction.category_id,
-                func.count(),
-                func.sum(FinanceTransaction.amount),
-            )
-            .where(*filters)
-            .group_by(FinanceTransaction.category_id)
-        )
-    ).all()
-    return list(rows)
-
-
 async def category_dated_amounts_where(
     db: AsyncSession, filters: list
 ) -> list[tuple[int | None, date, int]]:
@@ -297,26 +244,6 @@ async def category_dated_amounts_where(
         )
     ).all()
     return [(row[0], row[1], int(row[2])) for row in rows]
-
-
-async def allocated_budget_lines(
-    db: AsyncSession, budget_id: int, period_month: int | None = None
-) -> list[FinanceBudgetCategory]:
-    """Lines with a positive allocation, for one period or all of them.
-
-    Allocations are per period, so a caller that means "the envelopes in
-    force now" has to say which month. Asking for all of them charged the
-    forecast once per period that ever had a budget - invisible while only
-    one period existed, and a duplicate of every line the moment a second
-    one did.
-    """
-    where = [
-        FinanceBudgetCategory.budget_id == budget_id,
-        FinanceBudgetCategory.allocated_amount > 0,
-    ]
-    if period_month is not None:
-        where.append(FinanceBudgetCategory.period_month == period_month)
-    return list((await db.exec(select(FinanceBudgetCategory).where(*where))).all())
 
 
 async def category_first_spend(

@@ -18,43 +18,43 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.domains.planning.budgets.lines import lines_in_force
 from app.services.finance.domains.writes.budgets import (
     BudgetLimitPayload,
+    BudgetRemovePayload,
     budget_limit_describe,
     budget_limit_execute,
+    budget_remove_describe,
+    budget_remove_execute,
 )
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import current_date, current_period_month
-from tests.services._finance_factories import seed_account, seed_category
+from app.services.finance.utils import (
+    current_date,
+    current_period_month,
+    shift_period,
+)
+from tests.services._finance_factories import seed_account, seed_category, seed_limit
 
 
-async def _said(db: AsyncSession, payload: BudgetLimitPayload) -> dict[str, str]:
-    return {row.label: row.value for row in await budget_limit_describe(db, payload, None)}
+async def _said(
+    db: AsyncSession, payload: BudgetLimitPayload | BudgetRemovePayload
+) -> dict[str, str]:
+    describe = (
+        budget_remove_describe
+        if isinstance(payload, BudgetRemovePayload)
+        else budget_limit_describe
+    )
+    return {row.label: row.value for row in await describe(db, payload, None)}
 
 
 async def _limit(
     db: AsyncSession, category_id: int | None, cents: int, month: int | None = None
 ) -> Any:
-    return await FinanceService(db).upsert_budget_line(
-        owner_user_id=None,
-        period_month=month,
-        category_id=category_id,
-        payee_key=None,
-        payee_label=None,
-        allocated_amount=cents,
+    return await seed_limit(
+        FinanceService(db), category_id, cents, owner_user_id=None, period_month=month
     )
 
 
 async def _month_lines(db: AsyncSession, month: int) -> dict[Any, int]:
-    budget = await FinanceService(db).get_or_create_budget(
-        owner_user_id=None, period_month=month
-    )
-    assert budget.id is not None
-    lines = await lines_in_force(db, budget_id=budget.id, period_month=month)
+    lines = await lines_in_force(db, owner_user_id=None, period_month=month)
     return {line.category_id or line.payee_key: line.allocated_amount for line in lines}
-
-
-def _next_month(month: int) -> int:
-    year, number = divmod(month, 100)
-    return (year + 1) * 100 + 1 if number == 12 else month + 1
 
 
 class TestTheCard:
@@ -66,7 +66,8 @@ class TestTheCard:
         await _limit(async_db_session, cannabis.id, 50_000)
 
         said = await _said(
-            async_db_session, BudgetLimitPayload(category_id=cannabis.id, limit_cents=30_000)
+            async_db_session,
+            BudgetLimitPayload(category_id=cannabis.id, limit_cents=30_000),
         )
 
         assert said["Limit"] == "Entertainment:Canibus"
@@ -79,7 +80,8 @@ class TestTheCard:
     ) -> None:
         eating_out = await seed_category(async_db_session, "Food & Dining:Restaurants")
         said = await _said(
-            async_db_session, BudgetLimitPayload(category_id=eating_out.id, limit_cents=30_000)
+            async_db_session,
+            BudgetLimitPayload(category_id=eating_out.id, limit_cents=30_000),
         )
         assert said["Per month"] == "none → $300.00"
 
@@ -101,7 +103,8 @@ class TestTheCard:
     ) -> None:
         with pytest.raises(ValueError, match="category"):
             await _said(
-                async_db_session, BudgetLimitPayload(category_id=999_999, limit_cents=100)
+                async_db_session,
+                BudgetLimitPayload(category_id=999_999, limit_cents=100),
             )
 
 
@@ -138,11 +141,13 @@ class TestApproving:
         groceries = await seed_category(async_db_session, "Food & Dining:Groceries")
         await _limit(async_db_session, cannabis.id, 50_000)
         await _limit(async_db_session, groceries.id, 100_000)
-        upcoming = _next_month(current_period_month())
+        upcoming = shift_period(current_period_month(), 1)
 
         await budget_limit_execute(
             async_db_session,
-            BudgetLimitPayload(category_id=cannabis.id, limit_cents=30_000, month=upcoming),
+            BudgetLimitPayload(
+                category_id=cannabis.id, limit_cents=30_000, month=upcoming
+            ),
             None,
         )
 
@@ -161,7 +166,7 @@ class TestAPayeeLine:
     async def test_a_payee_named_in_words_becomes_its_own_line(
         self, async_db_session: AsyncSession
     ) -> None:
-        """"Keep Starbucks to $150": the payee is found the way the Budget
+        """ "Keep Starbucks to $150": the payee is found the way the Budget
         page's goal box finds it, from the last 90 days of spending."""
         svc = FinanceService(async_db_session)
         account = await seed_account(svc)
@@ -191,8 +196,57 @@ class TestAPayeeLine:
     ) -> None:
         with pytest.raises(ValueError, match="payee"):
             await _said(
-                async_db_session, BudgetLimitPayload(payee="Nowhere Cafe", limit_cents=100)
+                async_db_session,
+                BudgetLimitPayload(payee="Nowhere Cafe", limit_cents=100),
             )
+
+
+class TestRemovingALimit:
+    """ "Just remove that Starbucks budget item for now" got a $0 limit, and
+    the line stayed on the budget page (#287). Remove means remove."""
+
+    @pytest.mark.asyncio
+    async def test_the_card_shows_what_goes(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        cannabis = await seed_category(async_db_session, "Entertainment:Canibus")
+        await _limit(async_db_session, cannabis.id, 50_000)
+
+        said = await _said(
+            async_db_session, BudgetRemovePayload(category_id=cannabis.id)
+        )
+
+        assert said["Limit"] == "Entertainment:Canibus"
+        assert said["Per month"] == "$500.00 → none"
+        assert "Money" in said  # removing a limit moves none
+
+    @pytest.mark.asyncio
+    async def test_approving_removes_it_from_this_month_and_the_next(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        cannabis = await seed_category(async_db_session, "Entertainment:Canibus")
+        groceries = await seed_category(async_db_session, "Food & Dining:Groceries")
+        await _limit(async_db_session, cannabis.id, 50_000)
+        await _limit(async_db_session, groceries.id, 100_000)
+
+        await budget_remove_execute(
+            async_db_session, BudgetRemovePayload(category_id=cannabis.id), None
+        )
+
+        month = current_period_month()
+        assert await _month_lines(async_db_session, month) == {groceries.id: 100_000}
+        assert await _month_lines(async_db_session, shift_period(month, 1)) == {
+            groceries.id: 100_000
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_limit_that_is_not_there_is_refused(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        cannabis = await seed_category(async_db_session, "Entertainment:Canibus")
+
+        with pytest.raises(ValueError, match="no Entertainment:Canibus limit"):
+            await _said(async_db_session, BudgetRemovePayload(category_id=cannabis.id))
 
 
 class TestThePayload:
@@ -202,6 +256,7 @@ class TestThePayload:
             {"limit_cents": 100},  # no target
             {"category_id": 1, "payee": "Starbucks", "limit_cents": 100},  # two
             {"category_id": 1, "limit_cents": -1},
+            {"category_id": 1, "limit_cents": 0},  # a removal, not a limit
             {"category_id": 1, "limit_cents": 100, "month": 202613},
         ],
     )
@@ -209,12 +264,25 @@ class TestThePayload:
         with pytest.raises(ValueError):
             BudgetLimitPayload(**fields)
 
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {},  # no target
+            {"category_id": 1, "payee": "Starbucks"},  # two
+            {"category_id": 1, "limit_cents": 0},  # a removal has no amount
+        ],
+    )
+    def test_a_removal_names_one_line(self, fields: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            BudgetRemovePayload(**fields)
 
-def test_it_is_registered_and_advertised() -> None:
+
+@pytest.mark.parametrize("change_type", ["budget.limit", "budget.remove"])
+def test_it_is_registered_and_advertised(change_type: str) -> None:
     from app.services.finance.domains import writes
     from app.services.finance.domains.detection.analyst.prompt_changes import (
         PROPOSING_CHANGES,
     )
 
-    assert "budget.limit" in writes.registered_change_types()
-    assert "`budget.limit`" in PROPOSING_CHANGES
+    assert change_type in writes.registered_change_types()
+    assert f"`{change_type}`" in PROPOSING_CHANGES

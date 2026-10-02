@@ -420,6 +420,22 @@
 {% endmacro %}
 
 
+{# The x on a row or a card. It asks first, in the ``confirm`` dialog,
+   and the answer takes the thing off the page out of band. #}
+{% macro remove_button(url, label, place="ml-auto") %}
+<button type="button" {{ hx_dialog(url) }} class="{{ place }} text-aegis-muted hover:text-error" aria-label="{{ label }}">×</button>
+{%- endmacro %}
+
+{# A grid of cards (goals, envelopes), and one card in it; ``oob``
+   re-sends the card in place after a write. #}
+{% macro item_grid(id) %}
+<ul id="{{ id }}" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{{ caller() }}</ul>
+{%- endmacro %}
+
+{% macro item_card(id, oob=False) %}
+<li id="{{ id }}" {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="raised p-4 flex flex-col gap-2">{{ caller() }}</li>
+{%- endmacro %}
+
 {# A confirmation as dialog body: what will happen, one destructive
    action (``method`` is delete or post to ``url``), and a way out. The
    action's response closes the dialog and navigates or swaps as it sees

@@ -17,16 +17,17 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.models import FinanceCategory
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_period_month
+from tests.services._finance_factories import budget_points, seed_limit, seed_stream
 from tests.services._finance_factories import seed_account as _account
 from tests.services._finance_factories import seed_category as _category
-from tests.services._finance_factories import seed_stream
 
 TODAY = date(2026, 8, 2)
 # Budget lines are keyed by period, and these tests project as of TODAY,
 # so they have to say which month they are budgeting - passing None means
 # "whatever month the suite happens to run in", which is a different
 # month's envelope than the one being walked.
-PERIOD = TODAY.year * 100 + TODAY.month
+PERIOD = current_period_month(TODAY)
 # Far enough to contain the month end the budget remainder is dated at.
 # These tests are about which amount is charged; a window that stops short
 # of month end simply has no budget point to look at.
@@ -69,6 +70,42 @@ class TestSuggestions:
         assert [p.category_id for p in picks] == [groceries.id]
         # Median of the months, not the mean - and in cents.
         assert 130_000 <= picks[0].suggested_amount <= 150_000
+
+    @pytest.mark.asyncio
+    async def test_duplicates_and_excluded_rows_are_not_spending(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The history read had a filter of its own that kept duplicates
+        and rows excluded from reports, so a month imported twice read as
+        twice the spending."""
+        account = await _account(svc)
+        groceries = await _category(async_db_session, "Food & Dining:Groceries")
+        months = {2: 300, 3: 300, 4: 300, 5: 300, 6: 300, 7: 300}
+        await _spend(svc, account.id, groceries.id, months)
+        for month in months:
+            duplicate = await svc.create_transaction(
+                account_id=account.id,
+                amount=-30_000,
+                txn_date=date(2026, month, 13),
+                owner_user_id=1,
+                name="X",
+                category_id=groceries.id,
+            )
+            duplicate.dedup_status = "duplicate"
+            excluded = await svc.create_transaction(
+                account_id=account.id,
+                amount=-30_000,
+                txn_date=date(2026, month, 14),
+                owner_user_id=1,
+                name="X",
+                category_id=groceries.id,
+            )
+            excluded.excluded_from_reports = True
+        await async_db_session.flush()
+
+        picks = await svc.suggest_budget_lines(owner_user_id=1, today=TODAY)
+
+        assert [p.suggested_amount for p in picks] == [30_000]
 
     @pytest.mark.asyncio
     async def test_a_lumpy_category_is_not(
@@ -157,14 +194,7 @@ class TestSuggestions:
             groceries.id,
             {2: 1300, 3: 1400, 4: 1350, 5: 1500, 6: 1380, 7: 1420},
         )
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=PERIOD,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=140_000,
-        )
+        await seed_limit(svc, groceries.id, 140_000, period_month=PERIOD)
 
         picks = await svc.suggest_budget_lines(owner_user_id=1, today=TODAY)
 
@@ -186,14 +216,7 @@ class TestBudgetsInTheForecast:
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         account, groceries = await self._setup(svc, async_db_session)
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=PERIOD,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=140_000,
-        )
+        await seed_limit(svc, groceries.id, 140_000, period_month=PERIOD)
 
         result = await svc.project_balances(owner_user_id=1, days=90, today=TODAY)
 
@@ -216,14 +239,7 @@ class TestBudgetsInTheForecast:
             account_id=account.id,
         )
         await svc.update_recurring(stream.id, owner_user_id=1, category_id=groceries.id)
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=PERIOD,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=140_000,
-        )
+        await seed_limit(svc, groceries.id, 140_000, period_month=PERIOD)
 
         result = await svc.project_balances(owner_user_id=1, days=90, today=TODAY)
 
@@ -480,19 +496,8 @@ class TestTheForecastStaysInSyncWithActuals:
     async def _budgeted(self, svc, db):
         account = await _account(svc)
         groceries = await _category(db, "Food & Dining:Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=PERIOD,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=self.ALLOCATED,
-        )
+        await seed_limit(svc, groceries.id, self.ALLOCATED, period_month=PERIOD)
         return account, groceries
-
-    @staticmethod
-    def _budget_points(result, name="Food & Dining:Groceries"):
-        return [p for p in result.points if p.name.startswith(name)]
 
     @pytest.mark.asyncio
     async def test_only_the_unspent_remainder_is_charged_this_month(
@@ -505,7 +510,7 @@ class TestTheForecastStaysInSyncWithActuals:
             owner_user_id=1, days=WINDOW_PAST_MONTH_END, today=TODAY
         )
 
-        points = self._budget_points(result)
+        points = budget_points(result, "Food & Dining:Groceries")
         assert len(points) == 1
         assert points[0].amount == -(self.ALLOCATED - 60_000)
 
@@ -539,7 +544,7 @@ class TestTheForecastStaysInSyncWithActuals:
             owner_user_id=1, days=WINDOW_PAST_MONTH_END, today=TODAY
         )
 
-        assert self._budget_points(result) == []
+        assert budget_points(result, "Food & Dining:Groceries") == []
 
     @pytest.mark.asyncio
     async def test_an_overspent_envelope_charges_nothing_more(
@@ -554,7 +559,7 @@ class TestTheForecastStaysInSyncWithActuals:
             owner_user_id=1, days=WINDOW_PAST_MONTH_END, today=TODAY
         )
 
-        assert self._budget_points(result) == []
+        assert budget_points(result, "Food & Dining:Groceries") == []
 
     @pytest.mark.asyncio
     async def test_the_remainder_is_dated_at_month_end(
@@ -569,7 +574,9 @@ class TestTheForecastStaysInSyncWithActuals:
             owner_user_id=1, days=WINDOW_PAST_MONTH_END, today=TODAY
         )
 
-        assert self._budget_points(result)[0].date == date(2026, 8, 31)
+        assert budget_points(result, "Food & Dining:Groceries")[0].date == date(
+            2026, 8, 31
+        )
 
 
 class TestAnOverageIsMadeUpNextMonth:
@@ -586,20 +593,9 @@ class TestAnOverageIsMadeUpNextMonth:
     async def _overspent(self, svc, db, dollars: int):
         account = await _account(svc)
         groceries = await _category(db, "Food & Dining:Groceries")
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=PERIOD,
-            category_id=groceries.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=self.ALLOCATED,
-        )
+        await seed_limit(svc, groceries.id, self.ALLOCATED, period_month=PERIOD)
         await _spend(svc, account.id, groceries.id, {8: dollars})
         return account, groceries
-
-    @staticmethod
-    def _budget_points(result):
-        return [p for p in result.points if p.name.startswith("Food & Dining")]
 
     @pytest.mark.asyncio
     async def test_an_overage_tightens_next_month(
@@ -609,7 +605,7 @@ class TestAnOverageIsMadeUpNextMonth:
 
         result = await svc.project_balances(owner_user_id=1, days=75, today=TODAY)
 
-        points = self._budget_points(result)
+        points = budget_points(result, "Food & Dining:Groceries")
         assert len(points) == 1
         assert points[0].date == date(2026, 9, 30)
         assert points[0].amount == -(self.ALLOCATED - 15_000)
@@ -624,7 +620,10 @@ class TestAnOverageIsMadeUpNextMonth:
 
         result = await svc.project_balances(owner_user_id=1, days=75, today=TODAY)
 
-        assert "overspend" in self._budget_points(result)[0].name.lower()
+        assert (
+            "overspend"
+            in budget_points(result, "Food & Dining:Groceries")[0].name.lower()
+        )
 
     @pytest.mark.asyncio
     async def test_the_carry_reaches_only_the_next_month(
@@ -635,7 +634,7 @@ class TestAnOverageIsMadeUpNextMonth:
 
         result = await svc.project_balances(owner_user_id=1, days=105, today=TODAY)
 
-        points = self._budget_points(result)
+        points = budget_points(result, "Food & Dining:Groceries")
         assert [p.amount for p in points] == [
             -(self.ALLOCATED - 15_000),
             -self.ALLOCATED,
@@ -652,7 +651,7 @@ class TestAnOverageIsMadeUpNextMonth:
         result = await svc.project_balances(owner_user_id=1, days=75, today=TODAY)
 
         assert all(p.amount <= 0 for p in result.points)
-        assert self._budget_points(result) == []
+        assert budget_points(result, "Food & Dining:Groceries") == []
 
     @pytest.mark.asyncio
     async def test_an_unspent_envelope_does_not_inflate_next_month(
@@ -664,7 +663,7 @@ class TestAnOverageIsMadeUpNextMonth:
 
         result = await svc.project_balances(owner_user_id=1, days=75, today=TODAY)
 
-        assert [p.amount for p in self._budget_points(result)] == [
+        assert [p.amount for p in budget_points(result, "Food & Dining:Groceries")] == [
             -(self.ALLOCATED - 20_000),
             -self.ALLOCATED,
         ]
@@ -871,7 +870,8 @@ class TestOnlyExpensesAreBudgeted:
 
 
 class TestTheSuggestionRowReadsRight:
-    """The row's second line has to describe the gate that produced it.
+    """The row's second line describes the gate that produced it, worded
+    once on the server for both frontends.
 
     It said "0.0x swing" for every suggestion after the steadiness measure
     changed: the row read a ``spread`` field that no longer existed and
@@ -879,23 +879,22 @@ class TestTheSuggestionRowReadsRight:
     worse than none - it looks like a measurement.
     """
 
-    def test_the_row_describes_the_months_that_were_odd(self) -> None:
-        from app.components.frontend.dashboard.modals.finance_modal import (
-            budget_suggestion_caption,
+    @pytest.mark.asyncio
+    async def test_the_row_describes_the_months_that_were_odd(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        account = await _account(svc)
+        alike = await _category(async_db_session, "Food & Dining:Groceries")
+        odd = await _category(async_db_session, "Food & Dining:Restaurants")
+        await _spend(
+            svc, account.id, alike.id, {2: 300, 3: 300, 4: 300, 5: 300, 6: 300, 7: 300}
+        )
+        await _spend(
+            svc, account.id, odd.id, {2: 200, 3: 200, 4: 200, 5: 200, 6: 200, 7: 900}
         )
 
-        assert budget_suggestion_caption({"months_seen": 6, "unusual_months": 0}) == (
-            "6 of 6 months  ·  every month alike"
-        )
-        assert budget_suggestion_caption({"months_seen": 6, "unusual_months": 1}) == (
-            "6 of 6 months  ·  1 month stood out"
-        )
+        picks = await svc.suggest_budget_lines(owner_user_id=1, today=TODAY)
 
-    def test_it_does_not_invent_a_reading_from_a_missing_field(self) -> None:
-        """The failure that shipped: a default that looks like a
-        measurement. An absent count says nothing rather than zero."""
-        from app.components.frontend.dashboard.modals.finance_modal import (
-            budget_suggestion_caption,
-        )
-
-        assert budget_suggestion_caption({"months_seen": 5}) == "5 of 6 months"
+        evidence = {p.category_id: p.evidence for p in picks}
+        assert evidence[alike.id] == "6 of 6 months · every month alike"
+        assert evidence[odd.id] == "6 of 6 months · 1 month stood out"

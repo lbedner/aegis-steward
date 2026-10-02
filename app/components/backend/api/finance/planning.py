@@ -39,7 +39,10 @@ router = APIRouter()
 
 async def envelope_response(db: Any, account: Any) -> EnvelopeResponse:
     from app.services.finance.domains.planning.envelope_tags import tag_name
-    from app.services.finance.domains.planning.envelopes import envelope_metadata
+    from app.services.finance.domains.planning.envelopes import (
+        credit_caption,
+        envelope_metadata,
+    )
 
     meta = envelope_metadata(account.metadata_)
     assert meta is not None  # callers only pass envelope accounts
@@ -50,6 +53,7 @@ async def envelope_response(db: Any, account: Any) -> EnvelopeResponse:
         monthly_credit=meta.monthly_credit,
         auto_credit=meta.auto_credit,
         cadence=meta.cadence,
+        credit_caption=credit_caption(meta),
         tag=await tag_name(db, meta),
         tag_since=meta.tag_since,
     )

@@ -14,6 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.domains.planning.envelopes import (
     ENVELOPE_ACCOUNT_TYPE,
     EnvelopeMeta,
+    credit_caption,
     envelope_metadata,
     set_envelope_metadata,
 )
@@ -288,3 +289,28 @@ class TestSeedMoney:
         refreshed = await svc.get_account(envelope.id, owner_user_id=1)
         assert refreshed is not None
         assert refreshed.current_balance == 0
+
+
+class TestHowItFills:
+    """The card's line under the balance, worded once for the web and the
+    Flet card, which each spelled the "/wk" and "/mo" on their own."""
+
+    @pytest.mark.parametrize(
+        ("meta", "caption"),
+        [
+            (
+                EnvelopeMeta(monthly_credit=4_000, auto_credit=True),
+                "+$40.00/mo automatically",
+            ),
+            (
+                EnvelopeMeta(monthly_credit=2_000, auto_credit=True, cadence="weekly"),
+                "+$20.00/wk automatically",
+            ),
+            (
+                EnvelopeMeta(monthly_credit=4_000, auto_credit=False),
+                "topped up by hand",
+            ),
+        ],
+    )
+    def test_the_caption(self, meta: EnvelopeMeta, caption: str) -> None:
+        assert credit_caption(meta) == caption

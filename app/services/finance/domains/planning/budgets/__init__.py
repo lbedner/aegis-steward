@@ -14,6 +14,7 @@ from app.services.finance.domains.planning.budgets import (
     lines,
     outlook,
     queries,
+    strip,
     suggestions,
     summary,
     trims,
@@ -28,8 +29,10 @@ from app.services.finance.domains.planning.budgets.lines import (
     budget_line_status,
     delete_budget_line,
     get_or_create_budget,
+    line_in_force,
     lines_in_force,
-    spend_for_target,
+    remove_budget_line,
+    spend_by_line,
     upsert_budget_line,
 )
 from app.services.finance.domains.planning.budgets.outlook import (
@@ -38,14 +41,8 @@ from app.services.finance.domains.planning.budgets.outlook import (
 )
 from app.services.finance.domains.planning.budgets.queries import month_bounds
 from app.services.finance.domains.planning.budgets.suggestions import (
-    _BUDGET_BILLED_SHARE,
     _BUDGET_LOOKBACK_MONTHS,
-    _BUDGET_MAX_UNUSUAL_MONTHS,
-    _BUDGET_MIN_AMOUNT,
-    _BUDGET_MIN_MONTHS,
-    _BUDGET_UNUSUAL_BAND,
     dismiss_budget_suggestions,
-    dismissal_markers,
     list_dismissed_suggestions,
     restore_budget_suggestions,
     suggest_budget_lines,
@@ -54,26 +51,22 @@ from app.services.finance.domains.planning.budgets.summary import budget_summary
 from app.services.finance.domains.planning.budgets.trims import plan_budget_trims
 from app.services.finance.domains.planning.budgets.uncovered import (
     uncovered_spend,
-    uncovered_spend_filters,
     uncovered_spending_rate,
 )
 
 __all__ = [
+    "strip",
     "budget_line_transactions",
-    "_BUDGET_BILLED_SHARE",
     "_BUDGET_LOOKBACK_MONTHS",
-    "_BUDGET_MAX_UNUSUAL_MONTHS",
-    "_BUDGET_MIN_AMOUNT",
-    "_BUDGET_MIN_MONTHS",
-    "_BUDGET_UNUSUAL_BAND",
     "budget_line_status",
     "budget_month_outlook",
     "budget_stat_details",
     "details",
     "budget_summary",
     "delete_budget_line",
+    "line_in_force",
+    "remove_budget_line",
     "dismiss_budget_suggestions",
-    "dismissal_markers",
     "get_or_create_budget",
     "lines_in_force",
     "lines",
@@ -84,13 +77,12 @@ __all__ = [
     "plan_budget_trims",
     "queries",
     "restore_budget_suggestions",
-    "spend_for_target",
+    "spend_by_line",
     "suggest_budget_lines",
     "suggestions",
     "summary",
     "trims",
     "uncovered_spend",
-    "uncovered_spend_filters",
     "uncovered_spending_rate",
     "upsert_budget_line",
 ]

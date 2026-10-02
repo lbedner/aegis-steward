@@ -34,6 +34,7 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import (
     dollars_to_cents,
 )
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.constants import ENVELOPE_CADENCES
 
 
 class EnvelopesTabMixin(BudgetPanelState):
@@ -172,7 +173,7 @@ class EnvelopesTabMixin(BudgetPanelState):
         )
         cadence_dd = FormDropdown(
             label="How often?",
-            options=[("weekly", "Weekly"), ("monthly", "Monthly")],
+            options=list(ENVELOPE_CADENCES.items()),
             value=(envelope or {}).get("cadence", "monthly"),
         )
         seed_field = FormTextField(

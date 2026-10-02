@@ -212,6 +212,7 @@ class TestEnvelopeCards:
         "balance": 2_750,
         "monthly_credit": 4_000,
         "auto_credit": True,
+        "credit_caption": "+$40.00/mo automatically",
     }
 
     def _noop(self) -> None:
@@ -230,11 +231,8 @@ class TestEnvelopeCards:
         rendered = " ".join(_texts(self._card(self.ENVELOPE)))
         assert "Allowance" in rendered
         assert "$27.50" in rendered
-        assert "+$40.00/mo" in rendered
-
-    def test_manual_credit_has_no_monthly_caption(self) -> None:
-        rendered = " ".join(_texts(self._card({**self.ENVELOPE, "auto_credit": False})))
-        assert "+$40.00/mo" not in rendered
+        # The server's words (``envelopes.credit_caption``), as the web shows them.
+        assert "+$40.00/mo automatically" in rendered
 
     def test_a_negative_balance_reads_red(self) -> None:
         card = self._card({**self.ENVELOPE, "balance": -1_250})

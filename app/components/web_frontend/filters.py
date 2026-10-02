@@ -18,6 +18,11 @@ from app.core.formatting import format_date_range, format_money
 from app.services.finance.utils import money_to_cents as money_to_cents
 
 
+def account_params(account_ids: list[int] | None) -> list[str]:
+    """The account filter as query parameters, one per account."""
+    return [f"account_ids={i}" for i in account_ids or []]
+
+
 def _utc_today() -> date:
     """Today in UTC, the clock the rest of the app stamps rows with.
 
@@ -27,9 +32,11 @@ def _utc_today() -> date:
     return datetime.now(UTC).date()
 
 
-def money(cents: int | None, currency: str = "USD", whole: bool = False) -> str:
+def money(
+    cents: int | None, currency: str = "USD", whole: bool = False, signed: bool = False
+) -> str:
     """Minor units as money, the app's one rule (``format_money``)."""
-    return format_money(cents, currency, whole)
+    return format_money(cents, currency, whole, signed)
 
 
 def dollars(cents: int | None) -> float:

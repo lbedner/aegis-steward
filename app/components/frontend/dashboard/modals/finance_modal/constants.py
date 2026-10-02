@@ -249,18 +249,3 @@ _GROUP_DIALOG_CHROME = _DIALOG_FIXED_CHROME + _GROUP_TABLE_CHROME
 
 # Floor, for a window too short to honour any of this.
 _GROUP_TABLE_MIN_HEIGHT = 200
-
-_MONTH_NAMES = (
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-)

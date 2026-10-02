@@ -16,21 +16,27 @@ from app.components.backend.api.finance.planning import (
     update_envelope,
 )
 from app.components.web_frontend.filters import (
+    as_options,
     cents_to_input,
     money,
     money_to_cents,
     parse_date,
 )
-from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     close_dialog,
-    dialog,
     dialog_done,
     with_toast,
 )
 from app.components.web_frontend.routes.finance.budget_display import (
-    CADENCES,
+    SECTION,
+    budget_dialog,
+    move_dialog,
+    owned_account,
+    remove_dialog,
+    removed,
+    with_strip,
 )
+from app.services.finance.constants import ENVELOPE_CADENCES
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.planning.envelopes import envelope_metadata
 from app.services.finance.models import FinanceAccount
@@ -39,8 +45,8 @@ from app.services.finance.schemas import (
     EnvelopeUpdate,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import positive_cents
 
-SECTION = section("budget")
 router = APIRouter(prefix=SECTION.path)
 
 
@@ -50,26 +56,24 @@ router = APIRouter(prefix=SECTION.path)
 async def _envelope(
     service: FinanceService, account_id: int, owner_user_id: int | None
 ) -> FinanceAccount:
-    account = await service.get_account(account_id, owner_user_id=owner_user_id)
-    if account is None or envelope_metadata(account.metadata_) is None:
-        raise HTTPException(status_code=404)
-    return account
+    return await owned_account(service, account_id, owner_user_id, envelope_metadata)
 
 
 async def _envelope_card(
     request: Request,
     service: FinanceService,
+    owner_user_id: int | None,
     account: FinanceAccount,
     oob: bool = False,
 ) -> Response:
     await service.db.commit()
     await service.db.refresh(account)
-    return dialog(
+    return await with_strip(
         request,
+        service,
+        owner_user_id,
         "partials/budget/envelope_card.html",
-        envelope=await envelope_response(service.db, account),
-        oob=oob,
-        path=SECTION.path,
+        {"envelope": await envelope_response(service.db, account), "oob": oob},
     )
 
 
@@ -80,15 +84,14 @@ def _move_dialog(
     errors: list[str],
     status_code: int = 200,
 ) -> Response:
-    return dialog(
+    return move_dialog(
         request,
-        "partials/budget/move.html",
-        status_code,
         title=f"{verb.title()} {account.name}",
         action=f"{SECTION.path}/envelopes/{account.id}/{verb}",
         label=verb.title(),
         note=True,
         errors=errors,
+        status_code=status_code,
     )
 
 
@@ -114,7 +117,7 @@ async def edit_envelope(
         "tag_since": tag_since,
     }
     credit = money_to_cents(monthly_credit)
-    if credit is None or cadence not in {c["id"] for c in CADENCES}:
+    if credit is None or cadence not in ENVELOPE_CADENCES:
         return _envelope_editor(
             request,
             account,
@@ -142,8 +145,24 @@ async def edit_envelope(
         service=service,
         owner_user_id=owner_user_id,
     )
-    response = await _envelope_card(request, service, account, oob=True)
+    response = await _envelope_card(request, service, owner_user_id, account, oob=True)
     return close_dialog(with_toast(response, f"Saved {account.name}."))
+
+
+@router.get("/envelopes/{account_id:int}/remove", include_in_schema=False)
+async def remove_envelope_form(
+    request: Request,
+    account_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    account = await _envelope(service, account_id, owner_user_id)
+    return remove_dialog(
+        request,
+        title=f"Remove {account.name}?",
+        body="Its history goes with it.",
+        url=f"{SECTION.path}/envelopes/{account_id}",
+    )
 
 
 @router.get("/envelopes/{account_id:int}/{verb}", include_in_schema=False)
@@ -177,14 +196,14 @@ async def envelope_move(
     account = await _envelope(service, account_id, owner_user_id)
     if verb not in ("credit", "spend"):
         raise HTTPException(status_code=404)
-    cents = money_to_cents(amount)
-    if cents is None or cents <= 0:
+    cents = positive_cents(amount)
+    if cents is None:
         return _move_dialog(
             request, account, verb, ["Enter an amount in dollars."], 422
         )
     move = service.credit_envelope if verb == "credit" else service.spend_from_envelope
     await move(account_id, amount=cents, owner_user_id=owner_user_id, note=note or None)
-    response = await _envelope_card(request, service, account, oob=True)
+    response = await _envelope_card(request, service, owner_user_id, account, oob=True)
     return close_dialog(with_toast(response, f"{verb.title()}: {money(cents)}."))
 
 
@@ -223,15 +242,14 @@ def _envelope_editor(
     errors: list[str],
     status_code: int = 200,
 ) -> Response:
-    return dialog(
+    return budget_dialog(
         request,
         "partials/budget/envelope_editor.html",
         status_code,
         envelope=account,
         values=values,
         errors=errors,
-        cadences=CADENCES,
-        path=SECTION.path,
+        cadences=as_options(ENVELOPE_CADENCES),
     )
 
 
@@ -262,7 +280,7 @@ async def create_envelope_route(
     errors = []
     if not name.strip():
         errors.append("Give the envelope a name.")
-    if credit is None or start is None or cadence not in {c["id"] for c in CADENCES}:
+    if credit is None or start is None or cadence not in ENVELOPE_CADENCES:
         errors.append("Amounts are in dollars; pick weekly or monthly.")
     if errors:
         return _envelope_editor(request, None, values, errors, 422)
@@ -282,13 +300,17 @@ async def create_envelope_route(
 
 @router.delete("/envelopes/{account_id:int}", include_in_schema=False)
 async def remove_envelope(
+    request: Request,
     account_id: int,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     account = await _envelope(service, account_id, owner_user_id)
     await service.soft_delete_account(account_id, owner_user_id=owner_user_id)
-    await service.db.commit()
-    return close_dialog(
-        with_toast(Response(status_code=200), f"Removed {account.name}.")
+    return await removed(
+        request,
+        service,
+        owner_user_id,
+        f"envelope-{account_id}",
+        f"Removed {account.name}.",
     )

@@ -16,7 +16,7 @@ from starlette.responses import Response
 from app.components.backend.api.finance.categories import spending_transactions
 from app.components.backend.api.finance.overview import finance_overview
 from app.components.web_frontend import ranges
-from app.components.web_frontend.filters import dollars, money
+from app.components.web_frontend.filters import account_params, dollars, money
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render, templates
 from app.services.finance.deps import get_finance_service, get_owner_user_id
@@ -204,7 +204,7 @@ def ranked(
 
 
 def _query(days: int, account_ids: list[int]) -> str:
-    return "&".join([f"days={days}", *(f"account_ids={i}" for i in account_ids)])
+    return "&".join([f"days={days}", *account_params(account_ids)])
 
 
 @router.get(SECTION.path, include_in_schema=False)

@@ -8,6 +8,8 @@ is ``summary``, proposing new lines is ``suggestions``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from datetime import date
 from typing import Literal
 
 from sqlalchemy.exc import IntegrityError
@@ -71,9 +73,9 @@ async def get_or_create_budget(
 
 
 async def lines_in_force(
-    db: AsyncSession, *, budget_id: int, period_month: int
+    db: AsyncSession, *, owner_user_id: int | None, period_month: int
 ) -> list[FinanceBudgetCategory]:
-    """The plan this period runs on, inheriting the last one if empty.
+    """The plan the owner's month runs on, inheriting the last one if empty.
 
     A budget is a standing decision, not a monthly chore: allocations are
     keyed by period, so without this every month opened as "everything
@@ -87,12 +89,23 @@ async def lines_in_force(
 
     Amounts only. Spend is computed from this period's transactions, and
     a copied ``spent_amount`` would read as money already gone. A period
-    with any line of its own is a month someone has decided about, and is
-    never touched.
+    with any line of its own, even one since removed, is a month someone
+    has decided about, and is never touched (#320).
     """
-    existing = await queries.budget_lines_for_period(db, budget_id, period_month)
-    if existing:
-        return existing
+    budget = await get_or_create_budget(
+        db, owner_user_id=owner_user_id, period_month=period_month
+    )
+    return _live(await _period_rows(db, budget_id=budget.id, period_month=period_month))
+
+
+async def _period_rows(
+    db: AsyncSession, *, budget_id: int, period_month: int
+) -> list[FinanceBudgetCategory]:
+    """Every row of the period, removed lines included, after seeding an
+    empty period from the latest one that has rows."""
+    rows = await queries.budget_lines_for_period(db, budget_id, period_month)
+    if rows:
+        return rows
 
     source = await queries.latest_period_with_lines(db, budget_id, period_month)
     if source is None:
@@ -110,7 +123,7 @@ async def lines_in_force(
             rollover_enabled=line.rollover_enabled,
             currency=line.currency,
         )
-        for line in await queries.budget_lines_for_period(db, budget_id, source)
+        for line in _live(await queries.budget_lines_for_period(db, budget_id, source))
     ]
     # The dashboard opens several panels at once and every one of them
     # asks this question, so two callers can both find the period empty
@@ -125,40 +138,123 @@ async def lines_in_force(
     return copied
 
 
-async def spend_for_target(
+def _live(lines: list[FinanceBudgetCategory]) -> list[FinanceBudgetCategory]:
+    """Without the removed ones, which only mark a month as decided."""
+    return [line for line in lines if line.deleted_at is None]
+
+
+async def _own_line(
     db: AsyncSession,
     *,
     owner_user_id: int | None,
-    period_month: int,
+    month: int,
     category_id: int | None,
     payee_key: str | None,
+) -> tuple[FinanceBudget, FinanceBudgetCategory | None]:
+    """The budget, and the month's own row for one target (a category, a
+    payee key, or the overall line when both are None), removed or not:
+    setting a removed limit again brings that row back.
+
+    A month with no lines of its own runs on the last month's, so it is
+    seeded first: changing one line of it would otherwise leave it with
+    ONLY that line, every inherited limit gone for this month and every
+    month copied from it (#265).
+    """
+    budget = await get_or_create_budget(
+        db, owner_user_id=owner_user_id, period_month=month
+    )
+    rows = await _period_rows(db, budget_id=budget.id, period_month=month)
+    line = next(
+        (
+            row
+            for row in rows
+            if (row.category_id, row.payee_key) == (category_id, payee_key)
+        ),
+        None,
+    )
+    return budget, line
+
+
+async def line_in_force(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    period_month: int | None,
+    category_id: int | None,
+    payee_key: str | None,
+) -> FinanceBudgetCategory | None:
+    """The limit a month runs on for one target, its own or the one it
+    inherits; None when the month has no limit for it."""
+    _budget, line = await _own_line(
+        db,
+        owner_user_id=owner_user_id,
+        month=period_month or current_period_month(),
+        category_id=category_id,
+        payee_key=payee_key,
+    )
+    return line if line is not None and line.deleted_at is None else None
+
+
+def line_spent(
+    line: FinanceBudgetCategory,
+    by_category: Mapping[int, int],
+    by_payee: Mapping[str, int],
 ) -> int:
-    """Positive cents spent this period against one category or payee -
-    a single scoped query, for the one-line response an upsert/delete
-    needs right away. ``budget_summary`` does the all-lines-at-once
-    version of this same fetch; this is deliberately the one-off
-    sibling, not a call site of it, so setting a single line never
-    pulls the whole period's transaction history."""
-    start, end = queries.month_bounds(period_month)
-    if category_id is not None:
-        spent = await planning_queries.spend_by_category(
-            db,
-            owner_user_id=owner_user_id,
-            start=start,
-            end=end,
-            category_ids={category_id},
-        )
-        return spent.get(category_id, 0)
-    if payee_key is not None:
-        spent = await planning_queries.spend_by_payee_key(
-            db,
-            owner_user_id=owner_user_id,
-            start=start,
-            end=end,
-            payee_keys={payee_key},
-        )
-        return spent.get(payee_key, 0)
-    return 0
+    """A line's spend out of tallies by category and by payee key: its
+    category's, else its payee's. The overall line tracks neither."""
+    if line.category_id is not None:
+        return by_category.get(line.category_id, 0)
+    return by_payee.get(line.payee_key, 0) if line.payee_key else 0
+
+
+async def spend_by_line(
+    db: AsyncSession,
+    lines: Sequence[FinanceBudgetCategory],
+    *,
+    owner_user_id: int | None,
+    start: date,
+    end: date,
+) -> list[int]:
+    """Each line's spend over ``[start, end)``, in the order given: three
+    queries at most, however many lines. ``budget_summary`` tallies the
+    same figures out of its one pass over the month instead."""
+    by_category = await planning_queries.spend_by_category(
+        db,
+        owner_user_id=owner_user_id,
+        start=start,
+        end=end,
+        category_ids={
+            line.category_id for line in lines if line.category_id is not None
+        },
+    )
+    by_payee = await planning_queries.spend_by_payee_key(
+        db,
+        owner_user_id=owner_user_id,
+        start=start,
+        end=end,
+        payee_keys={
+            line.payee_key
+            for line in lines
+            if line.category_id is None and line.payee_key
+        },
+    )
+    return [line_spent(line, by_category, by_payee) for line in lines]
+
+
+def line_response(
+    line: FinanceBudgetCategory, category_name: str | None, spent: int
+) -> BudgetLineResponse:
+    """A stored limit as every surface receives it."""
+    return BudgetLineResponse(
+        id=line.id,
+        category_id=line.category_id,
+        category_name=category_name,
+        payee_key=line.payee_key,
+        payee_label=line.payee_label,
+        allocated_amount=line.allocated_amount,
+        spent_amount=spent,
+        status=budget_line_status(line.allocated_amount, spent),
+    )
 
 
 async def upsert_budget_line(
@@ -177,17 +273,10 @@ async def upsert_budget_line(
     scoped spend query so the response's status is correct immediately
     (a category with existing spend shouldn't show "good" at 0)."""
     month = period_month or current_period_month()
-    budget = await get_or_create_budget(
-        db, owner_user_id=owner_user_id, period_month=month
-    )
-    # A month with no lines of its own runs on the last month's. Writing
-    # one line first would leave it with ONLY that line: every inherited
-    # limit gone for this month and every month copied from it (#265).
-    await lines_in_force(db, budget_id=budget.id, period_month=month)
-    line = await queries.budget_line_for_target(
+    budget, line = await _own_line(
         db,
-        budget.id,
-        period_month=month,
+        owner_user_id=owner_user_id,
+        month=month,
         category_id=category_id,
         payee_key=payee_key,
     )
@@ -202,6 +291,8 @@ async def upsert_budget_line(
     line.payee_label = payee_label
     line.allocated_amount = allocated_amount
     line.rollover_enabled = rollover_enabled
+    # Setting a removed limit again brings its row back.
+    line.deleted_at = None
     line.updated_at = utcnow()
     db.add(line)
     await db.flush()
@@ -210,23 +301,11 @@ async def upsert_budget_line(
     if line.category_id is not None:
         names = await categories.category_names(db, {line.category_id})
         category_name = names.get(line.category_id)
-    spent = await spend_for_target(
-        db,
-        owner_user_id=owner_user_id,
-        period_month=month,
-        category_id=line.category_id,
-        payee_key=line.payee_key,
+    start, end = queries.month_bounds(month)
+    [spent] = await spend_by_line(
+        db, [line], owner_user_id=owner_user_id, start=start, end=end
     )
-    return BudgetLineResponse(
-        id=line.id,
-        category_id=line.category_id,
-        category_name=category_name,
-        payee_key=line.payee_key,
-        payee_label=line.payee_label,
-        allocated_amount=line.allocated_amount,
-        spent_amount=spent,
-        status=budget_line_status(line.allocated_amount, spent),
-    )
+    return line_response(line, category_name, spent)
 
 
 async def delete_budget_line(
@@ -235,6 +314,36 @@ async def delete_budget_line(
     line = await queries.budget_line_by_id(db, line_id, owner_user_id=owner_user_id)
     if line is None:
         return False
-    await db.delete(line)
-    await db.flush()
+    await _remove(db, line)
     return True
+
+
+async def remove_budget_line(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    period_month: int | None,
+    category_id: int | None,
+    payee_key: str | None,
+) -> int | None:
+    """Remove a month's limit for one target, its own or the one it
+    inherits: the id removed, or None when there is no such limit."""
+    line = await line_in_force(
+        db,
+        owner_user_id=owner_user_id,
+        period_month=period_month,
+        category_id=category_id,
+        payee_key=payee_key,
+    )
+    if line is None:
+        return None
+    await _remove(db, line)
+    return line.id
+
+
+async def _remove(db: AsyncSession, line: FinanceBudgetCategory) -> None:
+    """The row stays, marked removed, so its month keeps the decision
+    instead of inheriting the month before (#320)."""
+    line.deleted_at = line.updated_at = utcnow()
+    db.add(line)
+    await db.flush()

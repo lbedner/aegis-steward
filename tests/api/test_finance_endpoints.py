@@ -1778,6 +1778,50 @@ async def test_budget_line_rejects_both_category_and_payee(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("allocated", [0, -100])
+async def test_a_budget_limit_is_more_than_zero(
+    authenticated_client: TestClient, async_db_session: AsyncSession, allocated: int
+) -> None:
+    """The page asked for more than zero, the card allowed zero and the API
+    took a negative: one rule now, more than zero. Taking a limit off is a
+    removal, not a $0 limit."""
+    groceries = await FinanceService(async_db_session).get_or_create_category_from_hint(
+        "Food:Groceries"
+    )
+    await async_db_session.commit()
+
+    response = authenticated_client.post(
+        "/api/v1/finance/budget/lines",
+        json={"category_id": groceries.id, "allocated_amount": allocated},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/api/v1/finance/budget/summary"),
+        ("post", "/api/v1/finance/budget/lines"),
+    ],
+)
+def test_a_budget_month_is_a_real_month(
+    authenticated_client: TestClient, method: str, path: str
+) -> None:
+    """The range check took 202613; the card refused it. One check now."""
+    response = getattr(authenticated_client, method)(
+        f"{path}?month=202613",
+        **(
+            {"json": {"category_id": 1, "allocated_amount": 100}}
+            if method == "post"
+            else {}
+        ),
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_budget_goal_parses_natural_language(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,

@@ -119,6 +119,33 @@ def monthly_share(stream: FinanceRecurringStream) -> int:
     return monthly_share_of(int(stream.average_amount or 0), stream.frequency)
 
 
+def is_active_commitment(
+    stream: FinanceRecurringStream, today: date | None = None
+) -> bool:
+    """On the record, and neither muted nor paused: a stream the month's
+    figures count. Muted and paused bills charge NOTHING - counting them
+    (the original mute behavior) made the Bills cell and the Projected
+    tab disagree by the whole bill."""
+    return (
+        is_commitment(stream) and not stream.is_muted and not is_paused(stream, today)
+    )
+
+
+def income_rows(
+    streams: list[FinanceRecurringStream], today: date | None = None
+) -> list[tuple[FinanceRecurringStream, int]]:
+    """Each income stream the month counts, with its monthly share: the
+    rows the Income popup lists and ``monthly_income`` sums, so the cell
+    is their total to the cent. A one-off is not a monthly rate."""
+    return [
+        (stream, monthly_share_of(stream.amount, stream.frequency))
+        for stream in streams
+        if stream.direction == "inflow"
+        and is_active_commitment(stream, today)
+        and MONTHLY_FACTOR.get(stream.frequency, 0.0) > 0
+    ]
+
+
 def commitment_rollup(
     streams: list[FinanceRecurringStream], today: date | None = None
 ) -> CommitmentRollup:
@@ -131,16 +158,10 @@ def commitment_rollup(
     one_time: list[FinanceRecurringStream] = []
     total = 0.0
     for stream in streams:
-        # Muted and paused bills charge NOTHING here - the same silence
-        # the forecast already honors. Counting them (the original mute
-        # behavior) made the Bills cell and the Projected tab disagree
-        # by the whole bill.
-        if stream.is_muted or is_paused(stream, today):
-            continue
         if not (
             stream.direction == "outflow"
             and stream.average_amount
-            and is_commitment(stream)
+            and is_active_commitment(stream, today)
         ):
             continue
         factor = MONTHLY_FACTOR.get(stream.frequency, 0.0)

@@ -14,6 +14,7 @@ from datetime import date
 import pytest
 
 from app.services.finance.service import FinanceService
+from tests.services._finance_factories import seed_limit
 
 # Deliberately not the month these tests run in: the server clock and the
 # asked-about date have to be able to disagree for the rule to be visible.
@@ -33,14 +34,7 @@ async def _two_budgets(svc: FinanceService) -> None:
         (NEXT_PERIOD, "Auto:Gas", 50_000),
     ):
         category = await svc.get_or_create_category_from_hint(hint)
-        await svc.upsert_budget_line(
-            owner_user_id=1,
-            period_month=period,
-            category_id=category.id,
-            payee_key=None,
-            payee_label=None,
-            allocated_amount=cents,
-        )
+        await seed_limit(svc, category.id, cents, period_month=period)
 
 
 @pytest.mark.asyncio

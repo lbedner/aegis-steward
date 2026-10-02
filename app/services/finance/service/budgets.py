@@ -7,12 +7,10 @@ to the matching domain module as ``module.func(self.db, ...)``.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
 
 from app.services.finance.domains.planning import budgets
 from app.services.finance.models import (
     FinanceBudget,
-    FinanceBudgetCategory,
     FinanceTransaction,
 )
 from app.services.finance.schemas import (
@@ -39,22 +37,6 @@ class BudgetsMixin(FinanceServiceBase):
             period_month=period_month,
         )
 
-    async def spend_for_target(
-        self,
-        *,
-        owner_user_id: int | None,
-        period_month: int,
-        category_id: int | None,
-        payee_key: str | None,
-    ) -> int:
-        return await budgets.spend_for_target(
-            self.db,
-            owner_user_id=owner_user_id,
-            period_month=period_month,
-            category_id=category_id,
-            payee_key=payee_key,
-        )
-
     async def suggest_budget_lines(
         self,
         *,
@@ -66,11 +48,6 @@ class BudgetsMixin(FinanceServiceBase):
             owner_user_id=owner_user_id,
             today=today,
         )
-
-    async def dismissal_markers(
-        self, *, owner_user_id: int | None
-    ) -> list[FinanceBudgetCategory]:
-        return await budgets.dismissal_markers(self.db, owner_user_id=owner_user_id)
 
     async def list_dismissed_suggestions(
         self, *, owner_user_id: int | None = None
@@ -169,20 +146,6 @@ class BudgetsMixin(FinanceServiceBase):
         account_ids: list[int] | None = None,
     ) -> int:
         return await budgets.uncovered_spending_rate(
-            self.db,
-            owner_user_id=owner_user_id,
-            today=today,
-            account_ids=account_ids,
-        )
-
-    async def uncovered_spend_filters(
-        self,
-        *,
-        owner_user_id: int | None,
-        today: date | None,
-        account_ids: list[int] | None,
-    ) -> tuple[list[Any], tuple[date, date]]:
-        return await budgets.uncovered_spend_filters(
             self.db,
             owner_user_id=owner_user_id,
             today=today,

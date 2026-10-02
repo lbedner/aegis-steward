@@ -30,38 +30,30 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import _u
 from app.components.frontend.theme import AegisTheme as Theme
 
 
-def one_time_section(bucket: dict[str, Any] | None) -> ft.Control | None:
+def one_time_section(
+    bucket: dict[str, Any], title: str, note: str
+) -> ft.Control | None:
     """Face value and a date, never a "/mo": amortizing a one-off is
     exactly the mistake the monthly buckets exist to avoid. Absent
     entirely when empty - an empty prompt would nag about a kind of
     entry most months don't have."""
-    lines = (bucket or {}).get("lines", [])
+    lines = bucket["lines"]
     if not lines:
         return None
-    total = (bucket or {}).get("total_allocated", 0)
-    header = ft.Row(
-        [
-            H3Text("One-time"),
-            SecondaryText("Planned once, on a date - not part of the monthly math"),
-        ],
-        spacing=Theme.Spacing.SM,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-    )
     return SectionCard(
-        title=header,
+        title=H3Text(title),
         body=budget_lines_grid([_one_time_row(line) for line in lines]),
-        actions=[SecondaryText(f"Planned - {_usd(total)}")],
+        actions=[SecondaryText(f"{_usd(bucket['total_allocated'])} {note}")],
         body_padding=Theme.Spacing.MD,
     )
 
 
 def _one_time_row(line: dict[str, Any]) -> ft.Control:
-    label = line.get("payee_label") or line.get("category_name") or "Uncategorized"
     due = line.get("due_date")
     when = date.fromisoformat(due) if due else None
     return ft.Row(
         [
-            TableNameText(label),
+            TableNameText(line["label"]),
             ft.Container(expand=True),
             NumericText(_usd(line.get("allocated_amount", 0)), size=14),
             SecondaryText(f"{when.strftime('%b')} {when.day}" if when else "No date"),

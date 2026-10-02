@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 from collections.abc import Callable
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -24,6 +25,18 @@ def current_period_month(today: date | None = None) -> int:
     return today.year * 100 + today.month
 
 
+def shift_period(period_month: int, months: int) -> int:
+    """A YYYYMM moved by whole months: ``shift_period(202601, -1)`` is 202512."""
+    year, month = divmod(period_month, 100)
+    index = year * 12 + month - 1 + months
+    return (index // 12) * 100 + index % 12 + 1
+
+
+def period_label(period_month: int) -> str:
+    """``202610`` -> ``October 2026``."""
+    return f"{calendar.month_name[period_month % 100]} {period_month // 100}"
+
+
 def display_cash_balance(accounts: list[Any], totals: dict[int, int]) -> int:
     """Today's spendable cash: the sidebar's own display rule - the
     authoritative ``current_balance`` when a real balance write happened,
@@ -37,32 +50,21 @@ def display_cash_balance(accounts: list[Any], totals: dict[int, int]) -> int:
     return balance
 
 
-def monthly_income(streams: list[Any]) -> tuple[int, int]:
+def monthly_income(streams: list[Any], today: date | None = None) -> tuple[int, int]:
     """(monthly-equivalent confirmed income, source count) - the one income
     figure the header, the goal allocation engine, and the verdict all
     share, so a percent-of-income goal and the Income cell can never
-    disagree about what "income" means.
+    disagree about what "income" means. The sum of ``income_rows``.
 
     The commitment vocabulary is imported inside the function on purpose:
     this module is a leaf the ledger and planning domains both import, so
     naming detection at module scope closes a cycle through them."""
     from app.services.finance.domains.detection.insights.commitments import (
-        MONTHLY_FACTOR,
-        is_commitment,
-        is_paused,
+        income_rows,
     )
 
-    rows = [
-        (s, MONTHLY_FACTOR.get(s.frequency, 0.0))
-        for s in streams
-        if s.direction == "inflow"
-        and not s.is_muted
-        and not is_paused(s)
-        and is_commitment(s)
-    ]
-    rows = [(s, f) for s, f in rows if f > 0]
-    total = int(sum(s.amount * f for s, f in rows))
-    return total, len(rows)
+    rows = income_rows(streams, today)
+    return sum(value for _stream, value in rows), len(rows)
 
 
 # Derived from the cadence table - see app/services/finance/constants.py.
@@ -208,6 +210,13 @@ def money_to_cents(raw: str | None) -> int | None:
     if not amount.is_finite():
         return None
     return int(_TO_CENTS(amount * 100))
+
+
+def positive_cents(raw: str | None) -> int | None:
+    """What a person typed, as cents, when it is more than zero; else
+    ``None``. A limit, a target, a contribution: an amount a form takes."""
+    cents = money_to_cents(raw)
+    return cents if cents is not None and cents > 0 else None
 
 
 def to_cents(amount: Decimal | float | int | str) -> int:

@@ -3,6 +3,8 @@
 One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
+from typing import Annotated
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -26,6 +28,7 @@ from app.services.finance.schemas import (
     BudgetSummaryResponse,
     GoalParseRequest,
     GoalParseResponse,
+    PeriodMonth,
     SuggestionDismissResult,
     SuggestionRestoreResult,
 )
@@ -70,7 +73,7 @@ async def budget_outlook(
 
 @router.get("/budget/summary", response_model=BudgetSummaryResponse)
 async def budget_summary(
-    month: int | None = Query(default=None, ge=100_001, le=999_912),
+    month: Annotated[PeriodMonth | None, Query()] = None,
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
@@ -101,6 +104,7 @@ async def budget_suggestions(
     return BudgetSuggestionListResponse(
         items=picks,
         total=len(picks),
+        lookback_months=service._BUDGET_LOOKBACK_MONTHS,
         dismissed=dismissed,
     )
 
@@ -138,7 +142,7 @@ async def restore_budget_suggestions(
 @router.post("/budget/lines", response_model=BudgetLineResponse)
 async def upsert_budget_line(
     body: BudgetLineUpsert,
-    month: int | None = Query(default=None, ge=100_001, le=999_912),
+    month: Annotated[PeriodMonth | None, Query()] = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> BudgetLineResponse:
