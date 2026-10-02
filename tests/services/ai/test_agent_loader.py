@@ -184,6 +184,7 @@ class TestFallback:
 
         assert config == default_agent_config()
 
+    @pytest.mark.queryspy(threshold=4)  # each resolve reads the prompt version (#355)
     async def test_missing_row_is_not_cached(self, session: AsyncSession) -> None:
         """A row seeded after a fallback resolve must win the next resolve."""
         first = await resolve_agent("support", session=session)
@@ -202,6 +203,7 @@ class TestFallback:
         assert config == default_agent_config()
 
 
+@pytest.mark.queryspy(threshold=4)  # each resolve reads the prompt version (#355)
 class TestCache:
     async def test_config_is_cached_until_invalidated(
         self, session: AsyncSession
@@ -219,6 +221,26 @@ class TestCache:
         assert stale.system_prompt == "You are support."
 
         invalidate_agent_cache("support")
+        fresh = await resolve_agent("support", session=session)
+        assert fresh.system_prompt == "Updated."
+
+    async def test_a_recorded_change_from_another_process_reaches_the_next_turn(
+        self, session: AsyncSession
+    ) -> None:
+        """#355: the CLI writes in its own process, where this cache never
+        hears of it; the recorded change is what tells it."""
+        from app.services.ai.models.agents import AgentPromptChange
+
+        agent = await _add_agent(session)
+        await resolve_agent("support", session=session)
+
+        agent.system_prompt = "Updated."
+        session.add(agent)
+        session.add(
+            AgentPromptChange(agent_id=agent.id, system_prompt="Updated.", source="cli")
+        )
+        await session.commit()
+
         fresh = await resolve_agent("support", session=session)
         assert fresh.system_prompt == "Updated."
 
@@ -329,6 +351,7 @@ class TestExtends:
         assert config.system_prompt == "Alone."
         assert config.tool_names == ()
 
+    @pytest.mark.queryspy(threshold=4)  # each resolve reads the prompt version (#355)
     async def test_editing_the_parent_reaches_a_cached_child(
         self, session: AsyncSession
     ) -> None:

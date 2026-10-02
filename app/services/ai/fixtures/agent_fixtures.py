@@ -16,7 +16,7 @@ from app.services.ai.domains.chat.agent_loader import (
     DEFAULT_AGENT_SLUG,
     default_agent_config,
 )
-from app.services.ai.domains.chat.agent_registry import stamped
+from app.services.ai.domains.chat.agent_registry import seed_agent
 import app.services.ai.domains.chat.cards  # noqa: F401
 import app.services.ai.domains.chat.memory_tools  # noqa: F401
 
@@ -76,7 +76,7 @@ def load_agent_fixtures(session: Session) -> dict[str, int]:
         select(Agent).where(Agent.slug == definition["slug"])
     ).first()
     if existing is None:
-        session.add(Agent(**stamped(definition)))
+        seed_agent(session, definition)
         session.commit()
         added = 1
         logger.info(f"Seeded default agent '{definition['slug']}'")

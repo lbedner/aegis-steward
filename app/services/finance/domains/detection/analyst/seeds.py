@@ -8,11 +8,7 @@ from sqlmodel import (
 )
 
 from app.core.log import logger
-from app.services.ai.domains.chat.agent_registry import (
-    edited_by_hand,
-    prompt_fingerprint,
-    stamped,
-)
+from app.services.ai.domains.chat.agent_registry import seed_agent
 from app.services.ai.models.agents import (
     Agent,
     AgentTool,
@@ -273,8 +269,8 @@ def finance_voice_agent_definition() -> dict[str, Any]:
 
 
 def finance_agent_definitions() -> tuple[dict[str, Any], ...]:
-    """Every finance agent the app seeds and resyncs - one list, so a new
-    agent cannot be seeded and then never resynced, or the reverse."""
+    """Every finance agent the app seeds. A seed only reaches a fresh
+    install: after that the agent row is the prompt (#355)."""
     return (
         analyst_agent_definition(),
         deep_dive_agent_definition(),
@@ -309,59 +305,6 @@ def _attach_chat_tools(session: Session) -> int:
     return attached
 
 
-def resync_finance_agent_prompts(
-    session: Session, *, force: bool = False
-) -> dict[str, str]:
-    """Push the system prompts in CODE onto the agent rows.
-
-    The seeder deliberately never touches a row that exists - the agents
-    are editable from the dashboard and a re-seed must not undo that -
-    which means a prompt improved in code reaches nobody's install, and
-    does so SILENTLY. That is how a session's worth of tool guidance sat
-    dead: the agent kept proposing a category and its note as two cards
-    because nothing had told it they were one.
-
-    So this is the explicit verb, and it says what it overwrites: the
-    ``system_prompt`` only. A model, a temperature or a tool set tuned
-    in the dashboard is a choice about THIS install; the prompt is the
-    app's own instructions and belongs to the code.
-
-    A prompt rewritten in the dashboard is a choice about this install
-    too, and the one this command could silently destroy: the row's
-    fingerprint says whether a person changed it, and if so the row is
-    reported "edited by hand" and left alone unless ``force`` is given.
-
-    Returns slug -> "updated", "unchanged" or "edited by hand".
-    """
-    result: dict[str, str] = {}
-    for definition in finance_agent_definitions():
-        row = session.exec(
-            select(Agent).where(Agent.slug == definition["slug"])
-        ).first()
-        if row is None:
-            continue
-        wanted = definition["system_prompt"]
-        if row.system_prompt == wanted:
-            # A row from before the fingerprint that already matches code
-            # is stamped here: true, and from now on it is protected.
-            if row.prompt_fingerprint is None:
-                row.prompt_fingerprint = prompt_fingerprint(wanted)
-                session.add(row)
-                session.commit()
-            result[definition["slug"]] = "unchanged"
-            continue
-        if edited_by_hand(row) and not force:
-            result[definition["slug"]] = "edited by hand"
-            continue
-        row.system_prompt = wanted
-        row.prompt_fingerprint = prompt_fingerprint(wanted)
-        session.add(row)
-        result[definition["slug"]] = "updated"
-    if any(v == "updated" for v in result.values()):
-        session.commit()
-    return result
-
-
 def load_finance_agent_fixtures(session: Session) -> dict[str, int]:
     """Seed the finance agents and their memory module, skipping existing rows.
 
@@ -392,7 +335,7 @@ def load_finance_agent_fixtures(session: Session) -> dict[str, int]:
             is not None
         ):
             continue
-        session.add(Agent(**stamped(definition)))
+        seed_agent(session, definition)
         counts["finance_agents"] += 1
         logger.info(f"Seeded agent '{definition['slug']}'")
 

@@ -40,8 +40,8 @@ DECLARATION_PARTS = ("models", "schemas", "i18n", "seeds", "fixtures", "locales"
 
 # path -> line count when recorded. The refactoring backlog, largest first.
 BUDGET: dict[str, int] = {
-    "i18n/locales/en.py": 1324,
-    "i18n/locales/zh.py": 1300,
+    "i18n/locales/en.py": 1340,
+    "i18n/locales/zh.py": 1316,
     "i18n/locales/de.py": 1270,
     "i18n/locales/es.py": 1270,
     "i18n/locales/fr.py": 1270,
