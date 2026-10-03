@@ -15,6 +15,7 @@ turn.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from app.core.db import get_async_session
@@ -125,24 +126,42 @@ async def enqueue_if_due(conversation: Conversation, first_kept: int) -> None:
         logger.exception("Enqueueing a conversation fold failed")
 
 
+def merged_summary(
+    stored: dict[str, Any] | None, saving: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """The summary a conversation's save keeps: a turn that read the
+    conversation before a fold landed must not put back the older one."""
+    if not stored or not saving:
+        return saving or stored
+    if int(stored.get("through", 0)) > int(saving.get("through", 0)):
+        return stored
+    return saving
+
+
+async def _write_summary(
+    conversation_id: str, change: Callable[[dict[str, Any]], dict[str, Any]]
+) -> bool:
+    """Write ONLY the summary into the stored metadata as it is now: a
+    turn may have landed meanwhile, and saving a copy read earlier would
+    undo what it changed. ``change`` gets the stored summary."""
+    async with get_async_session() as session:
+        row = await session.get(ConversationModel, conversation_id)
+        if row is None:
+            return False
+        meta = row.meta_data or {}
+        row.meta_data = {**meta, SUMMARY_KEY: change(meta.get(SUMMARY_KEY) or {})}
+        session.add(row)
+        await session.commit()
+    return True
+
+
 async def fold_conversation(conversation_id: str, upto: int) -> bool:
     """The worker's fold: read the conversation, condense holding no
-    session, then write ONLY the summary into the metadata as it is now -
-    a turn may have landed meanwhile, and saving the copy read earlier
-    would undo what it changed."""
+    session, then write only the summary (``_write_summary``)."""
     from app.services.ai.deps import ai_service
 
     conversation = await ai_service.get_conversation(conversation_id)
     if conversation is None or not await fold(conversation, upto=upto):
         return False
-    async with get_async_session() as session:
-        row = await session.get(ConversationModel, conversation_id)
-        if row is None:
-            return False
-        row.meta_data = {
-            **(row.meta_data or {}),
-            SUMMARY_KEY: conversation.metadata[SUMMARY_KEY],
-        }
-        session.add(row)
-        await session.commit()
-    return True
+    folded = conversation.metadata[SUMMARY_KEY]
+    return await _write_summary(conversation_id, lambda _stored: folded)

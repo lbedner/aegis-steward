@@ -176,3 +176,73 @@ class TestOffTheRequestPath:
             "through": 20,
         }
         assert stored.metadata["last_activity"] == "meanwhile"
+
+
+class TestTheCondenseCall:
+    @pytest.mark.asyncio
+    async def test_it_bills_the_conversations_user(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The real call, with the model faked: a conversation keeps its
+        user in its metadata, and every fold failed reading a ``user_id``
+        it did not have before ``Conversation.user_id`` read it there."""
+        from types import SimpleNamespace
+
+        from app.services.ai import usage_recording
+        from app.services.ai.domains.llm import providers
+
+        class Agent:
+            async def run(self, prompt: str, **_: Any) -> Any:
+                usage = SimpleNamespace(input_tokens=10, output_tokens=5)
+                return SimpleNamespace(output=" Biscuit. ", usage=lambda: usage)
+
+        billed: list[Any] = []
+
+        async def record(*args: Any, **kwargs: Any) -> None:
+            billed.append((args, kwargs))
+
+        monkeypatch.setattr(providers, "get_agent", lambda *_a, **_k: Agent())
+        monkeypatch.setattr(usage_recording, "record_usage", record)
+        conversation = _conversation(4)
+        conversation.metadata["user_id"] = "u7"
+
+        assert await summary._condense("p", conversation=conversation) == "Biscuit."
+        ((args, kwargs),) = billed
+        assert args[0] == "chat:summary" and args[3] == "u7"
+        assert kwargs["conversation_id"] == "c1"
+
+
+class TestATurnDoesNotUndoTheFold:
+    @pytest.mark.asyncio
+    async def test_a_stale_turn_keeps_the_newer_summary(self) -> None:
+        """A turn read the conversation before the fold landed; saving it
+        must not put back the older summary."""
+        from app.services.ai.deps import ai_service
+
+        manager = ai_service.conversation_manager
+        conversation = await manager.create_conversation(
+            provider=AIProvider.OLLAMA, model="test-model", user_id="u1"
+        )
+        conversation.metadata[summary.SUMMARY_KEY] = {"text": "old", "through": 10}
+        await manager.save_conversation(conversation)
+        stale = await ai_service.get_conversation(conversation.id)
+        newer = await ai_service.get_conversation(conversation.id)
+        assert stale is not None and newer is not None
+
+        newer.metadata[summary.SUMMARY_KEY] = {"text": "new", "through": 30}
+        await manager.save_conversation(newer)
+        stale.add_message(MessageRole.USER, "and another thing")
+        await manager.save_conversation(stale)
+
+        stored = await ai_service.get_conversation(conversation.id)
+        assert stored is not None
+        assert stored.metadata[summary.SUMMARY_KEY] == {"text": "new", "through": 30}
+
+
+def test_a_blank_saved_fact_is_a_duplicate_of_nothing() -> None:
+    """A blank is a substring of every fact: one blank entry made every
+    later fact in its category "already known"."""
+    from app.services.ai.domains.chat.user_memory import is_duplicate
+
+    assert not is_duplicate("", "Their dog is called Biscuit.")
+    assert is_duplicate("dog is called biscuit", "Their dog is called Biscuit.")

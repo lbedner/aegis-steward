@@ -109,6 +109,12 @@ class Conversation(BaseModel):
     model: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @property
+    def user_id(self) -> str | None:
+        """Whose conversation it is: kept in its metadata, which is what
+        the stored row is built from."""
+        return self.metadata.get("user_id")
+
     def add_message(
         self,
         role: MessageRole,

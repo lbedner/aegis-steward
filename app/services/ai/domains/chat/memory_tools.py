@@ -52,7 +52,7 @@ def _find_fact(facts: list[dict[str, Any]], words: str) -> int | None:
     hits = [
         i
         for i, entry in enumerate(facts)
-        if user_memory._is_duplicate(str(entry.get("fact", "")), words)
+        if user_memory.is_duplicate(str(entry.get("fact", "")), words)
     ]
     return hits[0] if len(hits) == 1 else None
 
