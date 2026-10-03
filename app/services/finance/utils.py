@@ -43,6 +43,12 @@ def period_days(period_month: int) -> int:
     return calendar.monthrange(*divmod(period_month, 100))[1]
 
 
+def month_start_before(day: date, months_back: int) -> date:
+    """The first of the month ``months_back`` months before ``day``'s month
+    (0: its own)."""
+    return period_start(shift_period(current_period_month(day), -months_back))
+
+
 def period_label(period_month: int) -> str:
     """``202610`` -> ``October 2026``."""
     return f"{calendar.month_name[period_month % 100]} {period_month // 100}"
@@ -136,6 +142,12 @@ def transaction_payee_key(
 
 _PUNCTUATION = re.compile(r"[^0-9A-Za-z\s]")
 _WHITESPACE = re.compile(r"\s+")
+
+
+def row_payee_key(txn: Any) -> str | None:
+    """A transaction row's payee key: ``transaction_payee_key`` off the
+    row's own three fields, so no caller spells them out again."""
+    return transaction_payee_key(txn.merchant_name, txn.original_description, txn.name)
 
 
 def normalize_payee(raw: str | None) -> str:

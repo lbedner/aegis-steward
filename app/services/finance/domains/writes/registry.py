@@ -43,6 +43,11 @@ class ChangeExecutor:
     # because that is the domain; the reader knows it is Optum Financial.
     # Off by default: a categorize is a yes/no, not a form.
     editable: bool = False
+    # Work that needs the change COMMITTED first, run with its result
+    # once the approval lands (a filed photo's reading goes to the
+    # worker, which must find the new document row). Never fails an
+    # approval that already landed.
+    after_commit: Callable[[dict[str, Any]], Awaitable[None]] | None = None
     # For an editable type, the fields that are a choice rather than
     # free text: ``{"kind": PARTY_KINDS}`` draws a select.
     choices: dict[str, tuple[str, ...]] = field(default_factory=dict)

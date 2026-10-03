@@ -48,16 +48,6 @@ def month_key(day: date) -> str:
     return f"{day.year:04d}-{day.month:02d}"
 
 
-def month_start_before(day: date, months_back: int) -> date:
-    """The first of the month ``months_back`` months before ``day``'s month."""
-    year, month = day.year, day.month
-    for _ in range(months_back):
-        month -= 1
-        if month == 0:
-            month, year = 12, year - 1
-    return date(year, month, 1)
-
-
 def days_in_month(day: date) -> int:
     """Days in ``day``'s own month."""
     first_next = (day.replace(day=1) + timedelta(days=32)).replace(day=1)

@@ -34,7 +34,6 @@ from app.services.finance.domains.detection.insights.formatting import (
     format_usd,
     month_is_complete,
     month_key,
-    month_start_before,
     pace_day,
 )
 from app.services.finance.domains.detection.insights.large_charges import (
@@ -106,7 +105,6 @@ __all__ = [
     "live_account_ids",
     "month_is_complete",
     "month_key",
-    "month_start_before",
     "CategoryMonth",
     "category_months",
     "category_moves",

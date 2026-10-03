@@ -21,6 +21,7 @@ from app.components.web_frontend.routes.chat import (
     stored_message,
 )
 from app.core.chat_transcript import readable
+from app.core.db import get_async_session
 from app.core.log import logger
 from app.services.ai.domains.voice.models import (
     AudioFormat,
@@ -32,6 +33,7 @@ from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_VOICE_AGENT_SLUG,
     STANDALONE_USER_ID,
 )
+from app.services.matters.service import PartyService
 
 router = APIRouter()
 
@@ -40,8 +42,25 @@ TRANSCRIPTS = SPEECH + "/transcripts"
 NO_SPEECH = "Didn't catch anything - try again, a little closer."
 SPEECH_FAILED = "Couldn't make that out right now. You can type it instead."
 
-# Names the transcriber cannot guess: "Illiana" came back "Ilyana".
-TRANSCRIPTION_HINT = f"{ASSISTANT_NAME}."
+# Whisper reads about 224 tokens of prompt and ignores the rest.
+HINT_CHARS = 600
+
+
+async def transcription_hint() -> str:
+    """Names the transcriber cannot guess, as the vocabulary it reads: hers
+    ("Illiana" came back "Ilyana") and the household's people ("Bedner"
+    came back "Bednar", Marisa "Marissa", #293). Its own short session:
+    the routes that ask hold none."""
+    async with get_async_session() as db:
+        people = await PartyService(db).find(kind="person")
+    hint = ASSISTANT_NAME
+    # ponytail: people in filing order until the cap; rank by how often a
+    # name is said once there are more people than fit.
+    for name in dict.fromkeys(person.name for person in people):
+        if len(hint) + len(name) + 2 > HINT_CHARS:
+            break
+        hint = f"{hint}, {name}"
+    return f"{hint}."
 
 
 def _format(filename: str | None) -> AudioFormat:
@@ -70,7 +89,7 @@ async def transcribe(
             AudioInput(
                 content=content,
                 format=_format(audio.filename),
-                prompt=TRANSCRIPTION_HINT,
+                prompt=await transcription_hint(),
                 duration_seconds=seconds,
             ),
             user_id=str(STANDALONE_USER_ID),

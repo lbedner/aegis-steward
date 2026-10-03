@@ -262,6 +262,26 @@ class FinanceTransactionSplit(SQLModel, table=True):
     note: str | None = Field(default=None)
 
 
+class FinanceTransactionLink(SQLModel, table=True):
+    """A transaction filed against a place outside the ledger - a matter,
+    a contact - by the labels documents are filed with (``matter_tag``,
+    ``party_tag``) (#290, #303). Many to many: one charge can be an
+    insurance claim's and a care case's. Deleting the transaction takes
+    its links with it."""
+
+    __tablename__ = "finance_transaction_link"
+    __table_args__ = (
+        Index("ix_finance_txnlink_label", "label"),
+        Index("uq_finance_txnlink", "transaction_id", "label", unique=True),
+        {"schema": _SCHEMA},
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    transaction_id: int = Field(foreign_key=f"{_FK}finance_transaction.id")
+    label: str = Field(max_length=64)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class FinanceTransfer(SQLModel, table=True):
     """A matched internal transfer between two of the user's own accounts.
 

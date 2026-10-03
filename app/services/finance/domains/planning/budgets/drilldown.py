@@ -18,8 +18,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger import queries as ledger_queries
 from app.services.finance.domains.planning.budgets import queries
+from app.services.finance.domains.planning.budgets.lines import lines_in_force
+from app.services.finance.domains.planning.budgets.months import carved_out
 from app.services.finance.models import FinanceTransaction
-from app.services.finance.utils import current_period_month, transaction_payee_key
+from app.services.finance.utils import current_period_month, row_payee_key
 
 
 async def budget_line_transactions(
@@ -34,7 +36,8 @@ async def budget_line_transactions(
     line = await queries.budget_line_by_id(db, line_id, owner_user_id=owner_user_id)
     if line is None:
         return []
-    start, end = queries.month_bounds(period_month or current_period_month())
+    period = period_month or current_period_month()
+    start, end = queries.month_bounds(period)
     rows = await queries.outflow_rows(
         db,
         owner_user_id=owner_user_id,
@@ -47,6 +50,11 @@ async def budget_line_transactions(
         splits = await ledger_queries.splits_for_parents(
             db, [r.id for r in rows if r.is_split and r.id is not None]
         )
+        # What the period's payee lines count is theirs, not this line's
+        # too (#288): the rows match the figure.
+        carved = carved_out(
+            await lines_in_force(db, owner_user_id=owner_user_id, period_month=period)
+        )
         return [
             row
             for row in rows
@@ -58,13 +66,9 @@ async def budget_line_transactions(
                 # is shown the parent it came from.
                 else any(s.category_id == wanted for s in splits.get(row.id, ()))
             )
+            and row_payee_key(row) not in carved
         ]
     key = line.payee_key or ""
     if not key:
         return []
-    return [
-        row
-        for row in rows
-        if transaction_payee_key(row.merchant_name, row.original_description, row.name)
-        == key
-    ]
+    return [row for row in rows if row_payee_key(row) == key]

@@ -9,7 +9,9 @@ spending bars count, so the line and the bars agree.
 from datetime import date
 
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.domains.ledger import cash_flow
 from app.services.finance.service import FinanceService
 from tests.services._finance_factories import seed_account, seed_txn
 
@@ -88,3 +90,42 @@ class TestThePace:
         pace = await svc.spending_pace(owner_user_id=1, months=1, today=TODAY)
 
         assert pace.this_month[-1] == 0
+
+
+class TestMonthToDate:
+    """#294: a partial month beside last month to the same day."""
+
+    @pytest.mark.asyncio
+    async def test_last_month_counts_only_to_the_same_day(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        account = await seed_account(svc)
+        await seed_txn(svc, account.id, 300_000, date(2026, 9, 1))  # paid
+        await seed_txn(svc, account.id, -20_000, date(2026, 9, 10))
+        await seed_txn(svc, account.id, -90_000, date(2026, 9, 25))  # after the 15th
+        await seed_txn(svc, account.id, 300_000, date(2026, 10, 1))
+        await seed_txn(svc, account.id, -25_000, date(2026, 10, 12))
+
+        mtd = await cash_flow.month_to_date(
+            async_db_session, owner_user_id=1, today=TODAY
+        )
+
+        assert mtd.through_day == 15
+        assert (mtd.this_month.income, mtd.this_month.spending) == (300_000, 25_000)
+        assert (mtd.last_month_same_days.income, mtd.last_month_same_days.spending) == (
+            300_000,
+            20_000,
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_31st_meets_a_shorter_month_at_its_end(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        account = await seed_account(svc)
+        await seed_txn(svc, account.id, -1_000, date(2026, 9, 30))
+
+        mtd = await cash_flow.month_to_date(
+            async_db_session, owner_user_id=1, today=date(2026, 10, 31)
+        )
+
+        assert mtd.last_month_same_days.spending == 1_000

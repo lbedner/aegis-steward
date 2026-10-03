@@ -17,11 +17,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.time import utcnow
 from app.services.finance.domains.ledger import accounts, categories
-from app.services.finance.domains.planning import queries as planning_queries
 from app.services.finance.domains.planning.budgets import queries
 from app.services.finance.domains.planning.budgets.months import (
-    Tallies,
+    Tally,
     Target,
+    carved_out,
     line_spent,
     live,
     past_plans,
@@ -210,31 +210,26 @@ async def spend_by_line(
     owner_user_id: int | None,
     start: date,
     end: date,
+    plan: Sequence[FinanceBudgetCategory] | None = None,
 ) -> list[int]:
-    """Each line's spend over ``[start, end)``, in the order given: three
-    queries at most, however many lines. ``budget_summary`` tallies the
-    same figures out of its one pass over the month instead."""
-    by_category = await planning_queries.spend_by_category(
-        db,
-        owner_user_id=owner_user_id,
-        start=start,
-        end=end,
-        category_ids={
-            line.category_id for line in lines if line.category_id is not None
-        },
-    )
-    by_payee = await planning_queries.spend_by_payee_key(
-        db,
-        owner_user_id=owner_user_id,
-        start=start,
-        end=end,
-        payee_keys={
-            line.payee_key
-            for line in lines
-            if line.category_id is None and line.payee_key
-        },
-    )
-    return [line_spent(line, by_category, by_payee) for line in lines]
+    """Each line's spend over ``[start, end)``, in the order given, off the
+    same rows and the same tally ``budget_summary`` reads. ``plan`` is the
+    period's lines in force, whose payee lines a category line leaves out
+    (#288); the lines given, when they are the whole plan."""
+    tally = Tally()
+    for (
+        cat_id,
+        merchant,
+        description,
+        name,
+        amount,
+        _stream,
+    ) in await queries.outflow_tuples(
+        db, owner_user_id=owner_user_id, start=start, end=end
+    ):
+        tally.add(cat_id, merchant, description, name, amount)
+    carved = carved_out(lines if plan is None else plan)
+    return [line_spent(line, tally, carved) for line in lines]
 
 
 async def carried_amounts(
@@ -262,8 +257,10 @@ async def carried_amounts(
     runs = {key: [] for key in rolling}
     open_runs = set(rolling)
     month = shift_period(period_month, -1)
+    carved: dict[int, frozenset[str]] = {}
     while open_runs and plans.first is not None and month >= plans.first:
         in_force = plans.in_force(month)
+        carved[month] = carved_out(in_force.values())
         for key in list(open_runs):
             row = in_force.get(key)
             if row is None or not row.rollover_enabled:
@@ -277,10 +274,10 @@ async def carried_amounts(
     spend = await spend_by_month(
         db, owner_user_id=owner_user_id, first=min(months), before=period_month
     )
-    empty: Tallies = ({}, {})
     return {
         rolling[key].id: sum(
-            row.allocated_amount - line_spent(row, *spend.get(month, empty))
+            row.allocated_amount
+            - line_spent(row, spend.get(month, Tally()), carved[month])
             for month, row in run
         )
         for key, run in runs.items()
@@ -358,7 +355,12 @@ async def upsert_budget_line(
         category_name = names.get(line.category_id)
     start, end = queries.month_bounds(month)
     [spent] = await spend_by_line(
-        db, [line], owner_user_id=owner_user_id, start=start, end=end
+        db,
+        [line],
+        owner_user_id=owner_user_id,
+        start=start,
+        end=end,
+        plan=await lines_in_force(db, owner_user_id=owner_user_id, period_month=month),
     )
     carried = await carried_amounts(
         db, owner_user_id=owner_user_id, period_month=month, lines=[line]

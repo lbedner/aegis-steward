@@ -25,6 +25,7 @@ from app.core.formatting import cents_named, payee_label
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.finance.constants import UNCATEGORIZED_CATEGORY_NAMES
 from app.services.finance.domains.investments import queries as investment_queries
+from app.services.finance.domains.ledger.cash_flow import month_review
 from app.services.finance.domains.ledger.queries.accounts import EVERYONE, accounts_page
 from app.services.finance.domains.ledger.queries.categories import (
     category_names_by_id,
@@ -33,10 +34,9 @@ from app.services.finance.domains.ledger.queries.transactions import (
     transactions_window_with_payees,
 )
 from app.services.finance.domains.ledger.transactions import (
-    monthly_cashflow,
     transaction_tags,
 )
-from app.services.finance.utils import current_date
+from app.services.finance.utils import current_date, month_start_before
 
 # Sized for years of a personal ledger (a few thousand rows/year); rows
 # land in the code-mode sandbox, not the model's context, so the cost of
@@ -49,10 +49,13 @@ _TRANSACTIONS_ROW_CAP = 5000
 _UPCOMING_WINDOW_DAYS = 35
 
 
-def _months_back_start(today: date, span: int) -> date:
-    """First day of the month ``span - 1`` calendar months before today."""
-    total_months = today.year * 12 + today.month - 1 - (span - 1)
-    return date(total_months // 12, total_months % 12 + 1, 1)
+# What the monthly figures count, said with them (#294): two reviews a day
+# apart reported September as $13,635 and as $1,372, with no scope given.
+LEDGER_SCOPE = (
+    "Money in and out of every account tracked, all spending (bills "
+    "included); transfers between your own accounts and rows excluded "
+    "from reports are left out."
+)
 
 
 async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
@@ -62,9 +65,13 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
         months: How many months back to include (1-24).
         detail: "monthly" or "transactions".
 
-    Monthly detail returns a dict with key 'months': a list, oldest
-    first, of entries carrying 'month', 'income_cents', 'spend_cents'
-    and 'net_cents'. Transaction detail returns keys 'total', 'returned'
+    Monthly detail returns 'scope' (what is counted - say it when you
+    report a figure), 'months': a list, oldest first, of entries carrying
+    'month', 'income_cents', 'spend_cents' and 'net_cents' (the current
+    month is only so far), and 'month_to_date': 'through_day', and
+    'this_month' beside 'last_month_same_days' (each 'income', 'spending',
+    'saved' in cents). Compare a part-finished month with
+    'last_month_same_days', never with last month's whole total. Transaction detail returns keys 'total', 'returned'
     and 'transactions': a list, newest first, of entries carrying
     'date', 'payee', 'amount_cents' (signed, negative = outflow),
     'category', 'account' and 'pending'; fewer returned rows than
@@ -73,8 +80,12 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
     if detail == "monthly":
         span = max(1, min(int(months), 24))
         async with get_async_session() as session:
-            rows = await monthly_cashflow(session, months=span)
+            rows, so_far = await month_review(
+                session, owner_user_id=None, months=span, today=current_date()
+            )
         return {
+            "scope": LEDGER_SCOPE,
+            "month_to_date": so_far.model_dump(),
             "months": [
                 {
                     "month": row.month,
@@ -83,13 +94,13 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
                     "net_cents": row.net,
                 }
                 for row in rows
-            ]
+            ],
         }
     if detail != "transactions":
         raise ValueError('detail must be "monthly" or "transactions"')
 
     span = max(1, min(int(months), 24))
-    from_date = _months_back_start(current_date(), span)
+    from_date = month_start_before(current_date(), span - 1)
     async with get_async_session() as session:
         rows, total = await transactions_window_with_payees(
             session,
@@ -328,8 +339,10 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
     line - 'category' or 'payee', 'limit_cents', 'spent_cents',
     'remaining_cents', and 'status' of good/warn/critical), 'commitments' (the
     recurring bills shown for context, which are NOT limits anyone set),
-    and 'stats' (the month's totals, how many limits are over, and the
-    days left in the period).
+    and 'stats' (the month's totals, how many limits are over, the days
+    left in the period, and what is left: 'left_in_limits_under_budget_cents'
+    is what the limits with room still have, 'net_left_cents' that less
+    what the others went over - name which one you report).
 
     Reach for this whenever the question is what something is BUDGETED
     at, what is left, or what is over - "what is our budget for
@@ -373,6 +386,7 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
         for row in bucket.lines
     ]
     stats = summary.stats
+    remaining = [row["remaining_cents"] for row in limits]
     return {
         "period_month": summary.period_month,
         "limits": limits,
@@ -384,6 +398,8 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
             "over_budget_count": stats.over_budget_count,
             "over_budget_labels": stats.over_budget_labels,
             "fixed_total_cents": stats.fixed_total,
+            "left_in_limits_under_budget_cents": sum(r for r in remaining if r > 0),
+            "net_left_cents": sum(remaining),
         },
     }
 

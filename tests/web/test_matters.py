@@ -4,6 +4,7 @@ ST-03's UI half. Both render paths, selectors not substrings.
 """
 
 from fastapi.testclient import TestClient
+import pytest
 
 from tests.web.dom import none, one, select, text, triggers
 
@@ -249,6 +250,7 @@ class TestThePaperThatAnswers:
         item = one(client.get(page).text, "#matter-requests [data-item]")
         return page, str(item.get("data-item"))
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_adding_one_files_it_and_answers_the_item(self, client: TestClient) -> None:
         from tests._pdf import pdf_bytes
 
@@ -270,6 +272,7 @@ class TestThePaperThatAnswers:
         # says separately that the item is satisfied.
         assert text(one(drawn, "#matter-requests [data-standing]")) == "1 of 1"
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_the_document_opens_from_the_line_that_asked(
         self, client: TestClient
     ) -> None:
@@ -289,6 +292,7 @@ class TestThePaperThatAnswers:
         none(viewer, "html")
         assert one(viewer, "[data-original]") is not None
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_a_document_on_another_matter_is_not_reachable(
         self, client: TestClient
     ) -> None:
@@ -310,6 +314,7 @@ class TestThePaperThatAnswers:
             == 404
         )
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_a_filed_document_can_be_linked_instead(self, client: TestClient) -> None:
         from tests._pdf import pdf_bytes
 
@@ -424,6 +429,7 @@ class TestWhatWeCanSay:
             "$2,180.40",
         }
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_a_figure_can_be_taken_off_again(self, client: TestClient) -> None:
         """``FactService.forget`` and its route shipped with ST-06 and
         nothing on the page ever called them, so a figure recorded by
@@ -463,6 +469,7 @@ class TestWhatWeCanSay:
         assert gone.status_code == 200
         assert select(client.get(page).text, "#matter-facts [data-fact]") == []
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_a_reading_can_be_marked_as_checked(self, client: TestClient) -> None:
         """A citation proves where text came from, not that the reading
         was right. The dot that says somebody went and looked had no
@@ -788,6 +795,7 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
     assert "Retirement Online" in text(visitor)
 
 
+@pytest.mark.queryspy(threshold=4)  # loads the page more than once
 def test_a_mistyped_item_can_be_corrected(client: TestClient) -> None:
     """The sentence is the county's, not ours - which is exactly why a
     mistyped one has to be fixable. Answering the wrong question is
@@ -839,6 +847,7 @@ class TestTheStepsOfARequest:
         card = one(client.get(page).text, "#matter-requests [data-request]")
         return page, str(card.get("data-request"))
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_an_ask_can_be_added_after_the_letter_was_recorded(
         self, client: TestClient
     ) -> None:
@@ -861,6 +870,7 @@ class TestTheStepsOfARequest:
         assert "Record a figure" in text(steps[1])
         assert text(one(client.get(page).text, "[data-standing]")) == "0 of 2"
 
+    @pytest.mark.queryspy(threshold=5)  # loads the page four times
     def test_alternatives_are_one_step_that_any_of_them_closes(
         self, client: TestClient
     ) -> None:
@@ -888,6 +898,7 @@ class TestTheStepsOfARequest:
         client.post(f"/matters/requests/items/{first.get('data-item')}/mark/satisfied")
         assert text(one(client.get(page).text, "[data-standing]")) == "1 of 1"
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_the_letter_sits_beside_the_asks_it_produced(
         self, client: TestClient
     ) -> None:
@@ -925,6 +936,7 @@ class TestTheStepsOfARequest:
         assert "sentence that was asked" in answer.text
 
 
+@pytest.mark.queryspy(threshold=6)  # works a letter end to end: five page loads
 def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
     """The whole manual path in one pass, in the order a person walks it:
     the letter arrives, its asks are typed, one of them turns out to have

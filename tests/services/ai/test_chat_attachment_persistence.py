@@ -112,6 +112,27 @@ class TestPrepareTurn:
         assert metadata["attachments"][0]["key"] == content_key(b"fake png bytes")
 
     @pytest.mark.asyncio
+    async def test_a_photo_can_be_named_to_file_it(self, store) -> None:
+        """#285: a photographed statement could not be filed - it had no
+        handle. Its marker now names it, the way a read PDF's does."""
+        from app.services.ai.domains.chat.pastes import paste_id
+        from app.services.ai.domains.chat.user_memory import load_user_pastes
+
+        text, _metadata = await prepare_turn(
+            "file this", [_png(b"hvcu statement")], user_id="photo-filer"
+        )
+
+        handle = paste_id(content_key(b"hvcu statement"))
+        assert f"#{handle}" in text and "document.file" in text
+        entry = next(
+            p for p in await load_user_pastes("photo-filer") if p["id"] == handle
+        )
+        assert (entry["key"], entry["media_type"]) == (
+            content_key(b"hvcu statement"),
+            "image/png",
+        )
+
+    @pytest.mark.asyncio
     async def test_a_turn_with_no_images_is_unchanged(self, store) -> None:
         text, metadata = await prepare_turn("plain question", None)
 

@@ -6,6 +6,7 @@ and a range's totals and years for the Cash flow page (#344).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from itertools import accumulate
 import statistics
@@ -14,14 +15,17 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger import queries, transactions
 from app.services.finance.schemas import (
+    CashFlow,
     CashflowMonth,
     CashFlowResponse,
     CashFlowYear,
+    MonthToDate,
     SpendingPace,
 )
 from app.services.finance.utils import (
     current_date,
     current_period_month,
+    month_start_before,
     period_days,
     period_start,
     shift_period,
@@ -52,8 +56,7 @@ async def spending_pace(
             account_ids=account_ids,
         )
     daily: dict[int, list[int]] = {
-        period: [0] * period_days(period)
-        for period in [*earlier, current]
+        period: [0] * period_days(period) for period in [*earlier, current]
     }
     for day, amount in rows:
         if amount < 0 and (by_day := daily.get(current_period_month(day))) is not None:
@@ -73,7 +76,7 @@ async def spending_pace(
 
 
 def _pace_start(today: date, months: int) -> date:
-    return period_start(shift_period(current_period_month(today), -months))
+    return month_start_before(today, months)
 
 
 async def overview_flows(
@@ -89,8 +92,7 @@ async def overview_flows(
     count."""
     today = current_date()
     last = end or today
-    first = shift_period(current_period_month(last), -(max(1, months) - 1))
-    start = min(period_start(first), _pace_start(today, 12))
+    start = min(month_start_before(last, max(1, months) - 1), _pace_start(today, 12))
     rows = await queries.dated_amounts_in_window(
         db,
         owner_user_id=owner_user_id,
@@ -110,6 +112,18 @@ def _through(running: list[int], day: int) -> int:
     return running[min(day, len(running)) - 1]
 
 
+def _flow(rows: Iterable[tuple[date, int]]) -> dict[str, int]:
+    """Money in and money out of dated rows, both positive: the one place a
+    signed amount is told apart."""
+    income = spending = 0
+    for _day, amount in rows:
+        if amount >= 0:
+            income += amount
+        else:
+            spending -= amount
+    return {"income": income, "spending": spending}
+
+
 async def cash_flow(
     db: AsyncSession,
     *,
@@ -127,15 +141,68 @@ async def cash_flow(
         end=end,
         account_ids=account_ids,
     )
-    years: dict[int, list[int]] = {}
-    for day, amount in rows:
-        totals = years.setdefault(day.year, [0, 0])
-        totals[0 if amount >= 0 else 1] += abs(amount)
+    years: dict[int, list[tuple[date, int]]] = {}
+    for row in rows:
+        years.setdefault(row[0].year, []).append(row)
     return CashFlowResponse(
-        income=sum(income for income, _ in years.values()),
-        spending=sum(spending for _, spending in years.values()),
+        **_flow(rows),
         years=[
-            CashFlowYear(year=year, income=income, spending=spending)
-            for year, (income, spending) in sorted(years.items())
+            CashFlowYear(year=year, **_flow(year_rows))
+            for year, year_rows in sorted(years.items())
         ],
+    )
+
+
+async def month_to_date(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    today: date,
+    account_ids: list[int] | None = None,
+    rows: list[tuple[date, int]] | None = None,
+) -> MonthToDate:
+    """This month through ``today`` beside last month through the same day
+    (its last, when it is shorter), so a part-finished month is compared
+    like for like (#294). One read."""
+    last = shift_period(current_period_month(today), -1)
+    last_start = period_start(last)
+    last_through = last_start.replace(day=min(today.day, period_days(last)))
+    this_start = period_start(current_period_month(today))
+    if rows is None:
+        rows = await queries.dated_amounts_in_window(
+            db,
+            owner_user_id=owner_user_id,
+            start=last_start,
+            end=today,
+            account_ids=account_ids,
+        )
+    rows = [r for r in rows if last_start <= r[0] <= today]
+    return MonthToDate(
+        through_day=today.day,
+        this_month=CashFlow(**_flow(r for r in rows if r[0] >= this_start)),
+        last_month_same_days=CashFlow(**_flow(r for r in rows if r[0] <= last_through)),
+    )
+
+
+async def month_review(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    months: int,
+    today: date,
+) -> tuple[list[CashflowMonth], MonthToDate]:
+    """Illiana's monthly read (#294): ``months`` of bars and this month so
+    far beside last month to the same day, from ONE read of the rows both
+    count."""
+    rows = await queries.dated_amounts_in_window(
+        db,
+        owner_user_id=owner_user_id,
+        start=month_start_before(today, max(months - 1, 1)),
+        end=today,
+    )
+    return (
+        await transactions.monthly_cashflow(
+            db, owner_user_id=owner_user_id, months=months, today=today, rows=rows
+        ),
+        await month_to_date(db, owner_user_id=owner_user_id, today=today, rows=rows),
     )

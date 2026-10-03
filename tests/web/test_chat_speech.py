@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 import pytest
+from sqlmodel import col, delete
 
 from app.components.backend.api.ai.router import ai_service
 from app.components.web_frontend.routes.chat import SPEECH
@@ -24,6 +25,7 @@ from app.components.web_frontend.routes.chat_speech import (
     TRANSCRIPTS,
 )
 from app.core.config import settings
+from app.core.db import get_async_session
 from app.services.ai.domains.voice.models import (
     AudioFormat,
     STTProvider,
@@ -33,6 +35,8 @@ from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_VOICE_AGENT_SLUG,
     STANDALONE_USER_ID,
 )
+from app.services.matters.models import Party
+from app.services.matters.service import PartyService
 from tests.web.dom import one
 
 SECRET = "secret internal detail"
@@ -88,6 +92,31 @@ class TestHearing:
         assert audio.content == b"webm-bytes"
         assert "Illiana" in audio.prompt  # she was "Ilyana" without it
         assert speech.transcribe.call_args.kwargs["user_id"] == str(STANDALONE_USER_ID)
+
+    async def test_the_households_names_are_spelled_for_the_transcriber(
+        self, client: TestClient, speech: FakeSpeech
+    ) -> None:
+        """ "Bedner" came back "Bednar" and Marisa "Marissa" (#293): the
+        people the household knows are the vocabulary it hears. Seeded
+        where the route reads them, its own session's database, and
+        removed after: that database lives for the whole run."""
+        async with get_async_session() as db:
+            people = PartyService(db)
+            marisa = await people.create(name="Marisa Bedner", kind="person")
+            bank = await people.create(name="Citizens Bank", kind="organization")
+            await db.commit()
+        try:
+            _post(client)
+        finally:
+            async with get_async_session() as db:
+                await db.exec(
+                    delete(Party).where(col(Party.id).in_([marisa.id, bank.id]))
+                )
+                await db.commit()
+
+        prompt = speech.transcribe.call_args.args[0].prompt
+        assert "Marisa Bedner" in prompt
+        assert "Citizens Bank" not in prompt  # people, the names it misspells
 
     def test_the_recordings_length_rides_along(
         self, client: TestClient, speech: FakeSpeech

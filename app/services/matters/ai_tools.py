@@ -29,11 +29,18 @@ from app.services.documents.domains.extraction.dispatch import (
 )
 from app.services.documents.models import DOCUMENT_KINDS
 from app.services.documents.service import DocumentService
+from app.services.finance.domains.ledger import links
 from app.services.finance.utils import current_date
 from app.services.matters.drawing import titles as paper_titles
 from app.services.matters.facts import FactService, monthly_cents
 from app.services.matters.matters import MatterService
-from app.services.matters.models import FACT_ATTRIBUTES, PARTY_TAG_PREFIX, party_tag
+from app.services.matters.models import (
+    FACT_ATTRIBUTES,
+    PARTY_TAG_PREFIX,
+    matter_tag,
+    party_tag,
+)
+from app.services.matters.relations import relations_for
 from app.services.matters.requests import RequestService, overdue, standing
 from app.services.matters.service import PartyService
 
@@ -48,7 +55,13 @@ async def parties() -> dict[str, Any]:
     'document_ids' - the paper filed against them (a pension fund's
     statements, an agency's letters), each readable with `paper` - and
     'policy_ids' (what an insurer wrote) / 'covered_by_policy_ids' (what
-    covers a person), each readable with `policies`. The
+    covers a person), each readable with `policies`, and 'transactions':
+    the charges filed with them ('items', 'total_cents' signed - "what
+    have we paid this dentist"; file one with propose("transaction.link",
+    {"transaction_id", "party_id"})), and 'relations': "spouse of", "parent
+    of", "child of", "related to" another party (propose contact.relate
+    {"party_id", "related_party_id", "relation": spouse|parent|other} to
+    record one; parent means party_id is the parent). The
     ids are what every other matter tool reports and what a proposal's
     payload names - a party cannot be addressed by name.
     """
@@ -59,6 +72,9 @@ async def parties() -> dict[str, Any]:
         found = await PartyService(db).find()
         paper = await document_ids_by_tag_prefix(db, PARTY_TAG_PREFIX)
         policies = await InsuranceService(db).policies_covering_any()
+        paid = await links.filed(db, [party_tag(p.id) for p in found])
+        related = await relations_for(db, [p.id for p in found])
+        names = {p.id: p.name for p in found}
     return {
         "parties": [
             {
@@ -76,6 +92,10 @@ async def parties() -> dict[str, Any]:
                 "covered_by_policy_ids": [
                     p.id for p in policies if party.id in (p.covered_party_ids or [])
                 ],
+                "transactions": paid[party_tag(party.id)],
+                "relations": [
+                    {**r, "party": names.get(r["party_id"])} for r in related[party.id]
+                ],
             }
             for party in found
         ]
@@ -91,8 +111,13 @@ async def matters(status: str = "open") -> dict[str, Any]:
     Returns a dict with key 'matters': a list of entries carrying 'id',
     'title', 'kind', 'reference' (the agency's OWN number, which is what
     two letters agree about), 'status', 'opened_on', 'subject',
-    'counterpart', 'participants' (role and party) and 'requests'
-    (counts of open and total, plus 'next_due' and 'overdue_count').
+    'counterpart', 'participants' (role and party), 'requests'
+    (counts of open and total, plus 'next_due' and 'overdue_count') and
+    'transactions': the charges filed with the case ('items', and
+    'total_cents' signed - what the case has cost). File a charge with a
+    case with propose("transaction.link", {"transaction_id", "matter_id"}),
+    when asked or when a charge plainly belongs to an open case; "unlink":
+    true takes it off. One charge can be on more than one case.
     """
     wanted = None if status == "all" else status
     async with get_async_session() as db:
@@ -100,6 +125,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
         requests = RequestService(db)
         found = await service.find(status=wanted)
         names = await PartyService(db).names()
+        spent = await links.filed(db, [matter_tag(m.id) for m in found])
         rows = []
         for matter in found:
             people = await service.participants(matter.id)
@@ -127,6 +153,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
                         "next_due": iso_date(min(due)) if due else None,
                         "overdue_count": sum(1 for one in asked if overdue(one, today)),
                     },
+                    "transactions": spent[matter_tag(matter.id)],
                 }
             )
     return {"matters": rows}

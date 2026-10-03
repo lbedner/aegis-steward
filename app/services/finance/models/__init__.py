@@ -71,6 +71,7 @@ from app.services.finance.models.reference import (
 )
 from app.services.finance.models.transactions import (
     FinanceTransaction,
+    FinanceTransactionLink,
     FinanceTransactionSplit,
     FinanceTransfer,
 )
@@ -109,6 +110,7 @@ __all__ = [
     "FinanceTrade",
     "FinanceTransaction",
     "FinanceTransactionChangelog",
+    "FinanceTransactionLink",
     "FinanceTransactionSplit",
     "FinanceTransactionTag",
     "FinanceTransfer",

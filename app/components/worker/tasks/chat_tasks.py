@@ -24,3 +24,14 @@ async def announce_approval_task(
         message, conversation_id=conversation_id, user_id=user_id
     )
     return {"conversation_id": conversation_id, "replied": bool(reply)}
+
+
+async def fold_conversation_task(
+    ctx: dict[str, Any], conversation_id: str, upto: int
+) -> dict[str, Any]:
+    """Fold a long conversation's fallen turns into its running summary
+    (#295): a model call, so never on the request path."""
+    from app.services.ai.domains.chat.summary import fold_conversation
+
+    folded = await fold_conversation(conversation_id, upto)
+    return {"conversation_id": conversation_id, "folded": folded}

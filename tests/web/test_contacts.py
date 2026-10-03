@@ -5,6 +5,7 @@ ST-01's UI half. Both render paths, selectors not substrings, per the
 """
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.services.matters.words import WORDS
 from tests.web.dom import card, none, one, select, text
@@ -144,6 +145,7 @@ class TestAContactHasAPage:
         form = client.get(f"/contacts/{party_id}/edit").text
         assert one(form, 'input[name="name"]').get("value") == "Edith Testcase"
 
+    @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_their_paper_is_filed_with_them(self, client: TestClient) -> None:
         """A statement is the fund's, whatever matter later needs it: the
         shelf on the contact, its own tag, and the same document dialog."""

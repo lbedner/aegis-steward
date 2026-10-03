@@ -25,7 +25,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.insights.formatting import (
     month_key,
-    month_start_before,
     pace_day,
 )
 from app.services.finance.models import (
@@ -33,6 +32,7 @@ from app.services.finance.models import (
     FinanceInsight,
     FinanceTransaction,
 )
+from app.services.finance.utils import month_start_before
 from app.services.shared.queries import owner_clause
 
 PRICE_HIKE_THRESHOLD = 1.10  # >10% over the stream's average

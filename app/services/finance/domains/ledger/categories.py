@@ -25,7 +25,7 @@ from app.services.finance.schemas import (
 )
 from app.services.finance.utils import (
     current_date,
-    transaction_payee_key,
+    row_payee_key,
 )
 
 
@@ -405,11 +405,6 @@ async def suggest_categories(
     which uncategorized rows get a suggestion computed is scoped.
     """
 
-    def payee_key(txn: FinanceTransaction) -> str:
-        return transaction_payee_key(
-            txn.merchant_name, txn.original_description, txn.name
-        )
-
     # One batched fetch of the owner's already-categorized history,
     # tallied in Python by payee key -> {category_id: count}.
     categorized_rows = await queries.categorized_history(
@@ -417,7 +412,7 @@ async def suggest_categories(
     )
     tally: dict[str, Counter[int]] = defaultdict(Counter)
     for row in categorized_rows:
-        key = payee_key(row)
+        key = row_payee_key(row)
         if key:
             tally[key][row.category_id] += 1
 
@@ -431,7 +426,7 @@ async def suggest_categories(
     suggestions: list[tuple[int, int]] = []  # (transaction_id, category_id)
     skipped = 0
     for txn in candidates:
-        key = payee_key(txn)
+        key = row_payee_key(txn)
         counts = tally.get(key)
         if not counts:
             skipped += 1

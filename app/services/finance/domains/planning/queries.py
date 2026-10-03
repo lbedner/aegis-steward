@@ -27,7 +27,6 @@ from app.services.finance.models import (
     FinanceTransaction,
     FinanceTransactionSplit,
 )
-from app.services.finance.utils import transaction_payee_key
 
 
 def spend_filters(
@@ -136,42 +135,6 @@ async def spend_by_category(
     spent: dict[int, int] = {}
     for category_id, total in [*parent_rows, *split_rows]:
         spent[category_id] = spent.get(category_id, 0) + int(-(total or 0))
-    return spent
-
-
-async def spend_by_payee_key(
-    db: AsyncSession,
-    *,
-    owner_user_id: int | None,
-    start: date,
-    end: date,
-    payee_keys: Iterable[str],
-) -> dict[str, int]:
-    """Positive cents spent per payee grouping key over ``[start, end)``.
-
-    The key is Python-computed (first-4-normalized-token rule), so this
-    fetches the period's spend rows once and buckets them - one query no
-    matter how many keys are asked for.
-    """
-    wanted = set(payee_keys)
-    if not wanted:
-        return {}
-    filters = spend_filters(owner_user_id, start, end)
-    rows = (
-        await db.exec(
-            select(
-                FinanceTransaction.merchant_name,
-                FinanceTransaction.original_description,
-                FinanceTransaction.name,
-                FinanceTransaction.amount,
-            ).where(*filters)
-        )
-    ).all()
-    spent: dict[str, int] = {}
-    for merchant_name, original_description, name, amount in rows:
-        key = transaction_payee_key(merchant_name, original_description, name)
-        if key in wanted:
-            spent[key] = spent.get(key, 0) + -amount
     return spent
 
 

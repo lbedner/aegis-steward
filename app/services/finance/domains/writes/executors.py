@@ -15,6 +15,7 @@ from app.services.finance.domains.writes import (
     curation,
     filing,
     findings,
+    linking,
     planning,
     structure,
     terms,
@@ -89,6 +90,16 @@ register(
         payload_model=filing.FileDocumentPayload,
         execute=filing.file_document_execute,
         describe=filing.file_document_describe,
+        after_commit=filing.file_document_read,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="transaction.link",
+        title="File a transaction with a case or a contact",
+        payload_model=linking.LinkTransactionPayload,
+        execute=linking.link_transaction_execute,
+        describe=linking.link_transaction_describe,
     )
 )
 register(
@@ -206,6 +217,15 @@ register(
         payload_model=timeline.RecordEventPayload,
         execute=timeline.record_event_execute,
         describe=timeline.record_event_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="contact.relate",
+        title="Record how two people are related",
+        payload_model=contacts.RelateContactsPayload,
+        execute=contacts.relate_contacts_execute,
+        describe=contacts.relate_contacts_describe,
     )
 )
 register(

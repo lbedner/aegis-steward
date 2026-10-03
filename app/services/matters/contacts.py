@@ -28,6 +28,7 @@ from app.services.matters.reach import (
     one_home,
     reach_lines,
 )
+from app.services.matters.relations import RELATIONS, relate, unrelate
 
 
 class CreateContactPayload(BaseModel):
@@ -306,3 +307,57 @@ def _line_rows(
         for label in [*before, *[k for k in after if k not in before]]
         if before.get(label) != after.get(label)
     ]
+
+
+class RelateContactsPayload(BaseModel):
+    """Two people related (#289): ``relation`` is "spouse", "parent"
+    (``party_id`` is the parent) or "other"; ``unrelate`` takes it back."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    party_id: int
+    related_party_id: int
+    relation: str
+    unrelate: bool = False
+
+    _known_relation = field_validator("relation")(known(tuple(RELATIONS)))
+
+    @model_validator(mode="after")
+    def _two_people(self) -> RelateContactsPayload:
+        if self.party_id == self.related_party_id:
+            raise ValueError("A relationship is between two different people.")
+        return self
+
+
+async def _pair(db: AsyncSession, payload: RelateContactsPayload) -> tuple[str, str]:
+    from app.services.matters.service import PartyService
+
+    names = await PartyService(db).names([payload.party_id, payload.related_party_id])
+    for party_id in (payload.party_id, payload.related_party_id):
+        if party_id not in names:
+            raise ValueError(f"Contact {party_id} not found.")
+    return names[payload.party_id], names[payload.related_party_id]
+
+
+async def relate_contacts_execute(
+    db: AsyncSession, payload: RelateContactsPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    await _pair(db, payload)
+    args = (db, payload.party_id, payload.related_party_id, payload.relation)
+    if payload.unrelate:
+        await unrelate(*args)
+        return {"unrelated": payload.relation}
+    await relate(*args)
+    return {"related": payload.relation}
+
+
+async def relate_contacts_describe(
+    db: AsyncSession, payload: RelateContactsPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    try:
+        one, other = await _pair(db, payload)
+    except ValueError as exc:
+        return [ChangeDisplayRow(label="Relationship", value=str(exc))]
+    said = f"{one} is {RELATIONS[payload.relation][0]} {other}"
+    label = "No longer" if payload.unrelate else "Relationship"
+    return [ChangeDisplayRow(label=label, value=said)]

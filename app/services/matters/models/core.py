@@ -212,6 +212,27 @@ class MatterParticipant(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class PartyRelation(SQLModel, table=True):
+    """Two people related (#289): "spouse", "parent" (``party_id`` is the
+    parent of ``related_party_id``) or "other". Read from both sides
+    (``relations.relations_for``), so a child is never a second row."""
+
+    __tablename__ = "party_relation"
+    __table_args__ = (
+        Index("ix_party_relation_party", "party_id"),
+        Index("ix_party_relation_related", "related_party_id"),
+        Index(
+            "uq_party_relation", "party_id", "related_party_id", "relation", unique=True
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    party_id: int = Field()
+    related_party_id: int = Field()
+    relation: str = Field(max_length=16)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class DocumentParty(SQLModel, table=True):
     """Who wrote a document, and whom it concerns.
 

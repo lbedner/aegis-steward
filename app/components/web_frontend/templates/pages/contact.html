@@ -1,8 +1,8 @@
 {% from "components/macros/icons.html" import icon %}
 {% extends layout %}
-{% from "components/macros/layout.html" import card, badge %}
+{% from "components/macros/layout.html" import card, badge, contact_link %}
 {% from "components/macros/form.html" import action %}
-{% from "components/macros/matters.html" import facts_block %}
+{% from "components/macros/matters.html" import facts_block, filed_card %}
 {% from "components/macros/table.html" import data_table %}
 
 {% block title %}{{ party.name }} - {{ project_name }}{% endblock %}
@@ -65,6 +65,22 @@
   {% endif %}
   {% if party.note %}<p class="mt-3 text-sm text-aegis-text whitespace-pre-line" data-note>{{ party.note }}</p>{% endif %}
   {% endcall %}
+
+  {# Who they are related to, read from their side: a parent's row is
+     the child's "child of". Recorded from a contact.relate card. #}
+  {% if not place %}
+  {% call card(word("family"), id="contact-family") %}
+  {% if family %}
+  <ul class="space-y-1 text-sm">
+    {% for kin in family %}
+    <li data-relation><span class="text-aegis-muted">{{ kin.relation }}</span> {{ contact_link(kin.party_id, kin.party) }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-aegis-muted" data-empty>No family recorded.</p>
+  {% endif %}
+  {% endcall %}
+  {% endif %}
 
   {% if place %}
   {% call card(word("signins")) %}
@@ -152,5 +168,8 @@
   {{ data_table(paper_columns, papers, empty="Nothing filed with them yet", path=path) }}
   {{ action(word("add_paper"), hx_dialog(path ~ "/" ~ party.id ~ "/documents/new")) }}
   {% endcall %}
+
+  {# What was paid them: the charges filed with the contact. #}
+  {{ filed_card("contact-paid", word("paid"), paid) }}
 </section>
 {% endblock %}

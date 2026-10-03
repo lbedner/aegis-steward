@@ -21,7 +21,7 @@ from app.services.finance.models import (
 )
 from app.services.finance.schemas import MerchantCategorySummary, PayeeGroup
 from app.services.finance.utils import (
-    transaction_payee_key,
+    row_payee_key,
     utcnow,
 )
 
@@ -465,9 +465,7 @@ async def payee_groups(
 
     groups: dict[str, dict[str, Any]] = {}
     for txn in rows:
-        key = transaction_payee_key(
-            txn.merchant_name, txn.original_description, txn.name
-        )
+        key = row_payee_key(txn)
         if not key:
             continue
         entry = groups.setdefault(
@@ -527,12 +525,7 @@ async def assign_payee_group(
     if not wanted:
         return 0
     rows = await queries.payeeless_transactions(db, owner_user_id=owner_user_id)
-    ids = [
-        t.id
-        for t in rows
-        if transaction_payee_key(t.merchant_name, t.original_description, t.name)
-        in wanted
-    ]
+    ids = [t.id for t in rows if row_payee_key(t) in wanted]
     if not ids:
         return 0
     return await assign_merchant(
@@ -557,14 +550,10 @@ async def similar_unassigned(
     )
     if txn is None:
         return []
-    key = transaction_payee_key(txn.merchant_name, txn.original_description, txn.name)
+    key = row_payee_key(txn)
     if not key:
         return []
     rows = await queries.payeeless_transactions(db, owner_user_id=owner_user_id)
     return [
-        row
-        for row in rows
-        if row.id != transaction_id
-        and transaction_payee_key(row.merchant_name, row.original_description, row.name)
-        == key
+        row for row in rows if row.id != transaction_id and row_payee_key(row) == key
     ]

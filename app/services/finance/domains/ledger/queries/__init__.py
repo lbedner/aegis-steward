@@ -66,6 +66,11 @@ from app.services.finance.domains.ledger.queries.filters import (
     transaction_search_filter,
     uncategorized_catchall_ids,
 )
+from app.services.finance.domains.ledger.queries.links import (
+    delete_transaction_link,
+    transaction_link_id,
+    transactions_by_label,
+)
 from app.services.finance.domains.ledger.queries.merchants import (
     category_tallies_by_merchants,
     delete_merchant_aliases,
@@ -147,6 +152,10 @@ __all__ = [
     "currency_by_code",
     "daily_register_deltas",
     "dated_amounts_in_window",
+    "delete_transaction_link",
+    "delete_transaction_link",
+    "transaction_link_id",
+    "transactions_by_label",
     "outflow_by_account_in_window",
     "dedup_match",
     "filters",

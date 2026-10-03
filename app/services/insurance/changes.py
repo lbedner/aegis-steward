@@ -77,10 +77,10 @@ async def _eob(
     """The EOB as (document_id, title): a paste resolved, a shelf id
     checked, or nothing."""
     from app.services.documents.service import DocumentService
-    from app.services.finance.domains.writes.filing import _filed
+    from app.services.finance.domains.writes.filing import filed_document
 
     if payload.paste_id is not None:
-        found = await _filed(db, payload.paste_id, owner_user_id)
+        found = await filed_document(db, payload.paste_id, owner_user_id)
         if found is None:
             raise ValueError(
                 f"{payload.paste_id!r} is not an attached document; pasted "

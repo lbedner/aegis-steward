@@ -28,6 +28,8 @@ from app.services.ai.domains.chat.readings import (
     reading_stage,
     user_readings,
 )
+from app.services.ai.domains.chat.self_context import current_turn
+from app.services.ai.domains.chat.summary import enqueue_if_due
 from app.services.ai.domains.chat.titles import conversation_title
 from app.services.ai.domains.chat.user_memory import (
     build_user_memory_context,
@@ -324,3 +326,7 @@ class ChatMixin(PromptMixin):
 
         # Save conversation
         await self.conversation_manager.save_conversation(conversation)
+        # Turns that left this one's window fold into the running summary
+        # on the worker, once enough have (#295).
+        if (stamp := current_turn()) is not None and stamp.messages_dropped:
+            await enqueue_if_due(conversation, stamp.first_kept)
