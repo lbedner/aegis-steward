@@ -24,10 +24,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+import re
 from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin
 
-from pydantic import BaseModel, ValidationError, model_validator
+from pydantic import BaseModel, ValidationError, computed_field, model_validator
 
 from app.core.db import get_async_session
 from app.services.ai.domains.chat.tools import register_tool
@@ -73,6 +74,11 @@ def lookup(name: str) -> CardKind | None:
 ROW_CAP = 10
 
 
+# A figure as she writes one: "$1,800.00", "-25%", "(12.5)", "3k".
+FIGURE = re.compile(r"^[(+-]?[$€£¥]?[(+-]?\d[\d,]*(\.\d+)?[%kKmM]?\)?$")
+BLANK = {"", "-", "—", "n/a"}
+
+
 class TableRow(BaseModel):
     label: str
     values: list[str | int | float]
@@ -98,6 +104,26 @@ class TablePayload(BaseModel):
                     f"the label column, so {wanted} values)"
                 )
         return self
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def figures(self) -> list[bool]:
+        """Per value column: all figures (sits right, to compare) or words
+        (reads left and wraps). Blanks do not decide."""
+        columns = zip(*(row.values for row in self.rows), strict=True)
+        return [
+            any(_said(v) for v in column)
+            and all(_figure(v) or not _said(v) for v in column)
+            for column in columns
+        ] or [False] * (len(self.columns) - 1)
+
+
+def _said(value: str | int | float) -> bool:
+    return str(value).strip().casefold() not in BLANK
+
+
+def _figure(value: str | int | float) -> bool:
+    return not isinstance(value, str) or bool(FIGURE.match(value.strip()))
 
 
 class BarRow(BaseModel):
@@ -225,15 +251,21 @@ def card_stage() -> Iterator[list[dict[str, Any]]]:
         _staged.reset(token)
 
 
+def markers_of(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """The component markers a trace entry holds: one stored bare (an
+    approval card's), or a list (cards drawn beside it)."""
+    held = entry.get("component")
+    items = held if isinstance(held, list) else [held] if held else []
+    return [m for m in items if isinstance(m, dict)]
+
+
 def attach_cards(trace: list[dict[str, Any]], drawn: list[dict[str, Any]]) -> None:
     """Move the cards drawn so far onto the trace entry that just finished
     (the ``run_code`` that drew them), emptying ``drawn``."""
     if not drawn or not trace:
         return
     entry = trace[-1]
-    held = entry.get("component")
-    markers = held if isinstance(held, list) else [held] if held else []
-    entry["component"] = [*markers, *drawn]
+    entry["component"] = [*markers_of(entry), *drawn]
     drawn.clear()
 
 

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.chat_transcript import IMAGE_TYPES
 from app.core.log import logger
 from app.core.storage import get_storage
 from app.services.documents.domains.extraction import ocr
@@ -32,7 +33,6 @@ from app.services.documents.queries import document_by_id, pages_for
 VisionReader = Callable[[bytes, str], Awaitable[tuple[str, str]]]
 Progress = Callable[[int, int], None]
 
-IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 
 # ponytail: a scanned PDF often carries a junk text layer of a few glyphs
 # per page, so "has text" is a threshold, not a boolean. Raise it if

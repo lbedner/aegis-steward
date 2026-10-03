@@ -9,7 +9,11 @@ from collections.abc import AsyncIterator
 import logging
 from typing import Any
 
+from app.core.voice_settings import setting_default
+
 from ..models import (
+    DEFAULT_TTS_MODEL,
+    DEFAULT_TTS_VOICE,
     AudioFormat,
     SpeechRequest,
     SpeechResult,
@@ -71,8 +75,8 @@ class OpenAITTSProvider(BaseTTSProvider):
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "tts-1",
-        voice: str = "alloy",
+        model: str = DEFAULT_TTS_MODEL,
+        voice: str = DEFAULT_TTS_VOICE,
         base_url: str | None = None,
     ) -> None:
         """Initialize OpenAI TTS provider.
@@ -118,7 +122,7 @@ class OpenAITTSProvider(BaseTTSProvider):
             "model": self.model,
             "voice": request.voice or self.default_voice,
             "input": request.text,
-            "speed": request.speed or 1.0,
+            "speed": request.speed or setting_default("TTS_SPEED"),
             "response_format": "mp3",
         }
         if request.instructions and self.model.startswith("gpt-4o"):
@@ -189,8 +193,8 @@ def get_tts_provider(
     if provider == TTSProvider.OPENAI:
         return OpenAITTSProvider(
             api_key=api_key,
-            model=model or "tts-1",
-            voice=voice or "alloy",
+            model=model or DEFAULT_TTS_MODEL,
+            voice=voice or DEFAULT_TTS_VOICE,
             **kwargs,
         )
     else:

@@ -7,12 +7,25 @@ when built, so applying a profile also drops them for the next call to
 rebuild.
 """
 
-from typing import Any
+from typing import Any, get_args
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
+from app.core.voice_settings import (
+    LIVE_IDLE_MAX_SECONDS,
+    TTS_SPEED_MAX,
+    TTS_SPEED_MIN,
+    Reply,
+    WorkingSound,
+)
 from app.services.ai.domains.voice import queries
+from app.services.ai.domains.voice.catalog import (
+    get_stt_models,
+    get_tts_models,
+    get_tts_voices,
+)
+from app.services.ai.domains.voice.models import STTProvider, TTSProvider
 from app.services.ai.models.voice_profile import VoiceProfile
 
 SEEDED_NAME = "Illiana"
@@ -34,26 +47,23 @@ SETTINGS = {
 }
 
 
-# What a profile may say, from OpenAI's docs (2026-09): marin and cedar are
-# the recommended voices; the dated gpt-4o-mini-tts builds can be pinned (the
-# March one is more expressive, the December one mishears less); tts-1 takes
-# no delivery instructions and knows only the first nine voices.
-TTS_VOICES = (
-    "marin", "cedar", "alloy", "ash", "ballad", "coral", "echo",
-    "fable", "nova", "onyx", "sage", "shimmer", "verse",
-)  # fmt: skip
-TTS_MODELS = (
-    "gpt-4o-mini-tts",
-    "gpt-4o-mini-tts-2025-03-20",
-    "gpt-4o-mini-tts-2025-12-15",
-    "tts-1",
-    "tts-1-hd",
-)
-STT_MODELS = ("gpt-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe")
-REPLIES = ("live", "answer")
-WORKING_SOUNDS = ("typing", "none")
-SPEED_RANGE = (0.25, 4.0)
-IDLE_RANGE = (0, 600)
+# What a profile may say: OpenAI's voices and models, from the voice
+# catalog (the one list; the voice API reads it too).
+TTS_VOICES = tuple(v.id for v in get_tts_voices(TTSProvider.OPENAI.value))
+TTS_MODELS = tuple(m.id for m in get_tts_models(TTSProvider.OPENAI.value))
+STT_MODELS = tuple(m.id for m in get_stt_models(STTProvider.OPENAI_WHISPER.value))
+REPLIES = get_args(Reply)
+WORKING_SOUNDS = get_args(WorkingSound)
+# What each picked column of the form may be: what it checks, what it offers.
+CHOICES = {
+    "tts_voice": TTS_VOICES,
+    "tts_model": TTS_MODELS,
+    "stt_model": STT_MODELS,
+    "reply": REPLIES,
+    "working_sound": WORKING_SOUNDS,
+}
+SPEED_RANGE = (TTS_SPEED_MIN, TTS_SPEED_MAX)
+IDLE_RANGE = (0, LIVE_IDLE_MAX_SECONDS)
 
 
 def parse_form(form: Any) -> tuple[dict[str, Any], list[str]]:
@@ -63,16 +73,9 @@ def parse_form(form: Any) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     name = str(form.get("name") or "").strip()
     if not name:
-        errors.append("A voice needs a name.")
-    choices = {
-        "tts_voice": TTS_VOICES,
-        "tts_model": TTS_MODELS,
-        "stt_model": STT_MODELS,
-        "reply": REPLIES,
-        "working_sound": WORKING_SOUNDS,
-    }
+        errors.append(NEEDS_NAME)
     values: dict[str, Any] = {"name": name}
-    for column, allowed in choices.items():
+    for column, allowed in CHOICES.items():
         value = str(form.get(column) or "")
         if value not in allowed:
             errors.append(f"{column.replace('_', ' ')}: pick one of the choices.")
@@ -109,6 +112,15 @@ class VoiceProfileError(ValueError):
     """A profile change that cannot be made (a duplicate name, a missing row)."""
 
 
+NEEDS_NAME = "A voice needs a name."
+GONE = "That voice no longer exists."
+
+
+async def _refuse_taken(session: AsyncSession, name: str) -> None:
+    if await queries.profile_named(session, name) is not None:
+        raise VoiceProfileError(f'There is already a voice called "{name}".')
+
+
 list_profiles = queries.all_profiles
 active_profile = queries.active_profile
 
@@ -134,9 +146,8 @@ async def create(session: AsyncSession, *, name: str, **changes: Any) -> VoicePr
     """A new, inactive profile: the active one's values, with ``changes``."""
     name = name.strip()
     if not name:
-        raise VoiceProfileError("A voice needs a name.")
-    if await queries.profile_named(session, name) is not None:
-        raise VoiceProfileError(f'There is already a voice called "{name}".')
+        raise VoiceProfileError(NEEDS_NAME)
+    await _refuse_taken(session, name)
     base = await active_profile(session)
     values = {column: getattr(base, column) for column in SETTINGS} if base else {}
     values.update(changes)
@@ -151,10 +162,10 @@ async def update(
 ) -> VoiceProfile:
     profile = await session.get(VoiceProfile, profile_id)
     if profile is None:
-        raise VoiceProfileError("That voice no longer exists.")
+        raise VoiceProfileError(GONE)
     name = changes.get("name")
-    if name and name != profile.name and await queries.profile_named(session, name):
-        raise VoiceProfileError(f'There is already a voice called "{name}".')
+    if name and name != profile.name:
+        await _refuse_taken(session, name)
     for column, value in changes.items():
         setattr(profile, column, value)
     profile.updated_at = utcnow()
@@ -170,7 +181,7 @@ async def activate(session: AsyncSession, profile_id: int) -> list[VoiceProfile]
     profiles = await list_profiles(session)
     chosen = next((p for p in profiles if p.id == profile_id), None)
     if chosen is None:
-        raise VoiceProfileError("That voice no longer exists.")
+        raise VoiceProfileError(GONE)
     for profile in profiles:
         if profile.is_active != (profile is chosen):
             profile.is_active = profile is chosen

@@ -9,6 +9,7 @@ steps she took), and the call's priced usage goes to the ledger.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -61,6 +62,21 @@ def _turn() -> list[object]:
     ]
 
 
+async def _conversation(
+    provider: AIProvider = AIProvider.GOOGLE, model: str = "gemini-3.8-live"
+) -> Any:
+    return await ai_service.conversation_manager.create_conversation(
+        provider=provider, model=model, user_id=STANDALONE_USER_ID, surface="finance"
+    )
+
+
+async def _priced(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None:
+    """What a driven call is priced against: the voice catalog, and the
+    usage ledger on the test's session."""
+    monkeypatch.setattr(usage_recording, "get_async_session", opens(session))
+    await seed_voice_catalog(session)
+
+
 class TestATurn:
     def test_a_turn_is_what_you_said_what_she_said_and_her_steps(self) -> None:
         log = TurnLog()
@@ -88,12 +104,7 @@ class TestATurn:
 
     @pytest.mark.asyncio
     async def test_a_finished_turn_lands_in_the_conversation(self) -> None:
-        conversation = await ai_service.conversation_manager.create_conversation(
-            provider=AIProvider.OPENAI,
-            model="gpt-realtime-2.1",
-            user_id=STANDALONE_USER_ID,
-            surface="finance",
-        )
+        conversation = await _conversation(AIProvider.OPENAI, "gpt-realtime-2.1")
         log = TurnLog()
         for event in _turn():
             log.observe(event)
@@ -232,16 +243,8 @@ class TestACutCall:
         from app.services.ai.domains.voice.realtime_calls import drive
         from tests._realtime import FakeRealtime
 
-        monkeypatch.setattr(
-            usage_recording, "get_async_session", opens(async_db_session)
-        )
-        await seed_voice_catalog(async_db_session)
-        conversation = await ai_service.conversation_manager.create_conversation(
-            provider=AIProvider.GOOGLE,
-            model="gemini-3.8-live",
-            user_id=STANDALONE_USER_ID,
-            surface="finance",
-        )
+        await _priced(async_db_session, monkeypatch)
+        conversation = await _conversation()
         realtime = FakeRealtime(_turn()[:2])  # you asked; she started working
 
         async def hang_up(session: object) -> None:
@@ -267,12 +270,7 @@ class TestACutCall:
     async def test_a_call_soon_after_picks_up_the_question(self) -> None:
         from datetime import UTC, datetime
 
-        conversation = await ai_service.conversation_manager.create_conversation(
-            provider=AIProvider.GOOGLE,
-            model="gemini-3.8-live",
-            user_id=STANDALONE_USER_ID,
-            surface="finance",
-        )
+        conversation = await _conversation()
         await save_turn(
             conversation.id,
             "How much is left?",
@@ -293,12 +291,7 @@ class TestACutCall:
 
     @pytest.mark.asyncio
     async def test_a_finished_turn_is_not_picked_up(self) -> None:
-        conversation = await ai_service.conversation_manager.create_conversation(
-            provider=AIProvider.GOOGLE,
-            model="gemini-3.8-live",
-            user_id=STANDALONE_USER_ID,
-            surface="finance",
-        )
+        conversation = await _conversation()
         await save_turn(
             conversation.id,
             "How much is left?",
@@ -319,10 +312,7 @@ class TestTheLedger:
         """At the catalog's rates: text, audio and cached input each at its
         own, then text and audio output (Pydantic AI's totals include the
         audio and the cached share)."""
-        monkeypatch.setattr(
-            usage_recording, "get_async_session", opens(async_db_session)
-        )
-        await seed_voice_catalog(async_db_session)
+        await _priced(async_db_session, monkeypatch)
         usage = SimpleNamespace(
             input_tokens=15_299,
             input_audio_tokens=1_000,
@@ -381,6 +371,17 @@ class TestTheSettings:
             "google_vad": {"start_sensitivity": "low", "end_sensitivity": "high"},
         }
 
+    def test_gpt_live_through_pydantic_ai_is_told_how_to_speak(self) -> None:
+        """#274's trial: GPT-Live run by Pydantic AI. Its voice model takes
+        the call manners as its own instructions (her agent's prompt goes
+        to the backend that does the work); it has no token limit and no
+        Realtime transcription setting."""
+        from app.services.ai.domains.voice.realtime_calls import _model_settings
+
+        assert _model_settings(
+            "openai:gpt-live-1", "cedar", 1200, instructions="Keep it short."
+        ) == {"openai_voice": "cedar", "openai_live_instructions": "Keep it short."}
+
     def test_gemini_does_not_take_the_tv_for_you(self) -> None:
         """A TV in the room held Gemini's turn open: it heard "speech",
         never decided you had finished, and never answered - you could not
@@ -404,16 +405,8 @@ class TestDrivingACall:
         from app.services.ai.domains.voice.realtime_calls import drive
         from tests._realtime import FakeRealtime
 
-        monkeypatch.setattr(
-            usage_recording, "get_async_session", opens(async_db_session)
-        )
-        await seed_voice_catalog(async_db_session)
-        conversation = await ai_service.conversation_manager.create_conversation(
-            provider=AIProvider.GOOGLE,
-            model="gemini-3.8-live",
-            user_id=STANDALONE_USER_ID,
-            surface="finance",
-        )
+        await _priced(async_db_session, monkeypatch)
+        conversation = await _conversation()
         realtime = FakeRealtime(_turn())
         seen: list[object] = []
         saved: list[bool] = []
@@ -461,3 +454,52 @@ class TestDrivingACall:
         (row,) = (await async_db_session.exec(select(LLMUsage))).all()
         assert (row.action, row.model_id) == ("realtime", "gemini-3.8-live")
         assert row.total_cost > 0  # priced at the catalog's Gemini rates
+
+    @pytest.mark.asyncio
+    async def test_a_card_shows_as_she_draws_it(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A chart is up while she talks about it, not once the turn is
+        saved: each card drawn is told the moment its step finishes."""
+        import asyncio
+
+        from app.services.ai.domains.chat import cards
+        from app.services.ai.domains.voice.realtime_calls import drive
+        from tests._realtime import FakeRealtime
+
+        await _priced(async_db_session, monkeypatch)
+        conversation = await _conversation()
+        order: list[object] = []
+
+        async def on_event(event: object) -> None:
+            if isinstance(event, FunctionToolCallEvent):  # her script draws
+                staged = cards._staged.get()
+                assert staged is not None
+                staged.append({"kind": cards.MARKER, "id": "c1"})
+
+        async def on_drawn(ids: list[str]) -> None:
+            order.append(ids)
+
+        async def on_saved(cost: float) -> None:
+            order.append("saved")
+
+        async def alongside(session: object) -> None:
+            await asyncio.sleep(0)
+            await session.close()  # type: ignore[attr-defined]
+
+        await drive(
+            FakeRealtime(_turn()),
+            conversation_id=conversation.id,
+            model="google:gemini-3.8-live",
+            agent_slug="finance-voice",
+            user_id=STANDALONE_USER_ID,
+            alongside=alongside,
+            on_event=on_event,
+            on_drawn=on_drawn,
+            on_saved=on_saved,
+        )
+
+        assert order == [["c1"], "saved"]
+        stored = await ai_service.get_conversation(conversation.id)
+        trace = stored.messages[-1].metadata["tool_trace"]
+        assert trace[-1]["component"] == [{"kind": cards.MARKER, "id": "c1"}]

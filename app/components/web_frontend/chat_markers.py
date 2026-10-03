@@ -17,9 +17,8 @@ import json
 import re
 from typing import Any
 
-from app.services.ai.domains.chat.cards import MARKER
-
-CARD_TOOLS = ("propose", "propose_many", "pending")
+from app.services.ai.domains.chat.cards import MARKER, markers_of
+from app.services.ai.service.trace import CARD_TOOLS, IDENTITY_KEYS, card_identity
 
 
 def components(trace: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -31,31 +30,20 @@ def components(trace: list[dict[str, Any]]) -> list[dict[str, Any]]:
     the card before it."""
     found: list[dict[str, Any]] = []
     for entry in trace:
-        held = entry.get("component")
-        for marker in held if isinstance(held, list) else []:
-            if isinstance(marker, dict) and marker.get("kind") == MARKER:
+        for marker in markers_of(entry):
+            if marker.get("kind") == MARKER:
                 found = [f for f in found if f["kind"] != MARKER]
                 found.append({"kind": MARKER, "id": marker.get("id")})
         if entry.get("tool") not in CARD_TOOLS:
             continue
         for data in _card_data(entry):
-            if data.get("batch_id"):
-                found.append({"kind": "pending_change_batch", "id": data["batch_id"]})
-            elif data.get("pending_change_id"):
-                found.append(
-                    {"kind": "pending_change", "id": data["pending_change_id"]}
-                )
+            if named := card_identity(data):
+                found.append({"kind": named[0], "id": named[2]})
     return found
 
 
 def _card_data(entry: dict[str, Any]) -> list[dict[str, Any]]:
-    marker = entry.get("component")
-    markers = marker if isinstance(marker, list) else [marker]
-    found = [
-        m
-        for m in markers
-        if isinstance(m, dict) and m.get("kind") not in (None, MARKER)
-    ]
+    found = [m for m in markers_of(entry) if m.get("kind") not in (None, MARKER)]
     if found or entry.get("tool") == "pending":
         return found
     result = entry.get("result")
@@ -72,7 +60,7 @@ def _salvage_identity(clipped: str) -> dict[str, Any] | None:
     """Identity fields lead a proposal's result, so they survive the
     display clip that truncates the rest to invalid JSON."""
     fields: dict[str, Any] = {}
-    for key in ("batch_id", "pending_change_id"):
+    for key in IDENTITY_KEYS:
         m = re.search(rf'"{key}":\s*"?([^",}}]*)"?', clipped)
         if m:
             fields[key] = m.group(1)

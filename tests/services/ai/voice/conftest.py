@@ -30,6 +30,7 @@ def mock_voice_settings() -> MagicMock:
     settings.STT_PROVIDER = STTProvider.OPENAI_WHISPER.value
     settings.STT_MODEL = "whisper-1"
     settings.STT_LANGUAGE = None
+    settings.STT_DEVICE = None
     return settings
 
 

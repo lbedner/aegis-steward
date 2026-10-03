@@ -43,6 +43,42 @@ document.addEventListener('alpine:init', () => {
   }));
 });
 
+// Markup a script needs is cloned from a <template> in its partial, so
+// styling has one home (the template), never a JS string.
+function clone(id) {
+  return document.getElementById(id).content.firstElementChild.cloneNode(true);
+}
+
+// The chat surface's parts that both chat.js and voice.js reach: the
+// thread (streamed into, reloaded mid-call), the conversation it is, and
+// the composer's box.
+function chatThread() {
+  return document.getElementById('chat-thread');
+}
+function chatConversation() {
+  return document.getElementById('chat-conversation');
+}
+// The conversation's id, or null for a new one; and a new id kept.
+function conversationId() {
+  return chatConversation()?.value || null;
+}
+function setConversation(id) {
+  const field = chatConversation();
+  if (id && field) field.value = id;
+}
+function chatComposer() {
+  return document.getElementById('chat-composer');
+}
+function composerBox() {
+  return chatComposer()?.querySelector('textarea');
+}
+// Text put into a box Alpine owns through x-model: it never sees a
+// direct assignment, so the input event tells it.
+function setBoxText(box, text) {
+  box.value = text;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function toast(text, tone) {
   window.dispatchEvent(new CustomEvent('toast', { detail: { text, tone } }));
 }
@@ -74,12 +110,14 @@ document.body.addEventListener('htmx:pushedIntoHistory', markCurrentSection);
 window.addEventListener('popstate', markCurrentSection);
 
 // The one modal (pattern 4). Any swap into #dialog-body opens the native
-// <dialog>; closing it clears the body (see the dialog macro).
+// <dialog>, as does a script that fills it itself (chat's image viewer);
+// closing it clears the body (see the dialog macro).
+function openDialog() {
+  const dialog = document.getElementById('dialog');
+  if (dialog && !dialog.open) dialog.showModal();
+}
 document.body.addEventListener('htmx:afterSwap', (event) => {
-  if (event.detail.target.id === 'dialog-body') {
-    const dialog = document.getElementById('dialog');
-    if (dialog && !dialog.open) dialog.showModal();
-  }
+  if (event.detail.target.id === 'dialog-body') openDialog();
 });
 // A dialog's address opened directly arrives here as ?dialog=<its path>
 // (rendering.dialog): open it over the page, and drop the param so a

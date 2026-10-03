@@ -14,12 +14,16 @@ from pydantic import ValidationError
 from starlette.responses import Response
 
 from app.components.web_frontend.rendering import dialog, render
-from app.components.web_frontend.routes.chat import COMPONENTS, owned
+from app.components.web_frontend.routes.chat import (
+    COMPONENT_PATHS,
+    component_url,
+    owned,
+)
 from app.services.ai.domains.chat import cards
 
 router = APIRouter()
 
-CARDS = COMPONENTS + "/card"
+CARDS = COMPONENT_PATHS[cards.MARKER]
 MISSING = "partials/chat/card_missing.html"
 
 
@@ -40,7 +44,7 @@ async def card(request: Request, card_id: str, size: str = "") -> Response:
     context = {
         "card": payload,
         "card_id": row.id,
-        "card_url": f"{CARDS}/{row.id}",
+        "card_url": component_url(cards.MARKER, row.id),
         "large": size == "large",
     }
     if context["large"]:

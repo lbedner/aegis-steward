@@ -14,7 +14,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.backend.api.ai.router import ai_service
 from app.components.web_frontend.filters import markdown
+from app.components.web_frontend.routes import chat
 from app.core.chat_transcript import (
+    IMAGE_TYPES,
     balance_fences,
     footer_line,
     trace_label,
@@ -63,8 +65,9 @@ class TestPage:
             "agent_slug": "finance-assistant",
             "surface": "finance",
         }
-        # The settle swap builds its URL from the section path, not a literal.
-        assert config["path"] == "/chat"
+        # The addresses the script reaches are the routes' own, not literals.
+        assert config["urls"] == chat.CHAT_URLS
+        assert config["urls"]["pastes"] == chat.PASTES
 
     def test_the_script_clones_its_markup_from_templates(
         self, client: TestClient
@@ -618,9 +621,9 @@ class TestAttachments:
         attach = one(page, "input#chat-attach[type=file]")
         # PDFs too: a statement is one file, and screenshotting it a
         # page at a time is what the picker used to force.
-        assert attach.get("accept") == (
-            "image/png,image/jpeg,image/webp,image/gif,application/pdf"
-        )
+        # The types are the server's: the images a turn carries, and a PDF.
+        accepted = set((attach.get("accept") or "").split(","))
+        assert accepted == {*IMAGE_TYPES, "application/pdf"}
         assert attach.get("multiple") is not None
         one(page, "#chat-attachments[hidden]")
 
@@ -859,7 +862,7 @@ class TestIdenticalChangesReadAsOne:
         card = batch_card("b4", self._batch(5))
         markup = templates.get_template(
             "components/macros/changes.html"
-        ).module.pending_change_batch_card(card, "/chat/components")
+        ).module.pending_change_batch_card(card)
 
         assert len(select(markup, "input[name=exclude_ids]")) == 5
         one(markup, "input[data-skip-group]")

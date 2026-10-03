@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from ..models import (
+    DEFAULT_STT_MODELS,
     AudioFormat,
     AudioInput,
     STTProvider,
@@ -59,7 +60,7 @@ class OpenAIWhisperProvider(BaseSTTProvider):
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "whisper-1",
+        model: str = DEFAULT_STT_MODELS[STTProvider.OPENAI_WHISPER],
         base_url: str | None = None,
     ) -> None:
         """Initialize OpenAI Whisper provider.
@@ -157,7 +158,7 @@ class WhisperLocalProvider(BaseSTTProvider):
 
     def __init__(
         self,
-        model_name: str = "openai/whisper-base",
+        model_name: str = DEFAULT_STT_MODELS[STTProvider.WHISPER_LOCAL],
         device: str | None = None,
     ) -> None:
         """Initialize local Whisper provider.
@@ -265,7 +266,7 @@ class FasterWhisperProvider(BaseSTTProvider):
 
     def __init__(
         self,
-        model_size: str = "base",
+        model_size: str = DEFAULT_STT_MODELS[STTProvider.FASTER_WHISPER],
         device: str = "auto",
         compute_type: str = "default",
     ) -> None:
@@ -375,7 +376,7 @@ class GroqWhisperProvider(BaseSTTProvider):
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "whisper-large-v3-turbo",
+        model: str = DEFAULT_STT_MODELS[STTProvider.GROQ_WHISPER],
     ) -> None:
         """Initialize Groq Whisper provider.
 
@@ -473,26 +474,21 @@ def get_stt_provider(
     Raises:
         ValueError: If provider type is not supported.
     """
+    model = model or DEFAULT_STT_MODELS.get(provider)
     if provider == STTProvider.OPENAI_WHISPER:
         return OpenAIWhisperProvider(
             api_key=api_key,
-            model=model or "whisper-1",
+            model=model,
             **kwargs,
         )
     elif provider == STTProvider.WHISPER_LOCAL:
-        return WhisperLocalProvider(
-            model_name=model or "openai/whisper-base",
-            **kwargs,
-        )
+        return WhisperLocalProvider(model_name=model, **kwargs)
     elif provider == STTProvider.FASTER_WHISPER:
-        return FasterWhisperProvider(
-            model_size=model or "base",
-            **kwargs,
-        )
+        return FasterWhisperProvider(model_size=model, **kwargs)
     elif provider == STTProvider.GROQ_WHISPER:
         return GroqWhisperProvider(
             api_key=api_key,
-            model=model or "whisper-large-v3-turbo",
+            model=model,
             **kwargs,
         )
     else:

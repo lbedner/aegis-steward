@@ -24,10 +24,13 @@ from app.components.web_frontend.rendering import (
     or_404,
     templates,
     trigger,
+    where_from,
     with_toast,
 )
-from app.components.web_frontend.routes.chat import COMPONENTS
+from app.components.web_frontend.routes.chat import COMPONENT_PATHS, component_url
+from app.services.ai.service.trace import BATCH_MARKER, CHANGE_MARKER
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.writes.queue import withdrawn
 from app.services.finance.schemas.changes import (
     BatchResolveRequest,
     PendingChangeResponse,
@@ -53,7 +56,7 @@ def status_of(change: PendingChangeResponse) -> tuple[str, str, str | None]:
     its own proposal back, and its reason is the line worth reading."""
     status = change.status
     note = change.note
-    if status == "rejected" and note and note.startswith("Withdrawn"):
+    if withdrawn(status, note):
         status = "withdrawn"
     else:
         note = None
@@ -65,6 +68,7 @@ def change_card(change: PendingChangeResponse) -> dict[str, Any]:
     label, tone, note = status_of(change)
     return {
         "change": change,
+        "url": component_url(CHANGE_MARKER, change.id),
         "status": label,
         "tone": tone,
         "note": note,
@@ -132,8 +136,13 @@ def batch_card(batch_id: str, items: list[PendingChangeResponse]) -> dict[str, A
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["status"].lower()] = counts.get(row["status"].lower(), 0) + 1
+    # A batch awaiting you reads as one awaiting change does.
+    label, tone = STATUS_COPY["pending"]
     return {
         "batch_id": batch_id,
+        "url": component_url(BATCH_MARKER, batch_id),
+        "status": label,
+        "tone": tone,
         "title": items[0].title if items else "",
         "rows": rows,
         "groups": group_rows(rows),
@@ -166,15 +175,14 @@ async def _card(
     bar the reader is looking at. The tab stays whichever one shows."""
     from app.components.web_frontend.routes.finance import review
 
-    context: dict[str, Any] = {"card": card, "base": COMPONENTS}
-    current = request.headers.get("HX-Current-URL", "")
-    path = current.split("//", 1)[-1].split("/", 1)[-1] if "//" in current else current
-    if ("/" + path).startswith(review.SECTION.path):
+    context: dict[str, Any] = {"card": card}
+    here = where_from(request, "")
+    if here.startswith(review.SECTION.path):
         tab = next(
             (
                 key
                 for key, _l, suffix in review.QUEUES
-                if ("/" + path).startswith(review.SECTION.path + suffix) and suffix
+                if here.startswith(review.SECTION.path + suffix) and suffix
             ),
             "approvals",
         )
@@ -184,7 +192,9 @@ async def _card(
     return templates.TemplateResponse(request=request, name=name, context=context)
 
 
-@router.get(COMPONENTS + "/change/{change_id:int}", include_in_schema=False)
+@router.get(
+    COMPONENT_PATHS[CHANGE_MARKER] + "/{change_id:int}", include_in_schema=False
+)
 async def change_component(
     request: Request,
     change_id: int,
@@ -208,7 +218,10 @@ async def change_component(
     )
 
 
-@router.post(COMPONENTS + "/change/{change_id:int}/{verb}", include_in_schema=False)
+@router.post(
+    COMPONENT_PATHS[CHANGE_MARKER] + "/{change_id:int}/{verb}",
+    include_in_schema=False,
+)
 async def resolve_change_component(
     request: Request,
     change_id: int,
@@ -250,7 +263,7 @@ async def resolve_change_component(
     return trigger(response, "change:resolved")
 
 
-@router.get(COMPONENTS + "/batch/{batch_id}", include_in_schema=False)
+@router.get(COMPONENT_PATHS[BATCH_MARKER] + "/{batch_id}", include_in_schema=False)
 async def batch_component(
     request: Request,
     batch_id: str,
@@ -269,7 +282,10 @@ async def batch_component(
     )
 
 
-@router.post(COMPONENTS + "/batch/{batch_id}/{verb}", include_in_schema=False)
+@router.post(
+    COMPONENT_PATHS[BATCH_MARKER] + "/{batch_id}/{verb}",
+    include_in_schema=False,
+)
 async def resolve_batch_component(
     request: Request,
     batch_id: str,

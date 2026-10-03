@@ -33,6 +33,7 @@ from app.services.ai import usage_recording
 from app.services.ai.domains.chat.cards import attach_cards, card_stage
 from app.services.ai.domains.chat.readings import reading_stage
 from app.services.ai.domains.chat.user_memory import memory_user
+from app.services.ai.domains.voice.live_engines import is_gpt_live
 from app.services.ai.models import MessageRole
 from app.services.ai.service.trace import record_tool_call, record_tool_result
 
@@ -66,6 +67,8 @@ class TurnLog:
 
     def __init__(self) -> None:
         self._reset()
+        # The cards the last event's step drew, for the page at once.
+        self.shown: list[str] = []
 
     def _reset(self) -> None:
         self.heard: list[str] = []
@@ -76,6 +79,7 @@ class TurnLog:
     def observe(self, event: Any) -> bool:
         """Take in one event; True when it finished a turn. Ending the call
         is how it ends, not one of her steps."""
+        self.shown = []
         if (
             isinstance(event, FunctionToolCallEvent | FunctionToolResultEvent)
             and event.part.tool_name == END_CALL
@@ -92,6 +96,7 @@ class TurnLog:
             record_tool_call(self.trace, event)
         elif isinstance(event, FunctionToolResultEvent):
             record_tool_result(self.trace, event)
+            self.shown = [marker["id"] for marker in self.drawn]
             attach_cards(self.trace, self.drawn)
         return isinstance(event, RealtimeTurnCompleteEvent)
 
@@ -141,8 +146,20 @@ async def save_turn(
     await ai_service.conversation_manager.save_conversation(conversation)
 
 
+# OpenAI's voice when the profile names none: its recommended one.
+OPENAI_VOICE = "marin"
+
+
+def openai_voice(voice: str | None) -> str:
+    """The profile's voice, or OpenAI's recommended one."""
+    return voice or OPENAI_VOICE
+
+
 def _model_settings(
-    model: str, voice: str | None, max_output_tokens: int | None
+    model: str,
+    voice: str | None,
+    max_output_tokens: int | None,
+    instructions: str | None = None,
 ) -> dict[str, Any]:
     """The session's settings for its provider. OpenAI transcribes what you
     said only when asked (a saved turn needs your side too; its cost rides
@@ -152,7 +169,14 @@ def _model_settings(
     # (Kore, Puck, ... - ``google_voice``) once voices are picked per engine.
     settings: dict[str, Any] = {}
     if model.startswith("openai:"):
-        settings["openai_voice"] = voice or "marin"
+        settings["openai_voice"] = openai_voice(voice)
+        if is_gpt_live(model):
+            # The call manners are the voice model's own; her agent's
+            # prompt is the backend's. Live has no token limit and
+            # transcribes itself.
+            if instructions:
+                settings["openai_live_instructions"] = instructions
+            return settings
         settings["input_transcription_model"] = INPUT_TRANSCRIPTION
     if model.startswith("google:"):
         # A TV in the room held Gemini's turn open: its default detector
@@ -211,7 +235,8 @@ async def realtime_for(
     from app.services.ai.domains.chat.agent_loader import resolve_agent
 
     config = await resolve_agent(agent_slug)
-    if instructions:
+    # GPT-Live takes the call manners as its own (``_model_settings``).
+    if instructions and not is_gpt_live(model):
         config = replace(
             config, system_prompt=f"{instructions}\n\n{config.system_prompt}"
         )
@@ -221,7 +246,9 @@ async def realtime_for(
     return agent.realtime(
         model,
         instructions=await call_instructions(agent, history),
-        model_settings=_model_settings(model, voice, max_output_tokens),  # type: ignore[arg-type]
+        model_settings=_model_settings(  # type: ignore[arg-type]
+            model, voice, max_output_tokens, instructions
+        ),
         toolsets=[CALL_TOOLS],
     )
 
@@ -264,13 +291,16 @@ async def drive(
     alongside: Callable[[Any], Awaitable[None]] | None = None,
     on_event: Callable[[Any], Awaitable[None]] | None = None,
     on_saved: Callable[[float], Awaitable[None]] | None = None,
+    on_drawn: Callable[[list[str]], Awaitable[None]] | None = None,
 ) -> None:
     """Run one call to its end: her tools in a turn's context, each
     finished turn saved into the conversation, the priced usage ledgered.
     The session is the WebRTC call's sideband (``provider_session``), or
     the relay's own; ``alongside`` runs beside the events for the length
     of the call (the relay's audio), ``on_event`` sees every event and
-    ``on_saved`` hears of each saved turn, with the call's cost so far."""
+    ``on_saved`` hears of each saved turn, with the call's cost so far.
+    ``on_drawn`` hears of the cards a step drew as it finishes, so a chart
+    is up while she talks about it rather than once the turn is saved."""
     started = datetime.now(UTC)
     usage = None
     log = TurnLog()
@@ -320,6 +350,8 @@ async def drive(
                             cost = await keep(session, turn, interrupted=False)
                             if on_saved:
                                 await on_saved(cost)
+                        if log.shown and on_drawn:
+                            await on_drawn(log.shown)
                 finally:
                     # A dropped call still used what it used, and still
                     # said and ran what it did: the turn it cut is kept.

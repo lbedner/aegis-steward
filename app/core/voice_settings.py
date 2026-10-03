@@ -4,10 +4,21 @@
 from ``.env`` like every other setting.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+# The speech speed the TTS API accepts, and the longest a live call may
+# sit in dead air: every model, form and profile bounds by these.
+TTS_SPEED_MIN, TTS_SPEED_MAX = 0.25, 4.0
+LIVE_IDLE_MAX_SECONDS = 600
+
+
+# How a spoken reply is heard, and what plays while she works: the values
+# the settings, a profile and its form all take.
+Reply = Literal["live", "answer"]
+WorkingSound = Literal["typing", "none"]
 
 
 class VoiceSettings(BaseSettings):
@@ -29,7 +40,7 @@ class VoiceSettings(BaseSettings):
         None  # Voice: alloy, echo, fable, onyx, nova, shimmer. None = alloy
     )
     # Sent to the model as ``speed`` (it used to be read and never sent).
-    TTS_SPEED: float = Field(default=1.0, ge=0.25, le=4.0)
+    TTS_SPEED: float = Field(default=1.0, ge=TTS_SPEED_MIN, le=TTS_SPEED_MAX)
     # How she says it - tone, emotion, pacing - sent as ``instructions``
     # (gpt-4o models only). OpenAI's documented way to steer delivery.
     TTS_INSTRUCTIONS: str | None = None
@@ -38,13 +49,19 @@ class VoiceSettings(BaseSettings):
     # streams, narration included, as soon as it is complete. "answer": the
     # settled answer, once. A list, not a flag, so a later mode (Realtime,
     # #252) is one more value rather than new plumbing.
-    VOICE_REPLY: Literal["answer", "live"] = "live"
+    VOICE_REPLY: Reply = "live"
     # What plays while she works and has said nothing yet: soft generated
     # key taps ("typing"), or nothing. Instead of narrating her tool calls,
     # which ran behind her own answer (2026-09-25).
-    VOICE_WORKING_SOUND: Literal["typing", "none"] = "typing"
+    VOICE_WORKING_SOUND: WorkingSound = "typing"
     # A live call hangs up after this many seconds of dead air (0: never):
     # GPT-Live bills by the minute, silence included.
-    VOICE_LIVE_IDLE_SECONDS: int = Field(default=30, ge=0, le=600)
+    VOICE_LIVE_IDLE_SECONDS: int = Field(default=30, ge=0, le=LIVE_IDLE_MAX_SECONDS)
     # The engine a live call runs on: a key in voice/live_engines.py.
     VOICE_LIVE_ENGINE: str = "gpt-live"
+
+
+def setting_default(name: str) -> Any:
+    """A voice setting's own default, for what starts where ``.env`` would
+    (a voice profile's columns, the default live engine)."""
+    return VoiceSettings.model_fields[name].default

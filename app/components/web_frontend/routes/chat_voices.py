@@ -15,7 +15,7 @@ from starlette.responses import Response
 
 from app.components.backend.api.ai.router import ai_service
 from app.components.web_frontend.rendering import dialog, render, with_toast
-from app.components.web_frontend.routes.chat import SECTION
+from app.components.web_frontend.routes.chat import CHAT_URLS, SECTION
 from app.components.web_frontend.routes.chat_speech import spoken
 from app.core.config import settings
 from app.core.db import get_async_db
@@ -26,6 +26,8 @@ from app.services.ai.models.voice_profile import VoiceProfile
 router = APIRouter()
 
 VOICES = SECTION.path + "/voices"
+VOICE_CHIP = VOICES + "/chip"
+CHAT_URLS["voice_chip"] = VOICE_CHIP
 TEMPLATE = "partials/chat/voices.html"
 
 # One passage for every preview, so voices are compared on the same words:
@@ -40,13 +42,9 @@ PREVIEW_TEXT = (
 
 def _choices() -> dict[str, list[dict[str, str]]]:
     """The edit form's options, from the one list each (profiles)."""
-    as_options = lambda values: [{"id": v, "name": v} for v in values]  # noqa: E731
     return {
-        "tts_voice": as_options(profiles.TTS_VOICES),
-        "tts_model": as_options(profiles.TTS_MODELS),
-        "stt_model": as_options(profiles.STT_MODELS),
-        "reply": as_options(profiles.REPLIES),
-        "working_sound": as_options(profiles.WORKING_SOUNDS),
+        column: [{"id": v, "name": v} for v in allowed]
+        for column, allowed in profiles.CHOICES.items()
     }
 
 
@@ -92,6 +90,8 @@ def _form(
         values=values or profile.model_dump(),
         errors=errors or [],
         choices=_choices(),
+        speed=profiles.SPEED_RANGE,
+        idle=profiles.IDLE_RANGE,
         path=VOICES,
     )
 
@@ -103,7 +103,7 @@ async def _owned(db: AsyncSession, profile_id: int) -> VoiceProfile:
     return profile
 
 
-@router.get(VOICES + "/chip", include_in_schema=False)
+@router.get(VOICE_CHIP, include_in_schema=False)
 async def chip(request: Request, db: AsyncSession = Depends(get_async_db)) -> Response:
     """The composer's voice chip: loaded by the chip's placeholder, so the
     chat surface needs nothing new in its own context."""

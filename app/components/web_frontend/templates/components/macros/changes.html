@@ -53,19 +53,28 @@
 {% endif %}
 {% endmacro %}
 
+{# A proposal's subject line: the row's face (logo, glyph or initial),
+   then what the caller says of it. #}
+{% macro subject_line(name, icon_url, category) %}
+<p class="flex items-baseline gap-2 text-sm font-medium text-aegis-text">
+  <span class="shrink-0 self-center">{{ avatar(name, icon_url, category) }}</span>
+  <span data-subject>{{ caller() }}</span>
+</p>
+{% endmacro %}
+
+{# One labelled fact under the subject, with its note when asked. #}
+{% macro fact_row(row, notes=True) %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}{% if notes and row.note %}<span class="block pl-2 text-xxs text-aegis-muted/70 break-all" data-note>{{ row.note }}</span>{% endif %}</li>{% endmacro %}
+
 {% macro display(change) %}
 {% set rows = change.display %}
 {% if rows %}
 {# The same face the register gives this transaction: the payee's logo,
    else its category's glyph, else its initial. A proposal is about a
    row, and the row is recognisable. #}
-<p class="flex items-baseline gap-2 text-sm font-medium text-aegis-text">
-  <span class="shrink-0 self-center">{{ avatar(change.payee or rows[0].value, change.icon_url, change.category) }}</span>
-  <span data-subject>{{ rows[0].value }}</span>
-</p>
+{% call subject_line(change.payee or rows[0].value, change.icon_url, change.category) %}{{ rows[0].value }}{% endcall %}
 {% if rows|length > 1 %}
 <ul class="mt-0.5 space-y-0.5 text-xs text-aegis-muted">
-  {% for row in rows[1:] %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}{% if row.note %}<span class="block pl-2 text-xxs text-aegis-muted/70 break-all" data-note>{{ row.note }}</span>{% endif %}</li>{% endfor %}
+  {% for row in rows[1:] %}{{ fact_row(row) }}{% endfor %}
 </ul>
 {% endif %}
 {{ cited_page(rows) }}
@@ -93,21 +102,22 @@
 {# A single proposal in the transcript. ``card`` is the route's shaping:
    the change, its status word and tone, and a withdrawal note. Decided
    cards fold to their one line: history, not homework. #}
-{% macro pending_change_card(card, base) %}
+{% macro pending_change_card(card) %}
 {% set change = card.change %}
 {% set target = "chat-change-" ~ change.id %}
+{% set title = change.title or change.change_type %}
 <div id="{{ target }}" data-component="pending_change" class="raised p-4 max-w-md">
   {% if card.pending %}
   <div class="flex items-center justify-between gap-3 mb-3">
-    <h3 class="text-sm font-semibold text-aegis-text">{{ change.title or change.change_type }}</h3>
+    <h3 class="text-sm font-semibold text-aegis-text">{{ title }}</h3>
     {{ badge(card.status, card.tone) }}
   </div>
   {{ display(change) }}
-  <div class="mt-3">{{ verbs(base ~ "/change/" ~ change.id ~ "/approve", base ~ "/change/" ~ change.id ~ "/reject", "#" ~ target, edit_url=edit_url(change) or none) }}</div>
+  <div class="mt-3">{{ verbs(card.url ~ "/approve", card.url ~ "/reject", "#" ~ target, edit_url=edit_url(change) or none) }}</div>
   {% else %}
   <details>
     <summary class="list-none cursor-pointer flex items-center justify-between gap-3">
-      <span class="text-sm font-semibold text-aegis-text">{{ change.title or change.change_type }}</span>
+      <span class="text-sm font-semibold text-aegis-text">{{ title }}</span>
       {{ badge(card.status, card.tone) }}
     </summary>
     {% if card.note %}<p class="mt-2 text-xs text-aegis-muted">{{ card.note }}</p>{% endif %}
@@ -138,27 +148,25 @@
    who, how many, what they come to, over what span - then the change
    itself, once. #}
 {% macro group_summary(group) %}
-<p class="flex items-baseline gap-2 text-sm font-medium text-aegis-text">
-  <span class="shrink-0 self-center">{{ avatar(group.change.payee, group.change.icon_url, group.change.category) }}</span>
-  <span data-subject>
+{% call subject_line(group.change.payee, group.change.icon_url, group.change.category) %}
     {{ group.change.payee or "These" }}
     <span class="text-aegis-muted font-normal">× {{ group.count }}</span>
     {% if group.total %}<span class="tabular-nums">· {{ group.total|money }}</span>{% endif %}
-  </span>
-</p>
+{% endcall %}
 <ul class="mt-0.5 space-y-0.5 text-xs text-aegis-muted">
-  {% for row in group.change.display[1:] %}<li><span class="text-aegis-muted/80">{{ row.label }}</span> {{ fact(row.value) }}</li>{% endfor %}
+  {% for row in group.change.display[1:] %}{{ fact_row(row, notes=False) }}{% endfor %}
   {% if group.span %}<li data-span>{{ group.span[0]|date_range(group.span[1]) }}</li>{% endif %}
 </ul>
 {% endmacro %}
 
-{% macro pending_change_batch_card(card, base) %}
+{% macro pending_change_batch_card(card) %}
 {% set target = "chat-batch-" ~ card.batch_id %}
+{% set heading %}{{ card.title }} <span class="text-aegis-muted font-normal">× {{ card.rows|length }}</span>{% endset %}
 <div id="{{ target }}" data-component="pending_change_batch" class="raised p-4">
   {% if card.pending %}
   <div class="flex items-center justify-between gap-3 mb-2">
-    <h3 class="text-sm font-semibold text-aegis-text">{{ card.title }} <span class="text-aegis-muted font-normal">× {{ card.rows|length }}</span></h3>
-    {{ badge("Awaiting your approval", "warn") }}
+    <h3 class="text-sm font-semibold text-aegis-text">{{ heading }}</h3>
+    {{ badge(card.status, card.tone) }}
   </div>
   <ul class="divide-y divide-aegis-border/60">
     {% for group in card.groups %}
@@ -193,11 +201,11 @@
     {% endif %}
     {% endfor %}
   </ul>
-  <div class="mt-3">{{ verbs(base ~ "/batch/" ~ card.batch_id ~ "/approve", base ~ "/batch/" ~ card.batch_id ~ "/reject", "#" ~ target, include="#" ~ target) }}</div>
+  <div class="mt-3">{{ verbs(card.url ~ "/approve", card.url ~ "/reject", "#" ~ target, include="#" ~ target) }}</div>
   {% else %}
   <details>
     <summary class="list-none cursor-pointer flex items-center justify-between gap-3">
-      <span class="text-sm font-semibold text-aegis-text">{{ card.title }} <span class="text-aegis-muted font-normal">× {{ card.rows|length }}</span></span>
+      <span class="text-sm font-semibold text-aegis-text">{{ heading }}</span>
       <span class="text-xs text-aegis-muted" data-outcome>{{ card.outcome }}</span>
     </summary>
     <ul class="mt-3 divide-y divide-aegis-border/60">
@@ -210,12 +218,7 @@
 
 {# The registry's one door: a placeholder that loads the card for a known
    kind from the queue; an unknown kind renders nothing. #}
-{% macro component(marker, base) %}
-{% if marker.kind == "pending_change" %}
-<div {{ hx_load(base ~ "/change/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
-{% elif marker.kind == "pending_change_batch" %}
-<div {{ hx_load(base ~ "/batch/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
-{% elif marker.kind == "chat_card" %}
-<div {{ hx_load(base ~ "/card/" ~ marker.id) }} data-component-load="{{ marker.kind }}"></div>
-{% endif %}
+{% macro component(marker) %}
+{% set url = component_url(marker.kind, marker.id) %}
+{% if url %}<div {{ hx_load(url) }} data-component-load="{{ marker.kind }}"></div>{% endif %}
 {% endmacro %}

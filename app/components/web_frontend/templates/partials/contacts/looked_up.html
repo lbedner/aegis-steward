@@ -7,4 +7,4 @@
 {% call dialog_title("What we found for " ~ party.name) %}
 <p class="text-sm text-aegis-muted mb-4">Nothing is saved until you approve it. Each line says where it was read.</p>
 {% endcall %}
-{{ component({"kind": "pending_change", "id": card.id}, "/chat/components") }}
+{{ component(marker) }}

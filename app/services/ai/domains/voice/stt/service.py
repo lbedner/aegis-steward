@@ -10,7 +10,11 @@ import logging
 import time
 from typing import Any
 
-from ..models import AudioInput, STTProvider, TranscriptionResult
+from ..models import (
+    AudioInput,
+    STTProvider,
+    TranscriptionResult,
+)
 from .config import STTConfig, get_stt_config
 from .providers import BaseSTTProvider, get_stt_provider
 
@@ -32,7 +36,7 @@ class STTService:
         stt = STTService(settings)
 
         # Or with explicit configuration
-        stt = STTService(provider=STTProvider.OPENAI_WHISPER, model="whisper-1")
+        stt = STTService(provider=STTProvider.OPENAI_WHISPER, model=DEFAULT_STT_MODEL)
 
         # Transcribe audio
         audio = AudioInput(content=audio_bytes, format="wav")

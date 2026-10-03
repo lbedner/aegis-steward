@@ -57,8 +57,8 @@ PAYLOADS: dict[str, dict[str, Any]] = {
     },
     "table": {
         "title": "State Farm by month",
-        "columns": ["Month", "Charged"],
-        "rows": [{"label": "Aug", "values": ["$18.00"]}],
+        "columns": ["Month", "Charged", "Note"],
+        "rows": [{"label": "Aug", "values": ["$18.00", "Paid late; letter sent"]}],
     },
 }
 
@@ -159,7 +159,20 @@ class TestTheCards:
     ) -> None:
         html = hx.get(f"{CARDS}/{drawn['table']}").text
         heads = select(html, "[data-card=table] th")
-        assert [text(h) for h in heads] == ["Month", "Charged"]
+        assert [text(h) for h in heads] == ["Month", "Charged", "Note"]
+
+    def test_figures_line_up_and_words_wrap(
+        self, hx: TestClient, drawn: dict[str, str]
+    ) -> None:
+        """A column of figures sits right, for comparing; a column of words
+        reads left and wraps, so the card widens with what it holds."""
+        html = hx.get(f"{CARDS}/{drawn['table']}").text
+        assert [text(h) for h in select(html, "th.text-right")] == ["Charged"]
+        assert [text(c) for c in select(html, "td.text-right")] == ["$18.00"]
+        assert [text(c) for c in select(html, "td.whitespace-normal")] == [
+            "Paid late; letter sent"
+        ]
+        one(html, "[data-card=table][data-fit]")
 
     def test_a_card_opens_larger_in_the_dialog(
         self, hx: TestClient, drawn: dict[str, str]

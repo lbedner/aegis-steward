@@ -35,6 +35,8 @@ from app.components.web_frontend.rendering import (
     templates,
 )
 from app.core.chat_transcript import (
+    IMAGE_TYPES,
+    MAX_IMAGE_BYTES,
     footer_line,
     readable,
     strip_paste_markers,
@@ -44,9 +46,12 @@ from app.core.chat_transcript import (
 )
 from app.core.storage import get_storage, validate_key
 from app.services.ai.domains.chat.attachments import lift_pastes
+from app.services.ai.domains.chat.cards import MARKER
+from app.services.ai.domains.chat.pastes import PASTE_THRESHOLD
 from app.services.ai.domains.llm.picker import (
     is_local_model,
 )
+from app.services.ai.service.trace import BATCH_MARKER, CHANGE_MARKER
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
 
 SECTION = section("chat")
@@ -104,7 +109,7 @@ def trail(
         {
             "label": trace_label(e),
             "failed": trace_failed(e),
-            "url": f"{SECTION.path}/messages/{conversation_id}/{message_id}/runs/{i}",
+            "url": f"{MESSAGES}/{conversation_id}/{message_id}/runs/{i}",
         }
         for i, e in enumerate(entries)
     ]
@@ -115,10 +120,49 @@ def trail(
 # cards themselves load from these routes (and ``chat_cards`` for drawn ones).
 
 COMPONENTS = SECTION.path + "/components"
+# Where each kind of component loads from, by its marker's kind: the one
+# home for the routes (chat_changes, chat_cards) and the markup that loads
+# and decides them (``component_url`` in templates).
+COMPONENT_PATHS = {
+    CHANGE_MARKER: COMPONENTS + "/change",
+    BATCH_MARKER: COMPONENTS + "/batch",
+    MARKER: COMPONENTS + "/card",
+}
+
+
+def component_url(kind: str, component_id: object) -> str | None:
+    """A component's address; None for a kind nobody draws."""
+    path = COMPONENT_PATHS.get(kind)
+    return f"{path}/{component_id}" if path else None
+
+
+templates.env.globals["component_url"] = component_url
 
 ATTACHMENTS = SECTION.path + "/attachments"
 PASTES = SECTION.path + "/pastes"
 SPEECH = SECTION.path + "/speech"  # routes/chat_speech.py
+TURNS = SECTION.path + "/turns"
+CONVERSATIONS = SECTION.path + "/conversations"
+MESSAGES = SECTION.path + "/messages"
+# The addresses the chat surface's markup and scripts reach, published
+# once rather than rebuilt from the section path: each chat route module
+# adds its own (models, voices, speech, live).
+CHAT_URLS: dict[str, str] = {
+    "turns": TURNS,
+    "conversations": CONVERSATIONS,
+    "messages": MESSAGES,
+    "pastes": PASTES,
+}
+templates.env.globals["chat_urls"] = CHAT_URLS
+# What the composer takes, read by its file input and its script alike:
+# the images a model sees, a PDF the documents service reads, and the
+# length past which a paste is a document rather than a message.
+templates.env.globals["chat_composer"] = {
+    "images": sorted(IMAGE_TYPES),
+    "documents": ["application/pdf"],
+    "paste_threshold": PASTE_THRESHOLD,
+    "max_bytes": MAX_IMAGE_BYTES,
+}
 
 
 def paste_chip(paste: dict[str, Any]) -> dict[str, Any]:
@@ -174,7 +218,6 @@ def settled(
         "at": message.timestamp.isoformat(),
         "trail": trail(trace, conversation_id, message.id),
         "components": components(trace),
-        "components_base": COMPONENTS,
         "footer": footer_line(meta, local=is_local_model(meta)),
         "speech": f"{SPEECH}/{conversation_id}/{message.id}",
     }
@@ -214,7 +257,23 @@ THREAD_PAGE = 40
 
 
 def earlier_url(conversation_id: str, before: str) -> str:
-    return f"{SECTION.path}/conversations/{conversation_id}/earlier?before={before}"
+    return f"{CONVERSATIONS}/{conversation_id}/earlier?before={before}"
+
+
+async def _thread(
+    request: Request, conversation: Any | None, before: str | None = None, **how: bool
+) -> Response:
+    """The transcript partial: a conversation's thread (a page of it before
+    ``before``), swapped in as ``how`` says (``oob``, ``page``)."""
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/chat/transcript.html",
+        context={
+            "assistant": ASSISTANT_NAME,
+            **how,
+            **await _transcript(conversation, before),
+        },
+    )
 
 
 async def _transcript(
@@ -272,7 +331,7 @@ async def drawer(request: Request, _: None = Depends(sync_active_model)) -> Resp
     )
 
 
-@router.get(SECTION.path + "/conversations", include_in_schema=False)
+@router.get(CONVERSATIONS, include_in_schema=False)
 async def history(request: Request) -> Response:
     return dialog(
         request,
@@ -282,52 +341,31 @@ async def history(request: Request) -> Response:
     )
 
 
-@router.get(SECTION.path + "/conversations/new", include_in_schema=False)
+@router.get(CONVERSATIONS + "/new", include_in_schema=False)
 async def new_conversation(request: Request) -> Response:
     """An empty thread; the id arrives on the first turn's first frame."""
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/chat/transcript.html",
-        context={"assistant": ASSISTANT_NAME, "oob": True, **await _transcript(None)},
-    )
+    return await _thread(request, None, oob=True)
 
 
-@router.get(SECTION.path + "/conversations/{conversation_id}", include_in_schema=False)
+@router.get(CONVERSATIONS + "/{conversation_id}", include_in_schema=False)
 async def load_conversation(request: Request, conversation_id: str) -> Response:
     """The thread for a conversation picked from history, replacing the
     current one in place; the dialog closes on the way."""
     conversation = await owned(conversation_id)
-    response = templates.TemplateResponse(
-        request=request,
-        name="partials/chat/transcript.html",
-        context={
-            "assistant": ASSISTANT_NAME,
-            "oob": True,
-            **await _transcript(conversation),
-        },
-    )
-    return close_dialog(response)
+    return close_dialog(await _thread(request, conversation, oob=True))
 
 
 @router.get(
-    SECTION.path + "/conversations/{conversation_id}/earlier",
+    CONVERSATIONS + "/{conversation_id}/earlier",
     include_in_schema=False,
 )
 async def earlier(request: Request, conversation_id: str, before: str) -> Response:
     """The page of the thread before ``before``, in place of the row that
     asked for it (and the next such row, when there is more)."""
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/chat/transcript.html",
-        context={
-            "assistant": ASSISTANT_NAME,
-            "page": True,
-            **await _transcript(await owned(conversation_id), before),
-        },
-    )
+    return await _thread(request, await owned(conversation_id), before, page=True)
 
 
-@router.post(SECTION.path + "/turns", include_in_schema=False)
+@router.post(TURNS, include_in_schema=False)
 async def start_turn(
     request: Request,
     message: Annotated[str, Form()] = "",
@@ -424,9 +462,7 @@ async def attachment(key: str, type: str = "image/png") -> Response:
     )
 
 
-@router.get(
-    SECTION.path + "/messages/{conversation_id}/{message_id}", include_in_schema=False
-)
+@router.get(MESSAGES + "/{conversation_id}/{message_id}", include_in_schema=False)
 async def message(request: Request, conversation_id: str, message_id: str) -> Response:
     """The settled bubble for a stored message, swapped over the streaming
     one once the turn completes (the message is persisted before the
@@ -443,7 +479,7 @@ async def message(request: Request, conversation_id: str, message_id: str) -> Re
 
 
 @router.get(
-    SECTION.path + "/messages/{conversation_id}/{message_id}/runs/{index}",
+    MESSAGES + "/{conversation_id}/{message_id}/runs/{index}",
     include_in_schema=False,
 )
 async def run_detail(
