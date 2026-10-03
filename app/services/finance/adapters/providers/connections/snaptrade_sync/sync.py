@@ -7,6 +7,7 @@ sync and the connect flow need to read it back.
 Writes but does not commit - the caller owns the transaction.
 """
 
+from collections.abc import Callable
 from datetime import date, timedelta
 import logging
 
@@ -16,16 +17,23 @@ from app.core.encryption import decrypt_secret
 from app.core.time import utcnow
 from app.services.finance.adapters.providers.connections.common import (
     _SNAPTRADE_SECRET_CONTEXT,
+    ProviderAdapter,
+    Revoke,
     SyncResult,
+    best_effort,
     finished,
     list_provider_connections,
+    stored_credential,
 )
 from app.services.finance.adapters.providers.connections.snaptrade_sync.accounts import (
-    _upsert_snaptrade_accounts,
+    snaptrade_accounts,
 )
 from app.services.finance.adapters.providers.connections.snaptrade_sync.investments import (
     _apply_snaptrade_activities,
     _apply_snaptrade_positions,
+)
+from app.services.finance.adapters.providers.connections.upserts import (
+    upsert_accounts,
 )
 from app.services.finance.adapters.providers.snaptrade import (
     SnapTradeClient,
@@ -98,7 +106,9 @@ async def sync_snaptrade_connection(
         if str(account.get("brokerage_authorization") or "")
         == connection.provider_item_id
     ]
-    account_map = await _upsert_snaptrade_accounts(db, service, connection, accounts)
+    account_map = await upsert_accounts(
+        db, service, connection, Provider.SNAPTRADE, snaptrade_accounts(accounts)
+    )
     result.accounts = len(account_map)
 
     today = utcnow().date()
@@ -150,3 +160,37 @@ async def sync_snaptrade_connection(
     db.add(connection)
     await db.flush()
     return result
+
+
+def _revoke(
+    connection: FinanceConnection, client: Callable[[], SnapTradeClient]
+) -> Revoke | None:
+    if not connection.provider_item_id:
+        return None
+    secret = stored_credential(connection, _SNAPTRADE_SECRET_CONTEXT)
+    if secret is None:
+        return None
+    authorization_id, owner = connection.provider_item_id, connection.owner_user_id
+
+    async def remove() -> None:
+        snaptrade = client()
+        user_id = "" if snaptrade.is_personal else _snaptrade_user_id(owner)
+        await snaptrade.remove_authorization(user_id, secret, authorization_id)
+
+    return best_effort("SnapTrade", connection.id, remove)
+
+
+async def _sync(
+    db: AsyncSession, connection: FinanceConnection, client: SnapTradeClient
+) -> SyncResult:
+    return await sync_snaptrade_connection(db, connection, client=client)
+
+
+ADAPTER = ProviderAdapter(
+    provider=Provider.SNAPTRADE,
+    new_client=SnapTradeClient,
+    sync=_sync,
+    # Rows still waiting on the portal (no authorization yet) can't sync.
+    ready=lambda connection: connection.provider_item_id is not None,
+    revoke=_revoke,
+)

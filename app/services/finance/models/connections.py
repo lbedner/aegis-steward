@@ -69,8 +69,8 @@ class FinanceInstitution(SQLModel, table=True):
             postgresql_where=Column("owner_user_id").isnot(None),
         ),
         CheckConstraint(
-            "provider IN ('plaid', 'snaptrade', 'coinbase', 'exchange_key', "
-            "'onchain', 'manual')",
+            "provider IN ('plaid', 'snaptrade', 'simplefin', 'coinbase', "
+            "'exchange_key', 'onchain', 'manual')",
             name="ck_finance_institution_provider",
         ),
         {"schema": _SCHEMA},
@@ -149,8 +149,8 @@ class FinanceConnection(SQLModel, table=True):
             postgresql_where=Column("wallet_address").isnot(None),
         ),
         CheckConstraint(
-            "provider IN ('plaid', 'snaptrade', 'coinbase', 'exchange_key', "
-            "'onchain', 'manual')",
+            "provider IN ('plaid', 'snaptrade', 'simplefin', 'coinbase', "
+            "'exchange_key', 'onchain', 'manual')",
             name="ck_finance_connection_provider",
         ),
         CheckConstraint(

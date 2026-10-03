@@ -11,6 +11,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.adapters.providers import connections
+from app.services.finance.constants import Provider
 from app.services.finance.models import (
     FinanceImportBatch,
     FinanceTransaction,
@@ -581,7 +582,7 @@ class TestPlaidConnection:
         assert len(accounts) == 4
 
         ok, revoke = await connections.disconnect_connection(
-            async_db_session, conn.id, owner_user_id=1, client=client
+            async_db_session, conn.id, owner_user_id=1, clients={Provider.PLAID: client}
         )
         assert ok is True
         # Local teardown never waits on the provider round trip - the caller
@@ -619,7 +620,10 @@ class TestPlaidConnection:
         self, async_db_session: AsyncSession
     ) -> None:
         ok, revoke = await connections.disconnect_connection(
-            async_db_session, 999, owner_user_id=1, client=FakePlaidClient([], [])
+            async_db_session,
+            999,
+            owner_user_id=1,
+            clients={Provider.PLAID: FakePlaidClient([], [])},
         )
         assert ok is False
         assert revoke is None
@@ -643,7 +647,7 @@ class TestPlaidConnection:
         )
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         ok, revoke = await connections.disconnect_connection(
-            async_db_session, conn.id, owner_user_id=1, client=client
+            async_db_session, conn.id, owner_user_id=1, clients={Provider.PLAID: client}
         )
         assert ok is True
         conns = await connections.list_plaid_connections(
@@ -670,7 +674,7 @@ class TestPlaidConnection:
         )
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         ok, revoke = await connections.disconnect_connection(
-            async_db_session, conn.id, owner_user_id=1, client=client
+            async_db_session, conn.id, owner_user_id=1, clients={Provider.PLAID: client}
         )
         assert ok is True
         conns = await connections.list_plaid_connections(
@@ -692,7 +696,7 @@ class TestPlaidConnection:
         )
         conn.access_token_encrypted = "not-a-valid-ciphertext"
         ok, revoke = await connections.disconnect_connection(
-            async_db_session, conn.id, owner_user_id=1, client=client
+            async_db_session, conn.id, owner_user_id=1, clients={Provider.PLAID: client}
         )
         assert ok is True
         assert revoke is None
@@ -1264,7 +1268,7 @@ class TestSyncFailureIsolation:
         )
         client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="tok-1")
         results = await connections.sync_owner_connections(
-            async_db_session, owner_user_id=1, client=client
+            async_db_session, owner_user_id=1, clients={Provider.PLAID: client}
         )
         # The healthy bank synced; the failing one is marked, not fatal.
         assert [r.connection_id for r in results] == [second.id]
@@ -1295,7 +1299,7 @@ class TestSyncFailureIsolation:
 
         client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="none")
         results = await connections.sync_owner_connections(
-            async_db_session, owner_user_id=1, client=client
+            async_db_session, owner_user_id=1, clients={Provider.PLAID: client}
         )
         assert results == []
         assert client.accounts_calls == []  # no futile re-auth spam
@@ -1313,7 +1317,10 @@ class TestSyncFailureIsolation:
         )
         client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="none")
         result = await connections.sync_one_connection(
-            async_db_session, first.id, owner_user_id=1, client=client
+            async_db_session,
+            first.id,
+            owner_user_id=1,
+            clients={Provider.PLAID: client},
         )
         assert result is not None
         assert result.connection_id == first.id
@@ -1329,13 +1336,19 @@ class TestSyncFailureIsolation:
         client = _FailsForToken(_ACCOUNTS, _TXNS, fail_token="none")
         assert (
             await connections.sync_one_connection(
-                async_db_session, 99999, owner_user_id=1, client=client
+                async_db_session,
+                99999,
+                owner_user_id=1,
+                clients={Provider.PLAID: client},
             )
             is None
         )
         assert (
             await connections.sync_one_connection(
-                async_db_session, conn.id, owner_user_id=2, client=client
+                async_db_session,
+                conn.id,
+                owner_user_id=2,
+                clients={Provider.PLAID: client},
             )
             is None
         )

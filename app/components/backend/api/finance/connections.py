@@ -55,14 +55,13 @@ async def sync_connections(
 ) -> SyncSummaryResponse:
     """Refresh every provider connection for the caller (all providers)."""
     from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.plaid import PlaidError
-    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+    from app.services.finance.adapters.providers.errors import ProviderError
 
     try:
         results = await connections.sync_owner_connections(
             service.db, owner_user_id=owner_user_id
         )
-    except (PlaidError, SnapTradeError) as exc:
+    except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
@@ -130,13 +129,13 @@ async def plaid_sync(
 ) -> SyncSummaryResponse:
     """Refresh every Plaid connection for the caller."""
     from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.plaid import PlaidError
+    from app.services.finance.adapters.providers.errors import ProviderError
 
     try:
         results = await connections.sync_owner_connections(
             service.db, owner_user_id=owner_user_id
         )
-    except PlaidError as exc:
+    except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc

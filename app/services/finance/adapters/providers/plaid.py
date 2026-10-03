@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services.finance.adapters.providers.errors import ProviderError
 
 # A webhook JWT older than this is replayable and gets rejected (Plaid's
 # documented verification window).
@@ -34,12 +35,8 @@ _ENV_HOSTS = {
 }
 
 
-class PlaidError(RuntimeError):
-    """A Plaid API error (``error_code`` carries the machine-readable reason)."""
-
-    def __init__(self, error_code: str, message: str) -> None:
-        self.error_code = error_code
-        super().__init__(f"{error_code}: {message}")
+class PlaidError(ProviderError):
+    """A Plaid API error."""
 
 
 def _b64url_decode(segment: str) -> bytes:

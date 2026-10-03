@@ -34,6 +34,7 @@ class Provider:
 
     PLAID = "plaid"
     SNAPTRADE = "snaptrade"
+    SIMPLEFIN = "simplefin"
     MANUAL = "manual"
 
 
