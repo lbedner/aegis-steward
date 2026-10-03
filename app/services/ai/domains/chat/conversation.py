@@ -23,6 +23,7 @@ from app.core.db import get_async_session, init_database
 from app.core.log import logger
 from app.models.conversation import Conversation as ConversationModel
 from app.models.conversation import ConversationMessage as MessageModel
+from app.services.ai.domains.chat.summary import SUMMARY_KEY, merged_summary
 from app.services.ai.models import (
     AIProvider,
     Conversation,
@@ -359,6 +360,11 @@ class ConversationManager:
 
         conv_db = await session.get(ConversationModel, conversation.id)
         if conv_db:
+            # A fold may have landed since this copy was read (#295).
+            if summary := merged_summary(
+                (conv_db.meta_data or {}).get(SUMMARY_KEY), meta_data.get(SUMMARY_KEY)
+            ):
+                meta_data[SUMMARY_KEY] = summary
             conv_db.title = conversation.title
             conv_db.updated_at = conversation.updated_at
             conv_db.meta_data = meta_data
@@ -366,7 +372,7 @@ class ConversationManager:
             conv_db = ConversationModel(
                 id=conversation.id,
                 title=conversation.title,
-                user_id=conversation.metadata.get("user_id", "default"),
+                user_id=conversation.user_id or "default",
                 created_at=conversation.created_at,
                 updated_at=conversation.updated_at,
                 meta_data=meta_data,

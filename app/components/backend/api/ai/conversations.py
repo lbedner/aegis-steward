@@ -86,7 +86,7 @@ async def get_conversation(
             raise HTTPException(status_code=404, detail="Conversation not found")
 
         # Check access (basic user matching)
-        if conversation.metadata.get("user_id") != user_id:
+        if conversation.user_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
         return {

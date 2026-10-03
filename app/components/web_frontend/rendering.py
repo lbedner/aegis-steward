@@ -22,7 +22,7 @@ from app.components.web_frontend.glyphs import (
     file_badge,
     file_badge_table,
 )
-from app.components.web_frontend.nav import NAV
+from app.components.web_frontend.nav import NAV, section
 from app.core.config import settings
 from app.services.finance.constants import account_sections
 
@@ -110,7 +110,13 @@ templates.env.filters["kind_label"] = kind_label
 templates.env.globals["account_sections"] = account_sections
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.
-templates.env.globals["chat_path"] = "/chat"
+templates.env.globals["chat_path"] = section("chat").path
+# The addresses the chat surface's markup and scripts reach, published
+# once rather than rebuilt from the section path. Registered here, with
+# the shell that renders on every page; each chat route module adds its
+# own (routes/chat.py, chat_models, chat_voices, chat_speech, chat_live).
+CHAT_URLS: dict[str, str] = {}
+templates.env.globals["chat_urls"] = CHAT_URLS
 templates.env.globals["assistant"] = assistant("finance-assistant")
 # The "everything" window, so a template can tell a default chip from a
 # chosen one without importing the module.

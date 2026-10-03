@@ -110,11 +110,12 @@ def _facts(row: AgentUserMemory) -> list[dict[str, Any]]:
     return list(row.memory.get("structured_facts", []))
 
 
-def _is_duplicate(existing: str, candidate: str) -> bool:
-    """Substring match either direction, case-insensitive."""
+def is_duplicate(existing: str, candidate: str) -> bool:
+    """Substring match either direction, case-insensitive. A blank is a
+    duplicate of nothing (it is a substring of everything)."""
     a = existing.casefold().strip()
     b = candidate.casefold().strip()
-    return a in b or b in a
+    return bool(a and b) and (a in b or b in a)
 
 
 def _normalize_category(category: str) -> str:
@@ -136,7 +137,7 @@ async def save_user_fact(
 
     facts = _facts(row)
     for entry in facts:
-        if entry.get("category") == category and _is_duplicate(
+        if entry.get("category") == category and is_duplicate(
             str(entry.get("fact", "")), fact
         ):
             return f"Already known ({category}): {entry['fact']}"

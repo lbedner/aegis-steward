@@ -28,6 +28,7 @@ from app.components.web_frontend.chat_markers import components
 from app.components.web_frontend.filters import assistant
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
+    CHAT_URLS,
     close_dialog,
     dialog,
     or_404,
@@ -144,16 +145,9 @@ SPEECH = SECTION.path + "/speech"  # routes/chat_speech.py
 TURNS = SECTION.path + "/turns"
 CONVERSATIONS = SECTION.path + "/conversations"
 MESSAGES = SECTION.path + "/messages"
-# The addresses the chat surface's markup and scripts reach, published
-# once rather than rebuilt from the section path: each chat route module
-# adds its own (models, voices, speech, live).
-CHAT_URLS: dict[str, str] = {
-    "turns": TURNS,
-    "conversations": CONVERSATIONS,
-    "messages": MESSAGES,
-    "pastes": PASTES,
-}
-templates.env.globals["chat_urls"] = CHAT_URLS
+CHAT_URLS.update(
+    turns=TURNS, conversations=CONVERSATIONS, messages=MESSAGES, pastes=PASTES
+)
 # What the composer takes, read by its file input and its script alike:
 # the images a model sees, a PDF the documents service reads, and the
 # length past which a paste is a document rather than a message.
@@ -227,10 +221,7 @@ async def owned(conversation_id: str) -> Any:
     """This surface's conversation, or a 404: another user's is as absent
     as a missing one."""
     conversation = await ai_service.get_conversation(conversation_id)
-    if (
-        conversation is None
-        or conversation.metadata.get("user_id") != STANDALONE_USER_ID
-    ):
+    if conversation is None or conversation.user_id != STANDALONE_USER_ID:
         raise HTTPException(status_code=404)
     return conversation
 

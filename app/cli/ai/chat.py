@@ -130,7 +130,7 @@ def history(
         raise typer.Exit(1)
 
     # Check if user owns conversation
-    if conversation.metadata.get("user_id") != user_id:
+    if conversation.user_id != user_id:
         typer.echo(f"{t('shared.error')} {t('ai.access_denied')}")
         raise typer.Exit(1)
 
