@@ -40,13 +40,13 @@ router = APIRouter()
 @router.get(SECTION.path, include_in_schema=False)
 async def page(
     request: Request,
+    picked: ranges.PickedRange,
     days: int = Query(default=DEFAULT_DAYS, ge=1),
-    start: ranges.FromDate = None,
-    end: ranges.ToDate = None,
     account_ids: list[int] | None = Query(default=None),
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
+    start, end = picked
     window = ranges.horizon(days, MAX_DAYS, start)
     scope = {
         "account_ids": account_ids,
@@ -65,7 +65,7 @@ async def page(
         service=service,
         owner_user_id=owner_user_id,
     )
-    return render(
+    response = render(
         request,
         "pages/cash_flow.html",
         {
@@ -80,3 +80,4 @@ async def page(
             "spending_rows": ranked(spending, "category", "amount", tone="accent"),
         },
     )
+    return ranges.remember(response, start, end)
