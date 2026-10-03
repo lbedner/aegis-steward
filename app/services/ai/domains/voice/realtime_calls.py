@@ -82,9 +82,12 @@ class TurnLog:
         ):
             return False
         if isinstance(event, PartEndEvent) and isinstance(event.part, SpeechPart):
-            if event.part.transcript:
-                side = self.heard if event.part.speaker == "user" else self.said
-                side.append(event.part.transcript.strip())
+            text = (event.part.transcript or "").strip()
+            side = self.heard if event.part.speaker == "user" else self.said
+            # The same part reported finished twice saved one reply with its
+            # text twice, back to back (#292): a repeat is not more speech.
+            if text and (not side or side[-1] != text):
+                side.append(text)
         elif isinstance(event, FunctionToolCallEvent):
             record_tool_call(self.trace, event)
         elif isinstance(event, FunctionToolResultEvent):

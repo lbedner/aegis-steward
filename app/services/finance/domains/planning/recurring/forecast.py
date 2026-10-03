@@ -419,10 +419,13 @@ async def budget_drawdowns(
     # charging the allocation on top counts it twice, and every new
     # transaction widens the gap. Spend for ALL lines lands in a fixed
     # number of queries, never one query per line.
-    lines = [line for line in lines if line.category_id not in skip_categories]
+    plan, lines = (
+        lines,
+        [line for line in lines if line.category_id not in skip_categories],
+    )
     start, end = budgets.month_bounds(this_period)
     spends = await budgets.spend_by_line(
-        db, lines, owner_user_id=owner_user_id, start=start, end=end
+        db, lines, owner_user_id=owner_user_id, start=start, end=end, plan=plan
     )
     # A limit that rolls over has what it carried in left to spend too.
     carried = await budgets.carried_amounts(

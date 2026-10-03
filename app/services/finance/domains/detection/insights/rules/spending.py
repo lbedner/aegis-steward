@@ -20,7 +20,6 @@ from app.services.finance.domains.detection.insights.formatting import (
     days_in_month,
     format_usd,
     month_key,
-    month_start_before,
     pace_day,
 )
 from app.services.finance.domains.detection.insights.large_charges import (
@@ -43,6 +42,7 @@ from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
 )
+from app.services.finance.utils import month_start_before
 from app.services.shared.queries import owner_clause
 
 
@@ -181,8 +181,6 @@ async def _overspend(
         ):
             created += 1
     return created
-
-
 
 
 async def _subscription_creep(

@@ -1352,6 +1352,43 @@ async def test_budget_says_what_a_rolling_limit_carried(
     assert line["remaining_cents"] == 20_000 + 20_000 - 4_500
 
 
+@pytest.mark.queryspy(threshold=4)  # each seeded limit reads itself back
+async def test_budget_says_what_is_left_one_way(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """#294: "how much is left?" got the net (-$199.39) and, asked again,
+    $470.19 in five lines. Both are in the answer, named, so "left" has
+    one meaning per figure: what the limits still under budget have, and
+    the net after the ones that went over."""
+    account = await seed_account(svc)
+    groceries = await svc.get_or_create_category_from_hint("Food:Groceries")
+    dining = await svc.get_or_create_category_from_hint("Food:Restaurants")
+    await seed_limit(svc, groceries.id, 20_000)
+    await seed_limit(svc, dining.id, 10_000)
+    for category, cents in ((groceries, 5_000), (dining, 13_000)):
+        await seed_txn(svc, account.id, -cents, current_date(), category_id=category.id)
+    await session.commit()
+
+    stats = (await ai_tools.budget())["stats"]
+
+    assert stats["left_in_limits_under_budget_cents"] == 15_000
+    assert stats["net_left_cents"] == 12_000  # $150 left less $30 over
+
+
+async def test_ledger_says_what_it_counts_and_compares_like_for_like(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """#294: a review compared September-to-date with all of August and
+    said income fell. The monthly read names its scope and puts this
+    month so far beside last month to the same day."""
+    summary = await ai_tools.ledger(months=2)
+
+    assert "transfers" in summary["scope"]
+    so_far = summary["month_to_date"]
+    assert so_far["through_day"] == current_date().day
+    assert {"this_month", "last_month_same_days"} <= set(so_far)
+
+
 @pytest.mark.asyncio
 async def test_budget_reports_the_limit_the_user_set(
     svc: FinanceService, session: AsyncSession

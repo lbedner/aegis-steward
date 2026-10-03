@@ -104,6 +104,8 @@ class TestOpeningASession:
                 "label": TITLES["gpt-live-1"],
                 "per_second": pytest.approx(0.05 / 60),
             },
+            # how she opens: a first call is greeted (#292)
+            "greeting": chat_live.LIVE_GREETING,
         }
         call = live.calls[0]
         assert call["transport"] == {"type": "webrtc", "sdp": "v=0 offer"}
@@ -397,8 +399,9 @@ class TestTheEngine:
             "transport": "realtime",
             "conversation_id": conversation_id,
             "engine": {"label": TITLES["gpt-realtime-2.1"], "per_second": None},
-            # the page opens the call with this (a dropped one picks up)
-            "greeting": chat_live.LIVE_GREETING,
+            # the page opens the call with this: a conversation under way is
+            # carried on, not met again (#292); a dropped one picks up
+            "greeting": chat_live.LIVE_CONTINUE,
         }
         (call,) = realtime
         assert call["model"] == "openai:gpt-realtime-2.1"
@@ -407,6 +410,9 @@ class TestTheEngine:
         # Her engine's call manners lead her prompt; a reply is capped.
         built = call["realtime"]
         assert "LIVE" in built["instructions"]
+        # The names she will hear, spelled (#293): the transcript of a call
+        # takes no hint, so she is told them instead.
+        assert "Illiana" in built["instructions"].rsplit("\n\n", 1)[-1]
         assert built["max_output_tokens"] == REALTIME_REPLY_CAP
         assert built["conversation"].id == conversation_id
 
@@ -589,6 +595,18 @@ class TestTheRelay:
         saved = told[-1]
         assert saved["type"] == "saved"  # the thread reloads
         assert saved["cost"] > 0  # and the call bar shows the running cost
+
+    def test_a_call_into_a_conversation_does_not_meet_them_again(
+        self, client: TestClient, live: _Live, stored: tuple[str, str]
+    ) -> None:
+        """#292: every call opened "Lovely to meet you" with hundreds of turns
+        behind it. A call into a conversation picks it up instead."""
+        conversation_id, _ = stored
+        response = client.post(
+            SESSIONS, json={"sdp": "v=0 offer", "conversation_id": conversation_id}
+        )
+
+        assert response.json()["greeting"] == chat_live.LIVE_CONTINUE
 
     def test_a_dropped_call_picks_up_where_it_stopped(
         self, client: TestClient, gemini: Any, monkeypatch: pytest.MonkeyPatch

@@ -51,6 +51,7 @@ from app.components.web_frontend.routes.finance.budget_display import (
     stats_context,
     with_strip,
 )
+from app.components.web_frontend.routes.finance.overview import TXN_COLUMNS
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.planning.budgets import strip
 from app.services.finance.schemas import (
@@ -206,16 +207,6 @@ async def budget_context(
 # --- the page, the strip, the details ----------------------------------------
 
 
-# What a drill-down row shows. The same four the Overview's slice dialog
-# uses: a transaction reads the same way wherever it is listed.
-LINE_TXN_COLUMNS = [
-    {"key": "date", "label": "Date", "kind": "date"},
-    {"key": "payee", "label": "Payee", "kind": "avatar"},
-    {"key": "category", "label": "Category"},
-    {"key": "amount", "label": "Amount", "kind": "money", "align": "right"},
-]
-
-
 @router.get("", include_in_schema=False)
 async def page(
     request: Request,
@@ -308,7 +299,7 @@ async def line_transactions(
             + (f"in {period_label(month)}" if month else "this month")
         ),
         rows=await hydrate_transactions(service, rows),
-        columns=LINE_TXN_COLUMNS,
+        columns=TXN_COLUMNS,
         empty="Nothing has been spent against this limit yet",
     )
 

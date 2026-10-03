@@ -74,6 +74,18 @@ class TestATurn:
         assert trace[0]["code"] == "await budget()"
         assert log.take() is None  # taken once
 
+    def test_a_part_ended_twice_is_said_once(self) -> None:
+        """#292: one reply was saved with its text twice, back to back - the
+        same spoken part reported finished twice."""
+        events = _turn()
+        log = TurnLog()
+        for event in [*events[:-1], events[-2], events[-1]]:
+            log.observe(event)
+        turn = log.take()
+
+        assert turn is not None
+        assert turn[1] == "You're $199.39 over."
+
     @pytest.mark.asyncio
     async def test_a_finished_turn_lands_in_the_conversation(self) -> None:
         conversation = await ai_service.conversation_manager.create_conversation(

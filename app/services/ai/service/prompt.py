@@ -22,6 +22,7 @@ from app.services.ai.domains.chat.self_context import (
     begin_turn_context,
     record_turn_context,
 )
+from app.services.ai.domains.chat.summary import summary_of
 from app.services.ai.domains.chat.tools import resolve_tools
 from app.services.ai.domains.chat.usage_context import UsageContext
 from app.services.ai.domains.llm.providers import get_agent
@@ -258,7 +259,9 @@ class PromptMixin(ContextsMixin):
         latest_message = conversation.get_last_message()
         asking = latest_message is not None and latest_message.role == MessageRole.USER
         earlier = conversation.messages[:-1] if asking else conversation.messages
-        for msg in reversed(earlier):
+        first_kept = len(earlier)
+        for index in range(len(earlier) - 1, -1, -1):
+            msg = earlier[index]
             if msg.role == MessageRole.USER:
                 line = f"User: {msg.content}"
             elif msg.role == MessageRole.ASSISTANT:
@@ -272,6 +275,7 @@ class PromptMixin(ContextsMixin):
                 continue
             context_parts.insert(0, line)
             used += len(line) + 1
+            first_kept = index
             # What the newest replies DID, ahead of what they said: the
             # sandbox resets every turn and the text alone does not carry
             # the ids, so "try again" re-queried for them (#242). Only
@@ -289,7 +293,16 @@ class PromptMixin(ContextsMixin):
             history_budget=budget,
             messages_kept=len(context_parts),
             messages_dropped=dropped,
+            first_kept=first_kept if dropped else 0,
         )
+        # What fell out is not gone: its running summary rides ahead of
+        # the turns still in view (#295), folded in after turns like this.
+        earlier_summary = summary_of(conversation)["text"] if dropped else ""
+        if earlier_summary:
+            prefix += (
+                "Earlier in this conversation, before the turns below "
+                f"(a running summary):\n{earlier_summary}\n\n"
+            )
 
         # Add the current user message
         if asking and latest_message is not None:

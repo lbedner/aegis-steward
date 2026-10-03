@@ -11,6 +11,7 @@ include it.
 """
 
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -518,6 +519,68 @@ class TestFilingADocumentWithAContactOrMatter:
             tag=party_tag(int(insurer.id))
         )
         assert [d.title for d in filed] == ["ppo_policy_document.pdf"]
+
+    @pytest.mark.asyncio
+    async def test_a_photo_from_chat_is_filed_as_a_document(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """#285: "it can't come from an image of it? I don't have a PDF".
+        The photo is kept from the turn it rode; filing it makes it a
+        document on the shelf, read like any other, and files it."""
+        from app.core.storage import get_storage
+        from app.services.ai.domains.chat.pastes import store_image
+        from app.services.documents.domains.extraction import dispatch
+        from app.services.documents.service import DocumentService
+        from app.services.finance.domains.writes import announce as announce_module
+        from app.services.finance.domains.writes.filing import (
+            FileDocumentPayload,
+            file_document_describe,
+            file_document_execute,
+        )
+        from app.services.matters.matters import MatterService
+        from app.services.matters.models import matter_tag
+
+        async def _quietly(*_: object, **__: object) -> None:
+            return None
+
+        started: list[int] = []
+
+        async def start(document_id: int, **_: object) -> str:
+            started.append(document_id)
+            return "job"
+
+        monkeypatch.setattr(dispatch, "start_extraction", start)
+        matter = await MatterService(async_db_session).open(title="Medicaid")
+        key = await get_storage().put(b"hvcu mini statement", content_type="image/jpeg")
+        photo = await store_image(
+            "0", key, "image/jpeg", "IMG_2041.jpg", async_db_session
+        )
+        payload = FileDocumentPayload(paste_id=photo["id"], matter_id=int(matter.id))
+
+        said = {
+            r.label: r.value
+            for r in await file_document_describe(async_db_session, payload, None)
+        }
+        assert said["Document"] == "IMG_2041.jpg"
+
+        result = await file_document_execute(async_db_session, payload, None)
+        await async_db_session.commit()
+
+        filed, _ = await DocumentService(async_db_session).list_documents(
+            tag=matter_tag(int(matter.id))
+        )
+        assert [(d.title, d.media_type) for d in filed] == [
+            ("IMG_2041.jpg", "image/jpeg")
+        ]
+        assert started == []  # not before the approval commits
+
+        approved = SimpleNamespace(
+            id=1, change_type="document.file", status="approved", result=result
+        )
+        monkeypatch.setattr(announce_module, "announce_approval", _quietly)
+        await announce_module.announce(async_db_session, [approved])
+
+        assert started == [result["document_id"]]  # then read like any other
 
     def test_it_goes_to_exactly_one_place(self) -> None:
         from pydantic import ValidationError

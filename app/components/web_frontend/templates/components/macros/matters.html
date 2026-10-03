@@ -280,3 +280,20 @@
   </div>
 </header>
 {% endmacro %}
+
+
+{# A place's filed transactions: a case's spending, what was
+   paid a contact. ``filed`` is ``routes/filed.filed``'s context. #}
+{% macro filed_card(id, title, filed) %}
+{% from "components/macros/layout.html" import card %}
+{% from "components/macros/table.html" import data_table %}
+{% call card(title, id=id) %}
+{{ data_table(filed.columns, filed.rows, empty="No transactions filed here yet") }}
+{% if filed.rows %}
+<p class="mt-3 flex items-baseline justify-between gap-3 text-sm">
+  <span class="text-aegis-muted">Total</span>
+  <span data-total class="tabular-nums text-aegis-text">{{ filed.total|money }}</span>
+</p>
+{% endif %}
+{% endcall %}
+{% endmacro %}

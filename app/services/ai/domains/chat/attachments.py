@@ -61,15 +61,28 @@ def build_user_content(
     return parts
 
 
-def annotate_attachments(message: str, attachments: list[ChatAttachment] | None) -> str:
+def annotate_attachments(
+    message: str,
+    attachments: list[ChatAttachment] | None,
+    photos: list[dict[str, Any]] | None = None,
+) -> str:
     """Stamp the stored user message with what was attached.
 
     History replays as text only, so this marker is how a later turn
-    (or a text-only model) knows images rode this one."""
+    (or a text-only model) knows images rode this one. ``photos`` are the
+    kept images' handles (``pastes.store_image``): named in the marker,
+    a photo can be filed later (#285)."""
     if not attachments:
         return message
-    names = ", ".join(a.name or a.media_type for a in attachments)
     noun = "image" if len(attachments) == 1 else "images"
+    if photos:
+        from app.services.ai.domains.chat.pastes import IMAGE_HINT
+
+        names = ", ".join(f"{p['title']} #{p['id']}" for p in photos)
+        return (
+            f"{message}\n\n[attached {len(attachments)} {noun}: {names} - {IMAGE_HINT}]"
+        )
+    names = ", ".join(a.name or a.media_type for a in attachments)
     return f"{message}\n\n[attached {len(attachments)} {noun}: {names}]"
 
 
@@ -145,14 +158,29 @@ async def prepare_turn(
     text, read = await read_documents(message, documents, user_id)
     text, lifted = await lift_pastes(text, user_id)
     stored = await persist_attachments(images)
+    photos = await _keep_photos(stored, user_id)
     # The markers ``read_documents`` just wrote are markers, so
     # ``lift_pastes`` reports them too: the lists overlap by
     # construction and the message must not draw two chips for one file.
     pastes = _by_id((read.get("pastes") or []) + (lifted.get("pastes") or []))
-    return annotate_attachments(text, images), {
+    return annotate_attachments(text, images, photos), {
         **({"pastes": pastes} if pastes else {}),
         **attachment_metadata(stored),
     }
+
+
+async def _keep_photos(
+    stored: list[dict[str, Any]], user_id: str
+) -> list[dict[str, Any]]:
+    """A handle for each kept photo, so it can be filed later (#285)."""
+    from app.services.ai.domains.chat.pastes import store_image
+
+    if not user_id:
+        return []
+    return [
+        await store_image(user_id, s["key"], s["media_type"], s.get("name") or "photo")
+        for s in stored
+    ]
 
 
 def _by_id(pastes: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -27,6 +27,7 @@ from app.components.web_frontend.rendering import (
     where_from,
     with_toast,
 )
+from app.components.web_frontend.routes.filed import filed
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import web_address
@@ -37,6 +38,7 @@ from app.services.matters.reach import (
     one_home,
     reach_lines,
 )
+from app.services.matters.relations import relations_for
 from app.services.matters.service import PartyService
 
 SECTION = section("contacts")
@@ -315,6 +317,9 @@ async def contact(
         papers = await papers_on(
             db, party_tag(party_id), f"{SECTION.path}/{party_id}/documents"
         )
+        paid = await filed(db, party_tag(party_id))
+        related = (await relations_for(db, [party_id]))[party_id]
+        kin = await PartyService(db).names([int(r["party_id"]) for r in related])
         return render(
             request,
             "pages/contact.html",
@@ -335,6 +340,10 @@ async def contact(
                 "held": held,
                 "papers": papers,
                 "paper_columns": list(PAPER_COLUMNS),
+                "paid": paid,
+                "family": [
+                    {**r, "party": kin.get(int(r["party_id"]))} for r in related
+                ],
             },
         )
 

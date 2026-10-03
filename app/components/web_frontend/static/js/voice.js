@@ -498,7 +498,7 @@
     const speech = event.type === 'session.output_transcript.delta'
       || event.type === 'response.output_audio_transcript.delta';
     if (call.transport === 'realtime' && !speech) return followRealtime(event);
-    if (event.type === 'session.started') answer(null, phone().dataset.greeting);
+    if (event.type === 'session.started') answer(null, call.greeting || phone().dataset.greeting);
     else if (event.type === 'session.input_transcript.delta') {
       call.heard += event.delta;
       awake();

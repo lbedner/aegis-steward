@@ -26,7 +26,11 @@ from app.services.finance.domains.planning.budgets.lines import (
     line_response,
     lines_in_force,
 )
-from app.services.finance.domains.planning.budgets.months import line_spent
+from app.services.finance.domains.planning.budgets.months import (
+    Tally,
+    carved_out,
+    line_spent,
+)
 from app.services.finance.domains.planning.budgets.trims import plan_budget_trims
 from app.services.finance.domains.planning.budgets.uncovered import (
     uncovered_spend,
@@ -48,7 +52,6 @@ from app.services.finance.utils import (
     current_period_month,
     monthly_income,
     shift_period,
-    transaction_payee_key,
 )
 
 
@@ -116,8 +119,7 @@ async def budget_summary(
         end=end,
         account_ids=account_ids,
     )
-    spent_by_category: dict[int, int] = defaultdict(int)
-    spent_by_payee: dict[str, int] = defaultdict(int)
+    tally = Tally()
     spent_by_stream: dict[int, int] = defaultdict(int)
     for (
         cat_id,
@@ -127,14 +129,9 @@ async def budget_summary(
         amount,
         stream_id,
     ) in txn_rows:
-        spend = -amount
-        if cat_id is not None:
-            spent_by_category[cat_id] += spend
-        key = transaction_payee_key(merchant_name, original_description, name)
-        if key:
-            spent_by_payee[key] += spend
+        tally.add(cat_id, merchant_name, original_description, name, amount)
         if stream_id is not None:
-            spent_by_stream[stream_id] += spend
+            spent_by_stream[stream_id] += -amount
 
     # 5. ONE fetch of LAST period's per-stream spend - the "vs last
     # month" variance signal on Fixed/Non-monthly, a second FIXED
@@ -188,11 +185,14 @@ async def budget_summary(
         db, owner_user_id=owner_user_id, period_month=month, lines=lines
     )
 
+    # A payee line's spending is its own, not its category line's too (#288).
+    carved = carved_out(lines)
+
     def user_line(line: FinanceBudgetCategory) -> BudgetLineResponse:
         return line_response(
             line,
             names.get(line.category_id) if line.category_id is not None else None,
-            line_spent(line, spent_by_category, spent_by_payee),
+            line_spent(line, tally, carved),
             carried.get(line.id or 0, 0),
         )
 

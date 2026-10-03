@@ -72,6 +72,10 @@ PAGE_HEADING = "--- page {number} ---\n"
 _MARKER_ID = re.compile(r"\[pasted text #([0-9a-f]+)")
 
 
+# What a photo's handle is for, said wherever it is shown.
+IMAGE_HINT = "file it as a document with document.file and this paste_id"
+
+
 def paste_id(key: str) -> str:
     """The handle the agent uses, from the storage key.
 
@@ -179,18 +183,49 @@ async def store_document(
     pasted page, because from the conversation's side they are the same
     thing.
     """
-    paste = {
-        "id": f"{document_id:08x}"[-ID_LENGTH:],
-        "document_id": document_id,
-        "title": title,
-        "chars": chars,
-        "at": datetime.now(UTC).isoformat(),
-    }
+    return await _index(
+        user_id,
+        {
+            "id": f"{document_id:08x}"[-ID_LENGTH:],
+            "document_id": document_id,
+            "title": title,
+            "chars": chars,
+        },
+        session,
+    )
+
+
+async def store_image(
+    user_id: str,
+    key: str,
+    media_type: str,
+    title: str,
+    session: Any = None,
+) -> dict[str, Any]:
+    """Index a chat photo, already in the store, so it has a handle (#285).
+
+    The bytes rode one model call and were kept (``persist_attachments``);
+    without an entry nothing could name the photo again, so a photographed
+    statement could not be filed - "I don't have a PDF, just the real
+    copy". ``document.file`` turns the entry into a document."""
+    return await _index(
+        user_id,
+        {"id": paste_id(key), "key": key, "media_type": media_type, "title": title},
+        session,
+    )
+
+
+async def _index(
+    user_id: str, entry: dict[str, Any], session: Any = None
+) -> dict[str, Any]:
+    """Keep ``entry`` in the user's index, newest last, one per id: the
+    same bytes again are the same entry, not a second row."""
+    entry = {**entry, "at": datetime.now(UTC).isoformat()}
     index = await load_user_pastes(user_id, session)
-    index = [p for p in index if p.get("id") != paste["id"]]
-    index.append(paste)
+    index = [p for p in index if p.get("id") != entry["id"]]
+    index.append(entry)
     await store_user_pastes(user_id, index[-MAX_PASTES_PER_USER:], session)
-    return paste
+    return entry
 
 
 async def store_paste(
@@ -208,20 +243,18 @@ async def store_paste(
     data = text.encode("utf-8")
     storage = get_storage()
     key = await storage.put(data, content_type="text/plain")
-    paste = {
-        "id": paste_id(key),
-        "key": key,
-        "title": title or "pasted text",
-        "chars": len(text),
-        "at": datetime.now(UTC).isoformat(),
-    }
-    index = await load_user_pastes(user_id, session)
     # Re-pasting the same page is the same bytes and so the same id;
-    # keep one entry rather than a row per paste of it.
-    index = [p for p in index if p.get("id") != paste["id"]]
-    index.append(paste)
-    await store_user_pastes(user_id, index[-MAX_PASTES_PER_USER:], session)
-    return paste
+    # ``_index`` keeps one entry rather than a row per paste of it.
+    return await _index(
+        user_id,
+        {
+            "id": paste_id(key),
+            "key": key,
+            "title": title or "pasted text",
+            "chars": len(text),
+        },
+        session,
+    )
 
 
 async def read_paste(user_id: str, paste_id: str) -> tuple[dict[str, Any], str] | None:
@@ -242,6 +275,8 @@ async def read_paste(user_id: str, paste_id: str) -> tuple[dict[str, Any], str] 
             logger.warning("paste index points at an unread document", id=paste_id)
             return None
         return match, text
+    if str(match.get("media_type", "")).startswith("image/"):
+        return match, f"(a photo, not text: {IMAGE_HINT})"
     data = await get_storage().get(str(match["key"]))
     if data is None:
         logger.warning("paste index points at missing bytes", paste_id=paste_id)

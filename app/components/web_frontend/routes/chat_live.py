@@ -28,6 +28,7 @@ from starlette.responses import JSONResponse, Response
 from app.components.backend.api.ai.router import ai_service, sync_active_model
 from app.components.web_frontend.rendering import templates
 from app.components.web_frontend.routes.chat import SECTION, SURFACE, owned
+from app.components.web_frontend.routes.chat_speech import transcription_hint
 from app.core.chat_transcript import readable, trace_label
 from app.core.config import settings
 from app.core.db import get_async_session
@@ -74,6 +75,13 @@ LIVE_GREETING = (
     "The call just connected. Greet them warmly in a few words and ask "
     "what they would like to look at."
 )
+# A call into a conversation already under way (#292): every call opened
+# "Lovely to meet you" with hundreds of turns behind it.
+LIVE_CONTINUE = (
+    "The call just connected, in a conversation you are already having with "
+    "them (it is above). Greet them briefly as someone you know - no "
+    "introductions - and ask what is next."
+)
 # A call soon after one dropped mid-answer picks it up (realtime_calls.
 # resumed): she says they got cut off and carries on.
 LIVE_RESUME = (
@@ -84,9 +92,13 @@ LIVE_RESUME = (
 
 
 def _opening(conversation: Any) -> str:
-    """How she opens the call: picking up a dropped one, or a greeting."""
-    asked = realtime_calls.resumed(conversation)
-    return LIVE_RESUME.format(asked=asked) if asked else LIVE_GREETING
+    """How she opens the call: picking up a dropped one, carrying on a
+    conversation, or a first greeting."""
+    if conversation is None:
+        return LIVE_GREETING
+    if asked := realtime_calls.resumed(conversation):
+        return LIVE_RESUME.format(asked=asked)
+    return LIVE_CONTINUE if conversation.messages else LIVE_GREETING
 
 
 # What the live button carries for voice.js: the sign-off and the tool it
@@ -214,6 +226,9 @@ async def open_session(offer: Offer) -> Response:
             "session_id": opened.session.id,
             "transport": "gpt_live",
             "engine": info,
+            "greeting": _opening(
+                await owned(offer.conversation_id) if offer.conversation_id else None
+            ),
         }
     )
 
@@ -237,7 +252,17 @@ async def _call(conversation_id: str | None, engine: LiveEngine) -> tuple[Any, A
         model=model,
         agent_slug=FINANCE_VOICE_AGENT_SLUG,
         voice=settings.TTS_VOICE,
-        instructions=engine.instructions,
+        # A call's transcript takes no vocabulary hint, so she is told the
+        # names instead, spelled (#293).
+        instructions="\n\n".join(
+            filter(
+                None,
+                [
+                    engine.instructions,
+                    f"Names you will hear, spelled: {await transcription_hint()}",
+                ],
+            )
+        ),
         max_output_tokens=engine.max_output_tokens,
     )
     return conversation, realtime

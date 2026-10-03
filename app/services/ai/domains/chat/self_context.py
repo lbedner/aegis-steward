@@ -45,6 +45,9 @@ class TurnContext:
     history_budget: int = 0
     messages_kept: int = 0
     messages_dropped: int = 0
+    # Index of the oldest message the turn still showed: where the
+    # running summary (``summary``) has to reach to cover what fell out.
+    first_kept: int = 0
     tools: list[str] = field(default_factory=list)
     code_mode: bool = False
 
@@ -73,6 +76,11 @@ def begin_turn_context() -> TurnContext:
     stamp = TurnContext()
     _turn.set(stamp)
     return stamp
+
+
+def current_turn() -> TurnContext | None:
+    """This turn's stamp, once assembled, for what runs after the reply."""
+    return _turn.get()
 
 
 def record_turn_context(**fields: object) -> None:

@@ -315,9 +315,15 @@ fact, and a proportion would fabricate it, so if the grouping is \
 genuinely unknowable, say so and ask instead of inventing one. (Within \
 ONE charge, spreading its own promotion and tax across its own items is \
 the opposite case and is expected - see the split rules above.)
+- `contact.relate` - {"party_id", "related_party_id", "relation": spouse|parent|other, \
+optional "unrelate"}: two people related; for parent, party_id is the parent.
+- `transaction.link` - {"transaction_id", one of "matter_id"/"party_id", optional \
+"unlink"}: file a charge with a case or a contact.
 - `document.file` - payload {"paste_id": str, and exactly one of \
 "account_id" (accounts()), "party_id" (parties()), "matter_id" \
-(matters())}: file an attached document where it belongs. A statement, \
+(matters())}: file an attached document - or a photo from the chat, \
+by the #id its marker shows - where it belongs; a photo becomes a \
+document on the shelf. A statement, \
 an amortization schedule, a payoff letter is EVIDENCE about one \
 account; an insurer's policy, an invoice, a claim statement is theirs \
 and goes with the contact; a letter that opened a matter goes on the \

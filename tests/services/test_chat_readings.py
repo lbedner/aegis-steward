@@ -55,12 +55,48 @@ class TestRecordReading:
         assert staged == []
 
     @pytest.mark.asyncio
-    async def test_empty_items_are_rejected(self) -> None:
+    async def test_a_reading_with_nothing_in_it_is_rejected(self) -> None:
         with reading_stage() as staged:
             result = await record_reading(title="x", items=[])
 
         assert "error" in result
         assert staged == []
+
+    @pytest.mark.asyncio
+    async def test_the_header_is_kept_with_the_lines(self) -> None:
+        """#286: a dentist's receipt kept the visit and lost the letterhead,
+        so the address and phone needed a re-upload. The source's own
+        fields are part of the reading."""
+        header = {
+            "Practice": "Bright Smile Dental",
+            "Address": "12 Main St, Springfield",
+            "Phone": "555-0142",
+            "Date": "2026-09-29",
+            "Total": "$185.00",
+        }
+        with reading_stage() as staged:
+            result = await record_reading(
+                title="Dentist receipt 9/29",
+                items=[{"label": "Cleaning", "amount_cents": 18_500}],
+                fields=header,
+            )
+
+        assert result["recorded"] == 1
+        block = format_readings(staged)
+        assert block is not None
+        for label, value in header.items():
+            assert f"{label}: {value}" in block
+
+    @pytest.mark.asyncio
+    async def test_a_document_without_lines_is_still_a_reading(self) -> None:
+        """A letter or a business card has fields and no line items."""
+        with reading_stage() as staged:
+            result = await record_reading(
+                title="Card", items=[], kind="document", fields={"Phone": "555-0142"}
+            )
+
+        assert "error" not in result
+        assert staged[0]["fields"] == {"Phone": "555-0142"}
 
 
 class TestMergeAndFormat:

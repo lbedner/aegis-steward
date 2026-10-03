@@ -129,11 +129,22 @@ async def on_the_worker(db: AsyncSession, conversation_id: str, message: str) ->
 
 
 async def announce(db: AsyncSession, rows: list[Any]) -> None:
-    """Announce an approval to whoever asked for it. Never raises: an
-    approval that landed must not read as failed because telling
-    somebody about it did."""
+    """After the commit: each approved change's own follow-up
+    (``ChangeExecutor.after_commit``), then the announcement to whoever
+    asked. Never raises: an approval that landed must not read as failed
+    because something after it did."""
     from functools import partial
 
+    from app.services.finance.domains.writes.registry import executor_for
+
+    for row in rows:
+        then = executor_for(row.change_type).after_commit
+        if then is None or row.status != "approved":
+            continue
+        try:
+            await then(row.result or {})
+        except Exception:
+            logger.exception(f"After-commit step for change {row.id} failed")
     try:
         await announce_approval(rows, send=partial(on_the_worker, db))
     except Exception:

@@ -25,13 +25,14 @@ from app.components.web_frontend.rendering import (
     where_from,
 )
 from app.components.web_frontend.routes.facts import facts_for
+from app.components.web_frontend.routes.filed import filed
 from app.components.web_frontend.routes.matter_papers import matter_papers
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.answers import answer_sheet
 from app.services.matters.drawing import drawn as drawn_request
 from app.services.matters.matters import MatterService, summarised
-from app.services.matters.models import PARTICIPANT_ROLES
+from app.services.matters.models import PARTICIPANT_ROLES, matter_tag
 from app.services.matters.requests import RequestService
 from app.services.matters.service import PartyService, party_or_new
 
@@ -204,6 +205,7 @@ async def matter(request: Request, matter_id: int) -> Response:
         ]
         known = await facts_for(db, matter_id)
         papers = await matter_papers(db, matter_id)
+        spent = await filed(db, matter_tag(matter_id))
         outstanding = (await answer_sheet(db, matter_id))["outstanding"]
     return render(
         request,
@@ -216,6 +218,7 @@ async def matter(request: Request, matter_id: int) -> Response:
             "facts": known,
             "papers": papers,
             "paper_columns": list(PAPER_COLUMNS),
+            "spent": spent,
             "path": SECTION.path,
         },
     )

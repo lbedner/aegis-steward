@@ -10,7 +10,9 @@ once.
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Sequence
+from collections.abc import Set as AbstractSet
+from dataclasses import dataclass, field
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -25,8 +27,36 @@ from app.services.finance.utils import (
 
 # What a line limits: a category, a payee key, or neither (overall).
 Target = tuple[int | None, str | None]
-# One month's spend: by category id, and by payee key.
-Tallies = tuple[dict[int, int], dict[str, int]]
+
+
+@dataclass
+class Tally:
+    """One period's spend: by category id, by payee key, and by the two
+    together - the last is what a payee line carves out of its category's
+    line (#288)."""
+
+    by_category: dict[int, int] = field(default_factory=dict)
+    by_payee: dict[str, int] = field(default_factory=dict)
+    by_category_payee: dict[tuple[int, str], int] = field(default_factory=dict)
+
+    def add(
+        self,
+        cat_id: int | None,
+        merchant: str | None,
+        description: str | None,
+        name: str | None,
+        amount: int,
+    ) -> None:
+        """One ``outflow_tuples`` row; outflows are stored negative."""
+        spend = -amount
+        key = transaction_payee_key(merchant, description, name)
+        if cat_id is not None:
+            self.by_category[cat_id] = self.by_category.get(cat_id, 0) + spend
+        if key:
+            self.by_payee[key] = self.by_payee.get(key, 0) + spend
+        if cat_id is not None and key:
+            pair = (cat_id, key)
+            self.by_category_payee[pair] = self.by_category_payee.get(pair, 0) + spend
 
 
 def live(lines: list[FinanceBudgetCategory]) -> list[FinanceBudgetCategory]:
@@ -38,16 +68,29 @@ def target(line: FinanceBudgetCategory) -> Target:
     return line.category_id, line.payee_key
 
 
+def carved_out(plan: Iterable[FinanceBudgetCategory]) -> frozenset[str]:
+    """The payee keys a plan limits on their own: their spending is theirs,
+    not their category line's too (#288)."""
+    return frozenset(
+        line.payee_key
+        for line in plan
+        if line.category_id is None and line.payee_key and line.deleted_at is None
+    )
+
+
 def line_spent(
     line: FinanceBudgetCategory,
-    by_category: Mapping[int, int],
-    by_payee: Mapping[str, int],
+    tally: Tally,
+    carved: AbstractSet[str] = frozenset(),
 ) -> int:
-    """A line's spend out of tallies by category and by payee key: its
-    category's, else its payee's. The overall line tracks neither."""
+    """A line's spend out of a period's tally: its category's, less what
+    the plan's payee lines (``carved``) already count, else its payee's.
+    The overall line tracks neither. Each dollar counts once."""
     if line.category_id is not None:
-        return by_category.get(line.category_id, 0)
-    return by_payee.get(line.payee_key, 0) if line.payee_key else 0
+        return tally.by_category.get(line.category_id, 0) - sum(
+            tally.by_category_payee.get((line.category_id, key), 0) for key in carved
+        )
+    return tally.by_payee.get(line.payee_key, 0) if line.payee_key else 0
 
 
 class PastPlans:
@@ -83,12 +126,12 @@ async def spend_by_month(
     first: int,
     before: int,
     account_ids: list[int] | None = None,
-) -> dict[int, Tallies]:
-    """Spend by category and by payee key for each month from ``first`` up
-    to ``before`` (YYYYMM), in one fetch."""
+) -> dict[int, Tally]:
+    """Each month's tally from ``first`` up to ``before`` (YYYYMM), in one
+    fetch."""
     start, _ = queries.month_bounds(first)
     end, _ = queries.month_bounds(before)
-    tallies: dict[int, Tallies] = {}
+    tallies: dict[int, Tally] = {}
     for (
         cat_id,
         merchant,
@@ -105,11 +148,9 @@ async def spend_by_month(
         account_ids=account_ids,
         extra=(FinanceTransaction.date_,),
     ):
-        by_category, by_payee = tallies.setdefault(current_period_month(day), ({}, {}))
-        if cat_id is not None:
-            by_category[cat_id] = by_category.get(cat_id, 0) - amount
-        if key := transaction_payee_key(merchant, description, name):
-            by_payee[key] = by_payee.get(key, 0) - amount
+        tallies.setdefault(current_period_month(day), Tally()).add(
+            cat_id, merchant, description, name, amount
+        )
     return tallies
 
 
@@ -138,14 +179,18 @@ async def line_history(
         account_ids=account_ids,
     )
     in_force = {month: plans.in_force(month) for month in window}
-    empty: Tallies = ({}, {})
+    # Each month carves by the plan it ran on; a month before any plan by
+    # today's, so its bar reads the way today's line does.
+    carved = {month: carved_out(in_force[month].values() or lines) for month in window}
     return [
         BudgetLineHistory(
             line_id=line.id,
             months=[
                 LineMonth(
                     period_month=month,
-                    spent_amount=line_spent(line, *spend.get(month, empty)),
+                    spent_amount=line_spent(
+                        line, spend.get(month, Tally()), carved[month]
+                    ),
                     allocated_amount=(
                         ran.allocated_amount
                         if (ran := in_force[month].get(target(line)))

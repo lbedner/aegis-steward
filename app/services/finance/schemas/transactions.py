@@ -208,6 +208,14 @@ class CashFlowResponse(CashFlow):
         return round(100 * self.saved / self.income) if self.income else None
 
 
+class MonthToDate(BaseModel):
+    """This month through a day, beside last month through the same day."""
+
+    through_day: int
+    this_month: CashFlow
+    last_month_same_days: CashFlow
+
+
 class SpendingPace(BaseModel):
     """Cumulative spending by day of the month, positive minor units: this
     month through today, and the earlier months' average, median and last
