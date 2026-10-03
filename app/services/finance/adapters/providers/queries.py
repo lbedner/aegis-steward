@@ -28,34 +28,18 @@ async def connection_by_provider_item(
     return (await db.exec(query)).first()
 
 
-async def account_by_persistent_id(
-    db: AsyncSession, *, provider: str, persistent_account_id: str
-) -> FinanceAccount | None:
-    return (
-        await db.exec(
-            select(FinanceAccount).where(
-                FinanceAccount.provider == provider,
-                FinanceAccount.persistent_account_id == persistent_account_id,
+async def provider_accounts(db: AsyncSession, *, provider: str) -> list[FinanceAccount]:
+    """Every account a provider ever fed, deleted ones too, oldest first:
+    the candidates a sync matches its accounts against, read once."""
+    return list(
+        (
+            await db.exec(
+                select(FinanceAccount)
+                .where(FinanceAccount.provider == provider)
+                .order_by(FinanceAccount.id)  # type: ignore[arg-type]
             )
-        )
-    ).first()
-
-
-async def account_by_provider_account_id(
-    db: AsyncSession, *, provider: str, provider_account_id: str
-) -> FinanceAccount | None:
-    return (
-        await db.exec(
-            select(FinanceAccount).where(
-                FinanceAccount.provider == provider,
-                FinanceAccount.provider_account_id == provider_account_id,
-            )
-        )
-    ).first()
-
-
-async def account_first_where(db: AsyncSession, filters: list) -> FinanceAccount | None:
-    return (await db.exec(select(FinanceAccount).where(*filters))).first()
+        ).all()
+    )
 
 
 async def transaction_first_where(

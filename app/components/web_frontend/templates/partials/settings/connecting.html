@@ -4,13 +4,24 @@
    replaces this whole body), and the asking stops rather than following a
    forgotten tab forever. No JavaScript, no browser-side SDK. #}
 {% from "components/macros/feedback.html" import error_banner %}
-{% from "components/macros/form.html" import action, button_classes %}
+{% from "components/macros/form.html" import action, button_classes, control, field, primary_button %}
 {% from "components/macros/layout.html" import dialog_title %}
 {{ dialog_title(provider.what) }}
 {{ error_banner(errors) }}
 {% if started %}
 <div id="connect-status" class="space-y-4">
-  {% if started.url %}
+  {% if provider.brings_token %}
+  {# The provider hands the user a token on its own page; they paste it
+     here, once (it works once). Nothing to wait on, so no poller. #}
+  <p class="text-sm text-aegis-muted">Link your banks on {{ provider.label }}'s site and make a setup token there, then paste it here. A token works once.</p>
+  <a href="{{ started.url }}" target="_blank" rel="noopener"
+     class="{{ button_classes() }}">Open {{ provider.label }}</a>
+  <form {{ hx_dialog_post("/settings/connect/" ~ provider.key ~ "/complete") }} class="space-y-3">
+    <input type="hidden" name="url" value="{{ started.url }}">
+    {% call field("Setup token") %}<input type="password" name="token" required autocomplete="off" class="{{ control('input') }} w-full mt-1">{% endcall %}
+    {{ primary_button("Connect", type="submit") }}
+  </form>
+  {% elif started.url %}
   <p class="text-sm text-aegis-muted">Finish it on {{ provider.label }}'s own page. This waits here and picks up the accounts when you are done.</p>
   <a href="{{ started.url }}" target="_blank" rel="noopener"
      class="{{ button_classes() }}">Open {{ provider.label }}</a>
@@ -24,7 +35,9 @@
      class="{{ button_classes() }}">Open the {{ provider.label }} dashboard</a>
   <p class="text-xs text-aegis-muted">Already linked everything? Then there is nothing new to adopt and you can close this.</p>
   {% endif %}
-  {% if waited %}
+  {% if provider.brings_token %}
+  {# The token form above is the whole step: nothing to wait on. #}
+  {% elif waited %}
   <p class="text-xs text-aegis-muted">Still nothing from {{ provider.label }}. The session may have been abandoned; start again when you are ready.</p>
   {{ action("Try again", 'hx-post="/settings/connect/' ~ provider.key ~ '" hx-target="#dialog-body"') }}
   {% else %}

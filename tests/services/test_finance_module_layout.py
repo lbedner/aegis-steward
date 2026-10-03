@@ -316,9 +316,24 @@ def test_the_two_providers_never_import_each_other() -> None:
 
 
 def test_dispatch_across_providers_lives_only_in_the_registry() -> None:
+    """Each aggregator declares its adapter beside its own sync; the
+    registry's table is the one place that lists them, and its verbs name
+    none - a new provider is a new adapter, not a new branch."""
+    from app.services.finance.constants import Provider
+
+    assert set(connections.registry.ADAPTERS) == {
+        Provider.PLAID,
+        Provider.SNAPTRADE,
+        Provider.SIMPLEFIN,
+    }
     registry_source = inspect.getsource(connections.registry)
-    assert "PlaidClient" in registry_source
-    assert "SnapTradeClient" in registry_source
+    for name in (
+        "PlaidClient",
+        "SnapTradeClient",
+        "Provider.PLAID",
+        "Provider.SNAPTRADE",
+    ):
+        assert name not in registry_source
 
 
 # The ledger's reads, by the sibling that consumes them. 54 of these have

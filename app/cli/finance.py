@@ -560,8 +560,7 @@ def _print_sync_result(result: Any) -> None:
 async def _sync(owner_user_id: int | None, connection_id: int | None) -> None:
     from app.core.db import get_async_session
     from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.plaid import PlaidError
-    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+    from app.services.finance.adapters.providers.errors import ProviderError
 
     async with get_async_session() as session:
         try:
@@ -579,7 +578,7 @@ async def _sync(owner_user_id: int | None, connection_id: int | None) -> None:
                 session, owner_user_id=owner_user_id
             )
             await session.commit()
-        except (PlaidError, SnapTradeError) as exc:
+        except ProviderError as exc:
             console.print(f"[red]Sync failed:[/] {exc}")
             raise typer.Exit(code=1) from exc
     if not results:

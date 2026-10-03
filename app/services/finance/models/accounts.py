@@ -71,8 +71,8 @@ class FinanceAccount(SQLModel, table=True):
             name="ck_finance_account_classification",
         ),
         CheckConstraint(
-            "provider IN ('plaid', 'snaptrade', 'coinbase', 'exchange_key', "
-            "'onchain', 'manual')",
+            "provider IN ('plaid', 'snaptrade', 'simplefin', 'coinbase', "
+            "'exchange_key', 'onchain', 'manual')",
             name="ck_finance_account_provider",
         ),
         {"schema": _SCHEMA},

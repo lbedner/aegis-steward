@@ -10,8 +10,6 @@ Comms shows what the scheduled bill email would say, and never sends it.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 from fastapi import (
@@ -29,10 +27,6 @@ from app.components.backend.api.finance.categories import list_categories
 from app.components.backend.api.finance.connections import (
     disconnect_connection,
     list_connections,
-    plaid_hosted_link,
-    plaid_hosted_link_complete,
-    snaptrade_connect,
-    snaptrade_connect_complete,
 )
 from app.components.backend.api.finance.payees import (
     list_merchants,
@@ -49,10 +43,13 @@ from app.components.web_frontend.rendering import (
     templates,
     with_toast,
 )
+from app.components.web_frontend.routes.finance.connect_providers import (
+    PROVIDERS,
+    Provider,
+)
 from app.core.config import settings
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.planning.recurring.forecast import upcoming_outflows
-from app.services.finance.schemas import HostedLinkCompleteRequest
 from app.services.finance.service import FinanceService
 
 SECTION = section("settings")
@@ -109,90 +106,7 @@ STATUS = {
 
 
 # --- the providers ---------------------------------------------------------
-
-
-async def _plaid_start(
-    service: FinanceService, owner_user_id: int | None
-) -> dict[str, str]:
-    started = await plaid_hosted_link(owner_user_id=owner_user_id)
-    return {"url": started.hosted_link_url, "token": started.link_token}
-
-
-async def _plaid_complete(
-    service: FinanceService, owner_user_id: int | None, token: str
-) -> dict[str, int]:
-    done = await plaid_hosted_link_complete(
-        HostedLinkCompleteRequest(link_token=token),
-        service=service,
-        owner_user_id=owner_user_id,
-    )
-    return {
-        "connections": done.connections,
-        "added": sum(r.added for r in done.results),
-    }
-
-
-async def _snaptrade_start(
-    service: FinanceService, owner_user_id: int | None
-) -> dict[str, str]:
-    started = await snaptrade_connect(service=service, owner_user_id=owner_user_id)
-    return {"url": started.redirect_uri, "token": str(started.connection_id)}
-
-
-async def _snaptrade_complete(
-    service: FinanceService, owner_user_id: int | None, token: str
-) -> dict[str, int]:
-    done = await snaptrade_connect_complete(
-        service=service, owner_user_id=owner_user_id
-    )
-    return {
-        "connections": done.connections,
-        "added": sum(r.added + r.holdings for r in done.results),
-    }
-
-
-@dataclass
-class Provider:
-    """One connect flow: what it is called, whether the stack has it, what
-    it needs configured, and the two halves of its handshake."""
-
-    key: str
-    label: str
-    what: str
-    flag: str
-    credentials: tuple[str, ...]
-    start: Callable[..., Awaitable[dict[str, str]]]
-    complete: Callable[..., Awaitable[dict[str, int]]] = field(repr=False)
-
-    @property
-    def built_in(self) -> bool:
-        return bool(getattr(settings, self.flag, False))
-
-    @property
-    def configured(self) -> bool:
-        return all(getattr(settings, name, None) for name in self.credentials)
-
-
-PROVIDERS: dict[str, Provider] = {
-    "plaid": Provider(
-        key="plaid",
-        label="Plaid",
-        what="Connect a bank",
-        flag="FINANCE_PLAID",
-        credentials=("PLAID_CLIENT_ID", "PLAID_SECRET"),
-        start=_plaid_start,
-        complete=_plaid_complete,
-    ),
-    "snaptrade": Provider(
-        key="snaptrade",
-        label="SnapTrade",
-        what="Connect a brokerage",
-        flag="FINANCE_SNAPTRADE",
-        credentials=("SNAPTRADE_CLIENT_ID", "SNAPTRADE_CONSUMER_KEY"),
-        start=_snaptrade_start,
-        complete=_snaptrade_complete,
-    ),
-}
+# The connect flows live in ``connect_providers``; this file renders them.
 
 
 # How long the dialog waits before it stops asking: the provider session
@@ -201,16 +115,21 @@ POLL_SECONDS = 3
 POLL_LIMIT = 60
 
 
-def _refused(request: Request, provider: Provider, exc: HTTPException) -> Response:
+def _refused(
+    request: Request,
+    provider: Provider,
+    exc: HTTPException,
+    started: dict[str, str] | None = None,
+) -> Response:
     """A provider said no. The reason is theirs, so it is shown as-is and
-    the polling stops."""
+    the polling stops; a token-pasting flow keeps its form, to try again."""
     return dialog(
         request,
         "partials/settings/connecting.html",
         422,
         provider=provider,
         errors=[str(exc.detail)],
-        started=None,
+        started=started,
     )
 
 
@@ -326,7 +245,8 @@ async def connect_complete(
             service=service, owner_user_id=owner_user_id, token=token
         )
     except HTTPException as exc:
-        return _refused(request, provider, exc)
+        kept = {"url": url, "token": ""} if provider.brings_token else None
+        return _refused(request, provider, exc, kept)
     if not done.get("connections"):
         # Still theirs to finish: the way in stays on screen (the poll
         # replaces the whole body), and the asking stops eventually.

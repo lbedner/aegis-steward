@@ -12,15 +12,25 @@ Deliberately free of any provider client, so ``plaid_sync`` and
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
+import logging
+from typing import Any
 
+from cryptography.fernet import InvalidToken
+import httpx
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
+from app.core.encryption import decrypt_secret
 from app.services.finance.adapters.providers import queries
+from app.services.finance.adapters.providers.errors import ProviderError
 from app.services.finance.constants import Provider
-from app.services.finance.models import FinanceAccount, FinanceConnection
+from app.services.finance.models import FinanceConnection
+
+logger = logging.getLogger(__name__)
 
 # The named slot a connection's encrypted credential occupies. Each provider
 # stores a different secret (Plaid an access token, SnapTrade a user secret),
@@ -28,28 +38,7 @@ from app.services.finance.models import FinanceAccount, FinanceConnection
 # from ever being decrypted as the other.
 _ACCESS_TOKEN_CONTEXT = "finance.plaid.access_token"
 _SNAPTRADE_SECRET_CONTEXT = "finance.snaptrade.user_secret"
-
-
-async def relinked_account(
-    db: AsyncSession,
-    connection: FinanceConnection,
-    *,
-    provider: str,
-    name: str,
-    mask: str | None,
-) -> FinanceAccount | None:
-    """Find an existing account after its provider assigns a new link ID."""
-    filters = [
-        FinanceAccount.provider == provider,
-        FinanceAccount.name == name,
-        FinanceAccount.deleted_at.is_(None),
-        FinanceAccount.mask == mask
-        if mask is not None
-        else FinanceAccount.mask.is_(None),
-    ]
-    if connection.owner_user_id is not None:
-        filters.append(FinanceAccount.owner_user_id == connection.owner_user_id)
-    return await queries.account_first_where(db, filters)
+_SIMPLEFIN_ACCESS_CONTEXT = "finance.simplefin.access_url"
 
 
 def record_run(
@@ -202,3 +191,67 @@ async def _recompute_net_worth(
     await detect_recurring(db, owner_user_id=owner_user_id)
     await generate_insights(db, owner_user_id=owner_user_id)
     await networth.recompute_snapshots(db, owner_user_id=owner_user_id)
+
+
+Revoke = Callable[[], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class ProviderAdapter:
+    """What the registry needs from one aggregator, so it dispatches on a
+    table instead of an ``if`` per provider: a new provider is one more
+    adapter, and no verb learns its name.
+
+    ``sync`` and ``revoke`` take the client (or a factory for it) so tests
+    inject fakes and a deployment never builds a client it has no rows for.
+    """
+
+    provider: str
+    new_client: Callable[[], Any]
+    sync: Callable[[AsyncSession, FinanceConnection, Any], Awaitable[SyncResult]]
+    # Whether a row can sync at all (SnapTrade's portal-pending rows cannot).
+    ready: Callable[[FinanceConnection], bool] = lambda _connection: True
+    # The best-effort remote revoke for a disconnect, built from the row
+    # before the local teardown clears its credential; None when there is
+    # nothing to revoke.
+    revoke: Callable[[FinanceConnection, Callable[[], Any]], Revoke | None] = (
+        lambda _connection, _client: None
+    )
+
+
+def stored_credential(connection: FinanceConnection, context: str) -> str | None:
+    """The connection's decrypted credential, or None when it has none or
+    it cannot be decrypted (a corrupted or rekeyed ciphertext must never
+    block a local teardown: there is simply nothing usable to revoke)."""
+    if not connection.access_token_encrypted:
+        return None
+    try:
+        return decrypt_secret(connection.access_token_encrypted, context=context)
+    except InvalidToken as exc:
+        logger.warning(
+            "Stored credential for connection %s is undecryptable; "
+            "skipping provider revoke: %s",
+            connection.id,
+            exc,
+        )
+        return None
+
+
+def best_effort(
+    provider: str, connection_id: int | None, call: Callable[[], Awaitable[Any]]
+) -> Revoke:
+    """A revoke that never raises: the local teardown already happened, so
+    an already-invalid credential or an unreachable API is only logged."""
+
+    async def revoke() -> None:
+        try:
+            await call()
+        except (ProviderError, httpx.HTTPError) as exc:
+            logger.warning(
+                "%s revoke failed for connection %s (already torn down locally): %s",
+                provider,
+                connection_id,
+                exc,
+            )
+
+    return revoke
