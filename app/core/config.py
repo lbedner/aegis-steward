@@ -402,6 +402,7 @@ class Settings(VoiceSettings, BaseSettings):
 
     FINANCE_PLAID: bool = True
     FINANCE_SNAPTRADE: bool = True
+    FINANCE_SIMPLEFIN: bool = True  # no app keys: the user pastes a token
     # Plaid (bank/credit/investment linking). Sign up at
     # https://dashboard.plaid.com; sandbox keys work with no approval.
     PLAID_CLIENT_ID: str | None = None

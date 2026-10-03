@@ -17,7 +17,7 @@ from app.services.finance.domains.detection import (
     promote_curated_streams,
 )
 from app.services.finance.domains.ledger import networth
-from app.services.finance.models import FinanceAccount, FinanceConnection
+from app.services.finance.models import FinanceAccount
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 
@@ -233,19 +233,13 @@ async def finance_sync_connections_job() -> None:
     budget), so a more frequent schedule stays within it.
     """
     from app.services.finance.adapters.providers import connections
+    from app.services.finance.adapters.providers.queries import connected_owner_ids
 
     try:
         async with get_async_session() as session:
-            owners = (
-                await session.exec(
-                    select(FinanceConnection.owner_user_id)
-                    .where(
-                        FinanceConnection.provider.in_(("plaid", "snaptrade")),
-                        FinanceConnection.deleted_at.is_(None),
-                    )
-                    .distinct()
-                )
-            ).all()
+            owners = await connected_owner_ids(
+                session, tuple(connections.registry.ADAPTERS)
+            )
             added = 0
             for owner_user_id in owners:
                 results = await connections.sync_owner_connections(

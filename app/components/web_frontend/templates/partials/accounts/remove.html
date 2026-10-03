@@ -1,2 +1,4 @@
 {% from "components/macros/layout.html" import confirm %}
+{% from "components/macros/form.html" import confirm_permanent %}
 {{ confirm("Remove " ~ account.name ~ "?", "Its transactions leave the register, budgets and projections. A re-import of the same file will not bring them back.", "/accounts/" ~ account.id, label="Remove account") }}
+{{ confirm_permanent("this account and its transactions", account.name, "/accounts/" ~ account.id ~ "/purge", purge_error) }}

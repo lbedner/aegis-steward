@@ -20,17 +20,12 @@ from app.services.finance.adapters.providers.connections.snaptrade_sync.lifecycl
     start_snaptrade_connect,
 )
 from app.services.finance.adapters.providers.connections.snaptrade_sync.sync import (
-    # ``registry._revoke_snaptrade`` reaches for this through the module,
-    # as it did when this was one file. Re-exported rather than promoted:
-    # a refactor should not widen an API. That a sibling reads another
-    # module's private is worth fixing, but not in this commit.
-    _snaptrade_user_id as _snaptrade_user_id,
-)
-from app.services.finance.adapters.providers.connections.snaptrade_sync.sync import (
+    ADAPTER,
     sync_snaptrade_connection,
 )
 
 __all__ = [
+    "ADAPTER",
     "complete_snaptrade_connect",
     "start_snaptrade_connect",
     "sync_snaptrade_connection",

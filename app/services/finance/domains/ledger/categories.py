@@ -13,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.time import utcnow
 from app.services.finance.domains.ledger import queries, transactions
+from app.services.finance.domains.ledger.accounts import session_cached
 from app.services.finance.models import (
     FinanceCategory,
     FinanceCategoryAlias,
@@ -110,29 +111,34 @@ async def get_or_create_pfc_category(
 ) -> FinanceCategory:
     """Fetch (or create) the system category for a Plaid personal-finance
     category primary (e.g. ``FOOD_AND_DRINK``). Categories are global/system
-    seeds (owner NULL), shared across users and created on first sight."""
+    seeds (owner NULL), shared across users and created on first sight;
+    looked up once a session, as a sync asks per row."""
     slug = pfc_primary.strip().lower()
-    existing = await queries.category_by_slug_global(db, slug)
-    if existing is not None:
-        return existing
-    upper = pfc_primary.strip().upper()
-    classification = (
-        "income"
-        if upper == "INCOME"
-        else "transfer"
-        if upper.startswith("TRANSFER")
-        else "expense"
-    )
-    category = FinanceCategory(
-        name=pfc_primary.replace("_", " ").title(),
-        slug=slug,
-        classification=classification,
-        plaid_pfc_primary=upper,
-        is_system=True,
-    )
-    db.add(category)
-    await db.flush()
-    return category
+
+    async def load() -> FinanceCategory:
+        existing = await queries.category_by_slug_global(db, slug)
+        if existing is not None:
+            return existing
+        upper = pfc_primary.strip().upper()
+        classification = (
+            "income"
+            if upper == "INCOME"
+            else "transfer"
+            if upper.startswith("TRANSFER")
+            else "expense"
+        )
+        category = FinanceCategory(
+            name=pfc_primary.replace("_", " ").title(),
+            slug=slug,
+            classification=classification,
+            plaid_pfc_primary=upper,
+            is_system=True,
+        )
+        db.add(category)
+        await db.flush()
+        return category
+
+    return await session_cached(db, "finance_pfc_category_cache", slug, load)
 
 
 async def category_names(db: AsyncSession, ids: set[int] | list[int]) -> dict[int, str]:

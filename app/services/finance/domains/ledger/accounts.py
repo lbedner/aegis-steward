@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -32,6 +33,25 @@ from app.services.finance.utils import (
 )
 
 
+async def session_cached[T](
+    db: AsyncSession, bucket: str, key: str, load: Callable[[], Awaitable[T]]
+) -> T:
+    """``load()``'s row, once a session per ``key``: for the small tables of
+    immutable rows a provider sync loop looks up per row (currencies,
+    provider categories). ``Session.info`` is SQLAlchemy's per-session
+    scratch space, so the cache dies with the session and a rolled back
+    row is never handed to the next one."""
+    cache: dict[str, T] = db.info.setdefault(bucket, {})
+    cached = cache.get(key)
+    # ``in db`` because a SAVEPOINT rollback (one per connection in a
+    # provider sync) expunges the instance: a cached row from a rolled back
+    # savepoint would be handed to the next connection and detach every row
+    # that referenced it.
+    if cached is None or cached not in db:
+        cached = cache[key] = await load()
+    return cached
+
+
 async def get_or_create_currency(
     db: AsyncSession,
     code: str = DEFAULT_CURRENCY,
@@ -41,30 +61,21 @@ async def get_or_create_currency(
     decimals: int = 2,
 ) -> FinanceCurrency:
     code = code.lower()
+
     # Every row carrying a currency FK calls this - one per security, price,
-    # holding, trade, budget line, stream, and per row of a provider sync
-    # loop - against a table of a handful of immutable rows. ``Session.info``
-    # is SQLAlchemy's per-session scratch space, so the cache dies with the
-    # session and a rolled back currency is never handed to the next one.
-    cache: dict[str, FinanceCurrency] = db.info.setdefault("finance_currency_cache", {})
-    cached = cache.get(code)
-    # ``in db`` because a SAVEPOINT rollback (one per connection in a
-    # provider sync) expunges the instance: a cached row from a rolled back
-    # savepoint would be handed to the next connection and detach every row
-    # that referenced it.
-    if cached is not None and cached in db:
-        return cached
-    existing = await queries.currency_by_code(db, code)
-    if existing:
-        cache[code] = existing
-        return existing
-    currency = FinanceCurrency(
-        code=code, name=name or code.upper(), symbol=symbol, decimals=decimals
-    )
-    db.add(currency)
-    await db.flush()
-    cache[code] = currency
-    return currency
+    # holding, trade, budget line, stream, and per row of a provider sync.
+    async def load() -> FinanceCurrency:
+        existing = await queries.currency_by_code(db, code)
+        if existing:
+            return existing
+        currency = FinanceCurrency(
+            code=code, name=name or code.upper(), symbol=symbol, decimals=decimals
+        )
+        db.add(currency)
+        await db.flush()
+        return currency
+
+    return await session_cached(db, "finance_currency_cache", code, load)
 
 
 async def create_manual_account(
@@ -241,6 +252,40 @@ async def soft_delete_account(
     db.add(account)
     await db.flush()
     return True
+
+
+async def purge_account(
+    db: AsyncSession, account_id: int, *, owner_user_id: int | None = None
+) -> int | None:
+    """Delete an account and everything hanging off it, permanently (#372):
+    "Remove" hides an account, this takes it out of the database. The
+    number of transactions that went, or None when the account is not
+    there (or not the owner's)."""
+    account = await queries.account_by_id(db, account_id, owner_user_id=owner_user_id)
+    if account is None:
+        return None
+    return await _purged(db, [account_id], account.owner_user_id)
+
+
+async def purge_connection_accounts(
+    db: AsyncSession, connection_id: int, *, owner_user_id: int | None = None
+) -> int:
+    """Delete every account a connection ever fed, and their history."""
+    account_ids = await queries.account_ids_for_connection(
+        db, connection_id, owner_user_id=owner_user_id
+    )
+    return await _purged(db, account_ids, owner_user_id)
+
+
+async def _purged(
+    db: AsyncSession, account_ids: list[int], owner_user_id: int | None
+) -> int:
+    from app.services.finance.domains.ledger import networth
+
+    removed = await queries.purge_accounts(db, account_ids)
+    if account_ids:
+        await networth.recompute_snapshots(db, owner_user_id=owner_user_id)
+    return removed
 
 
 async def register_balance_as_of(db: AsyncSession, account_id: int, as_of: date) -> int:

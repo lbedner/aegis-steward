@@ -47,6 +47,13 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "job_execution": ("table", "job_execution"),
     # Widens ck_document_kind; adds no table or column.
     "document_schedule": ("check", "document", "ck_document_kind", "schedule"),
+    # Widens the provider and import-source checks; adds no table or column.
+    "simplefin": (
+        "check",
+        "finance_connection",
+        "ck_finance_connection_provider",
+        "simplefin",
+    ),
     "payoff_terms": (
         "column",
         "finance.finance_liability_detail",

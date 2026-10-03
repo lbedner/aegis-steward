@@ -32,6 +32,7 @@ from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
     or_404,
+    typed_back,
     where_from,
     with_toast,
 )
@@ -171,6 +172,32 @@ async def remove(
     await delete_account(account_id, service=service, owner_user_id=owner_user_id)
     await service.db.commit()
     return dialog_done(SECTION.path, f"Removed {account.name}")
+
+
+@router.post("/{account_id:int}/purge", include_in_schema=False)
+async def purge(
+    request: Request,
+    account_id: int,
+    confirm: Annotated[str, Form()] = "",
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Delete the account and its history permanently (#372), once its
+    name is typed back; Remove above only hides it."""
+    account = await _account(service, account_id, owner_user_id)
+    if not typed_back(confirm, account.name):
+        return dialog(
+            request,
+            "partials/accounts/remove.html",
+            422,
+            account=account,
+            purge_error=f"Type {account.name} exactly to delete it.",
+        )
+    removed = await service.purge_account(account_id, owner_user_id=owner_user_id)
+    await service.db.commit()
+    return dialog_done(
+        SECTION.path, f"Deleted {account.name} and its {removed} transactions"
+    )
 
 
 # --- property details ------------------------------------------------------

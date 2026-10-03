@@ -34,15 +34,11 @@ import json
 from typing import Any
 
 from app.core.config import settings
+from app.services.finance.adapters.providers.errors import ProviderError
 
 
-class SnapTradeError(RuntimeError):
-    """A SnapTrade API error (``error_code`` carries the machine-readable
-    reason — the HTTP status when nothing better is available)."""
-
-    def __init__(self, error_code: str, message: str) -> None:
-        self.error_code = error_code
-        super().__init__(f"{error_code}: {message}")
+class SnapTradeError(ProviderError):
+    """A SnapTrade API error."""
 
 
 def _body(response: Any) -> Any:

@@ -122,6 +122,31 @@ class TestRemove:
             f'#portfolio a[href="/accounts/{ledger.savings}"]',
         )
 
+    def test_it_can_go_permanently_behind_its_name(
+        self, client: TestClient, hx: TestClient, ledger: Ledger
+    ) -> None:
+        """Remove hides an account; deleting it permanently takes it and its
+        history out of the database (#372), once its name is typed back."""
+        confirm = hx.get(f"/accounts/{ledger.checking}/remove").text
+        form = one(
+            confirm, f"form[data-purge][hx-post='/accounts/{ledger.checking}/purge']"
+        )
+        one(form, "input[name=confirm]")
+
+        wrong = client.post(
+            f"/accounts/{ledger.checking}/purge", data={"confirm": "Savings"}
+        )
+        assert wrong.status_code == 422
+        one(wrong.text, "form[data-purge]")  # kept, to try again
+        assert client.get(f"/accounts/{ledger.checking}").status_code == 200
+
+        gone = client.post(
+            f"/accounts/{ledger.checking}/purge", data={"confirm": " checking "}
+        )
+        assert location(gone) == "/accounts"
+        assert "Deleted Checking" in triggers(gone)["toast"]["text"]
+        assert client.get(f"/accounts/{ledger.checking}").status_code == 404
+
     def test_unknown_account_is_404(self, client: TestClient) -> None:
         assert client.delete("/accounts/999999").status_code == 404
         assert client.get("/accounts/999999/rename").status_code == 404

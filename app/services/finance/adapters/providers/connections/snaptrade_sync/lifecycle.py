@@ -10,12 +10,11 @@ import logging
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.encryption import encrypt_secret
 from app.services.finance.adapters.providers.connections.common import (
-    _SNAPTRADE_SECRET_CONTEXT,
     SyncResult,
     _recompute_net_worth,
     list_provider_connections,
+    new_connection,
 )
 from app.services.finance.adapters.providers.connections.snaptrade_sync.sync import (
     _snaptrade_user_id,
@@ -96,18 +95,12 @@ async def start_snaptrade_connect(
                 )
                 await client.delete_user(user_id)
                 user_secret = await client.register_user(user_id)
-    connection = FinanceConnection(
+    connection = await new_connection(
+        db,
         owner_user_id=owner_user_id,
         provider=Provider.SNAPTRADE,
-        connection_type="aggregator_token",
-        environment="production",
-        access_token_encrypted=encrypt_secret(
-            user_secret, context=_SNAPTRADE_SECRET_CONTEXT
-        ),
-        status="loading",
+        credential=user_secret,
     )
-    db.add(connection)
-    await db.flush()
     if client.is_personal:
         # Personal keys have no partner connection portal (the login
         # endpoint rejects them): brokerages are linked inside SnapTrade's
@@ -154,14 +147,11 @@ async def complete_snaptrade_connect(
         connection = (
             pending.pop(0)
             if pending
-            else FinanceConnection(
+            else await new_connection(
+                db,
                 owner_user_id=owner_user_id,
                 provider=Provider.SNAPTRADE,
-                connection_type="aggregator_token",
-                environment="production",
-                access_token_encrypted=encrypt_secret(
-                    user_secret, context=_SNAPTRADE_SECRET_CONTEXT
-                ),
+                credential=user_secret,
             )
         )
         connection.provider_item_id = authorization_id

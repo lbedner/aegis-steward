@@ -6,7 +6,8 @@ business logic, no writes.
 
 from __future__ import annotations
 
-from sqlmodel import select
+from sqlalchemy import or_
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.models import (
@@ -28,34 +29,23 @@ async def connection_by_provider_item(
     return (await db.exec(query)).first()
 
 
-async def account_by_persistent_id(
-    db: AsyncSession, *, provider: str, persistent_account_id: str
-) -> FinanceAccount | None:
-    return (
-        await db.exec(
-            select(FinanceAccount).where(
-                FinanceAccount.provider == provider,
-                FinanceAccount.persistent_account_id == persistent_account_id,
+async def provider_accounts(
+    db: AsyncSession, *, provider: str, owner_user_id: int | None, ids: list[str]
+) -> list[FinanceAccount]:
+    """The accounts a sync's accounts could already be, deleted ones too,
+    oldest first, read once: the owner's (name + mask re-link), and any
+    carrying one of the provider's ``ids`` (provider or persistent id).
+    Without an owner, every account the provider ever fed."""
+    query = select(FinanceAccount).where(FinanceAccount.provider == provider)
+    if owner_user_id is not None:
+        query = query.where(
+            or_(
+                FinanceAccount.owner_user_id == owner_user_id,
+                col(FinanceAccount.provider_account_id).in_(ids),
+                col(FinanceAccount.persistent_account_id).in_(ids),
             )
         )
-    ).first()
-
-
-async def account_by_provider_account_id(
-    db: AsyncSession, *, provider: str, provider_account_id: str
-) -> FinanceAccount | None:
-    return (
-        await db.exec(
-            select(FinanceAccount).where(
-                FinanceAccount.provider == provider,
-                FinanceAccount.provider_account_id == provider_account_id,
-            )
-        )
-    ).first()
-
-
-async def account_first_where(db: AsyncSession, filters: list) -> FinanceAccount | None:
-    return (await db.exec(select(FinanceAccount).where(*filters))).first()
+    return list((await db.exec(query.order_by(col(FinanceAccount.id)))).all())
 
 
 async def transaction_first_where(

@@ -110,8 +110,8 @@ class FinanceImportBatch(SQLModel, table=True):
             postgresql_where=Column("file_sha256").isnot(None),
         ),
         CheckConstraint(
-            "source_type IN ('plaid_sync', 'snaptrade_sync', 'ofx', 'qfx', "
-            "'qif', 'csv', 'manual')",
+            "source_type IN ('plaid_sync', 'snaptrade_sync', 'simplefin_sync', "
+            "'ofx', 'qfx', 'qif', 'csv', 'manual')",
             name="ck_finance_importbatch_source",
         ),
         CheckConstraint(

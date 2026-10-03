@@ -27,6 +27,7 @@ from app.services.finance.adapters.providers.connections.common import (
     _recompute_net_worth,
     get_connection,
     list_plaid_connections,
+    new_connection,
 )
 from app.services.finance.adapters.providers.connections.plaid_sync.sync import (
     sync_plaid_connection,
@@ -66,22 +67,18 @@ async def create_plaid_connection(
         db.add(existing)
         await db.flush()
         return existing
-    connection = FinanceConnection(
+    return await new_connection(
+        db,
         owner_user_id=owner_user_id,
         provider=Provider.PLAID,
+        credential=access_token,
+        environment=environment,
         connection_type="oauth_access_token",
+        status="healthy",
         provider_item_id=item_id,
         institution_id=institution_id,
         label=label,
-        environment=environment,
-        access_token_encrypted=encrypt_secret(
-            access_token, context=_ACCESS_TOKEN_CONTEXT
-        ),
-        status="healthy",
     )
-    db.add(connection)
-    await db.flush()
-    return connection
 
 
 async def complete_hosted_link(

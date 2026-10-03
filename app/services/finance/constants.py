@@ -34,7 +34,32 @@ class Provider:
 
     PLAID = "plaid"
     SNAPTRADE = "snaptrade"
+    SIMPLEFIN = "simplefin"
     MANUAL = "manual"
+
+
+# The context each provider's credential is sealed under (the AAD on
+# ``FinanceConnection.access_token_encrypted``): the writers and the key
+# rotation read it here, so a rotation cannot guess a provider's wrong.
+CREDENTIAL_CONTEXTS: dict[str, str] = {
+    Provider.PLAID: "finance.plaid.access_token",
+    Provider.SNAPTRADE: "finance.snaptrade.user_secret",
+    Provider.SIMPLEFIN: "finance.simplefin.access_url",
+}
+
+
+# A provider as people know it: the Settings card, the connect dialog and
+# the Activity page all say "SimpleFIN", never the stored key title-cased.
+PROVIDER_LABELS: dict[str, str] = {
+    Provider.PLAID: "Plaid",
+    Provider.SNAPTRADE: "SnapTrade",
+    Provider.SIMPLEFIN: "SimpleFIN",
+}
+
+
+def sync_source(provider: str) -> str:
+    """The import-batch ``source_type`` a provider's sync writes."""
+    return f"{provider}_sync"
 
 
 # Encrypted (AES-GCM ciphertext) columns on ``finance_connection``. Registered

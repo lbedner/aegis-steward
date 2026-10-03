@@ -55,6 +55,7 @@ from app.services.finance.adapters.importers.base import (
 from app.services.finance.adapters.importers.plan import (
     plan_transactions,
 )
+from app.services.finance.constants import PROVIDER_LABELS, sync_source
 from app.services.finance.models import (
     FinanceImportBatch,
     FinanceImportBatchRow,
@@ -69,8 +70,7 @@ from app.services.system.jobs import SetLabel, unwatched
 # batch table itself; this is the answer to "where did this come from",
 # which is the question actually being asked.
 SOURCE_LABELS: dict[str, str] = {
-    "snaptrade_sync": "SnapTrade",
-    "plaid_sync": "Plaid",
+    **{sync_source(key): label for key, label in PROVIDER_LABELS.items()},
     "csv": "CSV",
     "ofx": "OFX",
     "qfx": "QFX",

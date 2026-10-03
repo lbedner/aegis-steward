@@ -6,6 +6,7 @@ Writes but does not commit - the caller owns the transaction.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 import logging
 from typing import Any
@@ -16,12 +17,16 @@ from app.core.encryption import decrypt_secret
 from app.core.time import utcnow
 from app.services.finance.adapters.providers.connections.common import (
     _ACCESS_TOKEN_CONTEXT,
+    ProviderAdapter,
+    Revoke,
     SyncResult,
+    best_effort,
     mark_healthy,
+    stored_credential,
 )
 from app.services.finance.adapters.providers.connections.plaid_sync.accounts import (
     _apply_liabilities,
-    _upsert_accounts,
+    plaid_accounts,
 )
 from app.services.finance.adapters.providers.connections.plaid_sync.investments import (
     _INVESTMENT_LOOKBACK_DAYS,
@@ -30,10 +35,15 @@ from app.services.finance.adapters.providers.connections.plaid_sync.investments 
     _upsert_securities,
 )
 from app.services.finance.adapters.providers.connections.plaid_sync.transactions import (
-    _apply_transactions,
     _remove_transactions,
+    plaid_transactions,
+)
+from app.services.finance.adapters.providers.connections.upserts import (
+    apply_transactions,
+    upsert_accounts,
 )
 from app.services.finance.adapters.providers.plaid import PlaidClient, PlaidError
+from app.services.finance.constants import Provider, sync_source
 from app.services.finance.models import (
     FinanceConnection,
     FinanceImportBatch,
@@ -65,7 +75,9 @@ async def sync_plaid_connection(
             connection.label = await client.get_institution_name(item["institution_id"])
         except PlaidError:
             pass
-    account_by_plaid_id = await _upsert_accounts(db, service, connection, accounts)
+    account_by_plaid_id = await upsert_accounts(
+        db, service, connection, Provider.PLAID, plaid_accounts(accounts)
+    )
     result.accounts = len(account_by_plaid_id)
 
     # Investment positions — only items linked with the ``investments`` product
@@ -142,7 +154,7 @@ async def sync_plaid_connection(
             0 if connection.owner_user_id is None else connection.owner_user_id
         ),
         connection_id=connection.id,
-        source_type="plaid_sync",
+        source_type=sync_source(Provider.PLAID),
         sync_cursor_before=cursor_before,
         status="processing",
         rows_total=len(collected) + len(removed),
@@ -151,12 +163,13 @@ async def sync_plaid_connection(
     db.add(batch)
     await db.flush()
 
-    result.added, result.updated = await _apply_transactions(
+    result.added, result.updated = await apply_transactions(
         db,
         service,
-        collected,
+        plaid_transactions(collected),
         account_by_plaid_id,
         connection=connection,
+        source=Provider.PLAID,
         import_batch_id=batch.id,
     )
     # Removals apply last: a row added on an early page and retracted on a
@@ -196,3 +209,20 @@ async def sync_plaid_connection(
     db.add(connection)
     await db.flush()
     return result
+
+
+def _revoke(
+    connection: FinanceConnection, client: Callable[[], PlaidClient]
+) -> Revoke | None:
+    token = stored_credential(connection, _ACCESS_TOKEN_CONTEXT)
+    if token is None:
+        return None
+    return best_effort(connection, lambda: client().remove_item(token))
+
+
+ADAPTER = ProviderAdapter(
+    provider=Provider.PLAID,
+    new_client=PlaidClient,
+    sync=sync_plaid_connection,
+    revoke=_revoke,
+)

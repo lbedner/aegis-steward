@@ -96,7 +96,10 @@ async def create_transaction(
     is_split: bool = False,
     pending: bool = False,
     pending_provider_id: str | None = None,
+    flush: bool = True,
 ) -> FinanceTransaction:
+    """A new transaction row. ``flush=False`` leaves the INSERT to the
+    caller's next flush, so a sync adding hundreds sends them together."""
     txn = FinanceTransaction(
         owner_user_id=owner_user_id,
         account_id=account_id,
@@ -125,7 +128,8 @@ async def create_transaction(
         status="pending" if pending else "posted",
     )
     db.add(txn)
-    await db.flush()
+    if flush:
+        await db.flush()
     return txn
 
 

@@ -388,6 +388,12 @@ def navigate(response: Response, path: str, target: str = "#app-content") -> Res
     return trigger(response, "dialog:close")
 
 
+def typed_back(typed: str, name: str) -> bool:
+    """A typed confirmation names what it is asked to (case and spacing
+    aside): the gate on a permanent delete (``confirm_permanent``)."""
+    return " ".join(typed.split()).casefold() == " ".join(name.split()).casefold()
+
+
 def where_from(request: Request, fallback: str) -> str:
     """The page this dialog was opened from.
 

@@ -304,6 +304,20 @@ class AccountsMixin(FinanceServiceBase):
             **fields,
         )
 
+    async def purge_account(
+        self, account_id: int, *, owner_user_id: int | None = None
+    ) -> int | None:
+        return await accounts.purge_account(
+            self.db, account_id, owner_user_id=owner_user_id
+        )
+
+    async def purge_connection_accounts(
+        self, connection_id: int, *, owner_user_id: int | None = None
+    ) -> int:
+        return await accounts.purge_connection_accounts(
+            self.db, connection_id, owner_user_id=owner_user_id
+        )
+
     async def soft_delete_account(
         self, account_id: int, *, owner_user_id: int | None = None
     ) -> bool:

@@ -95,6 +95,7 @@ class TransactionsMixin(FinanceServiceBase):
         is_split: bool = False,
         pending: bool = False,
         pending_provider_id: str | None = None,
+        flush: bool = True,
     ) -> FinanceTransaction:
         return await transactions.create_transaction(
             self.db,
@@ -122,6 +123,7 @@ class TransactionsMixin(FinanceServiceBase):
             is_split=is_split,
             pending=pending,
             pending_provider_id=pending_provider_id,
+            flush=flush,
         )
 
     async def create_split(
