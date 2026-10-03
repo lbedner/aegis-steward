@@ -57,4 +57,15 @@ ENGINE_SEEDS: tuple[dict[str, Any], ...] = (
         "max_output_tokens": REALTIME_REPLY_CAP,
         "sort_order": 3,
     },
+    {
+        # #274's trial: the same GPT-Live, run by Pydantic AI over our
+        # relay instead of hand-built. If it holds up, the hand-built path
+        # retires.
+        "key": "gpt-live-pydantic",
+        "transport": "relay",
+        "model": "gpt-live-1",
+        "note": "GPT-Live through Pydantic AI, carried by our server (trial)",
+        "instructions": FINANCE_LIVE_INSTRUCTIONS,
+        "sort_order": 4,
+    },
 )

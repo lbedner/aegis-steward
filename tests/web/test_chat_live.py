@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.components.backend.api.ai.router import ai_service, sync_active_model
-from app.components.web_frontend.routes import chat_live
+from app.components.web_frontend.routes import chat_cards, chat_live
 from app.components.web_frontend.routes.chat_live import (
     DELEGATIONS,
     LIVE_SORRY,
@@ -35,11 +35,11 @@ from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_VOICE_AGENT_SLUG,
     STANDALONE_USER_ID,
 )
-from tests._voice_catalog import VOICE_MODELS
+from tests._voice_catalog import TITLES
+from tests.web.dom import one
 
 pytestmark = pytest.mark.usefixtures("live_engine_rows")
 # An engine is named by its catalog model.
-TITLES = {m["model_id"]: m["title"] for m in VOICE_MODELS}
 
 SECRET = "secret internal detail"
 
@@ -218,8 +218,6 @@ class TestTheControl:
     def test_the_composer_has_a_live_button(
         self, request: pytest.FixtureRequest, path_client: str
     ) -> None:
-        from tests.web.dom import one
-
         page = request.getfixturevalue(path_client).get("/chat").text
         button = one(page, "#chat-composer button#chat-live")
         assert button.get("data-sessions") == SESSIONS
@@ -232,8 +230,6 @@ class TestWhileSheWorks:
     it holds for the whole delegation, through GPT-Live's "let me check"."""
 
     def test_the_live_button_draws_working(self, client: TestClient) -> None:
-        from tests.web.dom import one
-
         button = one(client.get("/chat").text, "button#chat-live")
         drawn = {
             e.get("data-mic-visual") for e in button.cssselect("[data-mic-visual]")
@@ -241,8 +237,6 @@ class TestWhileSheWorks:
         assert drawn == {"recording", "thinking", "speaking", "working"}
 
     def test_the_status_line_says_so(self, client: TestClient) -> None:
-        from tests.web.dom import one
-
         one(client.get("/chat").text, "template#chat-mic-states [data-state=working]")
 
 
@@ -271,8 +265,6 @@ class TestHangingUp:
     def test_her_instructions_end_on_the_sign_off_the_page_listens_for(
         self, client: TestClient
     ) -> None:
-        from tests.web.dom import one
-
         assert chat_live.LIVE_SIGN_OFF in FINANCE_LIVE_INSTRUCTIONS
         button = one(client.get("/chat").text, "button#chat-live")
         assert button.get("data-sign-off") == chat_live.LIVE_SIGN_OFF
@@ -290,7 +282,6 @@ class TestHangingUp:
         import json
 
         from app.core.config import settings
-        from tests.web.dom import one
 
         monkeypatch.setattr(settings, "VOICE_LIVE_IDLE_SECONDS", 45)
         mic = one(client.get("/chat").text, "button#chat-mic")
@@ -354,8 +345,6 @@ class TestTheMeter:
         assert response.status_code == 404
 
     def test_the_live_button_knows_where_to_report(self, client: TestClient) -> None:
-        from tests.web.dom import one
-
         button = one(client.get("/chat").text, "button#chat-live")
         assert button.get("data-usage") == chat_live.USAGE
 
@@ -451,8 +440,6 @@ class TestTheCallBar:
     and hang up."""
 
     def test_the_bar_waits_hidden_in_the_page(self, client: TestClient) -> None:
-        from tests.web.dom import one
-
         page = client.get("/chat").text
         bar = one(page, "#chat-call")
         assert bar.get("hidden") is not None
@@ -645,9 +632,19 @@ class TestTheRelay:
         assert refused.value.code == 1008
 
     def test_the_phone_knows_the_relay(self, client: TestClient) -> None:
-        from tests.web.dom import one
-
         button = one(client.get("/chat").text, "button#chat-live")
         assert button.get("data-engine") == chat_live.ENGINE
         assert button.get("data-relay") == chat_live.RELAY
         assert "mic-worklet" in (button.get("data-worklet") or "")
+
+    def test_a_card_drawn_mid_call_has_a_place_in_the_thread(
+        self, client: TestClient
+    ) -> None:
+        """The relay tells the page each card as she draws it; the page
+        puts it at the foot of the thread until the saved turn replaces it."""
+        html = client.get("/chat").text
+        one(html, "template#chat-live-card")
+        assert chat_live.drawn_card("c1") == {
+            "type": "card",
+            "url": f"{chat_cards.CARDS}/c1",
+        }

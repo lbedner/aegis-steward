@@ -13,6 +13,16 @@ from pydantic_ai.messages import (
     FunctionToolResultEvent,
 )
 
+from app.core.chat_transcript import script_line
+
+# The tools whose results become approval cards, the kinds of card a
+# trace records (a drawn card is ``cards.MARKER``), and which id names
+# which: the web layer draws each from its kind.
+CARD_TOOLS = ("propose", "propose_many", "pending")
+CHANGE_MARKER = "pending_change"
+BATCH_MARKER = "pending_change_batch"
+IDENTITY_KEYS = {"batch_id": BATCH_MARKER, "pending_change_id": CHANGE_MARKER}
+
 
 def call_args_preview(args: Any) -> str:
     """A compact, display-ready summary of a tool call's arguments.
@@ -28,11 +38,8 @@ def call_args_preview(args: Any) -> str:
         except ValueError:
             parsed = args
     if isinstance(parsed, dict) and isinstance(parsed.get("code"), str):
-        for line in parsed["code"].splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                return json.dumps({"code": stripped[:80]})
-        return ""
+        line = script_line(parsed["code"])
+        return json.dumps({"code": line}) if line else ""
     text = args if isinstance(args, str) else json.dumps(parsed)
     return (text or "")[:120]
 
@@ -98,7 +105,7 @@ def _component_marker(
     fetched for the rows - so identity rides here, under any cap. A
     ``pending`` listing carries one identity per card it holds.
     """
-    if name not in ("propose", "propose_many", "pending"):
+    if name not in CARD_TOOLS:
         return None
     data: Any = content
     if isinstance(content, str):
@@ -139,24 +146,31 @@ def _pending_markers(cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [m for m in map(_identity_marker, identities) if m is not None]
 
 
-def _identity_marker(data: dict[str, Any]) -> dict[str, Any] | None:
-    if data.get("batch_id"):
-        return {
-            "kind": "pending_change_batch",
-            "batch_id": data["batch_id"],
-            "change_type": data.get("change_type"),
-            "title": data.get("title"),
-            "count": data.get("count"),
-        }
-    if data.get("pending_change_id"):
-        return {
-            "kind": "pending_change",
-            "pending_change_id": data["pending_change_id"],
-            "change_type": data.get("change_type"),
-            "title": data.get("title"),
-            "status": data.get("status", "pending"),
-        }
+def card_identity(data: dict[str, Any]) -> tuple[str, str, Any] | None:
+    """The approval card a proposal's result names: its kind, and the id
+    field and value that name it (a batch's, else one change's)."""
+    for key, kind in IDENTITY_KEYS.items():
+        if data.get(key):
+            return kind, key, data[key]
     return None
+
+
+def _identity_marker(data: dict[str, Any]) -> dict[str, Any] | None:
+    found = card_identity(data)
+    if found is None:
+        return None
+    kind, key, value = found
+    marker = {
+        "kind": kind,
+        key: value,
+        "change_type": data.get("change_type"),
+        "title": data.get("title"),
+    }
+    if kind == BATCH_MARKER:
+        marker["count"] = data.get("count")
+    else:
+        marker["status"] = data.get("status", "pending")
+    return marker
 
 
 def nested_tool_calls(event: FunctionToolResultEvent) -> list[tuple[str, str]]:
@@ -213,8 +227,7 @@ def steps_line(trace: list[dict[str, Any]]) -> str:
         else:
             said = f"{tool}({(entry.get('args') or '')[:_STEP_ARGS_CAP]})"
             marker = entry.get("component")
-            if isinstance(marker, dict):
-                card = marker.get("batch_id") or marker.get("pending_change_id")
-                said += f" -> card {card}"
+            if isinstance(marker, dict) and (named := card_identity(marker)):
+                said += f" -> card {named[2]}"
         parts.append(said)
     return "; ".join(parts)[:_STEPS_CAP]

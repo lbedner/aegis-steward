@@ -16,12 +16,13 @@ from typing import Any, Literal
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
+from app.core.voice_settings import setting_default
 from app.services.ai.domains.llm.queries import latest_prices_by_llm_ids
 from app.services.ai.domains.voice import queries
 from app.services.ai.models.live_engine import LiveEngine
 
 Transport = Literal["gpt_live", "realtime", "relay"]
-DEFAULT = "gpt-live"
+DEFAULT = setting_default("VOICE_LIVE_ENGINE")
 # Whose realtime models a browser call can reach, and how. Pydantic AI
 # answers the browser's WebRTC offer for OpenAI, so audio goes straight
 # there ("realtime"); Gemini Live speaks only a WebSocket holding the key,
@@ -29,6 +30,12 @@ DEFAULT = "gpt-live"
 CALL_TRANSPORTS: dict[str, Transport] = {"openai": "realtime", "google": "relay"}
 
 enabled = queries.enabled_engines
+
+
+def is_gpt_live(model: str) -> bool:
+    """GPT-Live, by its id bare ("gpt-live-1") or as Pydantic AI names it
+    ("openai:gpt-live-1"): its own API, whichever path runs it."""
+    return model.rpartition(":")[2].startswith("gpt-live")
 
 
 def pick(engines: list[LiveEngine], key: str | None) -> LiveEngine | None:
@@ -73,9 +80,7 @@ async def choose(
         llm_id, vendor = found
         # GPT-Live is its own API (our client delegation); every other
         # realtime model runs her agent itself, by its vendor's transport.
-        transport = (
-            "gpt_live" if model_id.startswith("gpt-live") else CALL_TRANSPORTS[vendor]
-        )
+        transport = "gpt_live" if is_gpt_live(model_id) else CALL_TRANSPORTS[vendor]
         template = next(seed for seed in seeds if seed["transport"] == transport)
         engine = LiveEngine(
             key=model_id,

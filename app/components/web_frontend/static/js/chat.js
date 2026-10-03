@@ -13,15 +13,12 @@
    pairs separated by a blank line. */
 (() => {
   const CURSOR = '▌';
+  const WENT_WRONG = 'Something went wrong answering that.';
   let controller = null; // the in-flight turn's AbortController
 
   const root = () => document.getElementById('chat');
-  const thread = () => document.getElementById('chat-thread');
   const scroller = () => document.getElementById('chat-scroll');
   const config = () => JSON.parse(root().dataset.chat);
-  // Markup the script needs is cloned from <template>s in the surface
-  // partial, so styling has one home (the template), never a JS string.
-  const clone = (id) => document.getElementById(id).content.firstElementChild.cloneNode(true);
   // The live turn, told to whoever listens (voice.js speaks it as it comes):
   // `chat:text` per streamed chunk, `chat:tool` when she stops writing to run
   // a tool, `chat:end` when the stream is over.
@@ -66,7 +63,7 @@
   // the drawer taking its width - is a reason to re-apply the intent.
   let growth = null;
   const watchGrowth = () => {
-    const el = thread();
+    const el = chatThread();
     if (!el) return;
     if (!growth) growth = new ResizeObserver(() => follow());
     growth.disconnect();
@@ -80,15 +77,11 @@
     const replay = event.target.closest('[data-replay]');
     if (replay) {
       const text = replay.closest('[data-role=user]').querySelector('[data-text]').textContent;
-      const form = document.getElementById('chat-composer');
-      const box = form.querySelector('textarea');
-      box.value = text;
-      // Alpine owns this box through x-model and never sees a direct
-      // assignment, so without this its copy stays empty - and the
-      // clear on a successful send then writes nothing, leaving the
-      // replayed text sitting in the composer after it was sent.
-      box.dispatchEvent(new Event('input', { bubbles: true }));
-      form.requestSubmit();
+      const box = composerBox();
+      // Through Alpine: without it the clear on a successful send writes
+      // nothing, leaving the replayed text in the composer after it went.
+      setBoxText(box, text);
+      box.form.requestSubmit();
     }
     const copy = event.target.closest('[data-copy]');
     if (copy) {
@@ -156,13 +149,12 @@
   // A thumbnail opens its image in the one modal (pattern 4), not a tab.
   const viewImage = (url, name) => {
     const body = document.getElementById('dialog-body');
-    const dialog = document.getElementById('dialog');
-    if (!body || !dialog) return;
+    if (!body) return;
     const img = clone('chat-image');
     img.src = url;
     img.alt = name;
     body.replaceChildren(img);
-    if (!dialog.open) dialog.showModal();
+    openDialog();
   };
 
   // --- Live markdown: enough to read while it streams ----------------
@@ -260,8 +252,6 @@
   // from the staged list, and the stream request carries the bytes as
   // base64. They ride one turn only: cleared on success, kept on failure
   // so a retry still has them.
-  const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-  const MAX_BYTES = 10 * 1024 * 1024;
   const MAX_FILES = 6;
   let staged = []; // {name, media_type, data_b64, url}
   const drawChips = () => {
@@ -310,14 +300,15 @@
   // A PDF rides as itself and is READ on the server - the documents
   // service extracts it page by page and its text reaches the turn as a
   // marker. Only an image is shrunk, and only an image has a thumbnail.
-  const DOCUMENT_TYPES = ['application/pdf'];
+  // What counts as either is the server's (``chat_composer``).
   const stage = async (file) => {
-    const isImage = IMAGE_TYPES.includes(file.type);
-    if (!isImage && !DOCUMENT_TYPES.includes(file.type)) {
+    const { images, documents, max_bytes: maxBytes } = config().composer;
+    const isImage = images.includes(file.type);
+    if (!isImage && !documents.includes(file.type)) {
       toast(`${file.name || 'That'} is not an image or a PDF.`, 'error');
       return;
     }
-    if (file.size > MAX_BYTES) { toast(`${file.name} is over 10 MB.`, 'error'); return; }
+    if (file.size > maxBytes) { toast(`${file.name} is over ${maxBytes / 1024 / 1024} MB.`, 'error'); return; }
     if (staged.length >= MAX_FILES) { toast(`Up to ${MAX_FILES} files per message.`, 'error'); return; }
     let payload = file;
     if (isImage) {
@@ -340,11 +331,8 @@
     [...event.target.files].forEach(stage);
     event.target.value = '';
   });
-  // What counts as a document rather than something someone typed.
-  // The server holds the same number; this one decides whether to ask.
-  const PASTE_THRESHOLD = 2000;
   document.addEventListener('paste', (event) => {
-    if (!document.getElementById('chat-composer')) return;
+    if (!chatComposer()) return;
     const files = [...(event.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
     if (files.length) { event.preventDefault(); files.forEach(stage); }
     // A wall of text is stored now and stands in the box as its marker.
@@ -352,7 +340,7 @@
     // typed out are a message, and finished text cannot tell you which
     // it was.
     const text = event.clipboardData?.getData('text') || '';
-    if (text.length > PASTE_THRESHOLD && event.target.matches?.('textarea')) {
+    if (text.length > config().composer.paste_threshold && event.target.matches?.('textarea')) {
       event.preventDefault();
       keepPaste(event.target, text);
     }
@@ -367,14 +355,13 @@
     body.append('text', text);
     let marker = text;
     try {
-      const answer = await fetch('/chat/pastes', { method: 'POST', body });
+      const answer = await fetch(config().urls.pastes, { method: 'POST', body });
       if (answer.ok) marker = (await answer.json()).marker;
     } catch (_) { /* offline: the text goes in as text */ }
     const at = box.selectionStart ?? box.value.length;
     const to = box.selectionEnd ?? at;
-    box.value = box.value.slice(0, at) + marker + box.value.slice(to);
+    setBoxText(box, box.value.slice(0, at) + marker + box.value.slice(to));
     box.selectionStart = box.selectionEnd = at + marker.length;
-    box.dispatchEvent(new Event('input', { bubbles: true }));
   };
   document.addEventListener('drop', (event) => {
     if (!event.target.closest?.('#chat')) return;
@@ -385,22 +372,22 @@
   // The composer's post carries only the names (for the note under the
   // bubble); the bytes go with the stream request.
   document.body.addEventListener('htmx:configRequest', (event) => {
-    if (event.detail.elt.id !== 'chat-composer') return;
+    if (event.detail.elt !== chatComposer()) return;
     event.detail.parameters.attachment_names = staged.map((f) => f.name);
   });
 
   // --- The turn -------------------------------------------------------------
   const setStreaming = (on) => {
-    const form = document.getElementById('chat-composer');
-    if (!form) return;
-    form.querySelector('textarea').disabled = on;
+    const box = composerBox();
+    if (!box) return;
+    box.disabled = on;
     document.getElementById('chat-send').hidden = on;
     document.getElementById('chat-stop').hidden = !on;
-    if (!on) form.querySelector('textarea').focus();
+    if (!on) box.focus();
   };
 
   async function run(bubble) {
-    const { stream, defaults, path } = config();
+    const { stream, defaults, urls } = config();
     const body = bubble.querySelector('[data-body]');
     const trail = bubble.querySelector('[data-trail]');
     const busy = bubble.querySelector('[data-busy]');
@@ -426,7 +413,7 @@
     const attachments = staged.map(({ name, media_type, data_b64 }) => ({ name, media_type, data_b64 }));
     // A spoken turn names its own agent (voice.js sets it from the server's
     // transcript answer); this turn uses it, the next typed one does not.
-    const composer = document.getElementById('chat-composer');
+    const composer = chatComposer();
     const agent = composer?.dataset.agent;
     if (composer) delete composer.dataset.agent;
     controller = new AbortController();
@@ -471,23 +458,20 @@
           ids.conversation = data.conversation_id || ids.conversation;
           ids.message = data.message_id;
         } else if (event === 'error') {
-          failed = data.detail || data.error || 'Something went wrong answering that.';
+          failed = data.detail || data.error || WENT_WRONG;
         }
       }
       await writer.drain();
     } catch (e) {
       writer.flush();
-      failed = e.name === 'AbortError' ? null : 'Something went wrong answering that.';
+      failed = e.name === 'AbortError' ? null : WENT_WRONG;
     } finally {
       controller = null;
       answered();
       busy.hidden = true;
       setStreaming(false);
       announce('chat:end');
-      if (ids.conversation) {
-        const hidden = document.getElementById('chat-conversation');
-        if (hidden) hidden.value = ids.conversation;
-      }
+      setConversation(ids.conversation);
     }
     if (!failed && attachments.length) {
       // Sent: the bytes rode this turn. A failed turn keeps them staged
@@ -502,7 +486,7 @@
       p.textContent = failed;
       bubble.appendChild(p);
     } else if (ids.message && ids.conversation) {
-      htmx.ajax('GET', `${path}/messages/${ids.conversation}/${ids.message}`, { target: bubble, swap: 'outerHTML' });
+      htmx.ajax('GET', `${urls.messages}/${ids.conversation}/${ids.message}`, { target: bubble, swap: 'outerHTML' });
     }
     delete bubble.dataset.stream;
     follow();
@@ -512,15 +496,15 @@
   // any other swap into the thread (a resumed or loaded conversation)
   // lands at its newest message.
   document.body.addEventListener('htmx:afterSwap', (event) => {
-    if (event.detail.target.id !== 'chat-thread') return;
+    if (event.detail.target !== chatThread()) return;
     watchGrowth();
-    const bubble = thread().querySelector('[data-stream]');
+    const bubble = chatThread().querySelector('[data-stream]');
     if (bubble && !controller) run(bubble);
     else follow(true);
   });
   document.body.addEventListener('htmx:load', (event) => {
     const elt = event.detail.elt;
-    if (!(elt.querySelector?.('#chat-thread') || elt.id === 'chat-thread')) return;
+    if (!elt.contains?.(chatThread())) return;
     watchGrowth();
     follow(true);
   });
@@ -531,7 +515,7 @@
   // bottom: everything the thread carries has finished taking up room by
   // then. Not forced - a reader who scrolled up while it loaded meant it.
   const arm = () => {
-    if (!thread()) return;
+    if (!chatThread()) return;
     watchGrowth();
     follow(true);
   };

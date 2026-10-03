@@ -28,6 +28,10 @@ _IMAGE_MEDIA_TYPES = {
     "webp": "image/webp",
     "gif": "image/gif",
 }
+# Every image a turn may carry (what a model sees, what the documents
+# service reads off a page), and how large one may be.
+IMAGE_TYPES = frozenset(_IMAGE_MEDIA_TYPES.values())
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
 def image_media_type(filename: str) -> str | None:
@@ -105,16 +109,23 @@ def tool_label(name: str, args: str = "") -> str:
     return f"{name}({inner})"
 
 
+def script_line(code: str) -> str:
+    """What a trail shows of a script: its first line that is not a
+    comment, clipped; empty when it is all comments."""
+    for line in code.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return stripped[:80]
+    return ""
+
+
 def trace_label(entry: dict[str, Any]) -> str:
     """A persisted trace entry as its trail line (same look as live)."""
     name = str(entry.get("tool", ""))
     code = entry.get("code")
     if isinstance(code, str):
-        for line in code.splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                return f"{name}: {stripped[:80]}"
-        return f"{name}:"
+        line = script_line(code)
+        return f"{name}: {line}" if line else f"{name}:"
     return tool_label(name, str(entry.get("args", "") or ""))
 
 

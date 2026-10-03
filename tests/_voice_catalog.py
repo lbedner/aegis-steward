@@ -67,3 +67,7 @@ async def seed_voice_catalog(session: AsyncSession) -> None:
         if model.id is not None
     )
     await session.commit()
+
+
+# Each catalog model's title, by its id.
+TITLES = {m["model_id"]: m["title"] for m in VOICE_MODELS}

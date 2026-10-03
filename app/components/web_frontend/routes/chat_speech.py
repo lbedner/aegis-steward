@@ -17,6 +17,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from app.components.backend.api.ai.router import ai_service
 from app.components.web_frontend.routes.chat import (
     ASSISTANT_NAME,
+    CHAT_URLS,
     SPEECH,
     stored_message,
 )
@@ -66,11 +67,7 @@ async def transcription_hint() -> str:
 def _format(filename: str | None) -> AudioFormat:
     """Chrome records webm, Safari mp4, Firefox ogg; the script names the
     file for what the browser gave it."""
-    extension = (filename or "").rsplit(".", 1)[-1].lower()
-    try:
-        return AudioFormat(extension)
-    except ValueError:
-        return AudioFormat.WEBM
+    return AudioFormat.of(filename) or AudioFormat.WEBM
 
 
 @router.post(TRANSCRIPTS, include_in_schema=False)
@@ -111,6 +108,7 @@ async def transcribe(
 # spinner (2026-09-25). A replay costs one more synthesis instead.
 SPOKEN_CACHE = "no-store"
 SAY = SPEECH + "/say"
+CHAT_URLS.update(transcripts=TRANSCRIPTS, say=SAY)
 SAY_LIMIT = 2_000  # a sentence or a short paragraph, never a document
 
 

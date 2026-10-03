@@ -27,13 +27,20 @@ from starlette.responses import JSONResponse, Response
 
 from app.components.backend.api.ai.router import ai_service, sync_active_model
 from app.components.web_frontend.rendering import templates
-from app.components.web_frontend.routes.chat import SECTION, SURFACE, owned
+from app.components.web_frontend.routes.chat import (
+    CHAT_URLS,
+    SECTION,
+    SURFACE,
+    component_url,
+    owned,
+)
 from app.components.web_frontend.routes.chat_speech import transcription_hint
 from app.core.chat_transcript import readable, trace_label
 from app.core.config import settings
 from app.core.db import get_async_session
 from app.core.log import logger
 from app.services.ai import usage_recording
+from app.services.ai.domains.chat.cards import MARKER
 from app.services.ai.domains.voice import live_engines, realtime_calls
 from app.services.ai.domains.voice.spoken import to_spoken
 from app.services.ai.models import AIProvider
@@ -55,8 +62,10 @@ DELEGATIONS = LIVE + "/delegations"
 USAGE = LIVE + "/usage"
 ENGINE = LIVE + "/engine"
 RELAY = LIVE + "/ws"
+CHAT_URLS.update(
+    engine=ENGINE, relay=RELAY, sessions=SESSIONS, delegations=DELEGATIONS, usage=USAGE
+)
 
-LIVE_FALLBACK_VOICE = "marin"
 # A delegation's result is spoken as commentary, capped at 500 tokens.
 LIVE_ANSWER_CHARS = 1_500
 # The conversation so far, as the session's opening items (128 at most,
@@ -202,7 +211,7 @@ async def open_session(offer: Offer) -> Response:
     session = {
         "model": engine.llm.model_id,
         "instructions": engine.instructions or "",
-        "audio": {"output": {"voice": settings.TTS_VOICE or LIVE_FALLBACK_VOICE}},
+        "audio": {"output": {"voice": realtime_calls.openai_voice(settings.TTS_VOICE)}},
         "delegation": {"type": "client"},
         "input": await _history(offer.conversation_id),
     }
@@ -241,7 +250,7 @@ async def _call(conversation_id: str | None, engine: LiveEngine) -> tuple[Any, A
         await owned(conversation_id)
         if conversation_id
         else await ai_service.conversation_manager.create_conversation(
-            provider=AIProvider(model.split(":", 1)[0]),
+            provider=AIProvider(engine.llm.served_by.slug),
             model=model,
             user_id=STANDALONE_USER_ID,
             surface=SURFACE,
@@ -331,6 +340,17 @@ async def _tell(ws: WebSocket, event: Any) -> None:
         await _send(ws, said)
 
 
+def drawn_card(card_id: str) -> dict[str, Any]:
+    """What the page is told of a card she drew mid-call: where it loads,
+    so a chart is up while she talks about it."""
+    return {"type": "card", "url": component_url(MARKER, card_id)}
+
+
+async def _show_cards(ws: WebSocket, card_ids: list[str]) -> None:
+    for card_id in card_ids:
+        await _send(ws, drawn_card(card_id))
+
+
 async def _send(ws: WebSocket, message: dict[str, Any]) -> None:
     try:
         await ws.send_json(message)
@@ -389,6 +409,7 @@ async def relay(ws: WebSocket, conversation_id: str | None = None) -> None:
         alongside=lambda session: _carry(ws, session, conversation, info),
         on_event=lambda event: _tell(ws, event),
         on_saved=lambda cost: _send(ws, {"type": "saved", "cost": cost}),
+        on_drawn=lambda card_ids: _show_cards(ws, card_ids),
         **_driving(conversation, engine),
     )
     try:

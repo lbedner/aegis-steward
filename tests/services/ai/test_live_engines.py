@@ -40,6 +40,7 @@ class TestTheRows:
             "gpt-realtime-2.1",
             "gpt-realtime-2.1-mini",
             "gemini-live",
+            "gpt-live-pydantic",  # #274's trial
         ]
         assert live_engines.DEFAULT == "gpt-live"
 
@@ -178,3 +179,11 @@ class TestChoosing:
             await live_engines.choose(async_db_session, "grok-voice", ENGINE_SEEDS)
             is None
         )
+
+
+def test_gpt_live_can_be_tried_through_pydantic_ai() -> None:
+    """#274: GPT-Live has two engines while the Pydantic AI one is tried -
+    the hand-built path, and the same model on the relay."""
+    trial = next(seed for seed in ENGINE_SEEDS if seed["key"] == "gpt-live-pydantic")
+    assert (trial["transport"], trial["model"]) == ("relay", "gpt-live-1")
+    assert "max_output_tokens" not in trial  # Live has no token limit

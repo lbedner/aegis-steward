@@ -29,6 +29,7 @@ from app.components.web_frontend.rendering import (
 )
 from app.components.web_frontend.routes.filed import filed
 from app.core.db import get_async_session
+from app.services.ai.service.trace import CHANGE_MARKER
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import web_address
 from app.services.matters.models import PARTY_KINDS, party_tag
@@ -151,7 +152,12 @@ async def look_up(request: Request, party_id: int) -> Response:
         return with_toast(
             Response(status_code=204), f"Nothing new found for {party.name}.", "info"
         )
-    return dialog(request, "partials/contacts/looked_up.html", party=party, card=card)
+    return dialog(
+        request,
+        "partials/contacts/looked_up.html",
+        party=party,
+        marker={"kind": CHANGE_MARKER, "id": card.id},
+    )
 
 
 @router.post("/new", include_in_schema=False)

@@ -5,9 +5,13 @@ Defines the core data structures for Speech-to-Text transcription,
 audio input handling, and voice chat responses.
 """
 
+from __future__ import annotations
+
 from enum import Enum
 
 from pydantic import BaseModel, Field
+
+from app.core.voice_settings import TTS_SPEED_MAX, TTS_SPEED_MIN, setting_default
 
 
 class STTProvider(str, Enum):
@@ -28,12 +32,43 @@ class TTSProvider(str, Enum):
 class OpenAIVoice(str, Enum):
     """Available OpenAI TTS voices."""
 
+    MARIN = "marin"
+    CEDAR = "cedar"
     ALLOY = "alloy"  # Neutral, balanced voice
+    ASH = "ash"
+    BALLAD = "ballad"
+    CORAL = "coral"
+    SAGE = "sage"
+    VERSE = "verse"
     ECHO = "echo"  # Warm, friendly voice
     FABLE = "fable"  # British-accented, narrative voice
     ONYX = "onyx"  # Deep, authoritative voice
     NOVA = "nova"  # Energetic, youthful voice
     SHIMMER = "shimmer"  # Clear, expressive voice
+
+
+# What speaks and hears when nothing names a model or voice: one home for
+# the TTS and STT configs, their providers, the catalog and the settings
+# response.
+DEFAULT_TTS_PROVIDER = TTSProvider(setting_default("TTS_PROVIDER"))
+DEFAULT_STT_PROVIDER = STTProvider(setting_default("STT_PROVIDER"))
+DEFAULT_TTS_MODEL = "tts-1"
+DEFAULT_TTS_VOICE = OpenAIVoice.ALLOY.value
+DEFAULT_STT_MODEL = "whisper-1"
+# Each provider's model when none is named.
+DEFAULT_STT_MODELS: dict[STTProvider, str] = {
+    STTProvider.OPENAI_WHISPER: DEFAULT_STT_MODEL,
+    STTProvider.GROQ_WHISPER: "whisper-large-v3-turbo",
+    STTProvider.WHISPER_LOCAL: "openai/whisper-base",
+    STTProvider.FASTER_WHISPER: "base",
+}
+# The setting holding each cloud provider's key; a provider not here runs
+# locally and needs none.
+TTS_KEYS: dict[TTSProvider, str] = {TTSProvider.OPENAI: "OPENAI_API_KEY"}
+STT_KEYS: dict[STTProvider, str] = {
+    STTProvider.OPENAI_WHISPER: "OPENAI_API_KEY",
+    STTProvider.GROQ_WHISPER: "GROQ_API_KEY",
+}
 
 
 class AudioFormat(str, Enum):
@@ -46,6 +81,14 @@ class AudioFormat(str, Enum):
     OGG = "ogg"
     FLAC = "flac"
     MP4 = "mp4"  # Audio track extraction
+
+    @classmethod
+    def of(cls, filename: str | None) -> AudioFormat | None:
+        """The format a file's name says, when it is one taken here."""
+        try:
+            return cls((filename or "").rsplit(".", 1)[-1].lower())
+        except ValueError:
+            return None
 
 
 class AudioInput(BaseModel):
@@ -116,9 +159,9 @@ class SpeechRequest(BaseModel):
     )
     speed: float | None = Field(
         default=None,
-        ge=0.25,
-        le=4.0,
-        description="Speech speed multiplier (0.25 to 4.0); None = TTS_SPEED",
+        ge=TTS_SPEED_MIN,
+        le=TTS_SPEED_MAX,
+        description="Speech speed multiplier; None = TTS_SPEED",
     )
     instructions: str | None = Field(
         default=None,
@@ -238,12 +281,12 @@ class VoiceInfo(BaseModel):
 class VoiceSettingsResponse(BaseModel):
     """Current voice settings response."""
 
-    tts_provider: str = "openai"
-    tts_model: str = "tts-1"
-    tts_voice: str = "alloy"
-    tts_speed: float = 1.0
-    stt_provider: str = "openai_whisper"
-    stt_model: str = "whisper-1"
+    tts_provider: str = DEFAULT_TTS_PROVIDER.value
+    tts_model: str = DEFAULT_TTS_MODEL
+    tts_voice: str = DEFAULT_TTS_VOICE
+    tts_speed: float = setting_default("TTS_SPEED")
+    stt_provider: str = DEFAULT_STT_PROVIDER.value
+    stt_model: str = DEFAULT_STT_MODEL
     stt_language: str | None = None
 
 
@@ -254,7 +297,7 @@ class VoiceSettingsUpdate(BaseModel):
     tts_model: str | None = Field(None, description="TTS model ID")
     tts_voice: str | None = Field(None, description="TTS voice ID")
     tts_speed: float | None = Field(
-        None, ge=0.25, le=4.0, description="TTS speed (0.25-4.0)"
+        None, ge=TTS_SPEED_MIN, le=TTS_SPEED_MAX, description="TTS speed"
     )
     stt_provider: str | None = Field(None, description="STT provider ID")
     stt_model: str | None = Field(None, description="STT model ID")

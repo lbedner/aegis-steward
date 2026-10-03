@@ -134,8 +134,12 @@
 {# The assistant's name over an answer, in both bubbles. #}
 {% macro assistant_name(assistant) %}<span class="micro-label text-aegis-muted" data-assistant>{{ assistant }}</span>{% endmacro %}
 
+{# An answer's row in the thread: the settled bubble, the one streaming,
+   and a card drawn mid-call all sit in it. #}
+{% macro assistant_row() %}class="pr-24" data-role="assistant"{% endmacro %}
+
 {% macro assistant_bubble(message, assistant) %}
-<li class="pr-24" data-role="assistant" data-message-id="{{ message.id }}">
+<li {{ assistant_row() }} data-message-id="{{ message.id }}">
   <div class="group/bubble">
     {# The tool trail folds under the name: a caret shows on hover over
        the bubble (and stays while open), so the audit is a click away
@@ -155,7 +159,7 @@
     <div class="{{ prose }}" data-body>{{ message.content|markdown }}</div>
     {% if message.components %}
     <div class="mt-3 space-y-3" data-components>
-      {% for marker in message.components %}{{ component(marker, message.components_base) }}{% endfor %}
+      {% for marker in message.components %}{{ component(marker) }}{% endfor %}
     </div>
     {% endif %}
     {% if message.footer %}
@@ -176,7 +180,7 @@
    stream completes it swaps this whole element for ``assistant_bubble``
    rendered from the stored message. #}
 {% macro streaming_bubble(text, conversation_id, assistant) %}
-<li class="pr-24" data-role="assistant" data-stream data-text="{{ text }}" {% if conversation_id %}data-conversation-id="{{ conversation_id }}"{% endif %}>
+<li {{ assistant_row() }} data-stream data-text="{{ text }}" {% if conversation_id %}data-conversation-id="{{ conversation_id }}"{% endif %}>
   <div class="flex items-center gap-2 mb-1">{{ assistant_name(assistant) }}</div>
   <ul class="{{ trail_classes }}" data-trail hidden></ul>
   <div class="{{ prose }}" data-body></div>
@@ -198,8 +202,8 @@
    the history dialog. #}
 {% macro chat_toolbar(path) %}
 <div class="flex items-center gap-2">
-  {{ action("New conversation", hx_thread(path ~ "/conversations/new")) }}
-  {{ action("History", hx_dialog(path ~ "/conversations")) }}
+  {{ action("New conversation", hx_thread(chat_urls.conversations ~ "/new")) }}
+  {{ action("History", hx_dialog(chat_urls.conversations)) }}
 </div>
 {% endmacro %}
 

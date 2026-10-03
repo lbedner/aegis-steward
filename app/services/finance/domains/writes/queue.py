@@ -21,6 +21,9 @@ from app.services.finance.models import FinancePendingChange
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.finance.utils import utcnow
 
+# How a withdrawal's note begins (``withdrawn``).
+WITHDRAWN = "Withdrawn"
+
 
 def _freeze(display: list[ChangeDisplayRow]) -> list[dict[str, str]]:
     """Typed rows -> the plain dicts the JSON audit column stores."""
@@ -355,7 +358,7 @@ async def withdraw(
         owner_user_id=owner_user_id,
         # The reason rides on the card: a retracted proposal the user can
         # still see needs to say why, or it reads as the agent flailing.
-        note=f"Withdrawn by {agent_slug}." + (f" {reason.strip()}" if reason else ""),
+        note=f"{WITHDRAWN} by {agent_slug}." + (f" {reason.strip()}" if reason else ""),
     )
 
 
@@ -387,13 +390,17 @@ async def withdraw_batch(
     return withdrawn
 
 
+def withdrawn(status: str, note: str | None) -> bool:
+    """A rejection the proposing agent filed against itself: "withdrawn",
+    not the user saying no. It lands as a rejection with a note, so the
+    audit trail stays one shape."""
+    return status == "rejected" and (note or "").startswith(WITHDRAWN)
+
+
 def outcome_of(row: FinancePendingChange) -> str:
-    """The row's status as a person reads it: a rejection the proposing
-    agent filed against itself is "withdrawn", not the user saying no."""
+    """The row's status as a person reads it."""
     note = str((row.result or {}).get("note") or "")
-    if row.status == "rejected" and note.startswith("Withdrawn"):
-        return "withdrawn"
-    return row.status
+    return "withdrawn" if withdrawn(row.status, note) else row.status
 
 
 async def describe_change(

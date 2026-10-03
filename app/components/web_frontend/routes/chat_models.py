@@ -29,8 +29,8 @@ from app.components.backend.api.llm.routes import (
     get_vendors,
     set_current,
 )
-from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, templates, with_toast
+from app.components.web_frontend.routes.chat import CHAT_URLS, SECTION
 from app.core.config import settings
 from app.core.db import get_async_session
 from app.services.ai.domains.llm import queries as llm_queries
@@ -50,7 +50,9 @@ from app.services.finance.domains.detection.analyst.live_engines import ENGINE_S
 
 router = APIRouter()
 
-MODELS = section("chat").path + "/models"
+MODELS = SECTION.path + "/models"
+MODEL_CHIP = MODELS + "/chip"
+CHAT_URLS["model_chip"] = MODEL_CHIP
 # The roles: the catalog kind each picks from, and the modality the filter
 # knows it by. One list holds every role's models; a row's kind says which
 # role a pick of it sets.
@@ -71,17 +73,20 @@ CATALOG_LIMIT = 200
 # against itself (2026-09-28).
 
 
-async def _running() -> tuple[Any, Any]:
-    """What each role runs on now: the chat model's config, and the live
-    engine. Read once a request; the dialog and the chip share it."""
+async def _running() -> tuple[Any, Any, list[Any]]:
+    """What each role runs on now: the chat model's config, the live
+    engine, and every engine on offer. Read once a request; the dialog
+    and the chip share it."""
     async with get_async_session() as db:
-        engine = await live_engines.resolve(db, settings.VOICE_LIVE_ENGINE)
-    return await get_current(), engine
+        engines = await live_engines.enabled(db)
+    engine = live_engines.pick(engines, settings.VOICE_LIVE_ENGINE)
+    return await get_current(), engine, engines
 
 
-def _chip(current: Any, engine: Any) -> dict[str, Any]:
+def _chip(running: tuple[Any, Any, list[Any]]) -> dict[str, Any]:
     """What the composer's chip says: the chat model's id, clipped, and
     what a live call runs on."""
+    current, engine, _ = running
     label = model_label(current.model_dump())
     if engine is not None:
         label = f"{label} · Live: {engine.llm.title}"
@@ -120,10 +125,12 @@ def _row(
         "title": display_title(model, under_vendor=under_vendor),
         "facts": facts,
         "icon_name": icon_for,
-        "icon_b64": icons.get(icon_for or ""),
+        "icon_url": icons.get(icon_for or ""),
         "color": model.get("color") or "",
         "kind": model["kind"],
         "voice": voice,
+        "engine": model.get("engine"),
+        "note": model.get("note"),
     }
 
 
@@ -154,7 +161,7 @@ def _grouped(
             {
                 "name": vendor,
                 "vendor": vendor,
-                "icon_b64": icons.get(vendor),
+                "icon_url": icons.get(vendor),
                 "color": next((m.get("color") for m in rows if m.get("color")), ""),
                 "count": len(rows),
                 "rows": [_row(m, under_vendor=vendor, icons=icons) for m in shown],
@@ -174,9 +181,18 @@ def _recent(
 ) -> list[dict[str, Any]]:
     """The models in use, then the last few used, leading the list with no
     heading - the ones you switch between, one click away. Each once, and
-    only what the list holds (another modality is filtered out)."""
-    by_id = {model["model_id"]: model for model in models}
-    recent = [by_id[i] for i in dict.fromkeys(recent_ids) if i in by_id][:RECENT]
+    only what the list holds (another modality is filtered out). An id is
+    a model's or a live engine's; a model on two engines leads once."""
+    by_id: dict[str, dict[str, Any]] = {}
+    for model in models:
+        by_id.setdefault(model["model_id"], model)
+        if model.get("engine"):
+            by_id[model["engine"]] = model
+    recent: list[dict[str, Any]] = []
+    for found in (by_id.get(i) for i in dict.fromkeys(recent_ids)):
+        if found and all(m["model_id"] != found["model_id"] for m in recent):
+            recent.append(found)
+    recent = recent[:RECENT]
     if not recent:
         return []
     return [
@@ -216,31 +232,54 @@ async def _catalog(kind: str) -> list[dict[str, Any]]:
     ]
 
 
-async def picker(query: str, show: str, running: tuple[Any, Any]) -> dict[str, Any]:
+def _rows_of(
+    model: dict[str, Any], kind: str, engines: list[Any]
+) -> list[dict[str, Any]]:
+    """A model's rows: one, or for a live model one per engine it runs on,
+    each saying how when there are two (GPT-Live hand-built or through
+    Pydantic AI, #274); no engine when a pick makes it."""
+    row = {**model, "kind": kind, "engine": None}
+    on = [
+        e for e in engines if kind == "realtime" and e.llm.model_id == model["model_id"]
+    ]
+    return [
+        {**row, "engine": e.key, "note": e.note if len(on) > 1 else None} for e in on
+    ] or [row]
+
+
+async def picker(
+    query: str, show: str, running: tuple[Any, Any, list[Any]]
+) -> dict[str, Any]:
     """The dialog's contents: one list of every role's models, narrowed to
     a modality by ``show``, grouped by vendor - or flat when searching -
     with the recently used leading and each role's model marked."""
-    current, engine = running
-    active = {current.model, engine.llm.model_id if engine else ""}
-    icons = {v.name: v.icon_b64 for v in await get_vendors(usable=True) if v.icon_b64}
+    current, engine, engines = running
+    # What each role runs on: a chat model by id, a live call by engine.
+    picks = [current.model, engine.key if engine else ""]
+    # A vendor's logo, as a URL the avatar macro draws.
+    icons = {
+        v.name: f"data:image/png;base64,{v.icon_b64}"
+        for v in await get_vendors(usable=True)
+        if v.icon_b64
+    }
     query = query.strip()
     show = show if show in dict(FILTERS) else "all"
     models = [
-        {**model, "kind": kind}
+        row
         for kind, modality in ROLES
         if show in ("all", modality)
         for model in await _catalog(kind)
+        for row in _rows_of(model, kind, engines)
     ]
     sections = _flat(models, query, icons) if query else _grouped(models, icons)
     if not query:
         # A pick leads at once: it has no usage until she runs on it.
-        picks = [current.model, engine.llm.model_id if engine else ""]
         sections = _recent(models, picks + await _recent_ids(), icons) + sections
     return {
         "query": query,
         "show": show,
         "filters": FILTERS,
-        "active": active,
+        "active": set(picks),
         "sections": sections,
         "empty": not any(section["rows"] for section in sections),
         "path": MODELS,
@@ -254,14 +293,14 @@ def _dialog(request: Request, body: dict[str, Any]) -> Response:
     return dialog(request, TEMPLATE, picker=body)
 
 
-@router.get(MODELS + "/chip", include_in_schema=False)
+@router.get(MODEL_CHIP, include_in_schema=False)
 async def model_chip(request: Request) -> Response:
     """The composer's chip; it loads itself, and a pick sends it back out
     of band."""
     return templates.TemplateResponse(
         request=request,
         name=TEMPLATE,
-        context={"chip": _chip(*await _running()), "chip_only": True, "path": MODELS},
+        context={"chip": _chip(await _running()), "chip_only": True, "path": MODELS},
     )
 
 
@@ -276,11 +315,15 @@ async def models_dialog(
     return _dialog(request, await picker(q, show, await _running()))
 
 
-async def _use_for_calls(model_id: str) -> str | None:
-    """Make ``model_id`` what a live call runs on; what went wrong, if
-    anything."""
+async def _use_for_calls(model_id: str, engine_key: str) -> str | None:
+    """Make ``model_id`` - on ``engine_key``, when its row named one -
+    what a live call runs on; what went wrong, if anything."""
     async with get_async_session() as db:
-        engine = await live_engines.choose(db, model_id, ENGINE_SEEDS)
+        engine = (
+            await live_engines.resolve(db, engine_key)
+            if engine_key
+            else await live_engines.choose(db, model_id, ENGINE_SEEDS)
+        )
         active = await profiles.active_profile(db)
         if engine is None:
             return f"{model_id} is not in the catalog."
@@ -298,13 +341,14 @@ async def pick_model(
     kind: Annotated[str, Form()] = "chat",
     q: Annotated[str, Form()] = "",
     show: Annotated[str, Form()] = "all",
+    engine: Annotated[str, Form()] = "",
 ) -> Response:
     """A pick sets its role and updates the dialog in place (compare and
     switch twice without reopening) and the composer's chip out of band;
     a refused pick says why and changes nothing."""
     refused: str | None = None
     if kind == "realtime":
-        refused = await _use_for_calls(model_id)
+        refused = await _use_for_calls(model_id, engine)
     else:
         try:
             await set_current(SetModelRequest(model_id=model_id))
@@ -322,7 +366,7 @@ async def pick_model(
         name=TEMPLATE,
         context={
             "picker": await picker(q, show, running),
-            "chip": _chip(*running),
+            "chip": _chip(running),
             "chip_oob": True,
         },
     )

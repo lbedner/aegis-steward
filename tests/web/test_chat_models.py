@@ -19,17 +19,16 @@ from app.core.db import get_async_session
 from app.services.ai.domains.voice import profiles
 from app.services.ai.models.live_engine import LiveEngine
 from app.services.ai.models.voice_profile import VoiceProfile
-from tests._voice_catalog import VOICE_MODELS, VOICED
+from tests._voice_catalog import TITLES, VOICE_MODELS, VOICED
 from tests.web.dom import none, one, select, text, triggers
 
-TITLES = {m["model_id"]: m["title"] for m in VOICE_MODELS}
 # The chat role's pick; each role marks its own.
 CHAT_CURRENT = "button[data-kind=chat][aria-current=true]"
 LIVE_CURRENT = "button[data-kind=realtime][aria-current=true]"
 
 
-def _marked(html: str, selector: str) -> set[str]:
-    return {b.get("data-model-id") for b in select(html, selector)}
+def _marked(html: str, selector: str, attr: str = "data-model-id") -> set[str]:
+    return {b.get(attr) for b in select(html, selector)}
 
 
 REALTIME = [m["model_id"] for m in VOICE_MODELS if m["mode"] == "realtime"]
@@ -331,6 +330,33 @@ class TestTheLiveRole:
         assert _marked(html, LIVE_CURRENT) == {"gpt-realtime-2.1"}
         chip = one(html, "#chat-model[hx-swap-oob]")
         assert text(chip).endswith(f"Live: {TITLES['gpt-realtime-2.1']}")
+
+    # The dialog's read, then the pick's, then its re-render: on purpose.
+    @pytest.mark.queryspy(threshold=4)
+    async def test_a_model_on_two_engines_offers_each(
+        self, hx: TestClient, catalog: dict[str, Any], live: int
+    ) -> None:
+        """GPT-Live runs hand-built or through Pydantic AI (#274): each
+        engine is its own row, and a pick of one is the one that runs."""
+
+        gpt_live = "button[data-model-id='gpt-live-1']"
+        html = hx.get(MODELS, params={"q": "gpt-live"}).text
+        assert _marked(html, gpt_live, "data-engine") == {
+            "gpt-live",
+            "gpt-live-pydantic",
+        }
+
+        html = hx.post(
+            MODELS,
+            data={
+                "model_id": "gpt-live-1",
+                "kind": "realtime",
+                "engine": "gpt-live-pydantic",
+            },
+        ).text
+
+        assert await _engine_of(live) == "gpt-live-pydantic"
+        assert _marked(html, LIVE_CURRENT, "data-engine") == {"gpt-live-pydantic"}
 
     async def test_a_live_model_with_no_engine_gets_one(
         self,

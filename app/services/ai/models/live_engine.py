@@ -17,12 +17,15 @@ from sqlmodel import Field, Relationship, SQLModel
 from app.core.clock import utcnow
 from app.services.ai.models.llm import LargeLanguageModel
 
+# An engine's key, and a voice profile's pick of one.
+KEY_LENGTH = 48
+
 
 class LiveEngine(SQLModel, table=True):
     __tablename__ = "live_engine"
 
     id: int | None = Field(default=None, primary_key=True)
-    key: str = Field(unique=True, index=True, max_length=48)
+    key: str = Field(unique=True, index=True, max_length=KEY_LENGTH)
     llm_id: int = Field(foreign_key="large_language_model.id", index=True)
     # "gpt_live" (our GPT-Live path) or "realtime" (a Pydantic AI model).
     transport: str = Field(max_length=16)

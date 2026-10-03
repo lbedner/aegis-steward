@@ -6,9 +6,11 @@
    conversation_id, path (the chat section's). #}
 {% from "components/macros/icons.html" import icon %}
 {% from "components/macros/form.html" import button_classes, control %}
-{% from "components/macros/chat.html" import conversation_field, voice_states %}
+{% from "components/macros/chat.html" import assistant_row, conversation_field, voice_states %}
+{# The call's states as the phone and the call bar both draw them. #}
+{% macro phone_states() %}{% call voice_states(record=True, work=True) %}{{ icon("phone", "w-4 h-4") }}{% endcall %}{% endmacro %}
 <div id="chat" class="flex flex-col h-full"
-     data-chat='{{ {"stream": stream_url, "defaults": turn_defaults, "path": path}|tojson }}'>
+     data-chat='{{ {"stream": stream_url, "defaults": turn_defaults, "urls": chat_urls, "composer": chat_composer}|tojson }}'>
   <div class="relative flex-1 min-h-0">
     <div id="chat-scroll" class="h-full overflow-y-auto pr-2">
       <ol id="chat-thread" class="space-y-6 pb-6">
@@ -28,6 +30,9 @@
   <div id="chat-attachments" class="shrink-0 [&:not([hidden])]:flex flex-wrap gap-2 pt-3" hidden></div>
   {# The markup the script clones: a staged image's chip, and the image
      viewer's body for the one modal. Styling lives here, not in JS. #}
+  {# A card she draws mid-call, which the relay announces: held at the
+     foot of the thread until the saved turn redraws the thread. #}
+  <template id="chat-live-card"><li {{ assistant_row() }} data-live-card></li></template>
   <template id="chat-chip">
     <span class="inline-flex items-center gap-2 rounded border border-aegis-border bg-aegis-card pl-1 pr-2 py-1 text-xs text-aegis-text" data-chip>
       <img src="" alt="" width="28" height="28" title="View full size" class="w-7 h-7 rounded object-cover cursor-pointer" data-view-image>
@@ -54,15 +59,15 @@
   <template id="chat-image"><img src="" alt="" width="800" height="600" class="max-h-[75vh] h-auto w-auto max-w-full mx-auto rounded"></template>
   <p id="chat-mic-status" class="shrink-0 pt-2 text-xs text-aegis-muted empty:hidden" aria-live="polite"></p>
   <form id="chat-composer" class="shrink-0 border-t border-aegis-border pt-3 flex flex-wrap items-end gap-2"
-        hx-post="{{ path }}/turns" hx-target="#chat-thread" hx-swap="beforeend"
+        hx-post="{{ chat_urls.turns }}" hx-target="#chat-thread" hx-swap="beforeend"
         x-data="{ text: '', staged: 0 }" @chat-staged.window="staged = $event.detail"
         @htmx:after-request="if ($event.detail.successful) { text = ''; $refs.input.style.height = 'auto' }">
     {{ conversation_field(conversation_id) }}
     {# The chips are a row of their own above the box: beside it, in the
        drawer, they took the width the message needs. #}
     <div class="w-full flex flex-wrap items-center gap-x-4 gap-y-1" data-composer-chips>
-      <span id="chat-model" {{ hx_load(path ~ "/models/chip") }}></span>
-      <span id="chat-voice" {{ hx_load(path ~ "/voices/chip") }}></span>
+      <span id="chat-model" {{ hx_load(chat_urls.model_chip) }}></span>
+      <span id="chat-voice" {{ hx_load(chat_urls.voice_chip) }}></span>
     </div>
     {# Not ``required``: a message may be images alone (the route sends the
        house line); Send stays disabled until there is text or an image. #}
@@ -72,7 +77,7 @@
               @input="$el.style.height = 'auto'; $el.style.height = $el.scrollHeight + 'px'"
               class="{{ control('textarea') }} flex-1 resize-none max-h-40 leading-relaxed min-h-0 py-3"></textarea>
     <label class="{{ button_classes('default') }} cursor-pointer" title="Attach images">
-      <input type="file" id="chat-attach" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple class="sr-only" aria-label="Attach images or PDFs">
+      <input type="file" id="chat-attach" accept="{{ (chat_composer.images + chat_composer.documents)|join(',') }}" multiple class="sr-only" aria-label="Attach images or PDFs">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
     </label>
     {# The microphone: records while pressed on, then sends what it heard
@@ -81,7 +86,7 @@
     <button type="button" id="chat-mic" data-state="idle"
             class="group relative {{ button_classes('default') }} data-[state=recording]:text-error data-[state=recording]:border-error data-[state=speaking]:text-aegis-teal data-[state=speaking]:border-aegis-teal"
             aria-pressed="false" aria-label="Speak a question" title="Speak a question"
-            data-transcripts="{{ path }}/speech/transcripts" data-say="{{ path }}/speech/say"
+            data-transcripts="{{ chat_urls.transcripts }}" data-say="{{ chat_urls.say }}"
             data-voice='{{ voice()|tojson }}'>
       {% call voice_states(record=True) %}{{ icon("mic", "w-4 h-4") }}{% endcall %}
     </button>
@@ -90,10 +95,10 @@
     <button type="button" id="chat-live" data-state="idle"
             class="group relative {{ button_classes('default') }} data-[state=recording]:text-aegis-teal data-[state=recording]:border-aegis-teal data-[state=speaking]:text-aegis-teal data-[state=speaking]:border-aegis-teal data-[state=working]:text-aegis-teal data-[state=working]:border-aegis-teal"
             aria-pressed="false" aria-label="Talk live" title="Talk live"
-            data-engine="{{ path }}/live/engine" data-relay="{{ path }}/live/ws" data-worklet="{{ static('js/mic-worklet.js') }}"
-            data-sessions="{{ path }}/live/sessions" data-delegations="{{ path }}/live/delegations" data-usage="{{ path }}/live/usage"
-            data-thread="{{ path }}/conversations/" data-sign-off="{{ live_lines.sign_off }}" data-end-call="{{ live_lines.end_call }}" data-sorry="{{ live_lines.sorry }}" data-not-heard="{{ live_lines.not_heard }}" data-greeting="{{ live_lines.greeting }}">
-      {% call voice_states(record=True, work=True) %}{{ icon("phone", "w-4 h-4") }}{% endcall %}
+            data-engine="{{ chat_urls.engine }}" data-relay="{{ chat_urls.relay }}" data-worklet="{{ static('js/mic-worklet.js') }}"
+            data-sessions="{{ chat_urls.sessions }}" data-delegations="{{ chat_urls.delegations }}" data-usage="{{ chat_urls.usage }}"
+            data-thread="{{ chat_urls.conversations }}/" data-sign-off="{{ live_lines.sign_off }}" data-end-call="{{ live_lines.end_call }}" data-sorry="{{ live_lines.sorry }}" data-not-heard="{{ live_lines.not_heard }}" data-greeting="{{ live_lines.greeting }}">
+      {{ phone_states() }}
     </button>
     <button type="button" id="chat-stop" hidden class="{{ button_classes('default') }}" aria-label="Stop">Stop</button>
     <button type="submit" id="chat-send" class="{{ button_classes() }}" aria-label="Send" :disabled="!text.trim() && !staged">Send</button>
@@ -105,7 +110,7 @@
   <div id="chat-call" hidden data-state="idle"
        class="group shrink-0 border-t border-aegis-border pt-3 flex items-center gap-3">
     <span class="relative w-9 h-9 rounded-full bg-aegis-teal/10 text-aegis-teal flex items-center justify-center">
-      {% call voice_states(record=True, work=True) %}{{ icon("phone", "w-4 h-4") }}{% endcall %}
+      {{ phone_states() }}
     </span>
     <span class="min-w-0 flex-1 text-sm text-aegis-text tabular-nums">
       Live · <span data-call-engine></span> · <span data-call-timer>0:00</span>
