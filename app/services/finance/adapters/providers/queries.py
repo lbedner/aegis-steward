@@ -48,6 +48,21 @@ async def provider_accounts(
     return list((await db.exec(query.order_by(col(FinanceAccount.id)))).all())
 
 
+async def unlinked_manual_accounts(
+    db: AsyncSession, *, owner_user_id: int | None
+) -> list[FinanceAccount]:
+    """The live accounts no link feeds - the ones a file export does - that
+    a newly linked account could already be (``connections.placing``)."""
+    query = select(FinanceAccount).where(
+        FinanceAccount.is_manual.is_(True),
+        FinanceAccount.connection_id.is_(None),
+        FinanceAccount.deleted_at.is_(None),
+    )
+    if owner_user_id is not None:
+        query = query.where(FinanceAccount.owner_user_id == owner_user_id)
+    return list((await db.exec(query.order_by(col(FinanceAccount.name)))).all())
+
+
 async def transaction_first_where(
     db: AsyncSession, filters: list
 ) -> FinanceTransaction | None:

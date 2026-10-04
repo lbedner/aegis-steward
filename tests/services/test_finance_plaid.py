@@ -713,9 +713,9 @@ class TestPlaidConnection:
         await _link(async_db_session, "item-2", [renamed, same], [])
 
         accounts, _ = await svc.list_accounts(owner_user_id=1)
-        assert {a.name: a.id for a in accounts} == {
-            "Checking": before["Plaid Checking"],
-            "Joint Checking": before["Joint Checking"],
+        assert {a.provider_account_id: a.id for a in accounts} == {
+            "acc_new": before["Plaid Checking"],
+            "acc_twin_new": before["Joint Checking"],
         }
 
     @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank

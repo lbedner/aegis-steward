@@ -1522,7 +1522,7 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id = :account_id_1 AND finance_transaction.deleted_at IS NULL AND finance_transaction.status = :status_1 AND finance_transaction.date <= :date_1",
+      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id = :account_id_1 AND finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.status = :status_1 AND finance_transaction.date <= :date_1",
       "file": "app/services/finance/domains/ledger/queries/accounts.py",
       "function": "register_balance_through"
     },
@@ -1894,7 +1894,7 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.merchant_id IS NOT NULL GROUP BY finance_transaction.merchant_id",
+      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.merchant_id IS NOT NULL GROUP BY finance_transaction.merchant_id",
       "file": "app/services/finance/domains/ledger/queries/merchants.py",
       "function": "merchant_usage_rows"
     },

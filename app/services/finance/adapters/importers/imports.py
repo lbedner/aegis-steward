@@ -52,10 +52,9 @@ from app.services.finance.adapters.importers.base import (
     assign_import_hashes,
     infer_account_kind,  # noqa: F401 — re-export; the account-kind tests read it here
 )
-from app.services.finance.adapters.importers.plan import (
-    plan_transactions,
-)
+from app.services.finance.adapters.importers.plan import plan_transactions
 from app.services.finance.constants import PROVIDER_LABELS, sync_source
+from app.services.finance.domains.ledger import two_feeds
 from app.services.finance.models import (
     FinanceImportBatch,
     FinanceImportBatchRow,
@@ -558,6 +557,7 @@ async def ingest_transactions(
             )
         )
 
+    await two_feeds.pair_imported(db, plan.rows, created_id_by_row)
     # If the file carried a running balance (e.g. a Quicken register's Balance
     # column), set the target account's ``current_balance`` from the latest
     # row — so net worth reflects the import without a separate valuation.

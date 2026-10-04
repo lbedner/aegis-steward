@@ -17,7 +17,10 @@ from app.components.worker.tasks.chat_tasks import (
     fold_conversation_task,
 )
 from app.components.worker.tasks.document_tasks import extract_document_task
-from app.components.worker.tasks.finance_tasks import finance_import_task
+from app.components.worker.tasks.finance_tasks import (
+    finance_import_task,
+    finance_sync_connection_task,
+)
 from app.components.worker.tasks.mail_tasks import mail_import_task
 from app.components.worker.tasks.service_jobs import SERVICE_JOB_TASKS
 from app.components.worker.tasks.simple_system_tasks import (
@@ -42,6 +45,7 @@ class WorkerSettings:
         fold_conversation_task,
         extract_document_task,
         finance_import_task,
+        finance_sync_connection_task,
         mail_import_task,
         *SERVICE_JOB_TASKS,
     ]

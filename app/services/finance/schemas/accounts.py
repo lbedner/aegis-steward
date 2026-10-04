@@ -177,9 +177,15 @@ class ConnectionResponse(BaseModel):
     institution_id: int | None = None
     last_successful_sync_at: datetime | None = None
     created_at: datetime
+    # Accounts its link reported that wait for you to place them (#309).
+    unplaced: int = 0
 
     @classmethod
     def from_row(cls, row: FinanceConnection) -> ConnectionResponse:
+        from app.services.finance.adapters.providers.connections.placing import (
+            unplaced,
+        )
+
         return cls(
             id=row.id,
             provider=row.provider,
@@ -190,6 +196,7 @@ class ConnectionResponse(BaseModel):
             institution_id=row.institution_id,
             last_successful_sync_at=row.last_successful_sync_at,
             created_at=row.created_at,
+            unplaced=len(unplaced(row)),
         )
 
 

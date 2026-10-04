@@ -276,8 +276,7 @@ async def register_balance_through(
     total = (
         await db.exec(
             select(func.coalesce(func.sum(FinanceTransaction.amount), 0)).where(
-                FinanceTransaction.account_id == account_id,
-                FinanceTransaction.deleted_at.is_(None),
+                *money_moved_in(account_id),
                 FinanceTransaction.status == "posted",
                 FinanceTransaction.date_ <= as_of,
             )

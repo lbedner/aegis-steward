@@ -17,6 +17,7 @@ from app.components.web_frontend.routes.finance import (
     budget_envelopes,
     budget_goals,
     cash_flow,
+    connection_placing,
     cover,
     documents,
     imports,
@@ -53,4 +54,5 @@ router.include_router(review_edit.router)
 router.include_router(review_resolve.router)
 router.include_router(review.router)
 router.include_router(settings.router)
+router.include_router(connection_placing.router)
 router.include_router(transactions.router)

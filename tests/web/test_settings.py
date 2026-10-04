@@ -7,6 +7,7 @@ table macro; comms shows what the scheduled bill email would say.
 """
 
 import json
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -57,6 +58,174 @@ class TestNav:
 
     def test_fragment_has_no_shell(self, hx: TestClient) -> None:
         none(hx.get("/settings").text, "html")
+
+
+@pytest.fixture
+async def held(async_db_session, connection: int, ledger: Ledger) -> int:
+    """The connection, holding one checking account its link reported that
+    the ledger's own accounts may already be (#309)."""
+    from app.services.finance.adapters.providers.connections import placing
+    from app.services.finance.adapters.providers.connections.upserts import (
+        ProviderAccount,
+    )
+    from app.services.finance.models import FinanceConnection
+
+    row = await async_db_session.get(FinanceConnection, connection)
+    assert row is not None
+    reported = ProviderAccount(
+        provider_account_id="acc_check",
+        name="Plaid Checking",
+        mask="0000",
+        currency="usd",
+        account_type="checking",
+        classification="asset",
+        current_balance=0,
+    )
+    placing.hold(row, [placing.waiting(reported)])
+    async_db_session.add(row)
+    await async_db_session.commit()
+    return connection
+
+
+@pytest.fixture
+def queued(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
+    """The jobs a route handed the worker, with no Redis behind them."""
+    jobs: list[tuple] = []
+
+    class Pool:
+        async def enqueue_job(self, *args: object, **_: object) -> None:
+            jobs.append(args)
+
+    async def pool(name: str) -> tuple[Pool, str]:
+        return Pool(), name
+
+    monkeypatch.setattr("app.components.worker.pools.get_queue_pool", pool)
+    return jobs
+
+
+@pytest.fixture
+def simplefin_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """SimpleFIN connects without the Bridge: the tokens claimed, and the
+    connection a claim makes (``id``, settable)."""
+    from app.services.finance.adapters.providers import connections
+    from app.services.finance.adapters.providers.connections.common import (
+        SyncResult,
+    )
+
+    linked: dict[str, Any] = {"id": 1, "claimed": []}
+
+    async def _connect(_db: object, *, setup_token: str, **_: object) -> SyncResult:
+        linked["claimed"].append(setup_token)
+        return SyncResult(connection_id=linked["id"], accounts=3, added=4)
+
+    monkeypatch.setattr(connections, "connect_simplefin", _connect)
+    return linked
+
+
+class TestPlacingAHeldAccount:
+    """A linked account that could be one the exports already feed waits
+    for you to say which (#309), never becoming a second copy."""
+
+    def test_the_card_says_so_and_opens_the_choice(
+        self, client: TestClient, hx: TestClient, held: int, ledger: Ledger
+    ) -> None:
+        card = one(client.get("/settings").text, f"#connection-{held}")
+        one(card, "[data-unplaced]")
+        place = f"/settings/connections/{held}/place"
+        one(card, f'[hx-get="{place}"]')
+
+        dialog = hx.get(place).text
+        none(dialog, "html")
+        form = one(dialog, f'form[hx-post="{place}"]')
+        options = select(form, "select[name='place-acc_check'] option")
+        # Its own account, or one of yours of the same kind of money: the
+        # card is a debt, so it is not offered.
+        assert [o.get("value") for o in options] == [
+            "",
+            "new",
+            str(ledger.checking),
+            str(ledger.savings),
+        ]
+
+    async def test_placing_it_links_your_account_and_syncs_on_the_worker(
+        self,
+        client: TestClient,
+        held: int,
+        ledger: Ledger,
+        queued: list[tuple],
+        async_db_session,
+    ) -> None:
+        """Its history is the bank's whole history again: the worker pulls
+        it, not the request."""
+        from app.services.finance.models import FinanceAccount
+
+        response = client.post(
+            f"/settings/connections/{held}/place",
+            data={"place-acc_check": str(ledger.checking)},
+        )
+
+        assert response.status_code == 200
+        assert "dialog:close" in response.headers["HX-Trigger-After-Settle"]
+        assert queued == [("finance_sync_connection_task", held, None)]
+        account = await async_db_session.get(FinanceAccount, ledger.checking)
+        await async_db_session.refresh(account)
+        assert (account.connection_id, account.provider_account_id) == (
+            held,
+            "acc_check",
+        )
+        none(client.get("/settings").text, f"#connection-{held} [data-unplaced]")
+
+    def test_an_unanswered_account_is_asked_again(
+        self, hx: TestClient, held: int, queued: list[tuple]
+    ) -> None:
+        response = hx.post(f"/settings/connections/{held}/place", data={})
+
+        assert response.status_code == 422
+        one(response.text, "[role=alert]")
+        assert queued == []
+
+    def test_nothing_left_to_place_syncs_nothing(
+        self, client: TestClient, connection: int, queued: list[tuple]
+    ) -> None:
+        """A second submit, or a stale form: nothing is held, so nothing is
+        placed and the bank is not asked for its history again."""
+        response = client.post(f"/settings/connections/{connection}/place", data={})
+
+        assert "dialog:close" in response.headers["HX-Trigger-After-Settle"]
+        assert queued == []
+
+    def test_a_connect_that_holds_one_asks_at_once(
+        self,
+        client: TestClient,
+        held: int,
+        providers: None,
+        simplefin_links: dict[str, Any],
+    ) -> None:
+        simplefin_links["id"] = held
+
+        finished = client.post(
+            "/settings/connect/simplefin/complete", data={"token": "aGVsbG8="}
+        )
+
+        one(finished.text, f'form[hx-post="/settings/connections/{held}/place"]')
+
+    def test_another_banks_held_accounts_wait_their_turn(
+        self,
+        client: TestClient,
+        held: int,
+        providers: None,
+        simplefin_links: dict[str, Any],
+    ) -> None:
+        """Linking a second bank finishes as itself; the first one's held
+        accounts stay on its card."""
+        simplefin_links["id"] = held + 1
+
+        finished = client.post(
+            "/settings/connect/simplefin/complete", data={"token": "aGVsbG8="}
+        )
+
+        none(finished.text, f'form[hx-post="/settings/connections/{held}/place"]')
+        one(finished.text, "#connections[hx-swap-oob]")
 
 
 class TestConnections:
@@ -165,26 +334,16 @@ class TestConnections:
         none(panel, "[hx-trigger]")  # no poller
 
     def test_a_pasted_token_connects_simplefin(
-        self, client: TestClient, providers: None, monkeypatch: pytest.MonkeyPatch
+        self,
+        client: TestClient,
+        providers: None,
+        simplefin_links: dict[str, Any],
     ) -> None:
-        from app.services.finance.adapters.providers import connections
-        from app.services.finance.adapters.providers.connections.common import (
-            SyncResult,
-        )
-
-        claimed: list[str] = []
-
-        async def _connect(_db: object, *, setup_token: str, **_: object) -> SyncResult:
-            claimed.append(setup_token)
-            return SyncResult(connection_id=1, accounts=3, added=4)
-
-        monkeypatch.setattr(connections, "connect_simplefin", _connect)
-
         finished = client.post(
             "/settings/connect/simplefin/complete", data={"token": "aGVsbG8="}
         )
 
-        assert claimed == ["aGVsbG8="]
+        assert simplefin_links["claimed"] == ["aGVsbG8="]
         assert "4" in triggers(finished)["toast"]["text"]
         one(finished.text, "#connections[hx-swap-oob]")
 
@@ -202,6 +361,7 @@ class TestConnections:
             status="healthy",
             status_detail=None,
             last_successful_sync_at=None,
+            unplaced=0,
         )
 
         card = _card(connection)
