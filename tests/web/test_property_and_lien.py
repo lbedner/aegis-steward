@@ -186,13 +186,13 @@ class TestPositionsByHand:
         from app.services.finance.constants import account_actions
 
         assert "positions" in account_actions(
-            account_type="brokerage", classification="asset", is_manual=True
+            account_type="brokerage", classification="asset", connected=False
         )
         assert "positions" not in account_actions(
-            account_type="brokerage", classification="asset", is_manual=False
+            account_type="brokerage", classification="asset", connected=True
         )
         assert "positions" not in account_actions(
-            account_type="checking", classification="asset", is_manual=True
+            account_type="checking", classification="asset", connected=False
         )
 
     def test_a_paste_files_every_line(self, client: TestClient, brokerage: int) -> None:

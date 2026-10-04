@@ -68,7 +68,7 @@ def actions(account: AccountResponse) -> list[dict[str, str]]:
     keys = account_actions(
         account_type=account.account_type,
         classification=account.classification,
-        is_manual=account.is_manual,
+        connected=account.connection_id is not None,
     )
     return [
         {

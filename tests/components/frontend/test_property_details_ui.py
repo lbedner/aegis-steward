@@ -16,12 +16,12 @@ from app.services.finance.constants import ACCOUNT_ACTION_LABELS as LABELS
 
 class TestManageMenu:
     def test_a_property_account_offers_property_details(self) -> None:
-        labels = manage_menu_labels({"account_type": "property", "is_manual": True})
+        labels = manage_menu_labels({"account_type": "property"})
 
         assert LABELS["property"] in labels
 
     def test_a_cash_account_does_not(self) -> None:
-        labels = manage_menu_labels({"account_type": "checking", "is_manual": True})
+        labels = manage_menu_labels({"account_type": "checking"})
 
         assert LABELS["property"] not in labels
         assert LABELS["rename"] in labels  # the ordinary items are untouched
@@ -29,7 +29,7 @@ class TestManageMenu:
     def test_a_connected_account_still_hides_remove(self) -> None:
         """Provider accounts belong to the bank connection; the existing
         rule survives the new item."""
-        labels = manage_menu_labels({"account_type": "property", "is_manual": False})
+        labels = manage_menu_labels({"account_type": "property", "connection_id": 7})
 
         assert LABELS["remove"] not in labels
         assert LABELS["property"] in labels
@@ -76,12 +76,12 @@ class TestFieldsAreUsable:
 
 class TestValuationHistoryMenu:
     def test_a_property_offers_valuation_history(self) -> None:
-        labels = manage_menu_labels({"account_type": "property", "is_manual": True})
+        labels = manage_menu_labels({"account_type": "property"})
 
         assert LABELS["valuations"] in labels
 
     def test_a_cash_account_does_not(self) -> None:
-        labels = manage_menu_labels({"account_type": "checking", "is_manual": True})
+        labels = manage_menu_labels({"account_type": "checking"})
 
         assert LABELS["valuations"] not in labels
 
@@ -160,12 +160,12 @@ class TestSecuredByMenu:
 
     def test_a_liability_gets_the_secured_by_item(self) -> None:
         labels = manage_menu_labels(
-            {"account_type": "loan", "classification": "liability", "is_manual": True}
+            {"account_type": "loan", "classification": "liability"}
         )
         assert LABELS["secured_by"] in labels
 
     def test_an_asset_does_not(self) -> None:
-        labels = manage_menu_labels({"account_type": "checking", "is_manual": True})
+        labels = manage_menu_labels({"account_type": "checking"})
         assert LABELS["secured_by"] not in labels
 
 
@@ -224,10 +224,10 @@ class TestTheMenuAndItsHandlers:
         web_only = {"institution", "positions", "terms"}
 
         for account in (
-            {"account_type": "checking", "classification": "asset", "is_manual": True},
-            {"account_type": "property", "classification": "asset", "is_manual": True},
-            {"account_type": "loan", "classification": "liability", "is_manual": True},
-            {"account_type": "brokerage", "classification": "asset", "is_manual": True},
+            {"account_type": "checking", "classification": "asset"},
+            {"account_type": "property", "classification": "asset"},
+            {"account_type": "loan", "classification": "liability"},
+            {"account_type": "brokerage", "classification": "asset"},
         ):
             for key in manage_menu_keys(account):
                 assert key in handled | web_only, key

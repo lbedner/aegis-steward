@@ -4,7 +4,10 @@ Each opens in the dialog; success closes it and navigates the content
 area back to the account (or to the list after a removal)."""
 
 from fastapi.testclient import TestClient
+import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.models import FinanceAccount
 from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger
 from tests.web.dom import location, none, one, select, text, triggers
@@ -150,3 +153,33 @@ class TestRemove:
     def test_unknown_account_is_404(self, client: TestClient) -> None:
         assert client.delete("/accounts/999999").status_code == 404
         assert client.get("/accounts/999999/rename").status_code == 404
+
+
+class TestABankThatWasDisconnected:
+    """An account its bank no longer feeds (#307) is the user's to keep or
+    remove, and says it is not connected, on the list and on the page."""
+
+    @pytest.fixture
+    async def unlinked(self, ledger: Ledger, async_db_session: AsyncSession) -> int:
+        account = await async_db_session.get(FinanceAccount, ledger.card)
+        assert account is not None
+        account.is_manual = False
+        account.provider = "plaid"
+        account.connection_id = None
+        async_db_session.add(account)
+        await async_db_session.commit()
+        return ledger.card
+
+    def test_it_can_be_removed(self, client: TestClient, unlinked: int) -> None:
+        page = client.get(f"/accounts/{unlinked}").text
+        urls = [b.get("hx-get") for b in select(page, "#manage-menu button")]
+        assert urls[-1] == f"/accounts/{unlinked}/remove"
+
+    def test_the_list_says_it_is_not_connected(
+        self, client: TestClient, unlinked: int, ledger: Ledger
+    ) -> None:
+        page = client.get("/accounts").text
+        row = one(page, f'#portfolio a[href="/accounts/{unlinked}/overview"]')
+        assert "Not connected" in text(one(row, "[data-unlinked]"))
+        manual = one(page, f'#portfolio a[href="/accounts/{ledger.checking}/overview"]')
+        none(manual, "[data-unlinked]")  # a hand-made account never was

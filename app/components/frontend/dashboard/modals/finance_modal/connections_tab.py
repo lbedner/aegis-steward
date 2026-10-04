@@ -364,8 +364,8 @@ class ConnectionsTab(FinancePanel):
             page=self.page,
             title="Disconnect",
             message=(
-                f"Disconnect {_connection_title(conn)}? This removes {noun} and "
-                "stops syncing. Transaction history is kept and not deleted."
+                f"Disconnect {_connection_title(conn)}? Its {noun} and their "
+                "history stay; they simply stop updating."
             ),
             confirm_text="Disconnect",
             destructive=True,
