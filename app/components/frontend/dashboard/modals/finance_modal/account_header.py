@@ -36,20 +36,13 @@ def manage_menu_keys(account: dict[str, Any]) -> tuple[str, ...]:
     return account_actions(
         account_type=account.get("account_type") or "",
         classification=account.get("classification") or "",
-        is_manual=bool(account.get("is_manual", False)),
+        connected=account.get("connection_id") is not None,
     )
 
 
 def manage_menu_labels(account: dict[str, Any]) -> list[str]:
     """The same menu as words, for the tests that read wording."""
-    return [
-        ACCOUNT_ACTION_LABELS[key]
-        for key in account_actions(
-            account_type=account.get("account_type") or "",
-            classification=account.get("classification") or "",
-            is_manual=bool(account.get("is_manual", False)),
-        )
-    ]
+    return [ACCOUNT_ACTION_LABELS[key] for key in manage_menu_keys(account)]
 
 
 def _account_detail_header(

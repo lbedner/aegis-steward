@@ -55,11 +55,12 @@ async def disconnect_connection(
     owner_user_id: int | None = None,
     clients: Mapping[str, Any] | None = None,
 ) -> tuple[bool, Revoke | None]:
-    """Disconnect a connection: soft-delete it and every account under it
-    right away, and return a best-effort provider revoke for the caller to
+    """Disconnect a connection: soft-delete it and unlink its accounts,
+    which stay with every row and simply stop updating (#307; the same
+    bank linked again picks them back up), and return a best-effort provider revoke for the caller to
     run AFTER responding (FastAPI ``BackgroundTasks``). The provider round
     trip is the slow part of a disconnect; keeping it out of the request
-    path makes the UI feel instant. Transactions/history rows are kept.
+    path makes the UI feel instant.
 
     Returns ``(removed, revoke)``: ``removed`` is False when the connection
     doesn't exist for this owner; ``revoke`` is None when there is nothing
@@ -79,7 +80,7 @@ async def disconnect_connection(
     now = utcnow()
     accounts = await queries.live_accounts_for_connection(db, connection_id)
     for account in accounts:
-        account.deleted_at = now
+        account.connection_id = None
         db.add(account)
 
     connection.status = "revoked"

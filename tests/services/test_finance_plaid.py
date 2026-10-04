@@ -568,11 +568,12 @@ class TestPlaidConnection:
         assert total == 2  # no duplicate transactions
 
     @pytest.mark.asyncio
-    async def test_disconnect_revokes_and_removes_connection_and_accounts(
+    async def test_disconnect_revokes_and_keeps_the_accounts(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        """Disconnect revokes the Item at Plaid, then soft-deletes the connection
-        and every account under it (history rows are kept, not deleted)."""
+        """Disconnect revokes the Item at Plaid and drops the connection,
+        but its accounts stay, with every row, unlinked: the dialog says
+        they "stop updating", not that they go (#307)."""
         client = FakePlaidClient(_ACCOUNTS, _TXNS)
         conn = await connections.create_plaid_connection(
             async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
@@ -591,29 +592,47 @@ class TestPlaidConnection:
         assert revoke is not None
         await revoke()
         assert client.removed_tokens == ["tok"]  # Item revoked at Plaid
-        # Connection drops from the active listing; accounts drop from listings.
         conns = await connections.list_plaid_connections(
             async_db_session, owner_user_id=1
         )
         assert conns == []
-        accounts, _ = await svc.list_accounts(owner_user_id=1)
-        assert accounts == []
-        # Hidden from the register once the account is gone...
+        kept, _ = await svc.list_accounts(owner_user_id=1)
+        assert len(kept) == 4
+        assert {a.connection_id for a in kept} == {None}
         _txns, total = await svc.list_transactions(owner_user_id=1)
-        assert total == 0
-        # ...but the rows are retained in the DB (history, not hard-deleted).
-        from sqlmodel import func, select
+        assert total == 2
 
-        from app.services.finance.models import FinanceTransaction
+    @pytest.mark.asyncio
+    async def test_reconnecting_picks_the_kept_accounts_back_up(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The same bank linked again lands on the accounts it left, not a
+        second copy of each beside the first."""
+        client = FakePlaidClient(_ACCOUNTS, _TXNS)
+        first = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
+        )
+        await connections.sync_plaid_connection(async_db_session, first, client=client)
+        before = {a.id for a in (await svc.list_accounts(owner_user_id=1))[0]}
+        await connections.disconnect_connection(
+            async_db_session,
+            first.id,
+            owner_user_id=1,
+            clients={Provider.PLAID: client},
+        )
 
-        kept = (
-            await async_db_session.exec(
-                select(func.count())
-                .select_from(FinanceTransaction)
-                .where(FinanceTransaction.deleted_at.is_(None))
-            )
-        ).one()
-        assert kept == 2
+        again = await connections.create_plaid_connection(
+            async_db_session, owner_user_id=1, access_token="tok2", item_id="item-2"
+        )
+        await connections.sync_plaid_connection(
+            async_db_session, again, client=FakePlaidClient(_ACCOUNTS, _TXNS)
+        )
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert {a.id for a in accounts} == before
+        assert {a.connection_id for a in accounts} == {again.id}
+        _txns, total = await svc.list_transactions(owner_user_id=1)
+        assert total == 2
 
     @pytest.mark.asyncio
     async def test_disconnect_missing_connection_returns_false(

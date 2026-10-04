@@ -362,7 +362,7 @@ ACCOUNT_ACTION_LABELS: dict[str, str] = {
 
 
 def account_actions(
-    *, account_type: str, classification: str, is_manual: bool
+    *, account_type: str, classification: str, connected: bool
 ) -> tuple[str, ...]:
     """What a UI may offer to do to an account, in menu order.
 
@@ -371,11 +371,12 @@ def account_actions(
     reserve - since the page already draws that history for any asset
     and only a property could record one; property DETAILS only where
     there is a property;
-    positions only on a MANUAL investment account, since a connected
-    one has its holdings rewritten by every sync; the lien link only on
-    a debt; remove only for a manual account (a provider account belongs
-    to its bank connection). Both frontends map these keys to their
-    labels.
+    positions only on an investment account no bank connection feeds,
+    since a connected one has its holdings rewritten by every sync; the
+    lien link only on a debt; remove only where no connection feeds it (a
+    connected account belongs to its bank connection; one whose bank was
+    disconnected is the user's again). Both frontends map these keys to
+    their labels.
     """
     actions = ["rename", "institution", "reconcile"]
     if account_type == PROPERTY_ACCOUNT_TYPE:
@@ -385,12 +386,12 @@ def account_actions(
     # Positions only where a provider does not keep them: a SnapTrade
     # account's holdings are rewritten on every sync, so a hand-typed row
     # would be overwritten by the next one and read as data loss.
-    if account_type in INVESTMENT_ACCOUNT_TYPES and is_manual:
+    if account_type in INVESTMENT_ACCOUNT_TYPES and not connected:
         actions.append("positions")
     if classification == "liability":
         actions.append("terms")
         actions.append("secured_by")
-    if is_manual:
+    if not connected:
         actions.append("remove")
     return tuple(actions)
 

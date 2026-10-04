@@ -47,6 +47,9 @@
           pages cannot disagree about what is new; a mark rather than a
           door, because this row is already a link. -#}
       {%- if arrived %}<span data-arrived class="shrink-0 inline-flex" title="New transactions since you last looked">{{ new_dot() }}<span class="sr-only">New transactions</span></span>{% endif %}
+      {#- A bank fed it once and was disconnected (issue 307): it no longer
+          updates, which a balance alone would not say. -#}
+      {%- if not row.account.is_manual and not row.account.connection_id %}<span data-unlinked class="shrink-0 text-xxs text-aegis-muted">Not connected</span>{% endif %}
     </span>
     {% if statement %}<span class="block text-xxs text-aegis-muted">{{ statement }}</span>{% endif %}
     </span>

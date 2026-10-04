@@ -318,11 +318,12 @@ async def purge_connection(
             path=SECTION.path,
             purge_error=f"Type {card['label']} exactly to delete its data.",
         )
-    await disconnect_connection(
-        connection_id, background_tasks, service=service, owner_user_id=owner_user_id
-    )
+    # Purged first: disconnecting unlinks the accounts from the connection.
     removed = await service.purge_connection_accounts(
         connection_id, owner_user_id=owner_user_id
+    )
+    await disconnect_connection(
+        connection_id, background_tasks, service=service, owner_user_id=owner_user_id
     )
     await service.db.commit()
     return dialog_done(

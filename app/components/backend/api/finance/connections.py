@@ -216,9 +216,9 @@ async def disconnect_connection(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> None:
-    """Disconnect a connection: soft-delete it and its accounts immediately;
-    the provider-side revoke (the slow network round trip) runs after the
-    response as a background task. History rows are kept."""
+    """Disconnect a connection: soft-delete it and unlink its accounts, which
+    stay with their history; the provider-side revoke (the slow network
+    round trip) runs after the response as a background task."""
     from app.services.finance.adapters.providers import connections
 
     removed, revoke = await connections.disconnect_connection(

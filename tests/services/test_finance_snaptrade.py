@@ -521,7 +521,7 @@ class TestSnapTradeConnect:
         assert len(trades) == 2  # ...but deduped by activity id
 
     @pytest.mark.asyncio
-    async def test_disconnect_revokes_authorization_and_soft_deletes(
+    async def test_disconnect_revokes_authorization_and_keeps_the_accounts(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         client = _client()
@@ -547,7 +547,7 @@ class TestSnapTradeConnect:
         )
         assert remaining == []
         accounts, _ = await svc.list_accounts(owner_user_id=1)
-        assert accounts == []
+        assert accounts and {a.connection_id for a in accounts} == {None}  # #307
 
     @pytest.mark.asyncio
     async def test_personal_key_connect_skips_registration(
