@@ -166,7 +166,7 @@ async def _last_updated(
     valuation. Asking one question of four sources beats four surfaces
     each picking a different date and calling it "updated".
     """
-    from app.components.web_frontend.filters import freshness
+    from app.components.web_frontend.filters import freshness, quiet_after
 
     if account is None:
         return {}
@@ -176,9 +176,20 @@ async def _last_updated(
         )
 
         connection = await connection_by_id_live(service.db, account.connection_id)
-        return freshness(
-            connection.last_successful_sync_at if connection else None, "sync"
+        from app.services.finance.domains.ledger.queries.accounts import (
+            recent_transaction_dates,
         )
+
+        # A sync that runs and brings nothing is not fresh: beside when it
+        # last ran, when it last brought a transaction, stale once that
+        # quiet outlasts the account's own rhythm.
+        days = await recent_transaction_dates(service.db, account.id)
+        return {
+            **freshness(
+                connection.last_successful_sync_at if connection else None, "sync"
+            ),
+            "arrived": freshness(days[0] if days else None, after=quiet_after(days)),
+        }
     if account.account_type in INVESTMENT_ACCOUNT_TYPES:
         held = await service.list_current_holdings(account_id=account.id)
         newest = max((h.as_of_date for h, _security, _value in held), default=None)

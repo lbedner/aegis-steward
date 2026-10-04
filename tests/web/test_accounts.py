@@ -252,6 +252,84 @@ class TestRegister:
         assert client.get("/accounts/999999").status_code == 404
 
 
+@pytest.fixture
+async def quiet_link(
+    finance: FinanceService, async_db_session: AsyncSession, connection: int
+) -> int:
+    """A linked checking account that synced today but has brought nothing
+    for 30 days, after a weekly rhythm before that."""
+    from datetime import timedelta
+
+    from app.core.time import utcnow
+    from app.services.finance.models import FinanceAccount, FinanceConnection
+    from app.services.finance.utils import current_date
+
+    account = await finance.create_manual_account(
+        name="Linked Checking", account_type="checking", classification="asset"
+    )
+    assert account.id is not None
+    for days in (30, 37, 44, 51, 58):
+        await finance.create_transaction(
+            account_id=account.id,
+            amount=-1_000,
+            txn_date=current_date() - timedelta(days=days),
+            name="Market",
+        )
+    row = await async_db_session.get(FinanceAccount, account.id)
+    link = await async_db_session.get(FinanceConnection, connection)
+    assert row is not None and link is not None
+    row.connection_id, row.is_manual = connection, False
+    link.last_successful_sync_at = utcnow()
+    async_db_session.add_all([row, link])
+    await async_db_session.commit()
+    return account.id
+
+
+class TestALinkSaysWhenItLastBroughtSomething:
+    """A sync that runs and brings nothing is not fresh (#311): a linked
+    account says when its last transaction arrived beside when it last
+    synced, and a quiet stretch longer than its own rhythm reads stale."""
+
+    def test_the_quiet_an_account_is_allowed_follows_its_rhythm(self) -> None:
+        from datetime import date, timedelta
+
+        from app.components.web_frontend.filters import quiet_after
+
+        def every(days: int) -> list[date]:
+            return [date(2026, 9, 1) - timedelta(days=days * n) for n in range(6)]
+
+        assert quiet_after(every(1)) == 7  # never under a week
+        assert quiet_after(every(7)) == 21  # three of its usual gaps
+        assert quiet_after(every(30)) == 90
+        assert quiet_after(every(7)[:2]) is None  # no rhythm yet
+
+    @pytest.mark.parametrize("hx_request", [False, True], ids=["page", "fragment"])
+    def test_synced_today_and_quiet_for_a_month_reads_stale(
+        self,
+        client: TestClient,
+        hx: TestClient,
+        quiet_link: int,
+        hx_request: bool,
+    ) -> None:
+        page = (hx if hx_request else client).get(f"/accounts/{quiet_link}").text
+        header = one(page, "#account-detail > header")
+        synced = one(header, "[data-updated]")
+        assert text(synced) == "Synced today"
+        assert one(synced, "[data-dot]").get("data-dot") == "ok"
+        arrived = one(header, "[data-arrived]")
+        assert text(arrived) == "Last transaction 1 month ago"
+        assert one(arrived, "[data-dot]").get("data-dot") == "error"
+
+    def test_an_unlinked_account_says_only_when_money_last_moved(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        header = one(
+            client.get(f"/accounts/{ledger.card}").text, "#account-detail > header"
+        )
+        assert text(one(header, "[data-updated]")) == "Updated 2 days ago"
+        none(header, "[data-arrived]")
+
+
 class TestTheInstitutionAnAccountIsHeldAt:
     """Naming a bank is the same gesture as naming a payee: the same
     picker, search or type, and creating happens on the way through.

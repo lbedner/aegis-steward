@@ -27,6 +27,20 @@ from app.services.finance.models import (
 )
 
 
+def money_moved_in(account_id: int, owner_user_id: int | None = None) -> list[Any]:
+    """The rows that count as money moving in an account: live, and not a
+    duplicate of another. What "updated" means for a bank account or a
+    card - not when the row was touched, which a rename would do."""
+    clauses: list[Any] = [
+        FinanceTransaction.account_id == account_id,
+        FinanceTransaction.deleted_at.is_(None),
+        FinanceTransaction.dedup_status != "duplicate",
+    ]
+    if owner_user_id is not None:
+        clauses.append(FinanceTransaction.owner_user_id == owner_user_id)
+    return clauses
+
+
 def live_account_ids():
     """Subquery: ids of accounts that are not soft-deleted.
 

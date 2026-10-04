@@ -17,6 +17,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger.queries.filters import (
     live_account_ids,
+    money_moved_in,
     split_aware_category_clause,
     transaction_search_filter,
     uncategorized_catchall_ids,
@@ -312,20 +313,8 @@ async def uncategorized_page(
 async def newest_transaction_date(
     db: AsyncSession, account_id: int, *, owner_user_id: int | None = None
 ) -> date | None:
-    """The last day this account saw anything.
-
-    What "updated" MEANS for a bank account or a card: not when the row
-    was touched, but when money last moved in it. An account's own
-    ``updated_at`` moves when anything is edited, which makes a rename
-    look like fresh data.
-    """
-    filters = [
-        FinanceTransaction.account_id == account_id,
-        FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
-    ]
-    if owner_user_id is not None:
-        filters.append(FinanceTransaction.owner_user_id == owner_user_id)
+    """The last day this account saw anything (``money_moved_in``)."""
+    filters = money_moved_in(account_id, owner_user_id)
     return (
         await db.exec(select(func.max(FinanceTransaction.date_)).where(*filters))
     ).one()

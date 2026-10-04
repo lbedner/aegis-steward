@@ -140,7 +140,10 @@
           middot. A separator followed by a dot is two dots in a row, and
           reads as a bullet that lost its text. -#}
       {%- if updated and updated.label %}
-      <span data-updated class="inline-flex items-center gap-1.5 ml-3">{{ dot(updated.tone) }}Updated {{ updated.label }}</span>
+      <span data-updated class="inline-flex items-center gap-1.5 ml-3">{{ dot(updated.tone) }}{{ "Synced" if updated.arrived else "Updated" }} {{ updated.label }}</span>
+      {%- if updated.arrived %}
+      <span data-arrived class="inline-flex items-center gap-1.5 ml-3">{{ dot(updated.arrived.tone) }}Last transaction {{ updated.arrived.label }}</span>
+      {%- endif %}
       {%- endif -%}
       {% else %}
       <a href="{{ section.path }}" {{ hx_page(section.path) }} class="hover:text-aegis-text transition-colors">{{ groups|length }} group{{ "s" if groups|length != 1 }} · back to accounts</a>

@@ -7,6 +7,7 @@ finance service as integer minor units with a currency code.
 from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
 import html
+from statistics import median_low
 from typing import Any
 
 from markupsafe import Markup
@@ -299,6 +300,20 @@ def freshness(
     else:
         label = f"{days // 365} year{'s' if days // 365 != 1 else ''} ago"
     return {"label": label, "tone": tone}
+
+
+def quiet_after(dates: list[date]) -> int | None:
+    """How many days a linked account may bring nothing before the quiet
+    is worth saying (``freshness``'s ``after``): three of its usual gaps
+    between days money moved, never under the daily week. A card that
+    moves daily is quiet after a week; a 401(k) fed monthly, after a
+    quarter. None until three days give it a rhythm.
+
+    ``dates`` are its distinct transaction days, newest first."""
+    if len(dates) < 3:
+        return None
+    gaps = [(newer - older).days for newer, older in zip(dates, dates[1:])]
+    return max(DAILY[0], 3 * median_low(gaps))
 
 
 def positions_from_text(raw: str) -> tuple[list[dict[str, Any]], list[str]]:

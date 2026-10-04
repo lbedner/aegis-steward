@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.constants import (
     RECONCILE_MARKER,
 )
+from app.services.finance.domains.ledger.queries.filters import money_moved_in
 from app.services.finance.models import (
     FinanceAccount,
     FinanceCurrency,
@@ -393,3 +394,18 @@ async def institution_by_id(
     db: AsyncSession, institution_id: int
 ) -> FinanceInstitution | None:
     return await db.get(FinanceInstitution, institution_id)
+
+
+async def recent_transaction_dates(
+    db: AsyncSession, account_id: int, *, limit: int = 20
+) -> list[date]:
+    """The last days money moved in this account (``money_moved_in``),
+    newest first: enough of them to read its rhythm by."""
+    rows = await db.exec(
+        select(FinanceTransaction.date_)
+        .where(*money_moved_in(account_id))
+        .distinct()
+        .order_by(col(FinanceTransaction.date_).desc())
+        .limit(limit)
+    )
+    return list(rows.all())
