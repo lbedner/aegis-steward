@@ -304,12 +304,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM document WHERE document.id IN (__[POSTCOMPILE_id_1]) AND document.deleted_at IS NULL",
-      "file": "app/services/documents/queries.py",
-      "function": "documents_by_ids"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM document_page WHERE document_page.document_id = :document_id_1",
       "file": "app/services/documents/domains/shelf/destroy.py",
       "function": "destroy"
@@ -397,24 +391,6 @@
       "label": "SELECT ... FROM fact WHERE fact.deleted_at IS NULL AND fact.matter_id = :matter_id_1 AND fact.superseded_by_id IS NULL ORDER BY fact.as_of DESC, fact.id DESC",
       "file": "app/services/matters/facts.py",
       "function": "find"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM fact WHERE fact.deleted_at IS NULL AND fact.source_party_id = :source_party_id_1 AND fact.superseded_by_id IS NULL ORDER BY fact.as_of DESC, fact.id DESC",
-      "file": "app/services/matters/facts.py",
-      "function": "find"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM fact WHERE fact.deleted_at IS NULL AND fact.subject_party_id = :subject_party_id_1 AND fact.superseded_by_id IS NULL ORDER BY fact.as_of DESC, fact.id DESC",
-      "file": "app/services/matters/facts.py",
-      "function": "find"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM fact WHERE fact.id = :pk_1",
-      "file": "app/services/matters/facts.py",
-      "function": "get"
     },
     {
       "kind": "repeated_statement",
@@ -646,21 +622,9 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_account WHERE finance_account.provider = :provider_1 AND finance_account.name = :name_1 AND finance_account.deleted_at IS NULL AND finance_account.mask = :mask_1",
+      "label": "SELECT ... FROM finance_account WHERE finance_account.provider = :provider_1 AND (finance_account.owner_user_id = :owner_user_id_1 OR finance_account.provider_account_id IN (__[POSTCOMPILE_provider_account_id_1]) OR finance_account.persistent_account_id IN (__[POSTCOMPILE_persistent_account_id_1])) ORDER BY finance_account.id",
       "file": "app/services/finance/adapters/providers/queries.py",
-      "function": "account_first_where"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_account WHERE finance_account.provider = :provider_1 AND finance_account.name = :name_1 AND finance_account.deleted_at IS NULL AND finance_account.mask = :mask_1 AND finance_account.owner_user_id = :owner_user_id_1",
-      "file": "app/services/finance/adapters/providers/queries.py",
-      "function": "account_first_where"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_account WHERE finance_account.provider = :provider_1 AND finance_account.provider_account_id = :provider_account_id_1",
-      "file": "app/services/finance/adapters/providers/queries.py",
-      "function": "account_by_provider_account_id"
+      "function": "provider_accounts"
     },
     {
       "kind": "repeated_statement",
@@ -1078,12 +1042,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_institution WHERE finance_institution.party_id = :party_id_1",
-      "file": "app/services/finance/domains/ledger/subjects.py",
-      "function": "institution_of"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_liability_detail",
       "file": "tests/services/test_finance_plaid.py",
       "function": "_liability_rows"
@@ -1462,12 +1420,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_subject WHERE finance_subject.party_id = :party_id_1",
-      "file": "app/services/finance/domains/ledger/subjects.py",
-      "function": "subject_of"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_subject WHERE finance_subject.party_id = :party_id_1 AND finance_subject.deleted_at IS NULL",
       "file": "app/services/finance/domains/ledger/subjects.py",
       "function": "subject_for_party"
@@ -1810,12 +1762,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.amount < :amount_1 AND finance_transaction.date >= :date_1 AND finance_transaction.date < :date_2 AND finance_transaction.is_split IS false AND finance_transaction.category_id IN (__[POSTCOMPILE_category_id_1]) GROUP BY finance_transaction.category_id",
-      "file": "app/services/finance/domains/planning/queries.py",
-      "function": "spend_by_category"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.amount < :amount_1 AND finance_transaction.date >= :date_1 AND finance_transaction.date < :date_2 AND finance_transaction.is_transfer IS false AND finance_transaction.category_id IS NOT NULL",
       "file": "app/services/finance/domains/planning/budgets/queries.py",
       "function": "categorized_outflow_history"
@@ -1837,12 +1783,6 @@
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.amount < :amount_1 AND finance_transaction.date >= :date_1 AND finance_transaction.date < :date_2 AND finance_transaction.owner_user_id = :owner_user_id_1 AND finance_transaction.is_split IS false",
       "file": "app/services/finance/domains/planning/budgets/queries.py",
       "function": "outflow_tuples"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.amount < :amount_1 AND finance_transaction.date >= :date_1 AND finance_transaction.date < :date_2 AND finance_transaction.owner_user_id = :owner_user_id_1 AND finance_transaction.is_split IS false AND finance_transaction.category_id IN (__[POSTCOMPILE_category_id_1]) GROUP BY finance_transaction.category_id",
-      "file": "app/services/finance/domains/planning/queries.py",
-      "function": "spend_by_category"
     },
     {
       "kind": "repeated_statement",
@@ -2188,18 +2128,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction_split JOIN finance_transaction ON finance_transaction.id = finance_transaction_split.parent_transaction_id WHERE finance_transaction.is_split IS true AND finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.amount < :amount_1 AND finance_transaction.date >= :date_1 AND finance_transaction.date < :date_2 AND finance_transaction.owner_user_id = :owner_user_id_1 AND finance_transaction_split.category_id IN (__[POSTCOMPILE_category_id_1]) GROUP BY finance_transaction_split.category_id",
-      "file": "app/services/finance/domains/planning/queries.py",
-      "function": "spend_by_category"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction_split JOIN finance_transaction ON finance_transaction.id = finance_transaction_split.parent_transaction_id WHERE finance_transaction.is_split IS true AND finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.amount < :amount_1 AND finance_transaction.date >= :date_1 AND finance_transaction.date < :date_2 AND finance_transaction_split.category_id IN (__[POSTCOMPILE_category_id_1]) GROUP BY finance_transaction_split.category_id",
-      "file": "app/services/finance/domains/planning/queries.py",
-      "function": "spend_by_category"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction_split WHERE finance_transaction_split.parent_transaction_id IN (__[POSTCOMPILE_parent_transaction_id_1]) ORDER BY finance_transaction_split.parent_transaction_id, finance_transaction_split.sort_order",
       "file": "app/services/finance/domains/ledger/queries/splits.py",
       "function": "splits_for_parents"
@@ -2434,12 +2362,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM matter JOIN matter_participant ON matter_participant.matter_id = matter.id WHERE matter_participant.party_id = :party_id_1 AND matter.deleted_at IS NULL ORDER BY matter.opened_on DESC",
-      "file": "app/services/matters/matters.py",
-      "function": "for_party"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM matter ORDER BY matter.title",
       "file": "app/components/web_frontend/documents.py",
       "function": "places"
@@ -2554,12 +2476,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM request WHERE request.requester_party_id = :requester_party_id_1 AND request.deleted_at IS NULL ORDER BY request.due_on DESC",
-      "file": "app/services/matters/requests.py",
-      "function": "from_party"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM request WHERE request.status = :status_1 AND request.deleted_at IS NULL AND request.due_on IS NOT NULL AND request.due_on <= :due_on_1 ORDER BY request.due_on",
       "file": "app/services/matters/deadlines.py",
       "function": "due_soon"
@@ -2575,12 +2491,6 @@
       "label": "SELECT ... FROM request_item WHERE request_item.id = :pk_1",
       "file": "app/services/documents/domains/reading/changes.py",
       "function": "_ask"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM request_item WHERE request_item.id = :pk_1",
-      "file": "app/services/matters/requests.py",
-      "function": "add_item"
     },
     {
       "kind": "repeated_statement",

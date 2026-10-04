@@ -22,10 +22,12 @@ from app.services.finance.adapters.providers.connections.plaid_sync.lifecycle im
     relink_connection,
 )
 from app.services.finance.adapters.providers.connections.plaid_sync.sync import (
+    ADAPTER,
     sync_plaid_connection,
 )
 
 __all__ = [
+    "ADAPTER",
     "complete_hosted_link",
     "create_plaid_connection",
     "fire_sandbox_webhook",

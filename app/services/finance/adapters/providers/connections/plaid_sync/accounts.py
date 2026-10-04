@@ -1,8 +1,8 @@
 """Accounts and liabilities: what Plaid says the account IS.
 
-The upsert keys on Plaid's ``account_id`` so a renamed or re-linked
-account stays one row, and the liability detail carries the APRs and
-due dates the credit rules later read.
+Plaid's accounts mapped onto ``ProviderAccount`` (the shared upsert keeps
+a renamed or re-linked account one row), and the liability detail that
+carries the APRs and due dates the credit rules later read.
 """
 
 from __future__ import annotations
@@ -14,19 +14,14 @@ from typing import Any
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.time import utcnow
-from app.services.finance.adapters.providers import queries
-from app.services.finance.adapters.providers.connections.common import (
-    _to_cents,
-    relinked_account,
+from app.services.finance.adapters.providers.connections.common import _to_cents
+from app.services.finance.adapters.providers.connections.upserts import (
+    ProviderAccount,
 )
-from app.services.finance.constants import Provider
 from app.services.finance.domains.ledger import queries as ledger_queries
 from app.services.finance.models import (
-    FinanceAccount,
-    FinanceConnection,
     FinanceLiabilityDetail,
 )
-from app.services.finance.service import FinanceService
 
 logger = logging.getLogger(__name__)
 
@@ -51,92 +46,32 @@ def _map_account_kind(
     return account_type, classification
 
 
-async def _find_plaid_account(
-    db: AsyncSession,
-    connection: FinanceConnection,
-    *,
-    plaid_id: str,
-    persistent: str | None,
-    name: str,
-    mask: str | None,
-) -> FinanceAccount | None:
-    """Find the account this Plaid account maps to, so re-linking the same
-    institution (a new Item with fresh ``account_id``s) updates the existing
-    rows instead of duplicating them."""
-    # 1) Stable persistent id — real institutions provide it across re-links.
-    if persistent:
-        found = await queries.account_by_persistent_id(
-            db, provider=Provider.PLAID, persistent_account_id=persistent
-        )
-        if found is not None:
-            return found
-    # 2) Same Item re-sync (unchanged account_id).
-    found = await queries.account_by_provider_account_id(
-        db, provider=Provider.PLAID, provider_account_id=plaid_id
-    )
-    if found is not None:
-        return found
-    # 3) Re-link fallback (no persistent id, e.g. sandbox): same owner + name +
-    # mask. Plaid regenerates account_ids per Item, but name/mask are stable.
-    return await relinked_account(
-        db, connection, provider=Provider.PLAID, name=name, mask=mask
-    )
-
-
-async def _upsert_accounts(
-    db: AsyncSession,
-    service: FinanceService,
-    connection: FinanceConnection,
-    plaid_accounts: list[dict[str, Any]],
-) -> dict[str, int]:
-    """Upsert one FinanceAccount per Plaid account; return {plaid_id: account_id}."""
-    mapping: dict[str, int] = {}
-    for plaid_account in plaid_accounts:
-        plaid_id = plaid_account["account_id"]
-        persistent = plaid_account.get("persistent_account_id")
-        name = (
-            plaid_account.get("name") or plaid_account.get("official_name") or "Account"
-        )
-        mask = plaid_account.get("mask")
+def plaid_accounts(raw: list[dict[str, Any]]) -> list[ProviderAccount]:
+    """Plaid's accounts in this app's terms. ``persistent_account_id`` is
+    what real institutions keep across a re-link; the sandbox has none,
+    and the shared upsert falls back to name + mask."""
+    accounts = []
+    for plaid_account in raw:
         balances = plaid_account.get("balances") or {}
-        currency = (balances.get("iso_currency_code") or "usd").lower()
-        await service.get_or_create_currency(currency)
         account_type, classification = _map_account_kind(
             plaid_account.get("type"), plaid_account.get("subtype")
         )
-        account = await _find_plaid_account(
-            db,
-            connection,
-            plaid_id=plaid_id,
-            persistent=persistent,
-            name=name,
-            mask=mask,
-        )
-        if account is None:
-            account = FinanceAccount(
-                owner_user_id=connection.owner_user_id,
-                provider=Provider.PLAID,
+        accounts.append(
+            ProviderAccount(
+                provider_account_id=plaid_account["account_id"],
+                persistent_account_id=plaid_account.get("persistent_account_id"),
+                name=plaid_account.get("name")
+                or plaid_account.get("official_name")
+                or "Account",
+                mask=plaid_account.get("mask"),
+                currency=(balances.get("iso_currency_code") or "usd").lower(),
                 account_type=account_type,
                 classification=classification,
-                name=name,
-                is_manual=False,
+                current_balance=_to_cents(balances.get("current")),
+                available_balance=_to_cents(balances.get("available")),
             )
-        # (Re)point at this connection + refresh the provider ids and balances.
-        account.connection_id = connection.id
-        account.institution_id = connection.institution_id or account.institution_id
-        account.provider_account_id = plaid_id
-        account.persistent_account_id = persistent
-        account.currency = currency
-        account.name = name
-        account.mask = mask
-        account.current_balance = _to_cents(balances.get("current"))
-        account.available_balance = _to_cents(balances.get("available"))
-        account.balance_as_of = utcnow()
-        account.deleted_at = None
-        db.add(account)
-        await db.flush()
-        mapping[plaid_id] = account.id
-    return mapping
+        )
+    return accounts
 
 
 def _pct_to_bps(pct: float | None) -> int | None:

@@ -150,3 +150,46 @@ class TestTheRotation:
         )
 
         assert counted["sign_in.secret_encrypted"] == 0
+
+
+class TestEveryProvidersCredential:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("provider", ["plaid", "snaptrade", "simplefin"])
+    async def test_a_connection_credential_survives_the_rotation(
+        self,
+        async_db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        provider: str,
+    ) -> None:
+        """Each provider seals its credential under its own context; a
+        rotation that guessed another one could not read it, counted it
+        as already rotated, and left the connection dead."""
+        from app.services.finance.adapters.providers.connections.common import (
+            new_connection,
+        )
+        from app.services.finance.constants import CREDENTIAL_CONTEXTS
+        from app.services.system.rekey import rekey_secrets
+
+        _as(monkeypatch, None)
+        connection = await new_connection(
+            async_db_session,
+            owner_user_id=None,
+            provider=provider,
+            credential="the-secret",
+        )
+        await async_db_session.commit()
+
+        old = settings.SECRET_KEY.encode()
+        _as(monkeypatch, "a-new-key-entirely")
+        counted = await rekey_secrets(async_db_session, old_key_material=old)
+        await async_db_session.commit()
+
+        assert counted["finance_connection.access_token_encrypted"] == 1
+        await async_db_session.refresh(connection)
+        assert (
+            decrypt_secret(
+                connection.access_token_encrypted,
+                context=CREDENTIAL_CONTEXTS[provider],
+            )
+            == "the-secret"
+        )

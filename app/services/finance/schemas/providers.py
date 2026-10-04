@@ -73,3 +73,9 @@ class WebhookAckResult(BaseModel):
     delivery log - never a client-facing payload."""
 
     status: str
+
+
+class SimpleFINConnectRequest(BaseModel):
+    """A SimpleFIN setup token, as pasted (surrounding space is trimmed)."""
+
+    setup_token: str

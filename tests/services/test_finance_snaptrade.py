@@ -533,7 +533,7 @@ class TestSnapTradeConnect:
             async_db_session,
             connection_rows[0].id,
             owner_user_id=1,
-            snaptrade_client=client,
+            clients={Provider.SNAPTRADE: client},
         )
         assert ok is True
         # Local teardown never waits on the provider round trip - the caller
@@ -607,7 +607,7 @@ class TestSnapTradeConnect:
             async_db_session,
             connection_rows[0].id,
             owner_user_id=1,
-            snaptrade_client=client,
+            clients={Provider.SNAPTRADE: client},
         )
         assert ok is True
         assert revoke is None
@@ -668,7 +668,7 @@ class TestSnapTradeConnect:
         client = _client()
         await _connect_and_complete(async_db_session, client)
         results = await connections.sync_owner_connections(
-            async_db_session, owner_user_id=1, snaptrade_client=client
+            async_db_session, owner_user_id=1, clients={Provider.SNAPTRADE: client}
         )
         assert len(results) == 1
         assert results[0].accounts == 2

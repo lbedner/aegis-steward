@@ -44,18 +44,14 @@ def _connection_context(column: str) -> Callable[[Any], str | None]:
     """The AAD a connection column was sealed with.
 
     ``access_token_encrypted`` is bound per PROVIDER rather than per row
-    - one constant for Plaid, one for SnapTrade - while the rest follow
-    the row-bound shape the finance constants document. The AAD has to
-    match byte for byte, so this matches what the writers actually do
-    rather than what the comment beside them says.
+    (``CREDENTIAL_CONTEXTS``, the table the writers seal with), while the
+    rest follow the row-bound shape the finance constants document.
     """
+    from app.services.finance.constants import CREDENTIAL_CONTEXTS
+
     if column != "access_token_encrypted":
         return lambda row: f"finance_connection:{row.id}:{column}"
-    return lambda row: (
-        "finance.snaptrade.user_secret"
-        if row.provider == "snaptrade"
-        else "finance.plaid.access_token"
-    )
+    return lambda row: CREDENTIAL_CONTEXTS.get(row.provider)
 
 
 def _secrets() -> tuple[Encrypted, ...]:

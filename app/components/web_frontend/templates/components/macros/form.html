@@ -293,9 +293,9 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 </div>
 {% endmacro %}
 
-{% macro text_input(name, value=None, placeholder="", required=False, autofocus=False) %}
-<input type="text" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
-       {% if required %}required{% endif %} {% if autofocus %}autofocus{% endif %}
+{% macro text_input(name, value=None, placeholder="", required=False, autofocus=False, type="text", remember=True) %}
+<input type="{{ type }}" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
+       {% if required %}required{% endif %} {% if autofocus %}autofocus{% endif %} {% if not remember %}autocomplete="off"{% endif %}
        class="{{ control("input") }} w-full mt-1">
 {% endmacro %}
 
@@ -447,4 +447,15 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
   <template x-ref="line">{{ line_row(label_name, value_name, "", "", label_hint, value_hint) }}</template>
   {{ action(add, '@click="add()"') }}
 </div>
+{% endmacro %}
+
+{# A permanent delete, behind typing ``name`` back, so a slip of the mouse
+   cannot erase a history. Posts ``confirm`` to ``url`` into the dialog;
+   the route checks it (``typed_back``) and re-renders with ``error``. #}
+{% macro confirm_permanent(what, name, url, error=None) %}
+<form {{ hx_dialog_post(url) }} class="space-y-3 border-t border-aegis-border pt-4 mt-4" data-purge>
+  <p class="text-sm text-aegis-muted">Or delete {{ what }} permanently: from every page, and from the database. This cannot be undone.</p>
+  {% call field("Type " ~ name ~ " to confirm", error) %}{{ text_input("confirm", required=True, remember=False) }}{% endcall %}
+  <button type="submit" class="{{ button_classes('danger') }}">Delete permanently</button>
+</form>
 {% endmacro %}

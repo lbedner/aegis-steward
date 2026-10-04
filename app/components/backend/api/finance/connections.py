@@ -23,6 +23,7 @@ from app.services.finance.schemas import (
     HostedLinkResponse,
     LinkTokenResponse,
     PlaidExchangeRequest,
+    SimpleFINConnectRequest,
     SnapTradeConnectResponse,
     SyncResultResponse,
     SyncSummaryResponse,
@@ -55,14 +56,13 @@ async def sync_connections(
 ) -> SyncSummaryResponse:
     """Refresh every provider connection for the caller (all providers)."""
     from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.plaid import PlaidError
-    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+    from app.services.finance.adapters.providers.errors import ProviderError
 
     try:
         results = await connections.sync_owner_connections(
             service.db, owner_user_id=owner_user_id
         )
-    except (PlaidError, SnapTradeError) as exc:
+    except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
@@ -130,13 +130,13 @@ async def plaid_sync(
 ) -> SyncSummaryResponse:
     """Refresh every Plaid connection for the caller."""
     from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.plaid import PlaidError
+    from app.services.finance.adapters.providers.errors import ProviderError
 
     try:
         results = await connections.sync_owner_connections(
             service.db, owner_user_id=owner_user_id
         )
-    except PlaidError as exc:
+    except ProviderError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
@@ -339,3 +339,26 @@ async def snaptrade_connect_complete(
     return SyncSummaryResponse(
         connections=len(results), results=[_sync_dto(r) for r in results]
     )
+
+
+@router.post("/simplefin/connect", response_model=SyncResultResponse)
+async def simplefin_connect(
+    body: SimpleFINConnectRequest,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> SyncResultResponse:
+    """Claim a SimpleFIN setup token (it works once) and sync the banks
+    behind it. A bad, used or refused token is a 422 with SimpleFIN's own
+    reason, for the user to read."""
+    from app.services.finance.adapters.providers import connections
+    from app.services.finance.adapters.providers.errors import ProviderError
+
+    try:
+        result = await connections.connect_simplefin(
+            service.db, owner_user_id=owner_user_id, setup_token=body.setup_token
+        )
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.message
+        ) from exc
+    return _sync_dto(result)

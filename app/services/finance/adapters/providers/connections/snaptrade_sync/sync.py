@@ -7,7 +7,7 @@ sync and the connect flow need to read it back.
 Writes but does not commit - the caller owns the transaction.
 """
 
-from datetime import date, timedelta
+from collections.abc import Callable
 import logging
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -16,16 +16,24 @@ from app.core.encryption import decrypt_secret
 from app.core.time import utcnow
 from app.services.finance.adapters.providers.connections.common import (
     _SNAPTRADE_SECRET_CONTEXT,
+    ProviderAdapter,
+    Revoke,
     SyncResult,
+    best_effort,
     finished,
     list_provider_connections,
+    since_last_pull,
+    stored_credential,
 )
 from app.services.finance.adapters.providers.connections.snaptrade_sync.accounts import (
-    _upsert_snaptrade_accounts,
+    snaptrade_accounts,
 )
 from app.services.finance.adapters.providers.connections.snaptrade_sync.investments import (
     _apply_snaptrade_activities,
     _apply_snaptrade_positions,
+)
+from app.services.finance.adapters.providers.connections.upserts import (
+    upsert_accounts,
 )
 from app.services.finance.adapters.providers.snaptrade import (
     SnapTradeClient,
@@ -33,6 +41,7 @@ from app.services.finance.adapters.providers.snaptrade import (
 from app.services.finance.constants import Provider
 from app.services.finance.models import FinanceConnection
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
 
 logger = logging.getLogger(__name__)
 
@@ -98,18 +107,18 @@ async def sync_snaptrade_connection(
         if str(account.get("brokerage_authorization") or "")
         == connection.provider_item_id
     ]
-    account_map = await _upsert_snaptrade_accounts(db, service, connection, accounts)
+    account_map = await upsert_accounts(
+        db, service, connection, Provider.SNAPTRADE, snaptrade_accounts(accounts)
+    )
     result.accounts = len(account_map)
 
-    today = utcnow().date()
-    last_pull = (
-        date.fromisoformat(connection.sync_cursor) if connection.sync_cursor else None
-    )
-    pull_activities = last_pull is None or last_pull < today
-    start = (
-        today - timedelta(days=_SNAPTRADE_LOOKBACK_DAYS)
-        if last_pull is None
-        else last_pull - timedelta(days=_SNAPTRADE_ACTIVITY_OVERLAP_DAYS)
+    today = current_date()
+    pull_activities = connection.sync_cursor != today.isoformat()
+    start = since_last_pull(
+        connection,
+        today,
+        lookback=_SNAPTRADE_LOOKBACK_DAYS,
+        overlap=_SNAPTRADE_ACTIVITY_OVERLAP_DAYS,
     )
 
     for snaptrade_id, account_id in account_map.items():
@@ -150,3 +159,31 @@ async def sync_snaptrade_connection(
     db.add(connection)
     await db.flush()
     return result
+
+
+def _revoke(
+    connection: FinanceConnection, client: Callable[[], SnapTradeClient]
+) -> Revoke | None:
+    if not connection.provider_item_id:
+        return None
+    secret = stored_credential(connection, _SNAPTRADE_SECRET_CONTEXT)
+    if secret is None:
+        return None
+    authorization_id, owner = connection.provider_item_id, connection.owner_user_id
+
+    async def remove() -> None:
+        snaptrade = client()
+        user_id = "" if snaptrade.is_personal else _snaptrade_user_id(owner)
+        await snaptrade.remove_authorization(user_id, secret, authorization_id)
+
+    return best_effort(connection, remove)
+
+
+ADAPTER = ProviderAdapter(
+    provider=Provider.SNAPTRADE,
+    new_client=SnapTradeClient,
+    sync=sync_snaptrade_connection,
+    # Rows still waiting on the portal (no authorization yet) can't sync.
+    ready=lambda connection: connection.provider_item_id is not None,
+    revoke=_revoke,
+)

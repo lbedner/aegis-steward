@@ -12,7 +12,11 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import pytest
 
+from app.components.web_frontend.routes.finance.connect_providers import (
+    SIMPLEFIN_CREATE,
+)
 from app.core.config import settings
+from app.services.finance.adapters.providers.simplefin import DEMO_PAGE
 from tests.web.conftest import Ledger, Streams
 from tests.web.dom import none, one, select, table_rows, text, triggers
 
@@ -23,10 +27,11 @@ def nav(page: str) -> list[str]:
 
 @pytest.fixture
 def providers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both providers built in and credentialed."""
+    """Every provider built in and credentialed."""
     for name, value in (
         ("FINANCE_PLAID", True),
         ("FINANCE_SNAPTRADE", True),
+        ("FINANCE_SIMPLEFIN", True),
         ("PLAID_CLIENT_ID", "id"),
         ("PLAID_SECRET", "secret"),
         ("SNAPTRADE_CLIENT_ID", "id"),
@@ -101,6 +106,31 @@ class TestConnections:
         assert "dialog:close" in triggers(response)
         none(client.get("/settings").text, f"#connection-{connection}")
 
+    async def test_disconnecting_can_take_its_data_permanently(
+        self, client: TestClient, hx: TestClient, connection: int
+    ) -> None:
+        """For a bank tried and not wanted (a demo): disconnect and delete
+        its accounts and their history, once its name is typed back."""
+        dialog = hx.get(f"/settings/connections/{connection}/remove").text
+        form = one(
+            dialog,
+            f"form[data-purge][hx-post='/settings/connections/{connection}/purge']",
+        )
+        name = text(one(dialog, "h2")).removeprefix("Disconnect ").removesuffix("?")
+
+        wrong = client.post(
+            f"/settings/connections/{connection}/purge", data={"confirm": "nope"}
+        )
+        assert wrong.status_code == 422
+        one(wrong.text, "form[data-purge]")
+
+        gone = client.post(
+            f"/settings/connections/{connection}/purge", data={"confirm": name}
+        )
+        assert "deleted" in triggers(gone)["toast"]["text"]
+        none(client.get("/settings").text, f"#connection-{connection}")
+        assert form is not None
+
     async def test_disconnecting_takes_the_card_with_it(
         self, client: TestClient, connection: int
     ) -> None:
@@ -111,6 +141,94 @@ class TestConnections:
 
     def test_unknown_connection_is_404(self, client: TestClient) -> None:
         assert client.delete("/settings/connections/999999").status_code == 404
+
+    def test_simplefin_asks_for_its_setup_token(
+        self, client: TestClient, hx: TestClient, providers: None
+    ) -> None:
+        """SimpleFIN is connected by pasting the token made on its site:
+        the dialog links there and takes the token, nothing to wait on."""
+        one(client.get("/settings").text, '[hx-post="/settings/connect/simplefin"]')
+
+        response = hx.post("/settings/connect/simplefin")
+
+        assert response.status_code == 200
+        none(response.text, "html")
+        panel = one(response.text, "#connect-status")
+        opener = one(panel, 'a[target="_blank"]:not([data-demo])')
+        assert opener.get("href") == SIMPLEFIN_CREATE
+        demo = one(panel, "a[data-demo]")  # fake data, no sign-up
+        assert demo.get("href") == DEMO_PAGE
+        form = one(panel, "form[hx-post='/settings/connect/simplefin/complete']")
+        assert one(form, "input[name=token]").get("type") == "password"
+        # Claiming and the first sync take seconds: the button says so.
+        assert "Connecting" in text(one(form, "button[type=submit]"))
+        none(panel, "[hx-trigger]")  # no poller
+
+    def test_a_pasted_token_connects_simplefin(
+        self, client: TestClient, providers: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.finance.adapters.providers import connections
+        from app.services.finance.adapters.providers.connections.common import (
+            SyncResult,
+        )
+
+        claimed: list[str] = []
+
+        async def _connect(_db: object, *, setup_token: str, **_: object) -> SyncResult:
+            claimed.append(setup_token)
+            return SyncResult(connection_id=1, accounts=3, added=4)
+
+        monkeypatch.setattr(connections, "connect_simplefin", _connect)
+
+        finished = client.post(
+            "/settings/connect/simplefin/complete", data={"token": "aGVsbG8="}
+        )
+
+        assert claimed == ["aGVsbG8="]
+        assert "4" in triggers(finished)["toast"]["text"]
+        one(finished.text, "#connections[hx-swap-oob]")
+
+    def test_a_card_names_its_provider_as_the_provider_does(self) -> None:
+        """ "SimpleFIN", not the stored key title-cased into "Simplefin"."""
+        from types import SimpleNamespace
+
+        from app.components.web_frontend.routes.finance.settings import _card
+
+        connection = SimpleNamespace(
+            id=1,
+            provider="simplefin",
+            label=None,
+            environment="sandbox",
+            status="healthy",
+            status_detail=None,
+            last_successful_sync_at=None,
+        )
+
+        card = _card(connection)
+
+        assert (card["provider"], card["label"]) == ("SimpleFIN", "SimpleFIN")
+
+    def test_a_bad_token_says_why_and_keeps_the_form(
+        self, client: TestClient, providers: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.finance.adapters.providers import connections
+        from app.services.finance.adapters.providers.simplefin import SimpleFINError
+
+        async def _connect(*_a: object, **_k: object) -> None:
+            raise SimpleFINError(
+                "invalid_token", "That is not a SimpleFIN setup token."
+            )
+
+        monkeypatch.setattr(connections, "connect_simplefin", _connect)
+
+        refused = client.post(
+            "/settings/connect/simplefin/complete", data={"token": "nope"}
+        )
+
+        assert refused.status_code == 422
+        assert "That is not a SimpleFIN setup token." in refused.text
+        assert "invalid_token" not in refused.text  # the reason, not the code
+        one(refused.text, "form[hx-post='/settings/connect/simplefin/complete']")
 
     def test_connecting_is_a_link_out_and_a_poller(
         self, client: TestClient, providers: None, monkeypatch: pytest.MonkeyPatch

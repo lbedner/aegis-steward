@@ -1,9 +1,8 @@
-"""Provider-agnostic verbs: disconnect one, sync all of them.
+"""Provider-agnostic verbs: disconnect one, sync one, sync them all.
 
-The only module that knows both providers exist. Everything here
-dispatches on ``connection.provider`` and hands off - which is why the
-per-provider modules never import each other, and why adding a third
-aggregator touches this file and nothing else in the package.
+The verbs dispatch on ``ADAPTERS`` - one ``ProviderAdapter`` per
+aggregator, each declared beside its own sync package - so none of them
+names a provider, and adding one is a new adapter in that table.
 
 ``_sync_isolated`` is the reason a batch sync is safe: one dead
 connection returns ``None`` instead of taking the other accounts' data
@@ -12,39 +11,41 @@ down with it.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 import logging
+from typing import Any
 
-from cryptography.fernet import InvalidToken
-import httpx
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.clock import utcnow
-from app.core.encryption import decrypt_secret
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections import (
     plaid_sync,
+    simplefin_sync,
     snaptrade_sync,
 )
 from app.services.finance.adapters.providers.connections.common import (
-    _ACCESS_TOKEN_CONTEXT,
-    _SNAPTRADE_SECRET_CONTEXT,
+    ProviderAdapter,
+    Revoke,
     SyncResult,
     _recompute_net_worth,
     get_connection,
-    list_plaid_connections,
     list_provider_connections,
     record_run,
 )
-from app.services.finance.adapters.providers.plaid import PlaidClient, PlaidError
-from app.services.finance.adapters.providers.snaptrade import (
-    SnapTradeClient,
-    SnapTradeError,
-)
-from app.services.finance.constants import Provider
 from app.services.finance.models import FinanceConnection
 
 logger = logging.getLogger(__name__)
+
+ADAPTERS: dict[str, ProviderAdapter] = {
+    adapter.provider: adapter
+    for adapter in (plaid_sync.ADAPTER, snaptrade_sync.ADAPTER, simplefin_sync.ADAPTER)
+}
+
+
+def _client(adapter: ProviderAdapter, clients: Mapping[str, Any] | None) -> Any:
+    """The client a caller injected for this provider, else a new one."""
+    return (clients or {}).get(adapter.provider) or adapter.new_client()
 
 
 async def disconnect_connection(
@@ -52,9 +53,8 @@ async def disconnect_connection(
     connection_id: int,
     *,
     owner_user_id: int | None = None,
-    client: PlaidClient | None = None,
-    snaptrade_client: SnapTradeClient | None = None,
-) -> tuple[bool, Callable[[], Awaitable[None]] | None]:
+    clients: Mapping[str, Any] | None = None,
+) -> tuple[bool, Revoke | None]:
     """Disconnect a connection: soft-delete it and every account under it
     right away, and return a best-effort provider revoke for the caller to
     run AFTER responding (FastAPI ``BackgroundTasks``). The provider round
@@ -63,89 +63,18 @@ async def disconnect_connection(
 
     Returns ``(removed, revoke)``: ``removed`` is False when the connection
     doesn't exist for this owner; ``revoke`` is None when there is nothing
-    to revoke remotely. The revoke callable never raises — provider errors
-    (already-invalid credential, unreachable API) are logged and swallowed,
-    since the local teardown has already happened.
+    to revoke remotely. The revoke callable never raises (``best_effort``).
     """
     connection = await get_connection(db, connection_id, owner_user_id=owner_user_id)
     if connection is None:
         return False, None
 
-    revoke: Callable[[], Awaitable[None]] | None = None
-    if connection.provider == Provider.SNAPTRADE:
-        if connection.access_token_encrypted and connection.provider_item_id:
-            # A corrupted/rekeyed ciphertext must never block the local
-            # teardown - there is simply nothing usable to revoke remotely.
-            try:
-                user_secret = decrypt_secret(
-                    connection.access_token_encrypted,
-                    context=_SNAPTRADE_SECRET_CONTEXT,
-                )
-            except InvalidToken as exc:
-                logger.warning(
-                    "Stored SnapTrade secret for connection %s is "
-                    "undecryptable; skipping provider revoke: %s",
-                    connection.id,
-                    exc,
-                )
-                user_secret = None
-            if user_secret is not None:
-                secret = user_secret
-                authorization_id = connection.provider_item_id
-                conn_id = connection.id
-                conn_owner_id = connection.owner_user_id
-
-                async def _revoke_snaptrade() -> None:
-                    try:
-                        st_client = snaptrade_client or SnapTradeClient()
-                        await st_client.remove_authorization(
-                            ""
-                            if st_client.is_personal
-                            else snaptrade_sync._snaptrade_user_id(conn_owner_id),
-                            secret,
-                            authorization_id,
-                        )
-                    except (SnapTradeError, httpx.HTTPError) as exc:
-                        logger.warning(
-                            "SnapTrade revoke failed for connection %s (already "
-                            "torn down locally): %s",
-                            conn_id,
-                            exc,
-                        )
-
-                revoke = _revoke_snaptrade
-    elif connection.access_token_encrypted:
-        try:
-            access_token = decrypt_secret(
-                connection.access_token_encrypted, context=_ACCESS_TOKEN_CONTEXT
-            )
-        except InvalidToken as exc:
-            logger.warning(
-                "Stored Plaid token for connection %s is undecryptable; "
-                "skipping provider revoke: %s",
-                connection.id,
-                exc,
-            )
-            access_token = None
-        if access_token is not None:
-            token = access_token
-            plaid_conn_id = connection.id
-
-            async def _revoke_plaid() -> None:
-                try:
-                    await (client or PlaidClient()).remove_item(token)
-                except (PlaidError, httpx.HTTPError) as exc:
-                    # already-invalid token (PlaidError) or Plaid unreachable
-                    # (timeout/connect error from httpx) — the local teardown
-                    # already happened, so just log it.
-                    logger.warning(
-                        "Plaid revoke failed for connection %s (already torn "
-                        "down locally): %s",
-                        plaid_conn_id,
-                        exc,
-                    )
-
-            revoke = _revoke_plaid
+    adapter = ADAPTERS.get(str(connection.provider))
+    revoke = (
+        adapter.revoke(connection, lambda: _client(adapter, clients))
+        if adapter is not None
+        else None
+    )
 
     now = utcnow()
     accounts = await queries.live_accounts_for_connection(db, connection_id)
@@ -216,53 +145,35 @@ async def sync_owner_connections(
     db: AsyncSession,
     *,
     owner_user_id: int | None = None,
-    client: PlaidClient | None = None,
-    snaptrade_client: SnapTradeClient | None = None,
+    clients: Mapping[str, Any] | None = None,
 ) -> list[SyncResult]:
     """Sync every healthy provider connection for an owner.
 
-    Dispatches on ``connection.provider``. Provider clients are only
-    constructed when a connection of that provider exists, so a
-    single-provider deployment never touches the other's credentials/SDK.
-    Connections flagged ``needs_user_action`` are skipped (re-auth spam helps
-    nobody); per-connection failures are isolated in ``_sync_isolated`` and
-    absent from the returned results.
+    One read lists the owner's connections, grouped by provider. A
+    provider's client is only built when it has a row to sync, so a
+    single-provider deployment never touches another's credentials/SDK.
+    Connections flagged ``needs_user_action`` are skipped (re-auth spam
+    helps nobody); per-connection failures are isolated in
+    ``_sync_isolated`` and absent from the returned results.
     """
+    rows = await list_provider_connections(db, owner_user_id=owner_user_id)
     results: list[SyncResult] = []
-    plaid_connections = [
-        c
-        for c in await list_plaid_connections(db, owner_user_id=owner_user_id)
-        if not c.needs_user_action
-    ]
-    if plaid_connections:
-        client = client or PlaidClient()
-        for connection in plaid_connections:
+    for adapter in ADAPTERS.values():
+        syncable = [
+            c
+            for c in rows
+            if c.provider == adapter.provider
+            and adapter.ready(c)
+            and not c.needs_user_action
+        ]
+        if not syncable:
+            continue
+        client = _client(adapter, clients)
+        for connection in syncable:
             result = await _sync_isolated(
                 db,
                 connection,
-                lambda c=connection: plaid_sync.sync_plaid_connection(
-                    db, c, client=client
-                ),
-            )
-            if result is not None:
-                results.append(result)
-    snaptrade_connections = [
-        c
-        for c in await list_provider_connections(
-            db, provider=Provider.SNAPTRADE, owner_user_id=owner_user_id
-        )
-        # Rows still waiting on the portal (no authorization yet) can't sync.
-        if c.provider_item_id is not None and not c.needs_user_action
-    ]
-    if snaptrade_connections:
-        snaptrade_client = snaptrade_client or SnapTradeClient()
-        for connection in snaptrade_connections:
-            result = await _sync_isolated(
-                db,
-                connection,
-                lambda c=connection: snaptrade_sync.sync_snaptrade_connection(
-                    db, c, client=snaptrade_client
-                ),
+                lambda c=connection: adapter.sync(db, c, client=client),
             )
             if result is not None:
                 results.append(result)
@@ -275,10 +186,9 @@ async def sync_one_connection(
     connection_id: int,
     *,
     owner_user_id: int | None = None,
-    client: PlaidClient | None = None,
-    snaptrade_client: SnapTradeClient | None = None,
+    clients: Mapping[str, Any] | None = None,
 ) -> SyncResult | None:
-    """Targeted sync of a single connection — the CLI debugging tool.
+    """Targeted sync of a single connection - the CLI debugging tool.
 
     Unlike the all-connections path this neither skips ``needs_user_action``
     nor swallows provider errors: when debugging one bank, the caller wants
@@ -288,18 +198,9 @@ async def sync_one_connection(
     connection = await get_connection(db, connection_id, owner_user_id=owner_user_id)
     if connection is None:
         return None
-    if connection.provider == Provider.PLAID:
-        result = await plaid_sync.sync_plaid_connection(
-            db, connection, client=client or PlaidClient()
-        )
-    elif (
-        connection.provider == Provider.SNAPTRADE
-        and connection.provider_item_id is not None
-    ):
-        result = await snaptrade_sync.sync_snaptrade_connection(
-            db, connection, client=snaptrade_client or SnapTradeClient()
-        )
-    else:
+    adapter = ADAPTERS.get(str(connection.provider))
+    if adapter is None or not adapter.ready(connection):
         return None
+    result = await adapter.sync(db, connection, client=_client(adapter, clients))
     await _recompute_net_worth(db, connection.owner_user_id, [result])
     return result
