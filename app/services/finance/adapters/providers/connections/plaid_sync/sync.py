@@ -69,12 +69,23 @@ async def sync_plaid_connection(
 
     accounts, item = await client.get_accounts(access_token)
     # Label the connection with the real institution name once, so the UI shows
-    # "Chase" rather than "Plaid · Sandbox".
-    if not connection.label and item.get("institution_id"):
+    # "Chase" rather than "Plaid · Sandbox", and point it at the bank's
+    # institution, which its accounts carry: a kept account is adopted only
+    # by a re-link at the same bank.
+    plaid_institution = item.get("institution_id")
+    if plaid_institution and not (connection.label and connection.institution_id):
         try:
-            connection.label = await client.get_institution_name(item["institution_id"])
+            name = await client.get_institution_name(plaid_institution)
         except PlaidError:
-            pass
+            name = None
+        connection.label = connection.label or name
+        if name and connection.institution_id is None:
+            institution = await service.get_or_create_institution(
+                name=name,
+                provider=Provider.PLAID,
+                provider_institution_id=plaid_institution,
+            )
+            connection.institution_id = institution.id
     account_by_plaid_id = await upsert_accounts(
         db, service, connection, Provider.PLAID, plaid_accounts(accounts)
     )

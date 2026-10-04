@@ -34,8 +34,10 @@ class FinanceAccount(SQLModel, table=True):
 
     The provider-reported balance is authoritative. ``account_type`` and
     ``classification`` are normalized and STORED so net-worth signing is a
-    simple column read; Plaid ``type``/``subtype`` are kept raw. A NULL
-    ``connection_id`` marks a manually-tracked asset (house, car, crypto).
+    simple column read; Plaid ``type``/``subtype`` are kept raw.
+    ``is_manual`` marks a manually-tracked asset (house, car, crypto); a
+    provider account with a NULL ``connection_id`` was kept by a
+    disconnect and stopped updating.
     """
 
     __tablename__ = "finance_account"

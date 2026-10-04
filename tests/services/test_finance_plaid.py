@@ -188,7 +188,9 @@ class FakePlaidClient:
         investment_securities=None,
         public_tokens=None,
         liabilities=None,
+        institution=("ins_109508", "First Platypus Bank"),
     ):
+        self._institution = institution
         self._accounts = accounts
         self._added = added
         self._modified = modified or []
@@ -239,13 +241,13 @@ class FakePlaidClient:
         return f"access-{public_token}", f"item-{public_token}"
 
     async def get_accounts(self, _access_token):
-        item = {"institution_id": "ins_109508"}
+        item = {"institution_id": self._institution[0]}
         if self._liabilities is not None:
             item["available_products"] = ["liabilities"]
         return self._accounts, item
 
     async def get_institution_name(self, _institution_id):
-        return "First Platypus Bank"
+        return self._institution[1]
 
     async def sync_transactions(self, _access_token, cursor=None):
         give = self._always or cursor is None
@@ -273,6 +275,53 @@ class FakePlaidClient:
             "securities": self._investment_securities,
             "total_investment_transactions": len(self._investment_txns),
         }
+
+
+async def _connect(db: AsyncSession, item: str = "item-1", token: str = "tok"):
+    return await connections.create_plaid_connection(
+        db, owner_user_id=1, access_token=token, item_id=item
+    )
+
+
+async def _link(
+    db: AsyncSession, item: str, accounts: list[dict], txns: list[dict], **client
+):
+    """A bank linked and synced once."""
+    connection = await _connect(db, item, token=item)
+    await connections.sync_plaid_connection(
+        db, connection, client=FakePlaidClient(accounts, txns, **client)
+    )
+    return connection
+
+
+async def _unlink(db: AsyncSession, connection, client=None):
+    return await connections.disconnect_connection(
+        db,
+        connection.id,
+        owner_user_id=1,
+        clients={Provider.PLAID: client or FakePlaidClient([], [])},
+    )
+
+
+def _relinked(
+    accounts: list[dict], txns: list[dict], *, prefix: str = ""
+) -> tuple[list[dict], list[dict]]:
+    """The same accounts and rows as a re-link reports them: fresh Plaid
+    ids, and names the bank may have changed (``prefix``)."""
+    return (
+        [
+            {**a, "account_id": a["account_id"] + "_v2", "name": prefix + a["name"]}
+            for a in accounts
+        ],
+        [
+            {
+                **t,
+                "transaction_id": t["transaction_id"] + "_v2",
+                "account_id": t["account_id"] + "_v2",
+            }
+            for t in txns
+        ],
+    )
 
 
 class TestPlaidConnection:
@@ -494,28 +543,17 @@ class TestPlaidConnection:
         trades = await svc.list_trades(owner_user_id=1, account_id=ira.id)
         assert len(trades) == 2  # ...but deduped by investment_transaction_id
 
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
     @pytest.mark.asyncio
     async def test_relink_same_bank_dedups_accounts(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         """Re-linking the same institution (new Item, fresh account_ids) must
         update the existing accounts, not duplicate them."""
-
-        conn_a = await connections.create_plaid_connection(
-            async_db_session, owner_user_id=1, access_token="a", item_id="item-a"
-        )
-        await connections.sync_plaid_connection(
-            async_db_session, conn_a, client=FakePlaidClient(_ACCOUNTS, [])
-        )
-
+        await _link(async_db_session, "item-a", _ACCOUNTS, [])
         # Same accounts (same name + mask), brand-new account_ids.
-        relinked = [{**a, "account_id": a["account_id"] + "_v2"} for a in _ACCOUNTS]
-        conn_b = await connections.create_plaid_connection(
-            async_db_session, owner_user_id=1, access_token="b", item_id="item-b"
-        )
-        await connections.sync_plaid_connection(
-            async_db_session, conn_b, client=FakePlaidClient(relinked, [])
-        )
+        relinked, _ = _relinked(_ACCOUNTS, [])
+        conn_b = await _link(async_db_session, "item-b", relinked, [])
 
         accounts, _ = await svc.list_accounts(owner_user_id=1)
         plaid = [a for a in accounts if a.provider == "plaid"]
@@ -526,40 +564,25 @@ class TestPlaidConnection:
         assert checking.connection_id == conn_b.id
         assert checking.provider_account_id == "acc_check_v2"
 
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
     @pytest.mark.asyncio
     async def test_relink_dedups_transactions_by_content(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         """Re-linking regenerates transaction_ids too, so LANE-1 can't catch
         them — the content hash (LANE-2) must, or every transaction doubles."""
-
-        conn_a = await connections.create_plaid_connection(
-            async_db_session, owner_user_id=1, access_token="a", item_id="item-a"
-        )
+        conn_a = await _connect(async_db_session, "item-a", "a")
         first = await connections.sync_plaid_connection(
             async_db_session, conn_a, client=FakePlaidClient(_ACCOUNTS, _TXNS)
         )
         assert first.added == 2
 
         # Re-link: same accounts AND same transactions, but fresh Plaid ids.
-        relinked_accounts = [
-            {**a, "account_id": a["account_id"] + "_v2"} for a in _ACCOUNTS
-        ]
-        relinked_txns = [
-            {
-                **t,
-                "transaction_id": t["transaction_id"] + "_v2",
-                "account_id": t["account_id"] + "_v2",
-            }
-            for t in _TXNS
-        ]
-        conn_b = await connections.create_plaid_connection(
-            async_db_session, owner_user_id=1, access_token="b", item_id="item-b"
-        )
+        conn_b = await _connect(async_db_session, "item-b", "b")
         second = await connections.sync_plaid_connection(
             async_db_session,
             conn_b,
-            client=FakePlaidClient(relinked_accounts, relinked_txns),
+            client=FakePlaidClient(*_relinked(_ACCOUNTS, _TXNS)),
         )
         assert second.added == 0  # recognized by content
         assert second.updated == 2  # reconciled, not re-inserted
@@ -575,16 +598,12 @@ class TestPlaidConnection:
         but its accounts stay, with every row, unlinked: the dialog says
         they "stop updating", not that they go (#307)."""
         client = FakePlaidClient(_ACCOUNTS, _TXNS)
-        conn = await connections.create_plaid_connection(
-            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
-        )
+        conn = await _connect(async_db_session)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         accounts, _ = await svc.list_accounts(owner_user_id=1)
         assert len(accounts) == 4
 
-        ok, revoke = await connections.disconnect_connection(
-            async_db_session, conn.id, owner_user_id=1, clients={Provider.PLAID: client}
-        )
+        ok, revoke = await _unlink(async_db_session, conn, client)
         assert ok is True
         # Local teardown never waits on the provider round trip - the caller
         # runs the returned revoke AFTER responding (BackgroundTasks).
@@ -602,37 +621,135 @@ class TestPlaidConnection:
         _txns, total = await svc.list_transactions(owner_user_id=1)
         assert total == 2
 
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("renamed", [None, "Everyday "], ids=["same", "renamed"])
     async def test_reconnecting_picks_the_kept_accounts_back_up(
-        self, svc: FinanceService, async_db_session: AsyncSession
+        self, svc: FinanceService, async_db_session: AsyncSession, renamed: str | None
     ) -> None:
         """The same bank linked again lands on the accounts it left, not a
-        second copy of each beside the first."""
-        client = FakePlaidClient(_ACCOUNTS, _TXNS)
-        first = await connections.create_plaid_connection(
-            async_db_session, owner_user_id=1, access_token="tok", item_id="item-1"
-        )
-        await connections.sync_plaid_connection(async_db_session, first, client=client)
+        second copy of each beside the first - with fresh ids and new names
+        too (some banks rename across a re-link, #308): a kept account of
+        the same kind and last four at that bank is the one it is."""
+        first = await _link(async_db_session, "item-1", _ACCOUNTS, _TXNS)
         before = {a.id for a in (await svc.list_accounts(owner_user_id=1))[0]}
-        await connections.disconnect_connection(
-            async_db_session,
-            first.id,
-            owner_user_id=1,
-            clients={Provider.PLAID: client},
-        )
+        await _unlink(async_db_session, first)
 
-        again = await connections.create_plaid_connection(
-            async_db_session, owner_user_id=1, access_token="tok2", item_id="item-2"
+        relink = (
+            (_ACCOUNTS, _TXNS)
+            if renamed is None
+            else _relinked(_ACCOUNTS, _TXNS, prefix=renamed)
         )
-        await connections.sync_plaid_connection(
-            async_db_session, again, client=FakePlaidClient(_ACCOUNTS, _TXNS)
-        )
+        again = await _link(async_db_session, "item-2", *relink)
 
         accounts, _ = await svc.list_accounts(owner_user_id=1)
         assert {a.id for a in accounts} == before
         assert {a.connection_id for a in accounts} == {again.id}
         _txns, total = await svc.list_transactions(owner_user_id=1)
         assert total == 2
+
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
+    @pytest.mark.asyncio
+    async def test_a_kept_account_at_another_bank_is_not_adopted(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Kind and last four are not enough across banks: a new bank's
+        checking ending 0000 is not the kept one at the bank you left."""
+        first = await _link(async_db_session, "item-1", [_ACCOUNTS[0]], [])
+        await _unlink(async_db_session, first)
+
+        (theirs,), _ = _relinked([_ACCOUNTS[0]], [], prefix="Everyday ")
+        again = await _link(
+            async_db_session,
+            "item-2",
+            [theirs],
+            [],
+            institution=("ins_2", "Tattersall Federal Credit Union"),
+        )
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert sorted((a.name, a.connection_id) for a in accounts) == [
+            ("Everyday Plaid Checking", again.id),
+            ("Plaid Checking", None),
+        ]
+
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
+    @pytest.mark.asyncio
+    async def test_two_kept_accounts_that_fit_are_not_guessed_between(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Two kept checking accounts ending 0000, and the bank's new name
+        fits neither: joining the wrong one would mix two accounts' history,
+        so the new link gets its own account and both stay as they were."""
+        twin = {**_ACCOUNTS[0], "account_id": "acc_check_2", "name": "Joint Checking"}
+        first = await _link(async_db_session, "item-1", [_ACCOUNTS[0], twin], [])
+        await _unlink(async_db_session, first)
+
+        renamed = {**_ACCOUNTS[0], "account_id": "acc_new", "name": "Checking"}
+        again = await _link(async_db_session, "item-2", [renamed], [])
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert sorted((a.name, a.connection_id) for a in accounts) == [
+            ("Checking", again.id),
+            ("Joint Checking", None),
+            ("Plaid Checking", None),
+        ]
+
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
+    @pytest.mark.asyncio
+    async def test_a_name_match_is_taken_before_a_kept_account_is_guessed(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Two kept checking accounts ending 0000; the bank reports a renamed
+        one first, then one by its old name. The name settles the second,
+        which leaves one kept account for the first, whatever the order."""
+        twin = {**_ACCOUNTS[0], "account_id": "acc_check_2", "name": "Joint Checking"}
+        first = await _link(async_db_session, "item-1", [_ACCOUNTS[0], twin], [])
+        before = {a.name: a.id for a in (await svc.list_accounts(owner_user_id=1))[0]}
+        await _unlink(async_db_session, first)
+
+        renamed = {**_ACCOUNTS[0], "account_id": "acc_new", "name": "Checking"}
+        same = {**twin, "account_id": "acc_twin_new"}
+        await _link(async_db_session, "item-2", [renamed, same], [])
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert {a.name: a.id for a in accounts} == {
+            "Checking": before["Plaid Checking"],
+            "Joint Checking": before["Joint Checking"],
+        }
+
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
+    @pytest.mark.asyncio
+    async def test_a_new_link_never_takes_an_account_another_bank_feeds(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Only a kept (unlinked) account is adopted on kind and last four: a
+        checking account ending 0000 on another live link stays its own."""
+        other = await _link(async_db_session, "item-1", [_ACCOUNTS[0]], [])
+
+        theirs = {**_ACCOUNTS[0], "account_id": "acc_new", "name": "Checking"}
+        again = await _link(async_db_session, "item-2", [theirs], [])
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert sorted((a.name, a.connection_id) for a in accounts) == [
+            ("Checking", again.id),
+            ("Plaid Checking", other.id),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_one_sync_never_lands_two_accounts_on_one_row(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """Two accounts reported with the same name and last four are two
+        accounts: the second never overwrites the row the first was given."""
+        twin = {**_ACCOUNTS[0], "account_id": "acc_check_2"}
+        await _link(async_db_session, "item-1", [_ACCOUNTS[0], twin], [])
+
+        accounts, _ = await svc.list_accounts(owner_user_id=1)
+        assert sorted(a.provider_account_id for a in accounts) == [
+            "acc_check",
+            "acc_check_2",
+        ]
 
     @pytest.mark.asyncio
     async def test_disconnect_missing_connection_returns_false(
@@ -829,11 +946,6 @@ class TestPlaidPendingAndMutations:
     """FIN-20 mutation invariants: pending->posted collapse, modified[] category
     precedence, and removed[] tombstones."""
 
-    async def _connect(self, db: AsyncSession):
-        return await connections.create_plaid_connection(
-            db, owner_user_id=1, access_token="tok", item_id="item-1"
-        )
-
     async def _plaid_rows(self, db: AsyncSession) -> list[FinanceTransaction]:
         return list(
             (
@@ -849,7 +961,7 @@ class TestPlaidPendingAndMutations:
     async def test_pending_transaction_stored_as_pending(
         self, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         await connections.sync_plaid_connection(
             async_db_session, conn, client=FakePlaidClient(_ACCOUNTS, [_PENDING_TXN])
         )
@@ -862,7 +974,7 @@ class TestPlaidPendingAndMutations:
     async def test_pending_to_posted_collapses_to_one_visible_row(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient(_ACCOUNTS, [_PENDING_TXN], always=True)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         # Next sync generation: the posted row replaces the pre-auth.
@@ -885,7 +997,7 @@ class TestPlaidPendingAndMutations:
     async def test_pending_and_posted_in_same_sync_collapse(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         await connections.sync_plaid_connection(
             async_db_session,
             conn,
@@ -898,7 +1010,7 @@ class TestPlaidPendingAndMutations:
     async def test_phantom_preauth_removed_tombstones_pending(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient(_ACCOUNTS, [_PENDING_TXN], always=True)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         # The pre-auth never posts; Plaid retracts it via removed[].
@@ -925,7 +1037,7 @@ class TestPlaidPendingAndMutations:
     async def test_modified_preserves_user_category(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient(_ACCOUNTS, _TXNS, always=True)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         rows = {r.external_id: r for r in await self._plaid_rows(async_db_session)}
@@ -950,7 +1062,7 @@ class TestPlaidPendingAndMutations:
     async def test_modified_refreshes_provider_category_when_not_user_set(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient(_ACCOUNTS, [dict(_TXNS[0])], always=True)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         # Plaid re-categorizes the merchant in a later sync generation.
@@ -967,7 +1079,7 @@ class TestPlaidPendingAndMutations:
     async def test_removed_is_scoped_to_the_named_account(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient(_ACCOUNTS, [], always=True)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         accounts, _ = await svc.list_accounts(owner_user_id=1)
@@ -1006,16 +1118,11 @@ class TestPlaidWebhookLifecycle:
     relink issues an update-mode Hosted Link, and a successful sync clears the
     needs-attention flag."""
 
-    async def _connect(self, db: AsyncSession):
-        return await connections.create_plaid_connection(
-            db, owner_user_id=1, access_token="tok", item_id="item-1"
-        )
-
     @pytest.mark.asyncio
     async def test_item_login_required_flags_the_connection(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         result = await connections.process_plaid_webhook(
             async_db_session,
             {
@@ -1042,7 +1149,7 @@ class TestPlaidWebhookLifecycle:
     async def test_item_pending_expiration_stores_consent_deadline(
         self, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         result = await connections.process_plaid_webhook(
             async_db_session,
             {
@@ -1064,7 +1171,7 @@ class TestPlaidWebhookLifecycle:
     async def test_item_user_permission_revoked(
         self, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         result = await connections.process_plaid_webhook(
             async_db_session,
             {
@@ -1082,7 +1189,7 @@ class TestPlaidWebhookLifecycle:
     async def test_redelivered_webhook_is_a_noop(
         self, async_db_session: AsyncSession
     ) -> None:
-        await self._connect(async_db_session)
+        await _connect(async_db_session)
         payload = {
             "webhook_type": "TRANSACTIONS",
             "webhook_code": "SYNC_UPDATES_AVAILABLE",
@@ -1104,7 +1211,7 @@ class TestPlaidWebhookLifecycle:
     async def test_successful_sync_clears_needs_user_action(
         self, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         conn.status = "login_required"
         conn.needs_user_action = True
         async_db_session.add(conn)
@@ -1121,7 +1228,7 @@ class TestPlaidWebhookLifecycle:
     async def test_relink_issues_update_mode_hosted_link(
         self, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient([], [])
         session = await connections.relink_connection(
             async_db_session, conn.id, owner_user_id=1, client=client
@@ -1140,7 +1247,7 @@ class TestPlaidWebhookLifecycle:
     async def test_relink_unknown_or_foreign_connection_returns_none(
         self, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient([], [])
         assert (
             await connections.relink_connection(
@@ -1275,6 +1382,7 @@ class TestSyncFailureIsolation:
     """FIN-22: one failing bank never kills the others, failures are marked on
     the connection, and needs-user-action connections are skipped."""
 
+    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
     @pytest.mark.asyncio
     async def test_one_failing_connection_does_not_stop_the_rest(
         self, svc: FinanceService, async_db_session: AsyncSession
@@ -1556,11 +1664,6 @@ class TestPlaidSyncAudit:
     ``finance_import_batch`` row (cursors before/after), and a mid-sync failure
     never advances the cursor past pages that were not applied."""
 
-    async def _connect(self, db: AsyncSession):
-        return await connections.create_plaid_connection(
-            db, owner_user_id=1, access_token="tok", item_id="item-1"
-        )
-
     async def _batches(self, db: AsyncSession) -> list[FinanceImportBatch]:
         return list(
             (
@@ -1576,7 +1679,7 @@ class TestPlaidSyncAudit:
     async def test_each_sync_writes_an_audit_batch(
         self, async_db_session: AsyncSession
     ) -> None:
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         client = FakePlaidClient(_ACCOUNTS, _TXNS, always=True)
         await connections.sync_plaid_connection(async_db_session, conn, client=client)
         batches = await self._batches(async_db_session)
@@ -1625,7 +1728,7 @@ class TestPlaidSyncAudit:
                     "has_more": True,
                 }
 
-        conn = await self._connect(async_db_session)
+        conn = await _connect(async_db_session)
         with pytest.raises(PlaidError):
             await connections.sync_plaid_connection(
                 async_db_session,

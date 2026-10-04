@@ -66,6 +66,13 @@ class ProviderTransaction:
     logo_url: str | None = None
 
 
+def _same_owner(row: FinanceAccount, connection: FinanceConnection) -> bool:
+    return (
+        connection.owner_user_id is None
+        or row.owner_user_id == connection.owner_user_id
+    )
+
+
 def _find_account(
     candidates: list[FinanceAccount],
     connection: FinanceConnection,
@@ -87,13 +94,33 @@ def _find_account(
             row.deleted_at is None
             and row.name == account.name
             and row.mask == account.mask
-            and (
-                connection.owner_user_id is None
-                or row.owner_user_id == connection.owner_user_id
-            )
+            and _same_owner(row, connection)
         ):
             return row
     return None
+
+
+def _find_kept(
+    candidates: list[FinanceAccount],
+    connection: FinanceConnection,
+    account: ProviderAccount,
+) -> FinanceAccount | None:
+    """The one account a disconnect kept at this connection's bank with the
+    same kind and mask: a bank can rename an account across a re-link."""
+    if not (account.mask and connection.institution_id):
+        return None
+    kept = [
+        row
+        for row in candidates
+        if row.deleted_at is None
+        and row.connection_id is None
+        and row.institution_id == connection.institution_id
+        and row.mask == account.mask
+        and row.account_type == account.account_type
+        and _same_owner(row, connection)
+    ]
+    # Two that fit are not guessed between: the wrong one mixes histories.
+    return kept[0] if len(kept) == 1 else None
 
 
 async def upsert_accounts(
@@ -105,8 +132,8 @@ async def upsert_accounts(
 ) -> dict[str, int]:
     """Upsert one FinanceAccount per provider account; return
     ``{provider_account_id: account_id}``."""
-    upserted: list[tuple[str, FinanceAccount]] = []
-    candidates = await queries.provider_accounts(
+    accounts = list({a.provider_account_id: a for a in accounts}.values())
+    pool = await queries.provider_accounts(
         db,
         provider=provider,
         owner_user_id=connection.owner_user_id,
@@ -117,9 +144,21 @@ async def upsert_accounts(
             if i
         ],
     )
+    # Each match leaves the pool: one row is never given two accounts. A
+    # kept account is matched last, once ids and names have taken theirs.
+    found: list[FinanceAccount | None] = []
     for reported in accounts:
+        match = _find_account(pool, connection, reported)
+        pool = [row for row in pool if row is not match]
+        found.append(match)
+    for index, reported in enumerate(accounts):
+        if found[index] is None and (match := _find_kept(pool, connection, reported)):
+            pool = [row for row in pool if row is not match]
+            found[index] = match
+
+    upserted: dict[str, FinanceAccount] = {}
+    for reported, account in zip(accounts, found, strict=True):
         await service.get_or_create_currency(reported.currency)
-        account = _find_account(candidates, connection, reported)
         if account is None:
             account = FinanceAccount(
                 owner_user_id=connection.owner_user_id,
@@ -130,8 +169,10 @@ async def upsert_accounts(
                 is_manual=False,
             )
         # (Re)point at this connection and refresh what the provider says.
+        # An institution someone picked for the account outranks the
+        # provider's.
         account.connection_id = connection.id
-        account.institution_id = connection.institution_id or account.institution_id
+        account.institution_id = account.institution_id or connection.institution_id
         account.provider_account_id = reported.provider_account_id
         account.persistent_account_id = reported.persistent_account_id
         account.currency = reported.currency
@@ -142,11 +183,9 @@ async def upsert_accounts(
         account.balance_as_of = utcnow()
         account.deleted_at = None
         db.add(account)
-        if account not in candidates:
-            candidates.append(account)
-        upserted.append((reported.provider_account_id, account))
+        upserted[reported.provider_account_id] = account
     await db.flush()
-    return {provider_id: account.id for provider_id, account in upserted}
+    return {provider_id: account.id for provider_id, account in upserted.items()}
 
 
 async def apply_transactions(
