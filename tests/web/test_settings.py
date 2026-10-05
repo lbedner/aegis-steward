@@ -88,6 +88,19 @@ async def held(async_db_session, connection: int, ledger: Ledger) -> int:
 
 
 @pytest.fixture
+async def fed(async_db_session, connection: int, ledger: Ledger) -> int:
+    """The connection, feeding the ledger's checking account."""
+    from app.services.finance.models import FinanceAccount
+
+    account = await async_db_session.get(FinanceAccount, ledger.checking)
+    assert account is not None
+    account.connection_id = connection
+    async_db_session.add(account)
+    await async_db_session.commit()
+    return connection
+
+
+@pytest.fixture
 def queued(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
     """The jobs a route handed the worker, with no Redis behind them."""
     jobs: list[tuple] = []
@@ -275,11 +288,13 @@ class TestConnections:
         assert "dialog:close" in triggers(response)
         none(client.get("/settings").text, f"#connection-{connection}")
 
+    @pytest.mark.queryspy(threshold=3)  # the dialog asks what the purge deletes
     async def test_disconnecting_can_take_its_data_permanently(
-        self, client: TestClient, hx: TestClient, connection: int
+        self, client: TestClient, hx: TestClient, fed: int
     ) -> None:
         """For a bank tried and not wanted (a demo): disconnect and delete
         its accounts and their history, once its name is typed back."""
+        connection = fed
         dialog = hx.get(f"/settings/connections/{connection}/remove").text
         form = one(
             dialog,
@@ -299,6 +314,33 @@ class TestConnections:
         assert "deleted" in triggers(gone)["toast"]["text"]
         none(client.get("/settings").text, f"#connection-{connection}")
         assert form is not None
+
+    def test_a_connection_that_brought_nothing_is_simply_removed(
+        self, hx: TestClient, connection: int
+    ) -> None:
+        """A connect left half done fed no account: nothing to keep, nothing
+        to delete, so no typed name either - just Remove."""
+        dialog = hx.get(f"/settings/connections/{connection}/remove").text
+
+        one(dialog, f'[hx-delete="/settings/connections/{connection}"]')
+        none(dialog, "form[data-purge]")
+        assert "stay" not in text(one(dialog, "p"))
+
+    async def test_history_left_by_a_removed_account_can_still_be_deleted(
+        self, hx: TestClient, fed: int, ledger: Ledger, async_db_session
+    ) -> None:
+        """Removing an account keeps its rows; the purge still reaches them,
+        so the dialog still offers it."""
+        from app.core.time import utcnow
+        from app.services.finance.models import FinanceAccount
+
+        account = await async_db_session.get(FinanceAccount, ledger.checking)
+        account.deleted_at = utcnow()
+        async_db_session.add(account)
+        await async_db_session.commit()
+
+        dialog = hx.get(f"/settings/connections/{fed}/remove").text
+        one(dialog, "form[data-purge]")
 
     async def test_disconnecting_takes_the_card_with_it(
         self, client: TestClient, connection: int
