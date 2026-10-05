@@ -673,14 +673,17 @@ class TestPlaidConnection:
             ("Plaid Checking", None),
         ]
 
-    @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
+    @pytest.mark.queryspy(threshold=4)  # two links, then the choice
     @pytest.mark.asyncio
-    async def test_two_kept_accounts_that_fit_are_not_guessed_between(
+    async def test_two_kept_accounts_that_fit_are_yours_to_choose(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         """Two kept checking accounts ending 0000, and the bank's new name
         fits neither: joining the wrong one would mix two accounts' history,
-        so the new link gets its own account and both stay as they were."""
+        and a new one beside them would fork it - so it waits for you to
+        say which (#377), both offered."""
+        from app.services.finance.adapters.providers.connections import placing
+
         twin = {**_ACCOUNTS[0], "account_id": "acc_check_2", "name": "Joint Checking"}
         first = await _link(async_db_session, "item-1", [_ACCOUNTS[0], twin], [])
         await _unlink(async_db_session, first)
@@ -690,10 +693,12 @@ class TestPlaidConnection:
 
         accounts, _ = await svc.list_accounts(owner_user_id=1)
         assert sorted((a.name, a.connection_id) for a in accounts) == [
-            ("Checking", again.id),
             ("Joint Checking", None),
             ("Plaid Checking", None),
         ]
+        ((held, offered),) = await placing.choices(async_db_session, again)
+        assert held["id"] == "acc_new"
+        assert sorted(a.name for a in offered) == ["Joint Checking", "Plaid Checking"]
 
     @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank
     @pytest.mark.asyncio

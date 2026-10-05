@@ -11,6 +11,7 @@ from typing import Any
 
 from app.services.finance.domains.ledger import (
     accounts,
+    merging,
     properties,
     subjects,
     valuations,
@@ -317,6 +318,27 @@ class AccountsMixin(FinanceServiceBase):
         return await accounts.purge_connection_accounts(
             self.db, connection_id, owner_user_id=owner_user_id
         )
+
+    async def merge_candidates(self, account: FinanceAccount) -> list[FinanceAccount]:
+        """The bank copies that could fold into ``account`` (#309)."""
+        return await merging.candidates(self.db, account)
+
+    async def merge_accounts(
+        self,
+        stays_id: int,
+        gone_id: int,
+        *,
+        owner_user_id: int | None = None,
+        preview: bool = False,
+    ) -> merging.Plan | None:
+        """Fold account ``gone_id`` into ``stays_id``, or with ``preview``
+        say what that would do. None when either is not the owner's."""
+        stays = await self.get_account(stays_id, owner_user_id=owner_user_id)
+        gone = await self.get_account(gone_id, owner_user_id=owner_user_id)
+        if stays is None or gone is None:
+            return None
+        run = merging.plan if preview else merging.merge
+        return await run(self.db, stays, gone)
 
     async def soft_delete_account(
         self, account_id: int, *, owner_user_id: int | None = None

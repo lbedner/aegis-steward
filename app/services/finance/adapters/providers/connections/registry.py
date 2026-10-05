@@ -33,6 +33,7 @@ from app.services.finance.adapters.providers.connections.common import (
     list_provider_connections,
     record_run,
 )
+from app.services.finance.domains.ledger import bank_link
 from app.services.finance.models import FinanceConnection
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ async def disconnect_connection(
     now = utcnow()
     accounts = await queries.live_accounts_for_connection(db, connection_id)
     for account in accounts:
-        account.connection_id = None
+        bank_link.unlink(account)
         db.add(account)
 
     connection.status = "revoked"
