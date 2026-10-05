@@ -100,3 +100,22 @@ def test_the_scheduler_is_off_the_quarter_core_that_throttled_it() -> None:
     # 231 throttles in 4,164 periods, running periodic jobs that touch
     # the same database and services the rest of the stack does.
     assert float(_limits("scheduler")["cpus"]) > 0.25
+
+
+# Under ``make serve`` the webserver runs twice over: uvicorn's reloader
+# holds an imported copy of the app beside the worker it restarts, and
+# two ``uv run`` wrappers sit above both - 636 MiB idle together of the
+# 768M production fits (2026-10-05). An OOM there kills the worker and
+# never the reloader, so the container neither exits nor restarts: it
+# holds the port and answers nothing, /health included, until reloaded
+# by hand. Production runs no reloader and keeps its own limit.
+MINIMUM_DEV_WEBSERVER_MEMORY_MB = 1536
+
+
+def test_the_dev_webserver_has_room_for_its_reloader() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.dev.yml").read_text()) or {}
+    spec = compose["services"]["webserver"]
+    memory = _megabytes(spec["deploy"]["resources"]["limits"]["memory"])
+    assert memory >= MINIMUM_DEV_WEBSERVER_MEMORY_MB
+    # No swap past the limit, as in production: a limit that swaps limps.
+    assert _megabytes(spec["memswap_limit"]) == memory
