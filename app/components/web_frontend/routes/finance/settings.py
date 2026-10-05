@@ -290,9 +290,22 @@ async def remove_form(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
+    from app.services.finance.domains.ledger.queries import (
+        account_ids_for_connection,
+    )
+
     card = await _connection_card(service, owner_user_id, connection_id)
+    # What the purge would delete: a connect left half done fed nothing,
+    # so there is nothing to keep and nothing to delete.
+    fed = await account_ids_for_connection(
+        service.db, connection_id, owner_user_id=owner_user_id
+    )
     return dialog(
-        request, "partials/settings/disconnect.html", connection=card, path=SECTION.path
+        request,
+        "partials/settings/disconnect.html",
+        connection=card,
+        fed=bool(fed),
+        path=SECTION.path,
     )
 
 
@@ -324,6 +337,7 @@ async def purge_connection(
             "partials/settings/disconnect.html",
             422,
             connection=card,
+            fed=True,  # only a connection that fed something offers this
             path=SECTION.path,
             purge_error=f"Type {card['label']} exactly to delete its data.",
         )
