@@ -92,7 +92,15 @@ class WorkerSettings:
 
     @staticmethod
     async def on_job_start(ctx: dict[str, Any]) -> None:
-        """Publish job.started event when a job begins processing."""
+        """Start the job on the model you picked, and publish job.started."""
+        # The selection is a database row, switched without a restart, and
+        # this process never boots through the hook that applies it: a job
+        # building its model from settings alone ran the .env bootstrap
+        # model (#390). Read here, before the job opens a session of its
+        # own - asked inside one, the read waits on that job's write lock.
+        from app.services.ai.domains.llm import active_model
+
+        await active_model.sync_from_db(settings)
         if "events_redis" in ctx:
             job_id = str(ctx.get("job_id", "unknown"))
             await publish_event(

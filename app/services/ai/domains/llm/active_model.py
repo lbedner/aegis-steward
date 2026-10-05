@@ -179,15 +179,14 @@ async def sync_from_db(settings: Any) -> bool:
 
 
 async def model_for_active(settings: Any) -> tuple[Any, str]:
-    """A model instance for the selection actually in force, and its name.
+    """A model instance for the selection in force, and its name.
 
-    The selection is a database row, and only the webserver re-reads it per
-    request. Anything headless - a worker task, a scheduled job - resolves
-    through here, or it runs on the .env bootstrap model while the dashboard
-    shows the model the user picked.
+    ``settings`` already carries it wherever a model runs: the webserver
+    applies a switch as it is made, and the worker reads the selection as
+    each job starts (``worker/queues/system.on_job_start``, #390). The
+    scheduler runs no model - it only enqueues.
     """
     from app.services.ai.config import AIServiceConfig
     from app.services.ai.domains.llm import providers
 
-    await sync_from_db(settings)
     return providers.model_for(AIServiceConfig.from_settings(settings), settings)
