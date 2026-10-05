@@ -21,6 +21,8 @@ from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
+from app.services.finance.constants import FEED_SOURCES
+from app.services.finance.domains.ledger.queries.two_feeds import pairable
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.utils import normalize_payee
 
@@ -244,7 +246,7 @@ CATEGORY_KEPT_NOTE = "category kept (user-set)"
 class LaneRow(NamedTuple):
     """One existing transaction, as the dedup lanes actually read it.
 
-    Eight scalar columns, not the entity. The lanes compare ints and
+    Nine scalar columns, not the entity. The lanes compare ints and
     strings to decide insert/duplicate/update; building a full
     ``FinanceTransaction`` to do that cost 5,345 bytes a row against a
     NamedTuple's 294, and 18,571 of them - 95 MiB - is what took the
@@ -265,6 +267,8 @@ class LaneRow(NamedTuple):
     import_hash: str | None
     date_: date
     amount: int
+    # A linked bank's row an export's can still pair with (``two_feeds``).
+    pairable: bool
 
 
 class DeletedLaneRow(NamedTuple):
@@ -287,10 +291,16 @@ def lane_columns(shape: type[LaneRow] | type[DeletedLaneRow]) -> list[Any]:
     One home for that order. ``LaneRow(*row)`` binds positionally, so a
     column added to the select and not the shape - or the two put in
     different orders - would bind the wrong value to the right name and
-    say nothing about it. The field names ARE the column names, so the
-    select can be derived rather than repeated.
+    say nothing about it. The field names ARE the column names - or, for
+    ``pairable``, name the one rule's expression - so the select can be
+    derived rather than repeated.
     """
-    return [getattr(FinanceTransaction, name) for name in shape._fields]
+    return [
+        pairable(FEED_SOURCES).label(name)
+        if name == "pairable"
+        else getattr(FinanceTransaction, name)
+        for name in shape._fields
+    ]
 
 
 class PlannedRow(BaseModel):
@@ -327,6 +337,10 @@ class PlannedRow(BaseModel):
     category_current_id: int | None = None
     category_new_id: int | None = None
     tags_changed: bool = False
+    # -- 'inserted' rows only ----------------------------------------------
+    # The bank row this charge already is (#309): the insert becomes the
+    # primary, and that row its duplicate (``domains/ledger/two_feeds``).
+    same_as: int | None = None
 
 
 class ImportPlan(BaseModel):

@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceIcon,
     FinanceMerchant,
@@ -204,6 +205,7 @@ async def merchant_usage_rows(
         )
         .where(
             FinanceTransaction.deleted_at.is_(None),
+            not_duplicate(),
             FinanceTransaction.merchant_id.is_not(None),
         )
         .group_by(FinanceTransaction.merchant_id)

@@ -14,7 +14,9 @@
     </div>
     <p class="text-xxs text-aegis-muted">{{ card.provider }} · {{ card.environment }}{% if card.last_sync %} · synced {{ card.last_sync|short_date }}{% endif %}</p>
     {% if card.detail %}<p class="text-xs text-error">{{ card.detail }}</p>{% endif %}
+    {% if card.unplaced %}<p data-unplaced class="text-xs text-warning">{{ card.unplaced }} account{{ "s wait" if card.unplaced != 1 else " waits" }} for you to say which of yours {{ "they are" if card.unplaced != 1 else "it is" }}.</p>{% endif %}
     <div class="flex items-center gap-2">
+      {% if card.unplaced %}{{ action("Place", hx_dialog(path ~ "/connections/" ~ card.id ~ "/place")) }}{% endif %}
       {{ action("Disconnect", hx_dialog(path ~ "/connections/" ~ card.id ~ "/remove")) }}
     </div>
   </li>

@@ -1,0 +1,17 @@
+{# Dialog body: which of your accounts each account a link holds is
+   (issue 309). Its own account, or one an export already feeds - never a
+   second copy beside it. #}
+{% from "components/macros/form.html" import field, select, primary_button %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Which account is this?",
+                (connection.label or "This link") ~ " reported accounts your files may already feed. Each goes where you say, its history with it; a charge both bring is kept once.") }}
+<form {{ hx_dialog_post(path ~ "/connections/" ~ connection.id ~ "/place") }} class="space-y-4">
+  {{ error_banner(errors) }}
+  {% for row in rows %}
+  {% call field(row.held.name ~ (" ··" ~ row.held.mask if row.held.mask else "")) %}
+    {{ select(row.field, row.options, selected=row.chosen, blank="Choose…", block=True) }}
+  {% endcall %}
+  {% endfor %}
+  {{ primary_button("Place", type="submit") }}
+</form>

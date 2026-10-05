@@ -27,6 +27,11 @@ from app.services.finance.models import (
 )
 
 
+def not_duplicate() -> Any:
+    """A row that is not another feed's copy of a charge (``two_feeds``)."""
+    return FinanceTransaction.dedup_status != "duplicate"
+
+
 def money_moved_in(account_id: int, owner_user_id: int | None = None) -> list[Any]:
     """The rows that count as money moving in an account: live, and not a
     duplicate of another. What "updated" means for a bank account or a
@@ -34,7 +39,7 @@ def money_moved_in(account_id: int, owner_user_id: int | None = None) -> list[An
     clauses: list[Any] = [
         FinanceTransaction.account_id == account_id,
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
     ]
     if owner_user_id is not None:
         clauses.append(FinanceTransaction.owner_user_id == owner_user_id)

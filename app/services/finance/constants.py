@@ -62,6 +62,14 @@ def sync_source(provider: str) -> str:
     return f"{provider}_sync"
 
 
+# Where a transaction came from, as the two feeds an account can have
+# (#309): a linked bank, and a file someone exported (Quicken, a bank
+# download). A charge both bring is one charge (``domains/ledger/two_feeds``).
+# SnapTrade is not one: its activity arrives as trades, not transactions.
+FEED_SOURCES = frozenset({Provider.PLAID, Provider.SIMPLEFIN})
+FILE_SOURCES = frozenset({"ofx", "qfx", "qif", "csv"})
+
+
 # Encrypted (AES-GCM ciphertext) columns on ``finance_connection``. Registered
 # here so key-rotation tooling can find every finance secret. Encryption /
 # decryption happens in the service layer with a row-bound AAD context

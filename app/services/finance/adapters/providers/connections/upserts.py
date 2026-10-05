@@ -21,6 +21,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
+from app.services.finance.adapters.providers.connections import placing
+from app.services.finance.constants import FILE_SOURCES
+from app.services.finance.domains.ledger import two_feeds
 from app.services.finance.models import (
     FinanceAccount,
     FinanceConnection,
@@ -123,6 +126,53 @@ def _find_kept(
     return kept[0] if len(kept) == 1 else None
 
 
+async def _attach_to_yours(
+    db: AsyncSession,
+    connection: FinanceConnection,
+    accounts: list[ProviderAccount],
+    found: list[FinanceAccount | None],
+) -> set[str]:
+    """Match what is still unmatched against the accounts a file export
+    feeds (#309): one of the same kind whose last four - and bank, when it
+    names one - match exactly attaches; one that could be yours otherwise
+    is held for you to place (``placing``). Fills ``found``; returns the
+    provider ids held."""
+    held: list[dict[str, object]] = []
+    # One you placed as its own account is made as one, never asked again.
+    own = placing.own_accounts(connection)
+    open_ = [
+        i
+        for i, match in enumerate(found)
+        if match is None and accounts[i].provider_account_id not in own
+    ]
+    if open_:
+        yours = await queries.unlinked_manual_accounts(
+            db, owner_user_id=connection.owner_user_id
+        )
+        # Exact matches first: an account held because it COULD be one of
+        # yours that a later account then claims by its last four would
+        # leave it asking about nothing.
+        for index in open_:
+            reported = accounts[index]
+            exact = [
+                a
+                for a in yours
+                if reported.mask
+                and a.mask == reported.mask
+                and a.account_type == reported.account_type
+                and a.institution_id in (None, connection.institution_id)
+            ]
+            if len(exact) == 1:
+                found[index] = exact[0]
+                yours = [a for a in yours if a is not exact[0]]
+        for index in open_:
+            waiting = placing.waiting(accounts[index])
+            if found[index] is None and placing.fits(waiting, yours):
+                held.append(waiting)
+    placing.hold(connection, held)
+    return {str(waiting["id"]) for waiting in held}
+
+
 async def upsert_accounts(
     db: AsyncSession,
     service: FinanceService,
@@ -155,9 +205,12 @@ async def upsert_accounts(
         if found[index] is None and (match := _find_kept(pool, connection, reported)):
             pool = [row for row in pool if row is not match]
             found[index] = match
+    held = await _attach_to_yours(db, connection, accounts, found)
 
     upserted: dict[str, FinanceAccount] = {}
     for reported, account in zip(accounts, found, strict=True):
+        if reported.provider_account_id in held:
+            continue
         await service.get_or_create_currency(reported.currency)
         if account is None:
             account = FinanceAccount(
@@ -169,14 +222,15 @@ async def upsert_accounts(
                 is_manual=False,
             )
         # (Re)point at this connection and refresh what the provider says.
-        # An institution someone picked for the account outranks the
-        # provider's.
+        # The name and an institution someone picked are theirs: a
+        # provider names an account only when it makes one.
+        account.provider = provider
+        account.is_manual = False
         account.connection_id = connection.id
         account.institution_id = account.institution_id or connection.institution_id
         account.provider_account_id = reported.provider_account_id
         account.persistent_account_id = reported.persistent_account_id
         account.currency = reported.currency
-        account.name = reported.name
         account.mask = reported.mask
         account.current_balance = reported.current_balance
         account.available_balance = reported.available_balance
@@ -235,6 +289,26 @@ async def apply_transactions(
                 (row.account_id, row.date_, row.amount, normalize_payee(row.name or ""))
             ] += 1
 
+    # A charge a file export already brought (#309): stored, but as the
+    # export row's duplicate, paired once every row has its id. A row can
+    # pair as it posts - new, or a pending one posting under its own id.
+    # The export rows are read once, and only when such a row is in the
+    # batch: a re-sync of rows already held never asks.
+    posting = [
+        txn.date_
+        for account_id, txn in prepared
+        if not txn.pending
+        and ((held := lane1.get((account_id, txn.external_id))) is None or held.pending)
+    ]
+    exported: two_feeds.Unpaired | None = None
+    pairs: list[tuple[int, FinanceTransaction]] = []
+
+    async def export_row(account_id: int, txn: ProviderTransaction) -> int | None:
+        nonlocal exported
+        if exported is None:
+            exported = await two_feeds.unpaired(db, touched, FILE_SOURCES, posting)
+        return exported.take(account_id, txn.date_, txn.amount)
+
     added = reconciled = 0
     # Posted rows naming an earlier pre-auth collapse after the loop, once
     # every row of the batch (a same-batch pending sibling too) is in lane1.
@@ -242,6 +316,7 @@ async def apply_transactions(
     for account_id, txn in prepared:
         existing = lane1.get((account_id, txn.external_id))
         if existing is not None:  # same connection re-sync -> update in place
+            posts = existing.pending and not txn.pending
             existing.amount = txn.amount
             existing.name = txn.name
             existing.date_ = txn.date_
@@ -263,6 +338,12 @@ async def apply_transactions(
                 existing.category_source = "provider"
             db.add(existing)
             reconciled += 1
+            if (
+                posts
+                and existing.dedup_status == "unique"
+                and (same := await export_row(account_id, txn)) is not None
+            ):
+                pairs.append((same, existing))
             if not txn.pending and txn.pending_provider_id:
                 collapse.append((account_id, txn.pending_provider_id, existing))
             continue
@@ -303,7 +384,12 @@ async def apply_transactions(
         )
         created.logo_url = txn.logo_url
         lane1[(account_id, txn.external_id)] = created
-        added += 1
+        same = None if txn.pending else await export_row(account_id, txn)
+        if same is None:
+            added += 1
+        else:
+            pairs.append((same, created))
+            reconciled += 1
         if not txn.pending and txn.pending_provider_id:
             collapse.append((account_id, txn.pending_provider_id, created))
 
@@ -311,6 +397,7 @@ async def apply_transactions(
     # and tombstone the pre-auth so exactly one row stays visible. The new
     # rows go in together here, and get the ids the link needs.
     await db.flush()
+    await two_feeds.pair_ids(db, [(same, row.id) for same, row in pairs])
     now = utcnow()
     for account_id, pending_id, posted in collapse:
         pending_row = lane1.get((account_id, pending_id))

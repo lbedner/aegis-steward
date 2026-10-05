@@ -37,6 +37,9 @@ from app.services.finance.adapters.importers.base import (
 from app.services.finance.adapters.importers.base import (
     IGNORED_REASONS as IGNORED_REASONS,
 )
+from app.services.finance.constants import FEED_SOURCES
+from app.services.finance.domains.ledger import two_feeds
+from app.services.finance.domains.ledger.queries.two_feeds import FeedRow
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.utils import current_date
 
@@ -166,6 +169,8 @@ async def plan_transactions(
     # both exact lanes but lands unambiguously on this key is the same
     # transaction, edited - it updates in place.
     core_existing: dict[tuple[int, object, int], list[int]] = defaultdict(list)
+    # A linked bank's rows still waiting for their export half (#309).
+    feed_rows: list[FeedRow] = []
     if touched_account_ids:
         # Lane keys, not transactions. This read is the one in the whole
         # pipeline that scales with the LEDGER instead of the file, so the
@@ -185,6 +190,19 @@ async def plan_transactions(
                 )
             if existing.import_hash is not None:
                 lane2[(existing.account_id, existing.import_hash)] = existing.id
+            # A linked bank's row is not an edit of an export's: the same
+            # charge from the two feeds pairs instead (``two_feeds``).
+            if existing.source in FEED_SOURCES:
+                if existing.pairable:
+                    feed_rows.append(
+                        FeedRow(
+                            existing.id,
+                            existing.account_id,
+                            existing.date_,
+                            existing.amount,
+                        )
+                    )
+                continue
             core_existing[
                 (existing.account_id, existing.date_, existing.amount)
             ].append(existing.id)
@@ -347,6 +365,7 @@ async def plan_transactions(
             row.tags_changed = True
         return row
 
+    fed = two_feeds.Unpaired(feed_rows)
     plan_rows: list[PlannedRow] = []
     insert_rows_by_number: dict[int, PlannedRow] = {}
     for row_number, txn in enumerate(parsed, start=1):
@@ -439,6 +458,7 @@ async def plan_transactions(
             status="inserted",
             account_key=txn.account_key,
             account_id=account_id,
+            same_as=fed.take(account_id, txn.date, txn.amount),
         )
         plan_rows.append(row)
         insert_rows_by_number[row_number] = row

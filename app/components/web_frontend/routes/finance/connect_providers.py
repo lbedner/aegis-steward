@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.components.backend.api.finance.connections import (
     plaid_hosted_link,
@@ -37,7 +38,7 @@ async def _plaid_start(
 
 async def _plaid_complete(
     service: FinanceService, owner_user_id: int | None, token: str
-) -> dict[str, int]:
+) -> dict[str, Any]:
     done = await plaid_hosted_link_complete(
         HostedLinkCompleteRequest(link_token=token),
         service=service,
@@ -46,6 +47,7 @@ async def _plaid_complete(
     return {
         "connections": done.connections,
         "added": sum(r.added for r in done.results),
+        "ids": [r.connection_id for r in done.results],
     }
 
 
@@ -58,13 +60,14 @@ async def _snaptrade_start(
 
 async def _snaptrade_complete(
     service: FinanceService, owner_user_id: int | None, token: str
-) -> dict[str, int]:
+) -> dict[str, Any]:
     done = await snaptrade_connect_complete(
         service=service, owner_user_id=owner_user_id
     )
     return {
         "connections": done.connections,
         "added": sum(r.added + r.holdings for r in done.results),
+        "ids": [r.connection_id for r in done.results],
     }
 
 
@@ -76,13 +79,13 @@ async def _simplefin_start(
 
 async def _simplefin_complete(
     service: FinanceService, owner_user_id: int | None, token: str
-) -> dict[str, int]:
+) -> dict[str, Any]:
     done = await simplefin_connect(
         SimpleFINConnectRequest(setup_token=token),
         service=service,
         owner_user_id=owner_user_id,
     )
-    return {"connections": 1, "added": done.added}
+    return {"connections": 1, "added": done.added, "ids": [done.connection_id]}
 
 
 # Where a SimpleFIN user links banks and makes the setup token.
@@ -103,7 +106,7 @@ class Provider:
     flag: str
     credentials: tuple[str, ...]
     start: Callable[..., Awaitable[dict[str, str]]]
-    complete: Callable[..., Awaitable[dict[str, int]]] = field(repr=False)
+    complete: Callable[..., Awaitable[dict[str, Any]]] = field(repr=False)
     brings_token: bool = False
     # Where to try it with fake data first, when the provider offers that.
     demo_url: str | None = None

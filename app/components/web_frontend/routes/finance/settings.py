@@ -44,6 +44,9 @@ from app.components.web_frontend.rendering import (
     typed_back,
     with_toast,
 )
+from app.components.web_frontend.routes.finance import (
+    connection_placing as placing_routes,
+)
 from app.components.web_frontend.routes.finance.connect_providers import (
     PROVIDERS,
     Provider,
@@ -159,6 +162,7 @@ def _card(connection: Any) -> dict[str, Any]:
         "status": {"label": label, "tone": tone},
         "detail": connection.status_detail,
         "last_sync": connection.last_successful_sync_at,
+        "unplaced": connection.unplaced,
     }
 
 
@@ -263,6 +267,11 @@ async def connect_complete(
             errors=[],
         )
     await service.db.commit()
+    waiting = await placing_routes.first_waiting(
+        service, owner_user_id, done.get("ids", [])
+    )
+    if waiting is not None:  # which of yours it is comes before anything else
+        return await placing_routes.place_dialog(request, service, waiting)
     response = dialog(
         request,
         "partials/settings/connected.html",
