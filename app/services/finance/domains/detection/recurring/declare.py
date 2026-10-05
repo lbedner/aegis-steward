@@ -39,6 +39,7 @@ from app.services.finance.domains.detection.recurring.detect import (
 from app.services.finance.domains.detection.recurring.resolve import (
     _sibling_streams,
 )
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceTransaction,
 )
@@ -147,7 +148,7 @@ async def plan_recurring(
         [
             queries.owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
             FinanceTransaction.deleted_at.is_(None),
-            FinanceTransaction.dedup_status != "duplicate",
+            not_duplicate(),
             # Ordinary rows only - transfer legs and excluded
             # bookkeeping recur with steady descriptors, exactly the
             # shape this hunts, and must not become "bills". The one

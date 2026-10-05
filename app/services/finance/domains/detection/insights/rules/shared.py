@@ -27,6 +27,7 @@ from app.services.finance.domains.detection.insights.formatting import (
     month_key,
     pace_day,
 )
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceAccount,
     FinanceInsight,
@@ -119,7 +120,7 @@ async def monthly_category_spend(
             *([FinanceTransaction.recurring_stream_id.is_(None)] if everyday else []),
             owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
             FinanceTransaction.deleted_at.is_(None),
-            FinanceTransaction.dedup_status != "duplicate",
+            not_duplicate(),
             FinanceTransaction.excluded_from_reports.is_(False),
             FinanceTransaction.amount < 0,
             FinanceTransaction.category_id.is_not(None),

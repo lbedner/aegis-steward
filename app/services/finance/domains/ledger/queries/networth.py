@@ -14,6 +14,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import PROPERTY_ACCOUNT_TYPE
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceAccount,
     FinanceBalanceSnapshot,
@@ -69,7 +70,7 @@ async def daily_register_deltas(
             .where(
                 FinanceTransaction.account_id.in_(account_ids),
                 FinanceTransaction.deleted_at.is_(None),
-                FinanceTransaction.dedup_status != "duplicate",
+                not_duplicate(),
             )
             .group_by(FinanceTransaction.account_id, FinanceTransaction.date_)
             .order_by(FinanceTransaction.account_id, FinanceTransaction.date_)

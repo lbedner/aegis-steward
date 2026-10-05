@@ -9,6 +9,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
 from app.services.finance.domains.detection import queries
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceAccount,
     FinanceTransaction,
@@ -52,7 +53,7 @@ async def _pair_transfers(
 
     txn_filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.is_transfer.is_(False),
         FinanceTransaction.transfer_group_id.is_(None),
         FinanceTransaction.account_id.in_(list(account_type.keys())),

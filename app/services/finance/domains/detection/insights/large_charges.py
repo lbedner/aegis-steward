@@ -29,6 +29,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.insights.formatting import format_usd
 from app.services.finance.domains.detection.recurring.cadence import _descriptor_key
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import FinanceTransaction
 
 # large_transaction: an outlier is judged against its OWN account, because a
@@ -75,7 +76,7 @@ class PayeeNorms:
             [
                 queries.owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
                 FinanceTransaction.deleted_at.is_(None),
-                FinanceTransaction.dedup_status != "duplicate",
+                not_duplicate(),
                 FinanceTransaction.amount < 0,
                 FinanceTransaction.date_ >= since,
             ],
@@ -132,7 +133,7 @@ async def _large_transactions(
         [
             queries.owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
             FinanceTransaction.deleted_at.is_(None),
-            FinanceTransaction.dedup_status != "duplicate",
+            not_duplicate(),
             FinanceTransaction.excluded_from_reports.is_(False),
             FinanceTransaction.is_transfer.is_(False),
             FinanceTransaction.recurring_stream_id.is_(None),

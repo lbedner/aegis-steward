@@ -21,6 +21,7 @@ from sqlalchemy import func
 from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceAccount,
     FinanceInsight,
@@ -54,7 +55,7 @@ def countable_filters(
     live_accounts = select(FinanceAccount.id).where(FinanceAccount.deleted_at.is_(None))
     filters: list[object] = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.account_id.in_(live_accounts),
         *direction,

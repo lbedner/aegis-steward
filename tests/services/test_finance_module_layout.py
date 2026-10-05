@@ -761,3 +761,18 @@ def test_the_service_root_separates_knowing_from_talking() -> None:
         "service",
         "seeds",
     }, folders
+
+
+def test_not_a_duplicate_is_said_in_one_place() -> None:
+    """Every ledger read leaves out the bank's copy of a charge an export
+    also brought (#309) through ``filters.not_duplicate``. A read that
+    spells the clause out again is the copy a change to what counts as a
+    duplicate would miss (#384)."""
+    finance = Path(__file__).resolve().parents[2] / "app" / "services" / "finance"
+    home = finance / "domains" / "ledger" / "queries" / "filters.py"
+    spelled = [
+        str(path.relative_to(finance))
+        for path in finance.rglob("*.py")
+        if path != home and 'dedup_status != "duplicate"' in path.read_text()
+    ]
+    assert not spelled, spelled

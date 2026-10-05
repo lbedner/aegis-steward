@@ -17,6 +17,7 @@ from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger.queries.accounts import HOUSEHOLD
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceAccount,
     FinanceCategory,
@@ -187,7 +188,7 @@ async def stray_payee_rows(
                 FinanceTransaction.id != exclude_transaction_id,
                 FinanceTransaction.merchant_id == merchant_id,
                 FinanceTransaction.deleted_at.is_(None),
-                FinanceTransaction.dedup_status != "duplicate",
+                not_duplicate(),
                 amount_clause,
                 or_(
                     FinanceTransaction.recurring_stream_id.is_(None),

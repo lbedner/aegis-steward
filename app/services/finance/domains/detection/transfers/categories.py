@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection import queries
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceTransaction,
 )
@@ -44,7 +45,7 @@ async def _flag_category_transfers(
         db,
         [
             FinanceTransaction.deleted_at.is_(None),
-            FinanceTransaction.dedup_status != "duplicate",
+            not_duplicate(),
             FinanceTransaction.is_transfer.is_(False),
             FinanceTransaction.transfer_group_id.is_(None),
             FinanceTransaction.category_id.in_(queries.transfer_category_ids()),
