@@ -299,14 +299,15 @@ class FinanceValuation(SQLModel, table=True):
     # quarterly appraisal and a daily quote are both valuations. Read by
     # ``freshness(after=...)``.
     #
-    # Its neighbour ``is_stale`` is gone from the model: a stored
-    # staleness boolean is wrong the day after it is written, and
-    # nothing ever read or wrote it. The COLUMN stays until a migration
-    # can prove it dropped - every stamp signature is a positive proof
-    # object (a table, a column, a constraint) and there is no form for
-    # "this is absent", so a drop would ship unprovable and re-create
-    # the incident those signatures exist to prevent.
     stale_after_days: int | None = Field(default=None)
+    # Never read: a stored staleness boolean is wrong the day after it is
+    # written. Kept on the model only because the column is NOT NULL with
+    # no database default (migration 004), so every insert must name it -
+    # taking it off broke every valuation for three weeks (#386). It goes
+    # once a migration can prove the drop: every stamp signature is a
+    # positive proof object (a table, a column, a constraint) and there is
+    # no form for "this is absent".
+    is_stale: bool = Field(default=False)
     note: str | None = Field(default=None)
     metadata_: dict[str, Any] = Field(
         default_factory=dict, sa_column=Column("metadata", JSON)
