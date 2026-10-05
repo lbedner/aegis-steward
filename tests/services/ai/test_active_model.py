@@ -283,20 +283,19 @@ class TestHeadlessResolution:
     """
 
     @pytest.mark.asyncio
-    async def test_resolution_adopts_the_stored_selection(
-        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    async def test_resolution_reads_the_settings_the_process_keeps_current(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """No database read per call: the worker applied the selection as
+        the job started (#390), so the settings are the selection."""
         from app.services.ai.domains.llm import providers
 
         settings = _Settings()
         settings.AI_PROVIDER = "ollama"
-        settings.AI_MODEL = "env-default"
+        settings.AI_MODEL = "chosen-model"
 
-        async def _sync(target: object) -> bool:
-            active_model.apply_to_settings(
-                target, model_id="chosen-model", provider="ollama"
-            )
-            return True
+        async def _no_read(_target: object) -> bool:
+            raise AssertionError("re-read the selection per call")
 
         seen: dict[str, str] = {}
 
@@ -304,7 +303,7 @@ class TestHeadlessResolution:
             seen["model"] = config.model  # type: ignore[attr-defined]
             return "model-instance", config.model  # type: ignore[attr-defined]
 
-        monkeypatch.setattr(active_model, "sync_from_db", _sync)
+        monkeypatch.setattr(active_model, "sync_from_db", _no_read)
         monkeypatch.setattr(providers, "model_for", _model_for)
 
         model, model_name = await active_model.model_for_active(settings)

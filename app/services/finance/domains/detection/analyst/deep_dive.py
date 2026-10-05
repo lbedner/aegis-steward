@@ -201,7 +201,6 @@ async def run_deep_dive(
     from app.core.config import settings
     from app.services.ai.config import AIServiceConfig
     from app.services.ai.domains.chat.agent_loader import resolve_agent
-    from app.services.ai.domains.llm import active_model
     from app.services.ai.domains.llm.providers import model_for
     from app.services.ai.usage_recording import extract_usage, record_usage
 
@@ -223,10 +222,8 @@ async def run_deep_dive(
     # The database is not needed again until the review is written, and
     # what follows waits on a model. Let go of it here.
 
-    # The stored selection first: this runs in a worker or a
-    # scheduled job, which never serves the request that would
-    # otherwise adopt it. An agent's own model_id still wins below.
-    await active_model.sync_from_db(settings)
+    # The selection in force (the worker read it as this job started); an
+    # agent's own model_id still wins below.
     service_config = AIServiceConfig.from_settings(settings)
     update: dict[str, object] = {
         "temperature": agent_config.temperature,
