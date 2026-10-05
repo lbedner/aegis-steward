@@ -134,12 +134,14 @@ class TestRegister:
                 "reconcile",
                 "terms",
                 "secured_by",
+                "merge",
                 "remove",
             )
         ]
         checking = client.get(f"/accounts/{ledger.checking}").text
         assert [text(li) for li in select(checking, "#manage-menu li")] == [
-            LABELS[key] for key in ("rename", "institution", "reconcile", "remove")
+            LABELS[key]
+            for key in ("rename", "institution", "reconcile", "merge", "remove")
         ]
 
     def test_the_header_says_how_current_the_account_is(
@@ -228,6 +230,7 @@ class TestRegister:
                     "reconcile",
                     "terms",
                     "secured_by",
+                    "merge",
                     "remove",
                 )
             ]
@@ -1549,3 +1552,91 @@ class TestWhatIsLeftAfterTheMortgage:
         house = await self._house_and_mortgage(finance, async_db_session, linked=False)
 
         assert hx.get(f"/accounts/{house}/figures/ltv").status_code == 404
+
+
+@pytest.fixture
+async def bank_copy(
+    async_db_session: AsyncSession, ledger: Ledger, connection: int
+) -> int:
+    """The ledger's savings, as the copy a bank link made."""
+    from app.services.finance.domains.ledger import bank_link
+    from app.services.finance.models import FinanceAccount
+
+    savings = await async_db_session.get(FinanceAccount, ledger.savings)
+    assert savings is not None
+    bank_link.link(
+        savings, provider="plaid", connection_id=connection, provider_account_id="acc"
+    )
+    async_db_session.add(savings)
+    await async_db_session.commit()
+    return ledger.savings
+
+
+class TestMergingADuplicate:
+    """The same account twice - a bank link's copy beside the one an export
+    feeds - folded into one from the Manage menu, previewed first (#309)."""
+
+    def test_the_menu_offers_it_and_the_dialog_offers_the_banks_copies(
+        self, client: TestClient, hx: TestClient, ledger: Ledger, bank_copy: int
+    ) -> None:
+        merge = f"/accounts/{ledger.checking}/merge"
+        one(client.get(f"/accounts/{ledger.checking}").text, f'[hx-get="{merge}"]')
+
+        dialog = hx.get(merge).text
+        none(dialog, "html")
+        form = one(dialog, f'form[hx-post="{merge}"]')
+        # The bank's copy could be the same money; the card is a debt, and
+        # the checking account is already itself.
+        assert [o.get("value") for o in select(form, "select[name=other] option")] == [
+            "",
+            str(bank_copy),
+        ]
+
+    def test_check_says_what_it_would_do_and_does_nothing(
+        self, hx: TestClient, client: TestClient, ledger: Ledger, bank_copy: int
+    ) -> None:
+        checked = hx.post(
+            f"/accounts/{ledger.checking}/merge",
+            data={"other": str(ledger.savings), "preview": "1"},
+        )
+
+        assert checked.status_code == 200
+        one(checked.text, "[data-merge-plan]")
+        one(checked.text, "button[name=apply]")
+        one(
+            client.get("/accounts").text,
+            f'a[href="/accounts/{ledger.savings}/overview"]',
+        )
+
+    def test_merging_leaves_the_one_you_were_on(
+        self, client: TestClient, ledger: Ledger, bank_copy: int
+    ) -> None:
+        response = client.post(
+            f"/accounts/{ledger.checking}/merge", data={"other": str(ledger.savings)}
+        )
+
+        assert "dialog:close" in response.headers["HX-Trigger-After-Settle"]
+        portfolio = client.get("/accounts").text
+        none(portfolio, f'a[href="/accounts/{ledger.savings}/overview"]')
+        one(portfolio, f'a[href="/accounts/{ledger.checking}/overview"]')
+
+    def test_a_debt_is_not_merged_into_money_held(
+        self, hx: TestClient, ledger: Ledger
+    ) -> None:
+        refused = hx.post(
+            f"/accounts/{ledger.checking}/merge",
+            data={"other": str(ledger.card), "preview": "1"},
+        )
+
+        assert refused.status_code == 422
+        one(refused.text, "[role=alert]")
+
+    def test_checking_with_nothing_picked_asks_for_the_copy(
+        self, hx: TestClient, ledger: Ledger
+    ) -> None:
+        refused = hx.post(
+            f"/accounts/{ledger.checking}/merge", data={"other": "", "preview": "1"}
+        )
+
+        assert refused.status_code == 422
+        one(refused.text, "[role=alert]")

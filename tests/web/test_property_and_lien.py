@@ -50,6 +50,7 @@ class TestPropertyDetails:
                 "reconcile",
                 "property",
                 "valuations",
+                "merge",
                 "remove",
             )
         ]

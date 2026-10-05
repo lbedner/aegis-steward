@@ -20,6 +20,7 @@ class FeedRow(NamedTuple):
     account_id: int
     date_: date
     amount: int
+    source: str
 
 
 def pairable(sources: Collection[str]) -> ColumnElement[bool]:
@@ -53,6 +54,7 @@ async def unpaired_rows(
             FinanceTransaction.account_id,
             FinanceTransaction.date_,
             FinanceTransaction.amount,
+            FinanceTransaction.source,
         ).where(
             col(FinanceTransaction.account_id).in_(account_ids),
             col(FinanceTransaction.deleted_at).is_(None),

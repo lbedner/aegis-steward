@@ -360,6 +360,7 @@ ACCOUNT_THINGS: dict[str, AccountThing] = {
     "positions": AccountThing("Edit holdings", "Holdings"),
     "terms": AccountThing("Edit rates & payments", "Rates & payments"),
     "secured_by": AccountThing("Link to collateral", "Collateral"),
+    "merge": AccountThing("Merge a duplicate"),
     "remove": AccountThing("Remove"),
 }
 
@@ -399,6 +400,8 @@ def account_actions(
     if classification == "liability":
         actions.append("terms")
         actions.append("secured_by")
+    # Any account can be the one a duplicate folds into (#309).
+    actions.append("merge")
     if not connected:
         actions.append("remove")
     return tuple(actions)

@@ -408,3 +408,17 @@ async def recent_transaction_dates(
         .limit(limit)
     )
     return list(rows.all())
+
+
+async def live_transaction_count(db: AsyncSession, account_id: int) -> int:
+    """How many live rows the account holds, every feed's."""
+    return int(
+        (
+            await db.exec(
+                select(func.count(FinanceTransaction.id)).where(
+                    FinanceTransaction.account_id == account_id,
+                    FinanceTransaction.deleted_at.is_(None),
+                )
+            )
+        ).one()
+    )

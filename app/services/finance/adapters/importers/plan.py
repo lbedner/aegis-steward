@@ -200,6 +200,7 @@ async def plan_transactions(
                             existing.account_id,
                             existing.date_,
                             existing.amount,
+                            existing.source,
                         )
                     )
                 continue

@@ -25,6 +25,7 @@ from typing import Protocol
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.constants import FEED_SOURCES, FILE_SOURCES
 from app.services.finance.domains.ledger.queries.transactions import (
     transactions_by_ids,
 )
@@ -75,6 +76,31 @@ async def unpaired(
             db, account_ids, sources, min(dates) - window, max(dates) + window
         )
     )
+
+
+async def same_charges(
+    db: AsyncSession, account_ids: Collection[int], as_one: int
+) -> list[tuple[int, int]]:
+    """``(export row, bank row)`` for each charge both feeds brought to
+    these accounts and not yet paired, read as though they were one
+    account (``as_one``) - what merging them would pair. Their whole
+    history: a merge is once, not every sync."""
+    rows = [
+        row._replace(account_id=as_one)
+        for row in await unpaired_rows(
+            db, account_ids, FILE_SOURCES | FEED_SOURCES, date.min, date.max
+        )
+    ]
+    exported = Unpaired(row for row in rows if row.source in FILE_SOURCES)
+    fed = sorted(
+        (row for row in rows if row.source in FEED_SOURCES),
+        key=lambda r: (r.date_, r.id),
+    )
+    return [
+        (same, row.id)
+        for row in fed
+        if (same := exported.take(as_one, row.date_, row.amount)) is not None
+    ]
 
 
 # Pairs read and written per round: a first import onto a linked account

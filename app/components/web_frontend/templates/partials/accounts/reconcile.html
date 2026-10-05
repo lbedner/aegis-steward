@@ -1,7 +1,7 @@
 {# Reconcile to a statement: Check previews the delta without writing;
    Apply lands it (an adjustment transaction, or a valuation when the
    account has no register). #}
-{% from "components/macros/form.html" import field, date_input, money_input, primary_button, button_classes %}
+{% from "components/macros/form.html" import field, date_input, money_input, check_apply, summary_panel %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
 {{ dialog_title("Reconcile " ~ account.name) }}
@@ -11,19 +11,16 @@
   {% call field("Statement balance") %}{{ money_input("statement_balance", statement_balance) }}{% endcall %}
   {% if account.classification == "liability" %}<p class="text-xxs text-aegis-muted">Enter what you owe.</p>{% endif %}
   {% if result %}
-  <dl id="reconcile-delta" class="text-sm bg-aegis-bg border border-aegis-border rounded p-3 grid grid-cols-2 gap-y-1">
+  {% call summary_panel('id="reconcile-delta"') %}
     <dt class="text-aegis-muted">Register</dt><dd class="text-right tabular-nums">{{ result.register_balance|money }}</dd>
     <dt class="text-aegis-muted">Statement</dt><dd class="text-right tabular-nums">{{ result.statement_balance|money }}</dd>
     <dt class="text-aegis-muted">Difference</dt><dd class="text-right tabular-nums {{ 'text-error' if result.delta else '' }}">{{ result.delta|money }}</dd>
-  </dl>
+  {% endcall %}
   <p class="text-xxs text-aegis-muted">
     {% if result.delta == 0 %}Already in balance; applying stamps the date.
     {% elif result.route == "valuation" %}Applying posts the statement balance as a valuation.
     {% else %}Applying adds one adjustment for the difference.{% endif %}
   </p>
   {% endif %}
-  <div class="flex items-center gap-3">
-    <button type="submit" name="preview" value="1" class="{{ button_classes("default") }}">Check</button>
-    {% if result %}<button type="submit" name="apply" value="1" class="{{ button_classes() }}">Apply</button>{% endif %}
-  </div>
+  {{ check_apply("Apply", result) }}
 </form>

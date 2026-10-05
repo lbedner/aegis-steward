@@ -48,13 +48,12 @@ async def provider_accounts(
     return list((await db.exec(query.order_by(col(FinanceAccount.id)))).all())
 
 
-async def unlinked_manual_accounts(
+async def unlinked_accounts(
     db: AsyncSession, *, owner_user_id: int | None
 ) -> list[FinanceAccount]:
-    """The live accounts no link feeds - the ones a file export does - that
-    a newly linked account could already be (``connections.placing``)."""
+    """The live accounts no link feeds: the ones a file export does, and
+    the ones a disconnect kept (``connections.placing``)."""
     query = select(FinanceAccount).where(
-        FinanceAccount.is_manual.is_(True),
         FinanceAccount.connection_id.is_(None),
         FinanceAccount.deleted_at.is_(None),
     )

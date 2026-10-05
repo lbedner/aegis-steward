@@ -21,6 +21,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.adapters.providers import queries
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
+from app.services.finance.domains.ledger import bank_link
 from app.services.finance.models import FinanceAccount, FinanceConnection
 
 if TYPE_CHECKING:
@@ -86,12 +87,25 @@ def fits(held: dict[str, Any], accounts: list[FinanceAccount]) -> list[FinanceAc
     ]
 
 
+async def yours(
+    db: AsyncSession, connection: FinanceConnection
+) -> list[FinanceAccount]:
+    """The accounts a newly linked one could already be: the ones a file
+    export feeds, and the ones a disconnect kept (#307) - at this bank, or
+    at one nobody knows. A kept account at another bank is that bank's."""
+    return [
+        a
+        for a in await queries.unlinked_accounts(
+            db, owner_user_id=connection.owner_user_id
+        )
+        if a.is_manual or a.institution_id in (None, connection.institution_id)
+    ]
+
+
 async def choices(db: AsyncSession, connection: FinanceConnection) -> Choices:
     """Each held account, with the accounts of yours it could be."""
-    yours = await queries.unlinked_manual_accounts(
-        db, owner_user_id=connection.owner_user_id
-    )
-    return [(held, fits(held, yours)) for held in unplaced(connection)]
+    mine = await yours(db, connection)
+    return [(held, fits(held, mine)) for held in unplaced(connection)]
 
 
 async def place(
@@ -122,10 +136,12 @@ async def place(
     for held_id, account in chosen.items():
         if account is not None:
             # What the next sync finds it by; the sync fills in the rest.
-            account.provider = connection.provider
-            account.is_manual = False
-            account.connection_id = connection.id
-            account.provider_account_id = held_id
+            bank_link.link(
+                account,
+                provider=connection.provider,
+                connection_id=connection.id,
+                provider_account_id=held_id,
+            )
             db.add(account)
     own = own_accounts(connection) | {i for i, a in chosen.items() if a is None}
     _remember(connection, OWN_ACCOUNTS, sorted(own))

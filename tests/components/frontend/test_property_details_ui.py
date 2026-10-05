@@ -221,7 +221,7 @@ class TestTheMenuAndItsHandlers:
             "secured_by",
             "remove",
         }
-        web_only = {"institution", "positions", "terms"}
+        web_only = {"institution", "positions", "terms", "merge"}
 
         for account in (
             {"account_type": "checking", "classification": "asset"},

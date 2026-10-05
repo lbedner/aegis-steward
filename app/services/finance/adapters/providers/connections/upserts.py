@@ -23,7 +23,7 @@ from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections import placing
 from app.services.finance.constants import FILE_SOURCES
-from app.services.finance.domains.ledger import two_feeds
+from app.services.finance.domains.ledger import bank_link, two_feeds
 from app.services.finance.models import (
     FinanceAccount,
     FinanceConnection,
@@ -146,9 +146,7 @@ async def _attach_to_yours(
         if match is None and accounts[i].provider_account_id not in own
     ]
     if open_:
-        yours = await queries.unlinked_manual_accounts(
-            db, owner_user_id=connection.owner_user_id
-        )
+        yours = await placing.yours(db, connection)
         # Exact matches first: an account held because it COULD be one of
         # yours that a later account then claims by its last four would
         # leave it asking about nothing.
@@ -224,12 +222,14 @@ async def upsert_accounts(
         # (Re)point at this connection and refresh what the provider says.
         # The name and an institution someone picked are theirs: a
         # provider names an account only when it makes one.
-        account.provider = provider
-        account.is_manual = False
-        account.connection_id = connection.id
+        bank_link.link(
+            account,
+            provider=provider,
+            connection_id=connection.id,
+            provider_account_id=reported.provider_account_id,
+            persistent_account_id=reported.persistent_account_id,
+        )
         account.institution_id = account.institution_id or connection.institution_id
-        account.provider_account_id = reported.provider_account_id
-        account.persistent_account_id = reported.persistent_account_id
         account.currency = reported.currency
         account.mask = reported.mask
         account.current_balance = reported.current_balance

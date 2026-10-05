@@ -91,6 +91,22 @@
 btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, tones["default"]) }}
 {%- endmacro %}
 
+{# A dialog that previews before it writes: Check re-renders it with what
+   would happen; the second button lands it, offered once checked
+   (reconcile, merge). The routes read ``preview``; its absence applies. #}
+{% macro check_apply(apply_label, ready) %}
+<div class="flex items-center gap-3">
+  <button type="submit" name="preview" value="1" class="{{ button_classes("default") }}">Check</button>
+  {% if ready %}<button type="submit" name="apply" value="1" class="{{ button_classes() }}">{{ apply_label }}</button>{% endif %}
+</div>
+{% endmacro %}
+
+{# What a Check found: label / value rows, as a panel. ``attrs`` names
+   it for the page and its tests. #}
+{% macro summary_panel(attrs="") %}
+<dl {{ attrs|safe }} class="text-sm bg-aegis-bg border border-aegis-border rounded p-3 grid grid-cols-2 gap-y-1">{{ caller() }}</dl>
+{% endmacro %}
+
 
 {# A native select. ``options`` are objects or dicts with ``id`` and
    ``name``; ``blank`` is the "no filter" label (``None`` for no blank
