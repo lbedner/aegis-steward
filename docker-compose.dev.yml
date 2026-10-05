@@ -15,6 +15,16 @@ services:
       - "${WEBSERVER_HOST_PORT:-${PORT:-8000}}:${PORT:-8000}"
     environment:
       - PLAID_TUNNEL_METRICS_URL=http://plaid-tunnel:20241
+    # Hot reload runs the app twice: the reloader keeps an imported copy
+    # beside the worker it restarts (636 MiB idle of production's 768M,
+    # 2026-10-05). At the limit the kernel kills the worker, the reloader
+    # lives on holding the port, and every page hangs - the container never
+    # exits, so it never restarts. Room for both; still no swap past it.
+    memswap_limit: 1536M
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
 
   scheduler:
     volumes:
