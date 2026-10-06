@@ -18,6 +18,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.domains.ledger.queries.filters import (
     live_account_ids,
     money_moved_in,
+    not_duplicate,
     split_aware_category_clause,
     transaction_search_filter,
     uncategorized_catchall_ids,
@@ -127,7 +128,7 @@ async def transactions_page(
     boundary cannot land mid-tie and repeat or skip a row."""
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.account_id.in_(live_account_ids()),
     ]
     if not include_transfers:
@@ -227,7 +228,7 @@ async def transactions_window_with_payees(
     """
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.account_id.in_(live_account_ids()),
         FinanceTransaction.is_transfer.is_(False),
     ]
@@ -281,7 +282,7 @@ async def uncategorized_page(
         return [], 0
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.account_id.in_(live_account_ids()),
         *uncategorized_clauses(),
     ]
@@ -350,7 +351,7 @@ async def top_payees_over_window(
     )
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.is_transfer.is_(False),
         FinanceTransaction.account_id.in_(live_account_ids()),
@@ -392,7 +393,7 @@ async def dated_amounts_in_window(
     non-duplicate, report-included, transfers excluded."""
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.is_transfer.is_(False),
         FinanceTransaction.account_id.in_(live_account_ids()),
@@ -530,7 +531,7 @@ async def outflow_by_account_in_window(
     """
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.account_id.in_(live_account_ids()),
         FinanceTransaction.amount < 0,

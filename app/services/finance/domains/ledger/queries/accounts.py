@@ -16,7 +16,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.constants import (
     RECONCILE_MARKER,
 )
-from app.services.finance.domains.ledger.queries.filters import money_moved_in
+from app.services.finance.domains.ledger.queries.filters import (
+    money_moved_in,
+    not_duplicate,
+)
 from app.services.finance.models import (
     FinanceAccount,
     FinanceCurrency,
@@ -187,7 +190,7 @@ async def transaction_totals_by_account(
         return {}
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
     ]
     if owner_user_id is not None:
         filters.append(FinanceTransaction.owner_user_id == owner_user_id)

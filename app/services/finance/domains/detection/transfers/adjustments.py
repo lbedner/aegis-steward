@@ -8,6 +8,7 @@ from sqlmodel import or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection import queries
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceTransaction,
 )
@@ -56,7 +57,7 @@ async def _flag_adjustment_pairs(db: AsyncSession, *, owner_user_id: int | None)
     """
     base_filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.is_transfer.is_(False),
         FinanceTransaction.amount != 0,

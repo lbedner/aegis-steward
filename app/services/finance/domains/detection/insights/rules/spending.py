@@ -38,6 +38,7 @@ from app.services.finance.domains.detection.insights.rules.shared import (
     live_account_ids,
     monthly_category_spend,
 )
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
@@ -96,7 +97,7 @@ async def _fees(
     filters = [
         owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.amount < 0,
         FinanceTransaction.account_id.in_(live_accounts),
@@ -214,7 +215,7 @@ async def _subscription_creep(
         [
             owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
             FinanceTransaction.deleted_at.is_(None),
-            FinanceTransaction.dedup_status != "duplicate",
+            not_duplicate(),
             FinanceTransaction.excluded_from_reports.is_(False),
             FinanceTransaction.amount < 0,
             FinanceTransaction.recurring_stream_id.in_(sub_ids),

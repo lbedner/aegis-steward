@@ -9,6 +9,7 @@ from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection import queries
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceAccount,
     FinanceTransaction,
@@ -37,7 +38,7 @@ def candidate_filters(owner_user_id: int | None) -> list[Any]:
     return [
         owner_clause(FinanceTransaction.owner_user_id, owner_user_id),
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         or_(
             (FinanceTransaction.is_transfer.is_(False))
             & (FinanceTransaction.excluded_from_reports.is_(False)),

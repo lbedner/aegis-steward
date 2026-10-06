@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import CADENCES
 from app.services.finance.domains.ledger.queries.accounts import EVERYONE
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.domains.planning.recurring import queries
 from app.services.finance.domains.planning.recurring.membership import amount_band
 from app.services.finance.domains.planning.recurring.streams import get_recurring
@@ -60,7 +61,7 @@ async def recurring_match_candidates(
     )
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         or_(
             FinanceTransaction.recurring_stream_id.is_(None),
             ~live_claim.exists(),

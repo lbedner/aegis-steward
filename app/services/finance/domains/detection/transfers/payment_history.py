@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
 from app.services.finance.domains.detection import queries
+from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceAccount,
     FinanceTransaction,
@@ -57,7 +58,7 @@ async def _pair_payment_history(db: AsyncSession, *, owner_user_id: int | None) 
         )
         return [
             FinanceTransaction.deleted_at.is_(None),
-            FinanceTransaction.dedup_status != "duplicate",
+            not_duplicate(),
             FinanceTransaction.transfer_group_id.is_(None),
             amount_clause,
             FinanceTransaction.account_id.in_(account_ids),

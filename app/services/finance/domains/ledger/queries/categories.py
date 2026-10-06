@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger.queries.filters import (
     live_account_ids,
+    not_duplicate,
     split_aware_category_clause,
     uncategorized_catchall_ids,
 )
@@ -129,7 +130,7 @@ async def category_usage_rows(
     (second query, merged in Python) and nothing to its own."""
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
     ]
     if owner_user_id is not None:
@@ -216,7 +217,7 @@ def _category_outflow_filters(
     reading through ``finance_transaction_split``."""
     filters: list[object] = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.account_id.in_(live_account_ids()),
         FinanceTransaction.amount > 0 if inflow else FinanceTransaction.amount < 0,
@@ -328,7 +329,7 @@ async def categorized_history(
     precedent corpus for payee-based suggestions, one query."""
     filters = [
         FinanceTransaction.deleted_at.is_(None),
-        FinanceTransaction.dedup_status != "duplicate",
+        not_duplicate(),
         FinanceTransaction.category_id.is_not(None),
         FinanceTransaction.category_id.not_in(uncategorized_catchall_ids()),
     ]
