@@ -227,6 +227,43 @@ class TestConnecting:
         assert coffee.date_ is not None  # dated by when it was made
 
 
+class TestAClaimIsNeverThrownAway:
+    """Claiming a setup token works once. A first sync that fails must not
+    take the claimed access with it, or the token is spent and the bank
+    never connected (#402)."""
+
+    @pytest.mark.asyncio
+    async def test_the_connection_stays_when_the_first_sync_fails(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        client = FakeSimpleFINClient()
+
+        async def accounts(_url: str, **_: Any) -> dict[str, Any]:
+            raise SimpleFINError("502", "SimpleFIN could not answer (502).")
+
+        client.accounts = accounts  # type: ignore[method-assign]
+
+        with pytest.raises(SimpleFINError):
+            await connections.connect_simplefin(
+                async_db_session,
+                owner_user_id=1,
+                setup_token=SETUP_TOKEN,
+                client=client,
+            )
+        await async_db_session.rollback()  # what the request does with its error
+
+        (connection,) = (
+            await async_db_session.exec(
+                select(FinanceConnection).where(
+                    FinanceConnection.provider == Provider.SIMPLEFIN
+                )
+            )
+        ).all()
+        assert connection.access_token_encrypted
+        assert connection.status == "error"
+        assert "502" in (connection.status_detail or "")
+
+
 class TestTheDemo:
     @pytest.mark.asyncio
     async def test_a_demo_token_is_a_sandbox_connection(
@@ -389,6 +426,23 @@ class TestTheClient:
         # The protocol asks to warn that the token may be compromised.
         with pytest.raises(SimpleFINError, match="compromised"):
             await client.claim(SETUP_TOKEN)
+
+    @pytest.mark.asyncio
+    async def test_an_error_page_reads_as_words(self) -> None:
+        """SimpleFIN answers some failures with its HTML page: the message
+        is a sentence with the status, never the page (#402)."""
+        page = "<!doctype html><html><head><title>SimpleFIN Bridge</title>"
+        client = SimpleFINClient(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(502, text=page))
+        )
+
+        with pytest.raises(SimpleFINError) as raised:
+            await client.accounts(
+                ACCESS_URL, start=date(2026, 9, 1), end=date(2026, 9, 2)
+            )
+
+        assert "502" in raised.value.message
+        assert "<" not in raised.value.message
 
     @pytest.mark.asyncio
     async def test_a_token_that_is_not_one_says_so(self) -> None:

@@ -24,6 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from app.core.log import logger
 from app.services.finance.adapters.providers.errors import ProviderError
 
 _TIMEOUT_SECONDS = 30.0
@@ -67,7 +68,16 @@ def _raise_for(response: httpx.Response, forbidden: str) -> None:
     if response.status_code == 403:
         raise SimpleFINError("403", forbidden)
     if response.status_code >= 400:
-        raise SimpleFINError(str(response.status_code), response.text[:200])
+        # The Bridge answers some failures with its own HTML page: that is
+        # for the log, not for the person reading the error (#402).
+        logger.warning(
+            "SimpleFIN answered %s: %s", response.status_code, response.text[:500]
+        )
+        raise SimpleFINError(
+            str(response.status_code),
+            f"SimpleFIN could not answer ({response.status_code} "
+            f"{response.reason_phrase}). It is tried again with the next sync.",
+        )
 
 
 class SimpleFINClient:
