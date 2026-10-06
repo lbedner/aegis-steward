@@ -47,6 +47,10 @@ class ProviderAccount:
     available_balance: int | None = None
     # A provider's id that survives re-linking (Plaid's), when it has one.
     persistent_account_id: str | None = None
+    # The bank behind it, as the provider names it, and its web domain
+    # (its logo) - for placing it among yours (``placing``).
+    bank: str | None = None
+    bank_domain: str | None = None
 
 
 @dataclass(frozen=True)
@@ -158,7 +162,11 @@ async def _attach_to_yours(
                 if reported.mask
                 and a.mask == reported.mask
                 and a.account_type == reported.account_type
-                and a.institution_id in (None, connection.institution_id)
+                # The bank, where the link knows its own to compare.
+                and (
+                    connection.institution_id is None
+                    or a.institution_id in (None, connection.institution_id)
+                )
             ]
             if len(exact) == 1:
                 found[index] = exact[0]
@@ -265,6 +273,15 @@ async def apply_transactions(
     """
     from app.services.finance.utils import normalize_payee
 
+    # A held account's charges stay with it, for placing it (#404).
+    placing.remember_charges(
+        connection,
+        [
+            t
+            for t in transactions
+            if t.provider_account_id not in account_by_provider_id
+        ],
+    )
     prepared = [
         (account_by_provider_id[txn.provider_account_id], txn)
         for txn in transactions

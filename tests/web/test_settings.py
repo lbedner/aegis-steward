@@ -6,6 +6,7 @@ completion) plus a disconnect; the two tables render through the shared
 table macro; comms shows what the scheduled bill email would say.
 """
 
+from datetime import timedelta
 import json
 from typing import Any
 
@@ -142,6 +143,8 @@ class TestPlacingAHeldAccount:
     def test_the_card_says_so_and_opens_the_choice(
         self, client: TestClient, hx: TestClient, held: int, ledger: Ledger
     ) -> None:
+        from app.services.finance.adapters.providers.connections import placing
+
         card = one(client.get("/settings").text, f"#connection-{held}")
         one(card, "[data-unplaced]")
         place = f"/settings/connections/{held}/place"
@@ -151,13 +154,14 @@ class TestPlacingAHeldAccount:
         none(dialog, "html")
         form = one(dialog, f'form[hx-post="{place}"]')
         options = select(form, "select[name='place-acc_check'] option")
-        # Its own account, or one of yours of the same kind of money: the
-        # card is a debt, so it is not offered.
+        # One of yours of the same kind of money - the card is a debt, so
+        # it is not offered - then a new account, or not now.
         assert [o.get("value") for o in options] == [
             "",
-            "new",
             str(ledger.checking),
             str(ledger.savings),
+            placing.OWN,
+            placing.SKIP,
         ]
 
     async def test_placing_it_links_your_account_and_syncs_on_the_worker(
@@ -187,6 +191,69 @@ class TestPlacingAHeldAccount:
             "acc_check",
         )
         none(client.get("/settings").text, f"#connection-{held} [data-unplaced]")
+
+    async def test_one_account_a_step_its_likely_match_chosen_and_why(
+        self,
+        hx: TestClient,
+        held: int,
+        ledger: Ledger,
+        async_db_session,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A step per held account (#404): the bank's logo, large; the
+        account; and yours pre-chosen where its recent charges are yours
+        too - here the ledger's checking holds the same three."""
+        from app.services.finance.adapters.providers.connections import placing
+        from app.services.finance.domains.ledger import merchant_icon
+        from app.services.finance.models import FinanceConnection
+        from app.services.finance.utils import current_date
+
+        row = await async_db_session.get(FinanceConnection, held)
+        (account,) = placing.unplaced(row)
+        today = current_date()
+        account["bank"], account["bank_domain"] = "Chase Bank", "chase.com"
+        account["charges"] = [
+            [today.isoformat(), -3000, "Market"],
+            [(today - timedelta(days=1)).isoformat(), -1500, "Market"],
+            [(today - timedelta(days=4)).isoformat(), 50000, "Payroll"],
+        ]
+        placing.hold(row, [account])
+        async_db_session.add(row)
+        await async_db_session.commit()
+
+        async def _keys(_db: object, names: list, _domains: object) -> dict:
+            return {name: "chase.com" for name in names if name}
+
+        monkeypatch.setattr(merchant_icon, "resolve_icon_keys", _keys)
+
+        dialog = hx.get(f"/settings/connections/{held}/place").text
+
+        step = one(dialog, "[data-step]")
+        assert "1 of 1" in text(step)
+        logo = one(step, "img[data-bank-logo]")
+        assert logo.get("src") == merchant_icon.icon_url("chase.com")
+        chosen = one(step, "select[name='place-acc_check'] option[selected]")
+        assert chosen.get("value") == str(ledger.checking)
+        assert "3 of 3" in text(one(step, "[data-reason]"))
+        # The lines it matched on, checked, to verify at a glance.
+        assert len(select(step, "li[data-matched]")) == 3
+        # The ways out, in sight rather than inside the select.
+        for way in (placing.OWN, placing.SKIP):
+            one(step, f"button[data-way-out='{way}']")
+            one(step, f"select option[value='{way}']")
+
+    def test_a_skipped_account_stays_on_the_card(
+        self, client: TestClient, hx: TestClient, held: int, queued: list[tuple]
+    ) -> None:
+        from app.services.finance.adapters.providers.connections import placing
+
+        response = hx.post(
+            f"/settings/connections/{held}/place",
+            data={"place-acc_check": placing.SKIP},
+        )
+
+        assert "dialog:close" in response.headers["HX-Trigger-After-Settle"]
+        one(client.get("/settings").text, f"#connection-{held} [data-unplaced]")
 
     def test_an_unanswered_account_is_asked_again(
         self, hx: TestClient, held: int, queued: list[tuple]

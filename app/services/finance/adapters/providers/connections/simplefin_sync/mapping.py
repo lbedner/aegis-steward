@@ -10,6 +10,7 @@ user corrects one it gets wrong.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+import re
 from typing import Any
 
 from app.services.finance.adapters.importers.base import infer_account_kind
@@ -18,6 +19,7 @@ from app.services.finance.adapters.providers.connections.upserts import (
     ProviderAccount,
     ProviderTransaction,
 )
+from app.services.finance.domains.ledger.merchant_icon import domain_from_website
 
 
 def _day(seconds: Any) -> date:
@@ -40,19 +42,33 @@ def _kind(name: str, balance: int | None) -> tuple[str, str]:
     return kind
 
 
+# SimpleFIN carries an account's last four in its name, "... (3639)".
+_LAST_FOUR = re.compile(r"\((\d{4})\)\s*$")
+
+
+def last_four(name: str) -> str | None:
+    """The last four a SimpleFIN account's name ends with, if it does."""
+    found = _LAST_FOUR.search(name)
+    return found.group(1) if found else None
+
+
 def simplefin_accounts(payload: dict[str, Any]) -> list[ProviderAccount]:
+    banks = {c.get("conn_id"): c for c in payload.get("connections") or []}
     accounts = []
     for account in payload.get("accounts") or []:
         if not account.get("id"):
             continue
         name = account.get("name") or "Account"
+        bank = banks.get(account.get("conn_id")) or {}
         balance = _to_cents(account.get("balance"))
         account_type, classification = _kind(name, balance)
         accounts.append(
             ProviderAccount(
                 provider_account_id=str(account["id"]),
                 name=name,
-                mask=None,
+                mask=last_four(name),
+                bank=bank.get("name") or bank.get("org_name"),
+                bank_domain=domain_from_website(bank.get("org_url")),
                 currency=_currency(account.get("currency")),
                 account_type=account_type,
                 classification=classification,
