@@ -250,6 +250,31 @@ class TestConnections:
         assert one(page, '[hx-post="/settings/connect/plaid"]') is not None
         assert one(page, '[hx-post="/settings/connect/snaptrade"]') is not None
 
+    def test_one_connect_menu_holds_every_provider(
+        self, client: TestClient, providers: None
+    ) -> None:
+        """Three ways to connect something are one action: a Connect menu,
+        each provider an item that starts its own connect (#398)."""
+        header = one(client.get("/settings").text, "#connect")
+        menu = one(header, "details")
+        assert text(one(menu, "summary")) == "Connect"
+        assert [b.get("hx-post") for b in select(menu, "li button")] == [
+            "/settings/connect/plaid",
+            "/settings/connect/snaptrade",
+            "/settings/connect/simplefin",
+        ]
+
+    def test_a_single_provider_is_a_plain_button(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "FINANCE_PLAID", False)
+        monkeypatch.setattr(settings, "FINANCE_SNAPTRADE", False)
+        monkeypatch.setattr(settings, "FINANCE_SIMPLEFIN", True)
+
+        header = one(client.get("/settings").text, "#connect")
+        none(header, "details")
+        one(header, 'button[hx-post="/settings/connect/simplefin"]')
+
     def test_a_provider_without_credentials_offers_nothing_but_says_why(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
