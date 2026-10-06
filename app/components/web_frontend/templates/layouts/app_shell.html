@@ -56,6 +56,10 @@
       </button>
     </div>
 
+    {# A bank that needs you, on every page (issue 310): it loads itself, so no
+       page's own render pays for it. #}
+    <div {{ hx_load("/settings/connections/attention") }}></div>
+
     <main id="app-content" class="flex-1 min-w-0 px-4 md:px-8 lg:px-12 py-8 md:overflow-y-auto">
       {% block app_content %}{% endblock %}
     </main>

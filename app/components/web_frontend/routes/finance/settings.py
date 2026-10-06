@@ -45,6 +45,9 @@ from app.components.web_frontend.rendering import (
     with_toast,
 )
 from app.components.web_frontend.routes.finance import (
+    bank_attention,
+)
+from app.components.web_frontend.routes.finance import (
     connection_placing as placing_routes,
 )
 from app.components.web_frontend.routes.finance.connect_providers import (
@@ -52,7 +55,7 @@ from app.components.web_frontend.routes.finance.connect_providers import (
     Provider,
 )
 from app.core.config import settings
-from app.services.finance.constants import PROVIDER_LABELS
+from app.services.finance.constants import PROVIDER_LABELS, connection_status
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.planning.recurring.forecast import upcoming_outflows
 from app.services.finance.service import FinanceService
@@ -103,11 +106,6 @@ PAYEE_COLUMNS = [
     {"key": "last_date", "label": "Last seen", "kind": "date"},
 ]
 # A connection's stored status, as the card says it.
-STATUS = {
-    "healthy": ("Connected", "ok"),
-    "error": ("Needs attention", "error"),
-    "revoked": ("Disconnected", "muted"),
-}
 
 
 # --- the providers ---------------------------------------------------------
@@ -152,7 +150,7 @@ def _provider(key: str) -> Provider:
 
 
 def _card(connection: Any) -> dict[str, Any]:
-    label, tone = STATUS.get(connection.status, (connection.status.title(), "warn"))
+    label, tone = connection_status(connection.status)
     provider = PROVIDER_LABELS.get(connection.provider, connection.provider.title())
     return {
         "id": connection.id,
@@ -163,6 +161,7 @@ def _card(connection: Any) -> dict[str, Any]:
         "detail": connection.status_detail,
         "last_sync": connection.last_successful_sync_at,
         "unplaced": connection.unplaced,
+        "reconnect": bank_attention.reconnectable(connection),
     }
 
 

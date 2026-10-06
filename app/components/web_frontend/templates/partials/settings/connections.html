@@ -17,6 +17,7 @@
     {% if card.unplaced %}<p data-unplaced class="text-xs text-warning">{{ card.unplaced }} account{{ "s wait" if card.unplaced != 1 else " waits" }} for you to say which of yours {{ "they are" if card.unplaced != 1 else "it is" }}.</p>{% endif %}
     <div class="flex items-center gap-2">
       {% if card.unplaced %}{{ action("Place", hx_dialog(path ~ "/connections/" ~ card.id ~ "/place")) }}{% endif %}
+      {% if card.reconnect %}{{ action("Reconnect", hx_dialog_post(path ~ "/connections/" ~ card.id ~ "/reconnect")) }}{% endif %}
       {{ action("Disconnect", hx_dialog(path ~ "/connections/" ~ card.id ~ "/remove")) }}
     </div>
   </li>

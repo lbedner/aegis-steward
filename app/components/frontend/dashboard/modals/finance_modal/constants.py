@@ -100,19 +100,13 @@ _NEW_ACCOUNT_KEY = "new"
 # needs an explicit width at all (category_trigger_cell relies on it).
 _TXN_CATEGORY_COLUMN_WIDTH = 200
 
-# Connection status -> (display label, severity). Severity drives the shared
-# StatusTag dot styling, so colors stay single-sourced in the theme instead
-# of being re-picked per feature.
-_STATUS_STYLE: dict[str, tuple[str, ComponentStatusType]] = {
-    "healthy": ("Connected", ComponentStatusType.HEALTHY),
-    "loading": ("Syncing", ComponentStatusType.WARNING),
-    "login_required": ("Login required", ComponentStatusType.WARNING),
-    "pending_expiration": ("Expiring soon", ComponentStatusType.WARNING),
-    "pending_disconnect": ("Disconnecting", ComponentStatusType.WARNING),
-    "consent_expired": ("Consent expired", ComponentStatusType.UNHEALTHY),
-    "revoked": ("Disconnected", ComponentStatusType.UNHEALTHY),
-    "error": ("Error", ComponentStatusType.UNHEALTHY),
-    "manual": ("Manual", ComponentStatusType.INFO),
+# A connection status's tone (``constants.CONNECTION_STATUS``) as the
+# shared StatusTag severity, so colors stay single-sourced in the theme.
+_TONE_SEVERITY: dict[str, ComponentStatusType] = {
+    "ok": ComponentStatusType.HEALTHY,
+    "warn": ComponentStatusType.WARNING,
+    "error": ComponentStatusType.UNHEALTHY,
+    "muted": ComponentStatusType.INFO,
 }
 
 # Connection cards lay out in a wrapping grid so account rows stay a comfortable
