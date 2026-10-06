@@ -56,6 +56,22 @@ class TestAccountRegister:
         assert heads == ["", "Date", "Payee", "Category", "Amount", "Actions"]
         assert names(page) == ["Market", "Market", "Payroll"]
 
+    def test_a_card_decided_in_chat_redraws_the_rows(
+        self, client: TestClient, hx: TestClient, ledger: Ledger
+    ) -> None:
+        """Approving a card in the Ask Illiana panel changes rows this page
+        is showing (#408): they redraw, filters kept, without a reload."""
+        path = f"/accounts/{ledger.checking}"
+        redraws = one(client.get(path).text, "#register [data-redraws]")
+        assert redraws.get("hx-trigger") == "change:resolved from:body"
+        assert redraws.get("hx-get") == path
+        assert redraws.get("hx-include") == "#register-filters"
+        assert (
+            redraws.get("hx-target") == redraws.get("hx-select") == "#register-results"
+        )
+        # What it asks for answers with the rows it swaps in.
+        one(hx.get(path).text, "#register-results")
+
     def test_rows_are_addressable(self, client: TestClient, ledger: Ledger) -> None:
         """Row actions (next ticket) swap a single row back by id."""
         page = client.get(f"/accounts/{ledger.checking}").text

@@ -222,3 +222,15 @@
 {% set url = component_url(marker.kind, marker.id) %}
 {% if url %}<div {{ hx_load(url) }} data-component-load="{{ marker.kind }}"></div>{% endif %}
 {% endmacro %}
+
+{# Redraws ``target`` from ``url`` when a card is decided (change:resolved,
+   from the card routes), so what was approved shows on the page behind
+   the chat at once. An element of its OWN, hidden and childless: put on
+   the section itself, its hx-select and hx-target were inherited by the
+   lazy blocks inside, and loading a contact's sign-ins swapped the whole
+   contact away (2026-09-24). ``include`` carries a form's fields along -
+   a register's filters. #}
+{% macro redraws_on_decision(url, target, include=None) -%}
+<div hidden data-redraws hx-get="{{ url }}" hx-trigger="change:resolved from:body"
+     hx-target="{{ target }}" hx-select="{{ target }}" hx-swap="outerHTML"{% if include %} hx-include="{{ include }}"{% endif %}></div>
+{%- endmacro %}

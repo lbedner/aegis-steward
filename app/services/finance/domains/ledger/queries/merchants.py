@@ -271,6 +271,35 @@ async def named_transactions(
     return list((await db.exec(query)).all())
 
 
+async def paired_payees(
+    db: AsyncSession, *, owner_user_id: int | None = None
+) -> list[tuple[FinanceTransaction, int]]:
+    """Each live bank row an export's row stands for (``two_feeds``), with
+    that row's payee - what the bank's wording means, the other corpus
+    the payee memory is rebuilt from (#324)."""
+    from sqlalchemy.orm import aliased
+
+    from app.services.finance.constants import FEED_SOURCES
+
+    export = aliased(FinanceTransaction)
+    query = (
+        select(FinanceTransaction, export.merchant_id)
+        .join(export, FinanceTransaction.canonical_transaction_id == export.id)
+        .where(
+            FinanceTransaction.source.in_(FEED_SOURCES),
+            FinanceTransaction.dedup_status == "duplicate",
+            FinanceTransaction.deleted_at.is_(None),
+            export.deleted_at.is_(None),
+            export.merchant_id.isnot(None),
+        )
+    )
+    if owner_user_id is not None:
+        query = query.where(FinanceTransaction.owner_user_id == owner_user_id)
+    return [
+        (row, int(merchant_id)) for row, merchant_id in (await db.exec(query)).all()
+    ]
+
+
 async def delete_merchant_aliases(
     db: AsyncSession, *, owner_user_id: int | None = None
 ) -> None:

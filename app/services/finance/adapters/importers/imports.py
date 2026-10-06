@@ -54,7 +54,7 @@ from app.services.finance.adapters.importers.base import (
 )
 from app.services.finance.adapters.importers.plan import plan_transactions
 from app.services.finance.constants import PROVIDER_LABELS, sync_source
-from app.services.finance.domains.ledger import two_feeds
+from app.services.finance.domains.ledger import payee_aliases, two_feeds
 from app.services.finance.models import (
     FinanceImportBatch,
     FinanceImportBatchRow,
@@ -316,7 +316,7 @@ async def ingest_transactions(
     # cache would miss on almost every row and turn this into the N+1
     # ``test_ingest_query_count_is_flat_in_row_count`` exists to catch.
     merchant_by_descriptor = await service.resolve_merchant_aliases(
-        [r.txn.original_description or r.txn.name for r in plan.rows],
+        [payee_aliases.wording(r.txn) for r in plan.rows],
         owner_user_id=owner_user_id,
     )
 
@@ -503,9 +503,7 @@ async def ingest_transactions(
             )
             continue
 
-        merchant_id = merchant_by_descriptor.get(
-            txn.original_description or txn.name or ""
-        )
+        merchant_id = merchant_by_descriptor.get(payee_aliases.wording(txn) or "")
         category_id = payee_default_category.get(
             merchant_id or 0
         ) or await _category_for(txn.category_hint)

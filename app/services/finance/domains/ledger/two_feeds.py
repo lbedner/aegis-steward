@@ -109,13 +109,20 @@ PAIRS_PER_ROUND = 500
 
 
 async def pair_ids(db: AsyncSession, pairs: Iterable[tuple[int, int]]) -> None:
-    """Pair each ``(primary id, duplicate id)``, a round of reads at a time."""
+    """Pair each ``(primary id, duplicate id)``, a round of reads at a time.
+    Each pair teaches the payee memory what the bank's wording means: the
+    one place every pairing - a sync, an import, a merge - goes through."""
+    from app.services.finance.domains.ledger import payee_aliases
+
     pairs = list(pairs)
     for start in range(0, len(pairs), PAIRS_PER_ROUND):
         chunk = pairs[start : start + PAIRS_PER_ROUND]
         rows = await transactions_by_ids(db, [i for pair_ in chunk for i in pair_])
         for primary, duplicate in chunk:
             pair(rows[primary], rows[duplicate])
+        await payee_aliases.learn_from_pairs(
+            db, [(rows[primary], rows[duplicate]) for primary, duplicate in chunk]
+        )
         await db.flush()
 
 
