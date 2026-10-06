@@ -168,7 +168,22 @@ async def connect_simplefin(
         credential=access_url,
         environment="sandbox" if is_demo(access_url) else "production",
     )
-    result = await sync_simplefin_connection(db, connection, client=client)
+    # The token is spent: the access it bought is kept whatever follows.
+    # A first sync that failed used to roll it back with everything else,
+    # leaving a used token and no bank (#402).
+    await db.commit()
+    try:
+        result = await sync_simplefin_connection(db, connection, client=client)
+    except Exception as exc:
+        await db.rollback()  # the sync's own writes, not the connection
+        await db.refresh(connection)
+        connection.status = "error"
+        connection.status_detail = str(
+            getattr(exc, "message", None) or "The first sync failed."
+        )[:500]
+        db.add(connection)
+        await db.commit()
+        raise
     await _recompute_net_worth(db, owner_user_id, [result])
     return result
 
