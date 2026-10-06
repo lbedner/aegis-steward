@@ -28,6 +28,7 @@ from app.components.web_frontend.rendering import (
     where_from,
 )
 from app.components.web_frontend.routes.finance import subjects
+from app.services.documents.domains.reading import filing
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.numbers import set_number
 from app.services.finance.models import FinanceAccount
@@ -145,8 +146,11 @@ async def rename(
         service=service,
         owner_user_id=owner_user_id,
     )
-    # Blank leaves the stored number alone; it derives the mask.
+    # Blank leaves the stored number alone; it derives the mask - and a
+    # number is what an unfiled statement may print (#409).
     await set_number(service.db, account_id, account_number)
+    if account_number.strip():
+        await filing.reread_unfiled(service.db, owner_user_id=owner_user_id)
     # Whose money, said again. Blank hands it back to the household: a
     # field that can be set and not cleared is a mistake nobody can take
     # back.

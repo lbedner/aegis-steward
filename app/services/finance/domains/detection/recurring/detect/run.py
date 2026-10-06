@@ -44,7 +44,7 @@ from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
 )
-from app.services.finance.utils import current_date
+from app.services.finance.utils import current_date, stored_owner
 from app.services.shared.queries import owner_clause
 
 
@@ -57,7 +57,7 @@ async def detect_recurring(
     stores them under the ``0`` sentinel while scanning its NULL-owner rows.
     """
     result = RecurringDetectionResult()
-    store_owner = 0 if owner_user_id is None else owner_user_id
+    store_owner = stored_owner(owner_user_id)
     today = today or current_date()
 
     accounts = await queries.account_rows_where(

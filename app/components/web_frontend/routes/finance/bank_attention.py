@@ -22,7 +22,7 @@ from app.components.web_frontend.filters import freshness
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done, or_404, render
 from app.services.finance.adapters.providers import connections
-from app.services.finance.adapters.providers.connections import placing
+from app.services.finance.adapters.providers.connections import arrivals, placing
 from app.services.finance.constants import (
     CONNECTION_NEEDS_YOU,
     PROVIDER_LABELS,
@@ -30,6 +30,7 @@ from app.services.finance.constants import (
     connection_status,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.schemas import ConnectionResponse
 from app.services.finance.service import FinanceService
 
 SECTION = section("settings")
@@ -43,6 +44,8 @@ def needs_you(connection: Any) -> str | None:
     stale."""
     if connection.status in CONNECTION_NEEDS_YOU:
         return connection_status(connection.status)[0]
+    if connection.new_accounts:
+        return arrivals.WORDS
     if connection.status == "healthy" and connection.last_successful_sync_at:
         last = freshness(connection.last_successful_sync_at, "sync")
         if last["tone"] != "ok":
@@ -75,8 +78,12 @@ async def attention(
             "reason": reason,
             "reconnect": reconnectable(c),
         }
-        for c in await connections.list_provider_connections(
-            service.db, owner_user_id=owner_user_id
+        # As the Settings cards read them, so the two never disagree.
+        for c in map(
+            ConnectionResponse.from_row,
+            await connections.list_provider_connections(
+                service.db, owner_user_id=owner_user_id
+            ),
         )
         if (reason := needs_you(c))
     ]
@@ -145,6 +152,11 @@ async def reconnect_done(
     """Ask the bank again, on the worker: a sync that succeeds is what
     returns the link to healthy and clears the banner."""
     connection = await _connection(service, owner_user_id, connection_id)
+    if arrivals.waiting_to_add(connection):
+        # Plaid's page has been seen; what was added arrives with the sync.
+        arrivals.offer(connection, False)
+        service.db.add(connection)
+        await service.db.commit()
     await placing.sync_soon(connection)
     return dialog_done(
         SECTION.path,

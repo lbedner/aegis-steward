@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.documents.domains.reading import filing
 from app.services.finance.domains.writes.registry import executor_for
 from app.services.finance.models import FinancePendingChange
 from app.services.finance.schemas import ChangeDisplayRow
@@ -316,6 +317,9 @@ async def approve(
     row.updated_at = row.resolved_at
     db.add(row)
     await db.flush()
+    if row.change_type in filing.FACT_CHANGES:
+        # What just landed may be what an unfiled document prints (#409).
+        await filing.reread_unfiled(db, owner_user_id=row.owner_user_id)
     return row
 
 

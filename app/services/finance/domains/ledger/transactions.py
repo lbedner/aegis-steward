@@ -28,6 +28,7 @@ from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     current_date,
     month_start_before,
+    stored_owner,
     utcnow,
 )
 
@@ -168,7 +169,7 @@ async def get_or_create_tag(
     """
     from app.services.finance.utils import normalize_payee
 
-    store_owner = 0 if owner_user_id is None else owner_user_id
+    store_owner = stored_owner(owner_user_id)
     normalized = normalize_payee(name)
     existing = await queries.tag_by_normalized_name(
         db, store_owner=store_owner, normalized=normalized
@@ -187,7 +188,7 @@ async def list_tags(
     db: AsyncSession, *, owner_user_id: int | None = None
 ) -> list[tuple[FinanceTag, int]]:
     """Every live tag with how many transactions wear it, name order."""
-    store_owner = 0 if owner_user_id is None else owner_user_id
+    store_owner = stored_owner(owner_user_id)
     return await queries.tags_with_counts(db, store_owner=store_owner)
 
 

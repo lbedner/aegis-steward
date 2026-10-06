@@ -19,6 +19,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
 from app.services.finance.domains.detection import queries
+from app.services.finance.utils import stored_owner
 
 # Category-name prefixes (case-insensitive) that mark a member transaction
 # as bill-curated. Matched against the category NAME (the first two path
@@ -42,7 +43,7 @@ async def promote_curated_streams(
 
     Returns the number of streams promoted this pass.
     """
-    store_owner = 0 if owner_user_id is None else owner_user_id
+    store_owner = stored_owner(owner_user_id)
     streams = await queries.promotable_streams(db, store_owner=store_owner)
     if not streams:
         return 0

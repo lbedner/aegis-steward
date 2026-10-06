@@ -21,6 +21,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.encryption import decrypt_secret, encrypt_secret
 from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
+from app.services.finance.adapters.providers.connections import arrivals
 from app.services.finance.adapters.providers.connections.common import (
     _ACCESS_TOKEN_CONTEXT,
     SyncResult,
@@ -191,6 +192,10 @@ async def process_plaid_webhook(
             connection.needs_user_action = True
             connection.last_error_code = error_code
             connection.status_detail = error.get("error_message")
+        elif code == "NEW_ACCOUNTS_AVAILABLE":
+            # Not a broken link: the bank still syncs. Kept for the
+            # banner's Reconnect, which then offers them (#313).
+            arrivals.offer(connection, True)
         elif code in _ITEM_WEBHOOK_STATUS:
             connection.status = _ITEM_WEBHOOK_STATUS[code]
             connection.needs_user_action = True
@@ -313,4 +318,5 @@ async def relink_connection(
             else "standalone"
         ),
         update_access_token=access_token,
+        account_selection=arrivals.waiting_to_add(connection),
     )

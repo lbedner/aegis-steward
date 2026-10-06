@@ -32,7 +32,7 @@ from app.services.finance.domains.detection.analyst.shared import (
 from app.services.finance.domains.detection.insights import format_usd
 from app.services.finance.models import FinanceInsight
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import current_date
+from app.services.finance.utils import current_date, stored_owner
 
 
 class DeepDive(BaseModel):
@@ -266,7 +266,7 @@ async def run_deep_dive(
 
     # ---- take the database back, just to write ------------------------
     note = FinanceInsight(
-        owner_user_id=0 if owner_user_id is None else owner_user_id,
+        owner_user_id=stored_owner(owner_user_id),
         insight_type=DEEP_DIVE_INSIGHT_TYPE,
         dedup_key=f"deep:{today:%Y%m%d}:{datetime.now(UTC):%H%M%S%f}",
         severity="info",

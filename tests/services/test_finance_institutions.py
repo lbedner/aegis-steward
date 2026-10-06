@@ -41,6 +41,7 @@ class TestOwnedLikeTheRestOfTheCuration:
         assert again.id == first.id
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two owners, two namings
     async def test_two_owners_keep_their_own(self, svc: FinanceService) -> None:
         mine = await svc.get_or_create_institution(name="Fidelity", owner_user_id=1)
         theirs = await svc.get_or_create_institution(name="Fidelity", owner_user_id=2)
@@ -93,6 +94,7 @@ class TestWhatThePickerOffers:
     and creates whatever you type."""
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=4)  # banks named one by one
     async def test_it_lists_the_ones_you_have(self, svc: FinanceService) -> None:
         await svc.get_or_create_institution(name="Fidelity", owner_user_id=1)
         await svc.get_or_create_institution(name="Chase", owner_user_id=1)
@@ -103,6 +105,7 @@ class TestWhatThePickerOffers:
         assert [i.name for i in mine] == ["Chase", "Fidelity"]
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # banks named one by one
     async def test_the_last_one_used_is_remembered(self, svc: FinanceService) -> None:
         """Three brokerage accounts at one bank: name it once and the next
         account opens on it. Read from the accounts themselves rather than
@@ -126,6 +129,7 @@ class TestWhatThePickerOffers:
 
 class TestWhatTheDirectoryShows:
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=4)  # banks named one by one
     async def test_each_bank_counts_the_accounts_behind_it(
         self, svc: FinanceService
     ) -> None:

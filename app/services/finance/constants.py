@@ -22,6 +22,8 @@ FINANCE_COMPONENT_NAME = "finance"
 # than in the analyst module so the service layer can exclude it without
 # importing (or requiring) the AI service.
 ANALYST_NOTE_INSIGHT_TYPE = "analyst_note"
+# An account a sync made at a bank already linked (#313).
+NEW_ACCOUNT_INSIGHT_TYPE = "new_account"
 
 # Named rows in an import review's detail sections before the tail folds
 # into a count. A Quicken tree can carry hundreds of new categories, and a

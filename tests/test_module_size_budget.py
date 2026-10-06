@@ -53,7 +53,7 @@ BUDGET: dict[str, int] = {
     "components/frontend/main.py": 1047,
     "components/web_frontend/routes/finance/transactions.py": 781,
     "services/finance/adapters/importers/imports.py": 808,
-    "cli/finance.py": 697,
+    "cli/finance.py": 651,
     "components/web_frontend/routes/finance/settings.py": 693,
     "components/web_frontend/routes/finance/account_manage.py": 675,
     "components/web_frontend/routes/finance/bills.py": 634,

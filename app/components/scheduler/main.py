@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.db import db_session, engine, init_database
 from app.core.log import logger
 from app.services.ai.jobs import analyze_sentiment_job, sync_llm_catalog_job
+from app.services.documents.domains.reading.filing import reread_unfiled_job
 from app.services.documents.domains.reading.joins import join_arrivals_job
 from app.services.finance.jobs import (
     finance_bill_due_email_job,
@@ -159,6 +160,22 @@ def create_scheduler() -> AsyncIOScheduler:
         minute=0,
         id="database_backup",
         name="Daily Database Backup",
+        max_instances=1,
+        coalesce=True,
+        replace_existing=True,
+    )
+
+    # Before the joins: paper that arrived before the household knew what
+    # it was about is filed once a fact it prints has landed (#409), so
+    # the joins below see it on its account.
+    scheduler.add_job(
+        enqueue_task,
+        args=[reread_unfiled_job.__name__],
+        trigger="cron",
+        hour=22,
+        minute=30,
+        id="reread_unfiled",
+        name="Read The Unfiled Pile Again",
         max_instances=1,
         coalesce=True,
         replace_existing=True,

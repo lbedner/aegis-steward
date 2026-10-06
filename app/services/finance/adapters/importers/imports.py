@@ -61,7 +61,7 @@ from app.services.finance.models import (
     FinanceImportProfile,
     FinanceTransactionTag,
 )
-from app.services.finance.utils import current_date
+from app.services.finance.utils import current_date, stored_owner
 from app.services.system.jobs import SetLabel, unwatched
 
 # What a source is CALLED where a person reads it. The stored value is
@@ -187,7 +187,7 @@ async def ingest_transactions(
     multi-account CSV), creating one when absent. Otherwise rows use
     ``default_account_id`` (single-account) or provider-id matching.
     """
-    batch_owner = 0 if owner_user_id is None else owner_user_id
+    batch_owner = stored_owner(owner_user_id)
     file_sha256 = hashlib.sha256(file_bytes).hexdigest()
     # Resolved once so the three places this run speaks are three lines,
     # not three ``if``s around the same question.
@@ -685,7 +685,7 @@ async def import_csv(
     profile, header_index = _detect_csv(file_bytes, profiles)
     if profile is None:
         header = csv_profiles.header_preview(file_bytes)
-        batch_owner = 0 if owner_user_id is None else owner_user_id
+        batch_owner = stored_owner(owner_user_id)
         # No file hash on a failed batch: the hash dedups files that were
         # ingested (uq_finance_importbatch_file), and carrying it here made
         # the second try of the same unknown bytes an IntegrityError.
@@ -778,7 +778,7 @@ async def get_import_batch(
     db: AsyncSession, batch_id: int, *, owner_user_id: int | None = None
 ) -> FinanceImportBatch | None:
     # finance_import_batch.owner_user_id is NOT NULL; standalone uses 0.
-    batch_owner = 0 if owner_user_id is None else owner_user_id
+    batch_owner = stored_owner(owner_user_id)
     return await queries.import_batch_by_id(db, batch_id, batch_owner=batch_owner)
 
 
@@ -789,7 +789,7 @@ async def list_import_batches(
     page: int = 1,
     page_size: int = 20,
 ) -> list[FinanceImportBatch]:
-    batch_owner = 0 if owner_user_id is None else owner_user_id
+    batch_owner = stored_owner(owner_user_id)
     return await queries.import_batches_page(
         db, batch_owner=batch_owner, page=page, page_size=page_size
     )

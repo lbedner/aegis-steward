@@ -101,9 +101,13 @@ class TestWhatTheBridgeSays:
         (account,) = simplefin_accounts(_bridge(CHECKING))
 
         assert account.mask == "3639"
-        assert (account.bank, account.bank_domain) == ("Chase Bank", "chase.com")
+        assert (account.bank, account.bank_url) == (
+            "Chase Bank",
+            "https://www.chase.com",
+        )
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # a bank named, then a link
     async def test_the_last_four_in_the_name_attaches_on_its_own(
         self, async_db_session: AsyncSession
     ) -> None:

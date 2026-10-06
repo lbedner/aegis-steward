@@ -69,6 +69,23 @@ async def set_number(db: AsyncSession, account_id: int, number: str | None) -> A
     return account
 
 
+async def set_last_four(db: AsyncSession, account_id: int, last_four: str) -> Any:
+    """The last four alone - what a statement prints and a bank reports
+    - where the number itself is not known. Never replaces a stored
+    number's own mask: that is derived, and the number wins."""
+    from app.services.finance.domains.ledger.queries.accounts import account_by_id
+
+    account = await account_by_id(db, account_id)
+    if account is None:
+        raise ValueError(f"Account {account_id} not found.")
+    if account.account_number_encrypted:
+        return account
+    account.mask = _digits(last_four)[-MASK_DIGITS:] or None
+    db.add(account)
+    await db.flush()
+    return account
+
+
 async def reveal_number(db: AsyncSession, account_id: int) -> str | None:
     """The number itself, asked for on purpose. Never part of a listing.
 

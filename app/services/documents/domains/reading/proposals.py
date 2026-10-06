@@ -179,13 +179,17 @@ async def _propose_demands(
 
 
 async def _propose_metadata(
-    db: AsyncSession, document_id: int, owner_user_id: int | None
+    db: AsyncSession,
+    document_id: int,
+    owner_user_id: int | None,
+    known: list[Any] | None = None,
 ) -> Any | None:
     """What the document says about itself.
 
     ``None`` when there is nothing to say: no findings, nothing the
     document does not already record, or a card still awaiting an answer.
     """
+    from app.services.documents.domains.reading import banks
     from app.services.documents.service import DocumentService
     from app.services.finance.domains.writes.queue import propose
 
@@ -209,7 +213,7 @@ async def _propose_metadata(
     # What else the front page says that the app can name: the account a
     # statement is for, and the sender where only their phone or website
     # is printed.
-    printed = identify(read, await known_strings(db))
+    printed = identify(read, await known_strings(db) if known is None else known)
     if title := _proposed_title(document, letterhead, payload, findings):
         payload["title"] = title
     if sender := await _proposed_sender(db, document, letterhead, printed):
@@ -218,6 +222,10 @@ async def _propose_metadata(
         payload["matter"] = case
     if held := await _proposed_account(db, document, printed):
         payload["account"] = held
+    elif named := await banks.named_account(db, document, read):
+        # The paper names the account and prints the number nobody
+        # entered (#409): approving sets the one and files under it.
+        payload["account"], payload["last_four"] = named
     if len(payload) == 1:
         return None
     return await propose(

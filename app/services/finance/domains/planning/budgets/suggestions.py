@@ -24,7 +24,7 @@ from app.services.finance.domains.planning.budgets import queries
 from app.services.finance.domains.planning.budgets.lines import get_or_create_budget
 from app.services.finance.models import FinanceBudgetCategory
 from app.services.finance.schemas import BudgetSuggestion, DismissedBudgetSuggestion
-from app.services.finance.utils import current_date, current_period_month
+from app.services.finance.utils import current_date, current_period_month, stored_owner
 
 # Auto-budget gates. Deliberately mirror the recurring-detection ones:
 # a mean with no dispersion check invents a pattern, which is how a
@@ -249,7 +249,7 @@ async def dismiss_budget_suggestions(
             continue
         db.add(
             FinanceBudgetCategory(
-                owner_user_id=0 if owner_user_id is None else owner_user_id,
+                owner_user_id=stored_owner(owner_user_id),
                 budget_id=budget.id,
                 category_id=category_id,
                 period_month=None,

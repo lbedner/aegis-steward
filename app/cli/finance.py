@@ -12,6 +12,8 @@ from typing import Any
 import typer
 
 from app.cli import theme
+from app.cli.finance_options import OWNER_OPT
+from app.cli.finance_snaptrade import snaptrade_app
 from app.i18n import lazy_t, t
 
 app = typer.Typer(help="Finance service commands.")
@@ -22,12 +24,6 @@ console = theme.console()
 # Shared across commands: on auth-enabled stacks finance rows are owned by a
 # user, so CLI writes/reads must be attributed to one. Omit for standalone
 # (single-user) stacks, where the owner is NULL.
-_OWNER_OPT = typer.Option(
-    None,
-    "--owner-user-id",
-    "-u",
-    help="Owner user id (required on auth-enabled stacks; omit for standalone).",
-)
 
 
 def _usd(cents: int | None) -> str:
@@ -35,7 +31,7 @@ def _usd(cents: int | None) -> str:
 
 
 @app.command()
-def status(owner_user_id: int | None = _OWNER_OPT) -> None:
+def status(owner_user_id: int | None = OWNER_OPT) -> None:
     """Show the finance summary (net worth, account/connection counts)."""
     asyncio.run(_status(owner_user_id))
 
@@ -57,7 +53,7 @@ async def _status(owner_user_id: int | None) -> None:
 
 
 @accounts_app.command("list")
-def accounts_list(owner_user_id: int | None = _OWNER_OPT) -> None:
+def accounts_list(owner_user_id: int | None = OWNER_OPT) -> None:
     """List accounts."""
     asyncio.run(_accounts_list(owner_user_id))
 
@@ -103,7 +99,7 @@ def accounts_create(
         "asset", "--class", "-c", help="asset | liability"
     ),
     currency: str = typer.Option("usd", "--currency", help="ISO-4217, lowercase."),
-    owner_user_id: int | None = _OWNER_OPT,
+    owner_user_id: int | None = OWNER_OPT,
 ) -> None:
     """Create a manual account."""
     asyncio.run(
@@ -171,7 +167,7 @@ async def _recompute_snapshots(days: int) -> None:
 
 
 @app.command("recompute-stream-amounts")
-def recompute_stream_amounts(owner_user_id: int | None = _OWNER_OPT) -> None:
+def recompute_stream_amounts(owner_user_id: int | None = OWNER_OPT) -> None:
     """Re-read every bill's amount from the transactions that paid it.
 
     ``average_amount`` is the figure Bills & Income, the forecast and the
@@ -201,7 +197,7 @@ async def _recompute_stream_amounts(owner_user_id: int | None) -> None:
 
 
 @app.command("recompute-payee-aliases")
-def recompute_payee_aliases(owner_user_id: int | None = _OWNER_OPT) -> None:
+def recompute_payee_aliases(owner_user_id: int | None = OWNER_OPT) -> None:
     """Rebuild the payee memory from the transactions already named.
 
     The alias table is written as payees are named, so a ledger whose
@@ -234,9 +230,27 @@ async def _recompute_payee_aliases(owner_user_id: int | None) -> None:
         )
 
 
+@app.command("link-bank-contacts")
+def link_bank_contacts(owner_user_id: int | None = OWNER_OPT) -> None:
+    """Give every institution its contact (#410): the one already named
+    in the address book, else a new one. Banks made before a bank came
+    with its contact. Idempotent."""
+    asyncio.run(_link_bank_contacts(owner_user_id))
+
+
+async def _link_bank_contacts(owner_user_id: int | None) -> None:
+    from app.core.db import get_async_session
+    from app.services.finance.domains.ledger import institutions
+
+    async with get_async_session() as session:
+        made = await institutions.ensure_contacts(session, owner_user_id=owner_user_id)
+        await session.commit()
+    console.print(f"[green]{made} bank(s) now have a contact.[/]")
+
+
 @app.command("seed-demo", help=lazy_t("finance.help_seed_demo"))
 def seed_demo(
-    owner_user_id: int | None = _OWNER_OPT,
+    owner_user_id: int | None = OWNER_OPT,
     reset: bool = typer.Option(
         False, "--reset", help=lazy_t("finance.opt_seed_demo_reset")
     ),
@@ -408,7 +422,7 @@ def import_file(
     account_id: int | None = typer.Option(
         None, "--account-id", "-a", help="Target account (required for QIF/CSV)."
     ),
-    owner_user_id: int | None = _OWNER_OPT,
+    owner_user_id: int | None = OWNER_OPT,
 ) -> None:
     """Import a bank / credit-card / Quicken file into an account."""
     asyncio.run(_import_file(path, account_id, owner_user_id))
@@ -471,7 +485,7 @@ def import_investments(
         help="NAME=SYMBOL, repeatable. Maps a fund name to its ticker; "
         "unmapped funds get a placeholder MANUAL: ticker.",
     ),
-    owner_user_id: int | None = _OWNER_OPT,
+    owner_user_id: int | None = OWNER_OPT,
 ) -> None:
     """Import a custodian's investment-activity ledger (trades, dividends,
     fees) into a brokerage account. Unlike ``import``, this writes
@@ -537,7 +551,7 @@ async def _import_investments(
 
 @app.command()
 def sync(
-    owner_user_id: int | None = _OWNER_OPT,
+    owner_user_id: int | None = OWNER_OPT,
     connection_id: int | None = typer.Option(
         None,
         "--connection-id",
@@ -590,7 +604,7 @@ async def _sync(owner_user_id: int | None, connection_id: int | None) -> None:
 
 @app.command("fire-webhook")
 def fire_webhook(
-    owner_user_id: int | None = _OWNER_OPT,
+    owner_user_id: int | None = OWNER_OPT,
     connection_id: int | None = typer.Option(
         None, "--connection-id", "-c", help="Fire for one connection only."
     ),
@@ -634,61 +648,4 @@ async def _fire_webhook(
         console.print(f"Fired {code} for connection #{fired_id}")
 
 
-snaptrade_app = typer.Typer(help="SnapTrade brokerage connections.")
 app.add_typer(snaptrade_app, name="snaptrade")
-
-
-@snaptrade_app.command("connect")
-def snaptrade_connect(owner_user_id: int | None = _OWNER_OPT) -> None:
-    """Start a SnapTrade connect and print the portal URL (expires in ~5 min)."""
-    asyncio.run(_snaptrade_connect(owner_user_id))
-
-
-async def _snaptrade_connect(owner_user_id: int | None) -> None:
-    from app.core.db import get_async_session
-    from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
-
-    async with get_async_session() as session:
-        try:
-            _connection, url = await connections.start_snaptrade_connect(
-                session, owner_user_id=owner_user_id
-            )
-            await session.commit()
-        except SnapTradeError as exc:
-            console.print(f"[red]Connect failed:[/] {exc}")
-            raise typer.Exit(code=1) from exc
-    console.print("Open the SnapTrade portal to link your brokerage:")
-    console.print(url, soft_wrap=True)
-    console.print("Then run: [bold]finance snaptrade complete[/]")
-
-
-@snaptrade_app.command("complete")
-def snaptrade_complete(owner_user_id: int | None = _OWNER_OPT) -> None:
-    """Adopt authorizations finished in the portal and run the first sync."""
-    asyncio.run(_snaptrade_complete(owner_user_id))
-
-
-async def _snaptrade_complete(owner_user_id: int | None) -> None:
-    from app.core.db import get_async_session
-    from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
-
-    async with get_async_session() as session:
-        try:
-            results = await connections.complete_snaptrade_connect(
-                session, owner_user_id=owner_user_id
-            )
-            await session.commit()
-        except SnapTradeError as exc:
-            console.print(f"[red]Connect failed:[/] {exc}")
-            raise typer.Exit(code=1) from exc
-    if not results:
-        console.print("No new authorization yet - finish the portal flow, then re-run.")
-        raise typer.Exit(code=1)
-    for result in results:
-        console.print(
-            f"[green]Connected #{result.connection_id}:[/] "
-            f"{result.accounts} account(s), {result.holdings} holding(s), "
-            f"{result.trades} trade(s)"
-        )
