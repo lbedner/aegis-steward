@@ -30,7 +30,8 @@ _TIMEOUT_SECONDS = 30.0
 # The Bridge's developer page: a fresh demo token on every visit, for fixed
 # fake data, no sign-up. Its demo access lives on the beta host.
 DEMO_PAGE = "https://beta-bridge.simplefin.org/info/developers"
-_DEMO_HOST_PREFIX = "beta-bridge."
+# The demo token's access signs in as this (``demo:demo``).
+_DEMO_USER = "demo"
 
 
 class SimpleFINError(ProviderError):
@@ -57,8 +58,9 @@ def _credentialed(access_url: str) -> tuple[str, tuple[str, str]]:
 
 
 def is_demo(access_url: str) -> bool:
-    """An access URL from a demo token (the Bridge's beta host)."""
-    return (urlsplit(access_url).hostname or "").startswith(_DEMO_HOST_PREFIX)
+    """An access URL from the demo token: it signs in as ``demo``. Not its
+    host - real tokens come from the beta host too now (#400)."""
+    return urlsplit(access_url).username == _DEMO_USER
 
 
 def _raise_for(response: httpx.Response, forbidden: str) -> None:

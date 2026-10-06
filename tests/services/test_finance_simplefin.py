@@ -233,9 +233,9 @@ class TestTheDemo:
         self, async_db_session: AsyncSession
     ) -> None:
         """The Bridge's demo tokens (its developer page, fixed fake data)
-        come from its beta host: the connection says sandbox, like Plaid's."""
+        sign in as ``demo``: the connection says sandbox, like Plaid's."""
         client = FakeSimpleFINClient()
-        demo = "https://demo:secret@beta-bridge.simplefin.org/simplefin"
+        demo = "https://demo:demo@beta-bridge.simplefin.org/simplefin"
 
         async def claim(_token: str) -> str:
             return demo
@@ -260,11 +260,14 @@ class TestTheDemo:
         assert connection.environment == "sandbox"
 
     def test_a_real_bridge_is_production(self) -> None:
+        """Real tokens come from the beta host too now (the create page
+        redirects there): only the demo's own sign-in is the demo (#400)."""
         from app.services.finance.adapters.providers.simplefin import is_demo
 
         assert not is_demo(ACCESS_URL)
         assert not is_demo("https://u:p@bridge.simplefin.org/simplefin")
-        assert is_demo("https://u:p@beta-bridge.simplefin.org/simplefin")
+        assert not is_demo("https://u:p@beta-bridge.simplefin.org/simplefin")
+        assert is_demo("https://demo:demo@beta-bridge.simplefin.org/simplefin")
 
 
 class TestSyncing:
