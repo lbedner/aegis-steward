@@ -23,7 +23,7 @@ from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections import placing
 from app.services.finance.constants import FILE_SOURCES
-from app.services.finance.domains.ledger import bank_link, two_feeds
+from app.services.finance.domains.ledger import bank_link, payee_aliases, two_feeds
 from app.services.finance.models import (
     FinanceAccount,
     FinanceConnection,
@@ -71,6 +71,29 @@ class ProviderTransaction:
     # The provider's own category (Plaid's primary), mapped to ours.
     category_primary: str | None = None
     logo_url: str | None = None
+
+
+def _asks(txn: ProviderTransaction) -> tuple[str | None, str | None]:
+    """What a synced row asks the payee memory (``payees_for``): its
+    wording, and the provider's name for it."""
+    return payee_aliases.wording(txn), txn.name
+
+
+async def _category(
+    service: FinanceService,
+    txn: ProviderTransaction,
+    merchant_id: int | None,
+    filed: dict[int, int],
+) -> tuple[int | None, str]:
+    """``(category, source)`` for a synced row nobody has filed:
+    precedence provider < rule - your payee's filing beats the
+    provider's category - and ``(None, "unset")`` when neither says."""
+    if merchant_id is not None and (ours := filed.get(merchant_id)) is not None:
+        return ours, "rule"
+    if txn.category_primary:
+        category = await service.get_or_create_pfc_category(txn.category_primary)
+        return category.id, "provider"
+    return None, "unset"
 
 
 def _same_owner(row: FinanceAccount, connection: FinanceConnection) -> bool:
@@ -326,6 +349,21 @@ async def apply_transactions(
             exported = await two_feeds.unpaired(db, touched, FILE_SOURCES, posting)
         return exported.take(account_id, txn.date_, txn.amount)
 
+    # A row the export does not bring - new, or stored before the memory
+    # knew its wording - is named and filed by your own history (#324):
+    # the memory, else the provider's name for it.
+    arriving = [
+        _asks(txn)
+        for account_id, txn in prepared
+        if (held := lane1.get((account_id, txn.external_id))) is None
+        # Not the bank's copy of an export's row: that one is named there.
+        or (held.merchant_id is None and held.canonical_transaction_id is None)
+    ]
+    payees = await payee_aliases.payees_for(
+        db, arriving, owner_user_id=connection.owner_user_id
+    )
+    filed = await payee_aliases.filed_under(db, payees.values())
+
     added = reconciled = 0
     # Posted rows naming an earlier pre-auth collapse after the loop, once
     # every row of the batch (a same-batch pending sibling too) is in lane1.
@@ -343,16 +381,21 @@ async def apply_transactions(
                 existing.status = "pending" if txn.pending else "posted"
             if txn.pending_provider_id:
                 existing.pending_provider_id = txn.pending_provider_id
-            # Category precedence: provider < rule < user. A provider refresh
-            # never clobbers a rule- or user-assigned category.
-            if txn.category_primary and existing.category_source in (
-                "provider",
-                "unset",
+            if (
+                existing.merchant_id is None
+                and existing.canonical_transaction_id is None
             ):
-                existing.category_id = (
-                    await service.get_or_create_pfc_category(txn.category_primary)
-                ).id
-                existing.category_source = "provider"
+                existing.merchant_id = payees.get(_asks(txn))
+            # A refresh never clobbers a rule- or user-assigned category.
+            if existing.category_source in ("provider", "unset"):
+                category_id, source_ = await _category(
+                    service, txn, existing.merchant_id, filed
+                )
+                if category_id is not None:
+                    existing.category_id, existing.category_source = (
+                        category_id,
+                        source_,
+                    )
             db.add(existing)
             reconciled += 1
             if (
@@ -375,11 +418,10 @@ async def apply_transactions(
             reconciled += 1
             continue
 
-        category_id = (
-            (await service.get_or_create_pfc_category(txn.category_primary)).id
-            if txn.category_primary
-            else None
-        )
+        same = None if txn.pending else await export_row(account_id, txn)
+        # One the export brings is named there: its row stays in view.
+        merchant_id = None if same is not None else payees.get(_asks(txn))
+        category_id, category_source = await _category(service, txn, merchant_id, filed)
         created = await service.create_transaction(
             owner_user_id=connection.owner_user_id,
             account_id=account_id,
@@ -393,7 +435,8 @@ async def apply_transactions(
             currency=txn.currency,
             original_description=txn.original_description,
             category_id=category_id,
-            category_source="provider" if txn.category_primary else "unset",
+            category_source=category_source,
+            merchant_id=merchant_id,
             pending=txn.pending,
             pending_provider_id=txn.pending_provider_id,
             import_batch_id=import_batch_id,
@@ -401,7 +444,6 @@ async def apply_transactions(
         )
         created.logo_url = txn.logo_url
         lane1[(account_id, txn.external_id)] = created
-        same = None if txn.pending else await export_row(account_id, txn)
         if same is None:
             added += 1
         else:

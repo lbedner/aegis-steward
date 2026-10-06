@@ -431,6 +431,7 @@ class TestPlaidConnection:
         assert any(name == "Food And Drink" for name, _amount in rows)
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_resync_dedups_by_external_id(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
@@ -976,6 +977,7 @@ class TestPlaidPendingAndMutations:
         assert rows[0].status == "pending"
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_pending_to_posted_collapses_to_one_visible_row(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
@@ -1039,6 +1041,7 @@ class TestPlaidPendingAndMutations:
         assert total == 0  # no phantom spend
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_modified_preserves_user_category(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
@@ -1064,6 +1067,7 @@ class TestPlaidPendingAndMutations:
         assert rows["txn_mcd"].category_source == "user"
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_modified_refreshes_provider_category_when_not_user_set(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
@@ -1681,6 +1685,7 @@ class TestPlaidSyncAudit:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_each_sync_writes_an_audit_batch(
         self, async_db_session: AsyncSession
     ) -> None:

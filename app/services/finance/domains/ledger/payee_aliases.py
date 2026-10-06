@@ -13,8 +13,9 @@ naming decided, and they are separately readable.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
+from typing import Protocol
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -23,7 +24,65 @@ from app.services.finance.models import (
     FinanceMerchantAlias,
     FinanceTransaction,
 )
-from app.services.finance.utils import transaction_payee_key, utcnow
+from app.services.finance.utils import (
+    normalize_payee,
+    transaction_payee_key,
+    utcnow,
+)
+
+# A payee's usual category files a row nobody filed only when its filed
+# rows agree. Measured on the live ledger (#324, September's pairs):
+# 90% of 3+ rows filed 102 right and 7 wrong; the plain most-common,
+# 109 right and 23 wrong - Target, Dollar General and Amazon split.
+SETTLED_SHARE = 0.9
+SETTLED_ROWS = 3
+
+
+class Worded(Protocol):
+    """A row as the memory reads it: a stored, a synced or an imported one."""
+
+    original_description: str | None
+    name: str | None
+
+
+def wording(row: Worded) -> str | None:
+    """What a row says, as the memory reads it: its descriptor, else its
+    name."""
+    return row.original_description or row.name
+
+
+def _wanted(
+    taught: Iterable[tuple[str, int, str]],
+) -> dict[str, tuple[int, str, bool]]:
+    """``(key, payee, sample)`` lessons -> ``key -> (payee, sample,
+    ambiguous)``: the most common payee, flagged when there are two."""
+    tallies: dict[str, Counter[int]] = defaultdict(Counter)
+    samples: dict[str, str] = {}
+    for key, merchant_id, sample in taught:
+        if key:
+            tallies[key][merchant_id] += 1
+            samples.setdefault(key, sample)
+    return {
+        key: (tally.most_common(1)[0][0], samples[key], len(tally) > 1)
+        for key, tally in tallies.items()
+    }
+
+
+def _from_pairs(
+    pairs: Iterable[tuple[FinanceTransaction, int]],
+) -> list[tuple[str, int, str]]:
+    """What each bank row an export's row stands for teaches: its wording
+    means the export row's payee (#324). Keyed as a synced row is
+    resolved (``resolve_merchant_aliases`` on its ``wording``)."""
+    return [
+        (
+            transaction_payee_key(None, None, said),
+            merchant_id,
+            said,
+        )
+        for bank, merchant_id in pairs
+        if (said := wording(bank))
+    ]
 
 
 async def _write_payee_aliases(
@@ -152,20 +211,23 @@ async def recompute_payee_aliases(
     """
 
     rows = await queries.named_transactions(db, owner_user_id=owner_user_id)
-    merchants_by_key: dict[str, Counter[int]] = {}
-    for txn in rows:
-        key = transaction_payee_key(
-            txn.merchant_name, txn.original_description, txn.name
-        )
-        if key and txn.merchant_id is not None:
-            merchants_by_key.setdefault(key, Counter())[txn.merchant_id] += 1
     samples = _payee_key_samples(rows)
+    named = [
+        (key, txn.merchant_id, samples[key])
+        for txn in rows
+        if txn.merchant_id is not None
+        and (
+            key := transaction_payee_key(
+                txn.merchant_name, txn.original_description, txn.name
+            )
+        )
+    ]
+    # And what the bank's wording was taught by the charges both feeds
+    # brought: a rebuild that forgot it would leave synced rows unnamed.
+    pairs = await queries.paired_payees(db, owner_user_id=owner_user_id)
 
     await queries.delete_merchant_aliases(db, owner_user_id=owner_user_id)
-    wanted = {
-        key: (tally.most_common(1)[0][0], samples.get(key, key), len(tally) > 1)
-        for key, tally in merchants_by_key.items()
-    }
+    wanted = _wanted(named + _from_pairs(pairs))
     flagged = await _write_payee_aliases(db, wanted, owner_user_id=owner_user_id)
     return {
         "transactions": len(rows),
@@ -201,3 +263,78 @@ async def resolve_merchant_aliases(
         for text, key in by_descriptor.items()
         if key in rows and not rows[key].is_ambiguous
     }
+
+
+async def learn_from_pairs(
+    db: AsyncSession, pairs: Iterable[tuple[FinanceTransaction, FinanceTransaction]]
+) -> None:
+    """Teach the memory the bank's wording from each ``(export row, bank
+    row)`` just paired, where the export's row has a payee (#324): the
+    same charge, so the wording means that payee."""
+    by_owner: dict[int | None, list[tuple[FinanceTransaction, int]]] = defaultdict(list)
+    for export, bank in pairs:
+        if export.merchant_id is not None:
+            by_owner[bank.owner_user_id].append((bank, export.merchant_id))
+    for owner_user_id, taught in by_owner.items():
+        await _write_payee_aliases(
+            db, _wanted(_from_pairs(taught)), owner_user_id=owner_user_id
+        )
+
+
+async def payees_for(
+    db: AsyncSession,
+    rows: Iterable[tuple[str | None, str | None]],
+    *,
+    owner_user_id: int | None = None,
+) -> dict[tuple[str | None, str | None], int]:
+    """``(wording, provider's name)`` -> payee, for synced rows (#324):
+    what the memory was taught the wording means, else the payee the
+    provider's own name for it is - when you have one called that. Absent
+    when neither says. Two reads for the batch."""
+    rows = set(rows)
+    taught = await resolve_merchant_aliases(
+        db, [said for said, _name in rows], owner_user_id=owner_user_id
+    )
+    called = await queries.merchants_by_normalized_names(
+        db,
+        [normalize_payee(name or "") for _said, name in rows],
+        owner_user_id=owner_user_id,
+    )
+    found: dict[tuple[str | None, str | None], int] = {}
+    for said, name in rows:
+        payee = taught.get(said or "")
+        if payee is None and (by_name := called.get(normalize_payee(name or ""))):
+            payee = by_name.id
+        if payee is not None:
+            found[(said, name)] = payee
+    return found
+
+
+async def filed_under(db: AsyncSession, ids: Iterable[int]) -> dict[int, int]:
+    """Where each payee files a row nobody has filed: its default, else
+    the category nearly all of its filed rows share (``SETTLED_SHARE`` of
+    ``SETTLED_ROWS`` or more). Absent when neither: a guess is worse than
+    asking. Two reads for the batch."""
+    wanted = set(ids)
+    if not wanted:
+        return {}
+    defaults = {
+        merchant_id: merchant.default_category_id
+        for merchant_id, merchant in (
+            await queries.merchants_by_ids(db, wanted)
+        ).items()
+        if merchant.default_category_id is not None
+    }
+    tallies: dict[int, Counter[int]] = defaultdict(Counter)
+    for merchant_id, category_id, count in await queries.category_tallies_by_merchants(
+        db, wanted - defaults.keys()
+    ):
+        if category_id is not None:
+            tallies[merchant_id][category_id] += count
+    settled = {}
+    for merchant_id, tally in tallies.items():
+        category_id, count = tally.most_common(1)[0]
+        filed = tally.total()
+        if filed >= SETTLED_ROWS and count / filed >= SETTLED_SHARE:
+            settled[merchant_id] = category_id
+    return settled | defaults

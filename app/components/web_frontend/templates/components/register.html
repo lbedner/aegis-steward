@@ -6,6 +6,7 @@
 {% from "components/macros/form.html" import select, date_input, checkbox, search_input, action, range_chips, control %}
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/register_row.html" import register_row %}
+{% from "components/macros/changes.html" import redraws_on_decision %}
 
 {# What ``data_table`` calls for each row. A macro rather than an include
    because a macro's locals are not an include's context: the table macro
@@ -28,6 +29,8 @@
 </section>
 {% else %}
 <section id="register" class="raised p-5 flex flex-col gap-4 min-w-0">
+  {#- A card approved in the chat beside it shows in these rows (issue 408). -#}
+  {{ redraws_on_decision(register.path, "#register-results", include="#register-filters") }}
   {# Every control is a field on the same URL; a change re-requests this
      section and swaps it in place, so the filter state lives in the URL. #}
   {# Every row's category options, on the page ONCE. A row ships only the

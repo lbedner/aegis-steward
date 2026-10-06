@@ -309,6 +309,7 @@ class TestTheDemo:
 
 class TestSyncing:
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_a_second_sync_adds_nothing_twice(
         self, async_db_session: AsyncSession
     ) -> None:
@@ -327,6 +328,7 @@ class TestSyncing:
         assert len(await _rows(async_db_session)) == 4
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_each_pull_stays_within_45_days_and_overlaps_the_last(
         self, async_db_session: AsyncSession
     ) -> None:
@@ -383,6 +385,7 @@ class TestSyncing:
         assert (connection.status, connection.status_detail) == ("healthy", None)
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_the_registry_syncs_and_disconnects_it(
         self, async_db_session: AsyncSession
     ) -> None:

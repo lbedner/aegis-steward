@@ -530,6 +530,7 @@ class TestRebuildingTheMemoryFromWhatIsAlreadyNamed:
         assert await svc.resolve_merchant_aliases([ATM_CHASE], owner_user_id=1) == {}
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two rebuilds
     async def test_running_it_twice_changes_nothing(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:

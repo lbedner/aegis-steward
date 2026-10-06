@@ -149,6 +149,7 @@ class TestTheExportFirst:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_a_resync_changes_nothing(
         self, async_db_session: AsyncSession
     ) -> None:
@@ -367,6 +368,7 @@ class TestPairingAtScale:
 
 class TestTheFeedPostsLater:
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
     async def test_a_bank_row_that_posts_later_pairs_then(
         self, async_db_session: AsyncSession
     ) -> None:

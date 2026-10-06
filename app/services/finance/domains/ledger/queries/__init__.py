@@ -87,6 +87,7 @@ from app.services.finance.domains.ledger.queries.merchants import (
     merchants_by_normalized_names,
     merchants_for_owner,
     named_transactions,
+    paired_payees,
     payeeless_transactions,
 )
 from app.services.finance.domains.ledger.queries.networth import (
@@ -194,6 +195,7 @@ __all__ = [
     "merchants_by_normalized_names",
     "merchants_for_owner",
     "named_transactions",
+    "paired_payees",
     "net_worth_series_since",
     "net_worth_snapshots_between",
     "networth",
