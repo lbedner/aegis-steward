@@ -396,9 +396,11 @@
             class="w-full text-left px-3 py-1.5 text-sm {{ 'text-error' if danger else 'text-aegis-text' }} hover:bg-aegis-border/30 rounded transition-colors">{{ label }}</button></li>
 {% endmacro %}
 
-{% macro dropdown(label, align="right") %}
+{# ``tone``/``size`` are the summary's button: a row's menu is a small
+   default one, a page's main action (Settings' Connect) a primary one. #}
+{% macro dropdown(label, align="right", tone="default", size="xs") %}
 <details class="relative" @click.outside="$el.removeAttribute('open')">
-  <summary class="list-none gap-1 {{ button_classes("default", "xs") }}">
+  <summary class="list-none gap-1 {{ button_classes(tone, size) }}">
     {{ label }}
     {{ icon("chevron-narrow", "w-3 h-3") }}
   </summary>

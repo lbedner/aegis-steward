@@ -1,15 +1,21 @@
 {% extends layout %}
-{% from "components/macros/layout.html" import page_header %}
+{% from "components/macros/layout.html" import page_header, dropdown, menu_item %}
 {% from "components/macros/form.html" import primary_button %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
 {% block app_content %}
 {% call page_header(section.label, "Banks and brokerages that feed the ledger") %}
-  <div class="flex flex-wrap items-center gap-2">
-    {% for provider in providers %}
-    {{ primary_button(provider.what, attrs='hx-post="' ~ path ~ '/connect/' ~ provider.key ~ '" hx-target="#dialog-body"') }}
-    {% endfor %}
+  {# One action, however many providers: a Connect menu, or the one
+     provider's own button when there is only one (issue 398). #}
+  <div id="connect" class="flex flex-wrap items-center gap-2">
+    {% if providers|length > 1 %}
+    {% call dropdown("Connect", tone="primary", size="sm") %}
+      {% for provider in providers %}{{ menu_item(provider.what, hx_dialog_post(path ~ "/connect/" ~ provider.key)) }}{% endfor %}
+    {% endcall %}
+    {% elif providers %}
+    {{ primary_button(providers[0].what, attrs=hx_dialog_post(path ~ "/connect/" ~ providers[0].key)) }}
+    {% endif %}
   </div>
 {% endcall %}
 {% include "components/sub_nav.html" %}
