@@ -39,7 +39,7 @@ from app.components.frontend.dashboard.modals.finance_modal.connect import (
 )
 from app.components.frontend.dashboard.modals.finance_modal.constants import (
     _PLAID_SANDBOX_CREDENTIALS,
-    _STATUS_STYLE,
+    _TONE_SEVERITY,
 )
 from app.components.frontend.dashboard.modals.finance_modal.formatting import (
     _account_display_balance,
@@ -52,14 +52,13 @@ from app.components.frontend.dashboard.modals.modal_sections import (
 )
 from app.components.frontend.theme import AegisTheme as Theme
 from app.core.config import settings
+from app.services.finance.constants import connection_status
 from app.services.system.models import ComponentStatusType
 
 
 def _status_style(status: str) -> tuple[str, ComponentStatusType]:
-    return _STATUS_STYLE.get(
-        status,
-        (status.replace("_", " ").title(), ComponentStatusType.INFO),
-    )
+    label, tone = connection_status(status)
+    return label, _TONE_SEVERITY[tone]
 
 
 def _connection_title(conn: dict) -> str:

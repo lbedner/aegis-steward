@@ -1,0 +1,17 @@
+{# Dialog body: reconnect a bank in place (Plaid's update mode). The
+   sign-in is the bank's, in its own tab; Done asks the worker to sync,
+   which is what clears the banner. #}
+{% from "components/macros/form.html" import primary_button, button_classes %}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/layout.html" import dialog_title %}
+{{ dialog_title("Reconnect " ~ name,
+                "Sign in again on the bank's page. Your accounts and their history stay as they are.") }}
+{{ error_banner(errors) }}
+{% if url %}
+<div class="space-y-4">
+  <a href="{{ url }}" target="_blank" rel="noopener" class="{{ button_classes() }}">Open the bank's page</a>
+  <form {{ hx_dialog_post(path ~ "/connections/" ~ connection_id ~ "/reconnect/done") }}>
+    {{ primary_button("I've signed in", type="submit") }}
+  </form>
+</div>
+{% endif %}

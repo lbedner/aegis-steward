@@ -12,6 +12,7 @@ from app.components.web_frontend.routes.finance import (
     account_merge,
     account_naming,
     accounts,
+    bank_attention,
     bills,
     bills_match,
     budget,
@@ -57,4 +58,5 @@ router.include_router(review_resolve.router)
 router.include_router(review.router)
 router.include_router(settings.router)
 router.include_router(connection_placing.router)
+router.include_router(bank_attention.router)
 router.include_router(transactions.router)

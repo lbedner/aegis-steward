@@ -70,6 +70,35 @@ FEED_SOURCES = frozenset({Provider.PLAID, Provider.SIMPLEFIN})
 FILE_SOURCES = frozenset({"ofx", "qfx", "qif", "csv"})
 
 
+# A connection's status as people read it - every value the column allows
+# (``ck_finance_connection_status``) - and its tone (ok / warn / error /
+# muted). One home for both frontends: the raw key reached the page as
+# "Login_Required" while each kept its own partial copy (#310).
+CONNECTION_STATUS: dict[str, tuple[str, str]] = {
+    "healthy": ("Connected", "ok"),
+    "loading": ("Finishing connecting", "muted"),
+    "login_required": ("Sign in again", "error"),
+    "pending_expiration": ("Access expires soon", "warn"),
+    "pending_disconnect": ("Disconnecting soon", "warn"),
+    "consent_expired": ("Access expired", "error"),
+    "revoked": ("Disconnected", "muted"),
+    "error": ("Needs attention", "error"),
+    "manual": ("Manual", "muted"),
+}
+# The statuses that are yours to fix: the bank stops feeding until you do.
+CONNECTION_NEEDS_YOU = frozenset(
+    {"login_required", "pending_expiration", "consent_expired", "error"}
+)
+
+
+def connection_status(status: str) -> tuple[str, str]:
+    """``(words, tone)`` for a connection's status; an unknown one reads
+    as itself in words, never as its key."""
+    return CONNECTION_STATUS.get(
+        status, (status.replace("_", " ").capitalize(), "warn")
+    )
+
+
 # Encrypted (AES-GCM ciphertext) columns on ``finance_connection``. Registered
 # here so key-rotation tooling can find every finance secret. Encryption /
 # decryption happens in the service layer with a row-bound AAD context

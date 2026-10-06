@@ -1,0 +1,19 @@
+{# The banner every page loads (layouts/app_shell): each bank link that
+   needs you, in words, with Reconnect where it can be mended in place -
+   or nothing at all. #}
+{% from "components/macros/form.html" import action %}
+<div data-attention{% if not rows %} hidden{% endif %} role="status"
+     class="shrink-0 border-b border-aegis-border bg-aegis-error/5 px-4 py-2 text-sm">
+  {% if rows %}
+  <ul class="flex flex-col gap-1">
+    {% for row in rows %}
+    <li class="flex flex-wrap items-center gap-2">
+      <span class="text-aegis-text">{{ row.name }}:</span>
+      <span class="text-error">{{ row.reason }}</span>
+      {% if row.reconnect %}{{ action("Reconnect", hx_dialog_post(path ~ "/connections/" ~ row.id ~ "/reconnect")) }}
+      {% else %}<a href="{{ path }}" {{ hx_page(path) }} class="text-xs text-aegis-teal hover:underline">Open Settings</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
