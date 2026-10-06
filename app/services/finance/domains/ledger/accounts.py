@@ -281,7 +281,14 @@ async def _purged(
     db: AsyncSession, account_ids: list[int], owner_user_id: int | None
 ) -> int:
     from app.services.finance.domains.ledger import networth
+    from app.services.finance.domains.writes import queue
 
+    await queue.expire_naming(
+        db,
+        account_ids,
+        owner_user_id=owner_user_id,
+        note="Its account was deleted, so there is nothing for it to change.",
+    )
     removed = await queries.purge_accounts(db, account_ids)
     if account_ids:
         await networth.recompute_snapshots(db, owner_user_id=owner_user_id)

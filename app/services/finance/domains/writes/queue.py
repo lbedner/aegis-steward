@@ -9,6 +9,7 @@ rejects it with full information, nothing half-lands.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 from uuid import uuid4
 
@@ -334,6 +335,32 @@ async def reject(
     db.add(row)
     await db.flush()
     return row
+
+
+async def expire_naming(
+    db: AsyncSession,
+    account_ids: Collection[int],
+    *,
+    owner_user_id: int | None,
+    note: str,
+) -> int:
+    """Set aside every pending change aimed at one of these accounts, which
+    are about to go (#389): approved later, it would apply to nothing, or
+    fail. Expired, saying why, its card frozen while the account is still
+    there to describe. Returns how many."""
+    gone = set(account_ids)
+    expired = 0
+    for row in await list_changes(db, owner_user_id=owner_user_id):
+        if (row.payload or {}).get("account_id") not in gone:
+            continue
+        row.status = "expired"
+        row.result = {"display": _freeze(await _describe_row(db, row)), "note": note}
+        row.resolved_at = utcnow()
+        row.updated_at = row.resolved_at
+        db.add(row)
+        expired += 1
+    await db.flush()
+    return expired
 
 
 async def withdraw(

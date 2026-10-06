@@ -161,6 +161,32 @@ class TestWhatTheBothHad:
         assert charge.recurring_stream_id == streams[yours.id]
 
 
+@pytest.mark.queryspy(threshold=4)  # a sync, an import, then the merge
+class TestWhatWasProposed:
+    @pytest.mark.asyncio
+    async def test_a_proposal_for_the_copy_is_set_aside(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A pending change aimed at the copy names an account a merge
+        removes. Applying it to yours could rename or reassign the wrong
+        account, so it is expired, saying why (#389); yours stay."""
+        from app.services.finance.domains.writes import queue
+
+        yours, copy = await _doubled(async_db_session)
+        aimed = await queue.propose(
+            async_db_session, "account.whose", {"account_id": copy.id}, owner_user_id=1
+        )
+        mine = await queue.propose(
+            async_db_session, "account.whose", {"account_id": yours.id}, owner_user_id=1
+        )
+
+        await merging.merge(async_db_session, yours, copy)
+
+        assert aimed.status == "expired"
+        assert "merged" in aimed.result["note"]
+        assert mine.status == "pending"
+
+
 class TestWhatCannotMerge:
     @pytest.mark.asyncio
     @pytest.mark.queryspy(threshold=3)  # two links, each finds its bank

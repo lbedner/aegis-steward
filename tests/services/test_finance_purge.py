@@ -123,3 +123,33 @@ async def test_an_account_that_is_not_there_purges_nothing(
     async_db_session: AsyncSession,
 ) -> None:
     assert await FinanceService(async_db_session).purge_account(999_999) is None
+
+
+@pytest.mark.asyncio
+async def test_a_proposal_naming_a_deleted_account_is_set_aside(
+    async_db_session: AsyncSession,
+) -> None:
+    """A pending change aimed at an account that is gone would apply to
+    nothing, or fail when approved: it is expired, saying why (#389)."""
+    from app.services.finance.domains.writes import queue
+
+    service = FinanceService(async_db_session)
+    gone = await service.create_manual_account(
+        owner_user_id=1, name="Gone", account_type="checking", classification="asset"
+    )
+    stays = await service.create_manual_account(
+        owner_user_id=1, name="Stays", account_type="checking", classification="asset"
+    )
+    aimed = await queue.propose(
+        async_db_session, "account.whose", {"account_id": gone.id}, owner_user_id=1
+    )
+    other = await queue.propose(
+        async_db_session, "account.whose", {"account_id": stays.id}, owner_user_id=1
+    )
+
+    assert gone.id is not None
+    await service.purge_account(gone.id, owner_user_id=1)
+
+    assert aimed.status == "expired"
+    assert "deleted" in aimed.result["note"]
+    assert other.status == "pending"
