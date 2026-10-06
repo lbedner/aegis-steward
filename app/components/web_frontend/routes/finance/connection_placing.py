@@ -30,6 +30,11 @@ SECTION = section("settings")
 router = APIRouter(prefix=SECTION.path)
 
 FIELD = "place-"
+# The answers that are not one of yours: in the select, and in sight
+# beside it, since they are the ones people hesitate over.
+WAYS_OUT = [(placing.OWN, "A new account"), (placing.SKIP, "Skip for now")]
+# The recent charges a step shows: the ones it was matched by first.
+CHARGES_SHOWN = 4
 NOTHING_LEFT = "Nothing left to place."
 
 
@@ -61,27 +66,54 @@ async def place_dialog(
     caller has read them)."""
     if offered is None:
         offered = await placing.choices(service.db, connection)
-    rows: list[dict[str, Any]] = [
-        {
-            "held": held,
-            "field": FIELD + held["id"],
-            "options": as_options(
-                [(placing.OWN, "Its own account")]
-                + [(str(a.id), a.name) for a in yours]
-            ),
-            "chosen": (answers or {}).get(held["id"]),
-        }
-        for held, yours in offered
-    ]
+    picks = await placing.suggestions(service.db, offered)
+    logos = await _bank_logos(service, [held for held, _yours in offered])
+    rows: list[dict[str, Any]] = []
+    for held, yours in offered:
+        pick = picks.get(held["id"])
+        matched = set(pick.matched) if pick else set()
+        charges = sorted(
+            enumerate(held.get("charges") or []), key=lambda c: c[0] not in matched
+        )[:CHARGES_SHOWN]
+        rows.append(
+            {
+                "held": held,
+                "field": FIELD + held["id"],
+                "options": as_options([(str(a.id), a.name) for a in yours] + WAYS_OUT),
+                "charges": [(*charge, i in matched) for i, charge in charges],
+                # What you answered beats what is suggested.
+                "chosen": (answers or {}).get(held["id"])
+                or (str(pick.account_id) if pick else None),
+                "reason": pick.reason if pick else None,
+                "logo": logos.get(held.get("bank") or ""),
+            }
+        )
     return dialog(
         request,
         "partials/settings/place.html",
         status_code=422 if errors else 200,
         connection=connection,
         rows=rows,
+        ways_out=WAYS_OUT,
         errors=errors or [],
         path=SECTION.path,
     )
+
+
+async def _bank_logos(
+    service: FinanceService, held: list[dict[str, Any]]
+) -> dict[str, str]:
+    """``{bank name: logo url}`` for the banks behind the held accounts, the
+    way an account's bank gets its mark: the bank's own domain beats a
+    guess from its name. One not fetched yet is asked for and shows next
+    time; until then the step shows the bank's initial."""
+    from app.services.finance.domains.ledger import merchant_icon
+
+    banks = {h["bank"]: h.get("bank_domain") for h in held if h.get("bank")}
+    keys = await merchant_icon.resolve_icon_keys(
+        service.db, list(banks), {bank: d for bank, d in banks.items() if d}
+    )
+    return {bank: merchant_icon.icon_url(key) for bank, key in keys.items()}
 
 
 async def _connection(
@@ -136,5 +168,7 @@ async def place(
             offered=offered,
         )
     await service.db.commit()
+    if set(answers.values()) <= {placing.SKIP}:
+        return dialog_done(SECTION.path, "Skipped for now; they wait on the card.")
     await placing.sync_soon(connection)
     return dialog_done(SECTION.path, "Placed. Its history is on its way.")

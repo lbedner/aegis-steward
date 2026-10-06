@@ -325,6 +325,29 @@ class TestLinkingTheBank:
         assert await placing.place(async_db_session, connection, {})
         assert [held["id"] for held in placing.unplaced(connection)] == ["acc_check"]
 
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # links, then places
+    async def test_a_skipped_account_waits_while_the_rest_are_placed(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Skip for now: nine steps are safe to start when one you are not
+        sure of can wait on the card for another day."""
+        account = await _quicken(async_db_session, mask=None)
+        connection = await _connect(async_db_session)
+        unclear = {**_ACCOUNTS[1], "mask": None}
+        await _sync(async_db_session, connection, [], [_ACCOUNTS[0], unclear])
+        assert len(placing.unplaced(connection)) == 2
+
+        assert not await placing.place(
+            async_db_session,
+            connection,
+            {"acc_check": str(account.id), "acc_savings": placing.SKIP},
+        )
+
+        assert [held["id"] for held in placing.unplaced(connection)] == ["acc_savings"]
+        await async_db_session.refresh(account)
+        assert account.connection_id == connection.id
+
 
 class TestPairingAtScale:
     @pytest.mark.asyncio

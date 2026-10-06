@@ -1,17 +1,53 @@
 {# Dialog body: which of your accounts each account a link holds is
-   (issue 309). Its own account, or one an export already feeds - never a
-   second copy beside it. #}
-{% from "components/macros/form.html" import field, select, primary_button %}
+   (issue 309), one account a step (issue 404). Each step shows the bank -
+   its logo, large - and the account, with yours pre-chosen where the
+   evidence says so (shared charges, checked, else the names) and why.
+   One form: the steps only take turns being shown, and Place sends every
+   answer; a way out sets this step's answer and moves on. #}
+{% from "components/macros/form.html" import field, select, primary_button, button_classes %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% from "components/macros/layout.html" import dialog_title %}
+{% from "components/macros/icons.html" import icon %}
 {{ dialog_title("Which account is this?",
-                (connection.label or "This link") ~ " reported accounts your files may already feed. Each goes where you say, its history with it; a charge both bring is kept once.") }}
-<form {{ hx_dialog_post(path ~ "/connections/" ~ connection.id ~ "/place") }} class="space-y-4">
+                "You may already import these from statement files. Match each to the account it belongs to: its history comes along, and a charge that appears in both is only kept once.") }}
+<form {{ hx_dialog_post(path ~ "/connections/" ~ connection.id ~ "/place") }}
+      x-data="{ step: 0, last: {{ rows|length - 1 }} }" class="space-y-4">
   {{ error_banner(errors) }}
   {% for row in rows %}
-  {% call field(row.held.name ~ (" ··" ~ row.held.mask if row.held.mask else "")) %}
-    {{ select(row.field, row.options, selected=row.chosen, blank="Choose…", block=True) }}
-  {% endcall %}
+  <section data-step x-show="step === {{ loop.index0 }}"{% if not loop.first %} x-cloak{% endif %} class="space-y-4">
+    <p class="text-xxs text-aegis-muted micro-label">Account {{ loop.index }} of {{ rows|length }}</p>
+    <div class="flex items-center gap-4">
+      {% if row.logo %}<img data-bank-logo src="{{ row.logo }}" alt="" width="48" height="48" class="w-12 h-12 rounded-xl shrink-0">
+      {% else %}<span class="w-12 h-12 rounded-xl shrink-0 flex items-center justify-center bg-aegis-border/40 text-lg text-aegis-text">{{ (row.held.bank or row.held.name)[:1] }}</span>{% endif %}
+      <div class="min-w-0">
+        {% if row.held.bank %}<p class="text-xs text-aegis-muted">{{ row.held.bank }}</p>{% endif %}
+        <p class="text-lg text-aegis-text truncate">{{ row.held.name }}</p>
+        {% if row.held.balance is not none %}<p class="text-sm text-aegis-muted tabular-nums">{{ row.held.balance|money }}</p>{% endif %}
+      </div>
+    </div>
+    {% if row.charges %}
+    <ul class="text-xs text-aegis-muted space-y-0.5">
+      {% for day, cents, name, matched in row.charges %}
+      <li{% if matched %} data-matched{% endif %} class="flex items-center gap-2">
+        <span class="w-3 shrink-0">{% if matched %}{{ icon("check", class="w-3 h-3 text-aegis-teal", stroke=2.5, label="Matched") }}{% endif %}</span>
+        <span class="truncate flex-1">{{ day }} · {{ name }}</span><span class="tabular-nums">{{ cents|money }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% call field("Which of yours is it?") %}{{ select(row.field, row.options, selected=row.chosen, blank="Choose…", block=True) }}{% endcall %}
+    {% if row.reason %}<p data-reason class="text-xs text-aegis-teal">Suggested: {{ row.reason }}</p>{% endif %}
+    <div class="flex gap-4 text-xs">
+      {% for value, label in ways_out %}
+      <button type="button" data-way-out="{{ value }}" class="text-aegis-teal hover:underline"
+              @click="$el.closest('[data-step]').querySelector('select').value = '{{ value }}'; if (step < last) step++">{{ label }}</button>
+      {% endfor %}
+    </div>
+  </section>
   {% endfor %}
-  {{ primary_button("Place", type="submit") }}
+  <div class="flex items-center gap-3">
+    <button type="button" x-show="step > 0" x-cloak @click="step--" class="{{ button_classes('default') }}">Back</button>
+    <button type="button" x-show="step < last" @click="step++" class="{{ button_classes() }}">Next</button>
+    <span x-show="step === last"{% if rows|length > 1 %} x-cloak{% endif %}>{{ primary_button("Place", type="submit") }}</span>
+  </div>
 </form>
