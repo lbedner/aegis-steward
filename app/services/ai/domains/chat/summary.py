@@ -75,7 +75,7 @@ async def _condense(prompt: str, *, conversation: Conversation) -> str:
 
     config = AIServiceConfig.from_settings(settings)
     result = await get_agent(config, settings, SUMMARY_PROMPT).run(prompt)
-    usage = result.usage()
+    usage = result.usage
     await record_usage(
         "chat:summary",
         config.model,

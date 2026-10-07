@@ -279,11 +279,7 @@ class StreamingMixin(ChatMixin):
                                 )
                             continue
                         elif isinstance(event, AgentRunResultEvent):
-                            usage_obj = (
-                                event.result.usage()
-                                if callable(getattr(event.result, "usage", None))
-                                else getattr(event.result, "usage", None)
-                            )
+                            usage_obj = event.result.usage
                             if usage_obj:
                                 stream_usage = {
                                     "input_tokens": getattr(
