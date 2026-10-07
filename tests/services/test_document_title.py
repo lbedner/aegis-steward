@@ -803,6 +803,7 @@ class TestWhoHoldsTheAccount:
         assert await _banks_offered(async_db_session) == []
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two readings, each looks for waiting receipts
     async def test_reading_again_does_not_stack_a_second_card(
         self, async_db_session: AsyncSession
     ) -> None:

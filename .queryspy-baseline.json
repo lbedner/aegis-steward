@@ -1157,7 +1157,7 @@
     {
       "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_pending_change WHERE finance_pending_change.batch_id = :batch_id_1 AND finance_pending_change.owner_user_id = :owner_user_id_1 ORDER BY finance_pending_change.id",
-      "file": "app/services/finance/domains/writes/queue.py",
+      "file": "app/services/finance/domains/writes/queries.py",
       "function": "batch_rows"
     },
     {
@@ -1186,12 +1186,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_pending_change WHERE finance_pending_change.id = :id_1",
-      "file": "app/services/finance/domains/writes/queue.py",
-      "function": "get_change"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_pending_change WHERE finance_pending_change.proposed_by_agent = :proposed_by_agent_1 ORDER BY finance_pending_change.id DESC",
       "file": "app/services/finance/domains/writes/queries.py",
       "function": "list_changes"
@@ -1200,12 +1194,6 @@
       "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_pending_change WHERE finance_pending_change.status = :status_1 ORDER BY finance_pending_change.id DESC",
       "file": "app/services/finance/domains/writes/queries.py",
-      "function": "list_changes"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_pending_change WHERE finance_pending_change.status = :status_1 ORDER BY finance_pending_change.id DESC",
-      "file": "app/services/finance/domains/writes/queue.py",
       "function": "list_changes"
     },
     {

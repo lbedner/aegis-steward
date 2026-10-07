@@ -53,9 +53,14 @@ async def reread_unfiled(db: AsyncSession, *, owner_user_id: int | None) -> int:
 
 
 async def reread_unfiled_job() -> None:
-    """The nightly net, before the day's arrivals are joined. Owns its
-    session: a scheduler fires with no request behind it."""
+    """The nightly net, before the day's arrivals are joined: the unfiled
+    pile read again, and every waiting receipt looked for again - which
+    is also when one that waited too long asks for a person (#330).
+    Owns its session: a scheduler fires with no request behind it."""
+    from app.services.documents.domains.reading import receipts
+
     async with get_async_session() as db:
         made = await reread_unfiled(db, owner_user_id=None)
+        await receipts.match_waiting(db, owner_user_id=None)
         await db.commit()
     logger.info("Unfiled documents read again: %d proposed", made)

@@ -296,6 +296,7 @@ class TestALetterOnAMatterProposesItsDemands:
         ] == ["document.metadata"]
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two readings, each looks for waiting receipts
     async def test_reading_it_again_does_not_stack_up_cards(
         self, async_db_session: AsyncSession
     ) -> None:

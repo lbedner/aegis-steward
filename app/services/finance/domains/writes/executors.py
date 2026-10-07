@@ -9,7 +9,7 @@ debt costs); importing this module arms the whole surface.
 from __future__ import annotations
 
 from app.services.documents.domains import reading
-from app.services.documents.domains.reading import check_card, checks
+from app.services.documents.domains.reading import check_card, checks, receipts
 from app.services.finance.domains.writes import (
     accounts,
     budgets,
@@ -336,6 +336,17 @@ register(
         # scans and the row are the card's own.
         editable=True,
         edits=("payee",),
+    )
+)
+# A receipt that waited for its charge, matched (#330): approving files
+# it on the charge, as the register's paperclip does.
+register(
+    ChangeExecutor(
+        change_type=receipts.RECEIPT,
+        title="A receipt on its charge",
+        payload_model=receipts.ReceiptPayload,
+        execute=receipts.receipt_execute,
+        describe=receipts.receipt_describe,
     )
 )
 # Which paper answers which ask. ST-07 makes the link a human action;

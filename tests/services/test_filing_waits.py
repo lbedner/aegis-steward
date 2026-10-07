@@ -240,11 +240,19 @@ class TestTheNightlySweep:
             return 0
 
         monkeypatch.setattr(filing, "get_async_session", _open)
+
+        async def _receipts(db: Any, *, owner_user_id: int | None) -> int:
+            seen.append("receipts")
+            return 0
+
+        from app.services.documents.domains.reading import receipts
+
         monkeypatch.setattr(filing, "reread_unfiled", _pass)
+        monkeypatch.setattr(receipts, "match_waiting", _receipts)
 
         await filing.reread_unfiled_job()
 
-        assert seen == ["open", "swept", "commit"]
+        assert seen == ["open", "swept", "receipts", "commit"]
 
     def test_the_job_is_registered_nightly_before_the_joins(self) -> None:
         from pathlib import Path

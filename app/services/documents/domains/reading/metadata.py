@@ -59,6 +59,10 @@ KIND_MARKERS: tuple[tuple[str, str], ...] = (
     # What somebody writes TO you when you join: prose with a greeting,
     # which is a letter however the sender brands it.
     ("welcome to", "letter"),
+    # What a purchase prints over its total (#330): "Order Receipt",
+    # "Payment Receipt", Amazon's "Order Confirmation".
+    ("receipt", "receipt"),
+    ("order confirmation", "receipt"),
 )
 
 # How much a heading may say BESIDES the kind. "Combined Contract and

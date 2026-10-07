@@ -86,6 +86,7 @@ class TestThePdfReachesTheTurn:
         assert "key" not in entry
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two readings, each looks for waiting receipts
     async def test_the_same_document_twice_is_one_entry(self) -> None:
         """The store is content-addressed, so the second attach finds the
         first document rather than making another."""
