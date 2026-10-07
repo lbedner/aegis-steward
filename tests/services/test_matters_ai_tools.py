@@ -383,3 +383,34 @@ async def test_parties_hand_back_their_paper(async_db_session: AsyncSession) -> 
     )
 
     assert found["document_ids"] == [statement.id]
+
+
+async def test_a_matters_documents_are_listed_by_the_matter_not_by_their_names(
+    async_db_session: AsyncSession,
+) -> None:
+    """Asked how the 2025 tax forms looked, she listed the whole shelf and
+    kept titles from IMG_6612 to IMG_6618 - dropping IMG_6611, the
+    Citizens 1099-INT. A matter's paper is found by the matter (#433)."""
+    from app.services.documents.service import DocumentService
+    from app.services.matters.models import matter_tag
+
+    db = async_db_session
+    matter_id, _ = await _renewal(db)
+    documents = DocumentService(db)
+    on_it = []
+    for title in ("IMG_6611.jpeg", "IMG_6612.jpeg"):
+        filed = await documents.ingest(
+            title.encode(), title=title, media_type="image/jpeg"
+        )
+        await documents.tag(int(filed.id or 0), matter_tag(matter_id))
+        on_it.append(int(filed.id or 0))
+    await documents.ingest(b"elsewhere", title="IMG_6613.jpeg", media_type="image/jpeg")
+    await db.commit()
+
+    listed = await ai_tools.documents(matter_id=matter_id)
+    case = next(
+        m for m in (await ai_tools.matters())["matters"] if m["id"] == matter_id
+    )
+
+    assert sorted(d["id"] for d in listed["documents"]) == sorted(on_it)
+    assert case["documents"] == 2

@@ -33,6 +33,34 @@ class FileDocumentPayload(BaseModel):
     party_id: int | None = None
     matter_id: int | None = None
     transaction_id: int | None = None
+    # What it IS, where it was read (#430): "Citizens Bank 1099-INT, 2025"
+    # rather than IMG_6611.jpeg. Applied on approval; none of it required.
+    title: str | None = None
+    kind: str | None = None
+    form_type: str | None = None
+    tax_year: int | None = None
+
+    @model_validator(mode="after")
+    def _named_as_a_document_can_be(self) -> FileDocumentPayload:
+        from app.services.documents.service import check_fields
+
+        if self.form_type and not self.kind:
+            self.kind = "tax"  # a form type is tax paper
+        check_fields(self.naming())
+        return self
+
+    def naming(self) -> dict[str, Any]:
+        """The fields that name the document, as given."""
+        return {
+            k: v
+            for k, v in (
+                ("title", self.title),
+                ("kind", self.kind),
+                ("form_type", self.form_type),
+                ("tax_year", self.tax_year),
+            )
+            if v is not None
+        }
 
     @model_validator(mode="after")
     def _one_place(self) -> FileDocumentPayload:
@@ -176,6 +204,8 @@ async def file_document_execute(
         else await _as_document(db, entry, owner_user_id)
     )
     await DocumentService(db).tag(document_id, tag)
+    if payload.naming():
+        await DocumentService(db).update(document_id, payload.naming())
     await db.flush()
     # A photo just made a document is read once the approval commits.
     return {"document_id": document_id, "filed_under": tag, "read": made}
@@ -207,12 +237,35 @@ async def file_document_describe(
     except ValueError as exc:
         name = str(exc)
     found = await _entry(db, payload.paste_id, owner_user_id)
-    return [
+    said = (
+        str(found.get("title") or "document") if found else f"paste {payload.paste_id}"
+    )
+    rows = [
         ChangeDisplayRow(
             label="Document",
-            value=str(found.get("title") or "document")
-            if found
-            else f"paste {payload.paste_id}",
+            value=f"{said} → {payload.title}" if payload.title else said,
+            scan=_photo_key(found) is not None,
         ),
         ChangeDisplayRow(label="File under", value=name),
     ]
+    if what := [str(v) for k, v in payload.naming().items() if k != "title"]:
+        rows.append(ChangeDisplayRow(label="Is", value=" · ".join(what)))
+    return rows
+
+
+def _photo_key(entry: dict[str, Any] | None) -> str | None:
+    """A photo kept from chat, not yet a document: its bytes in the store."""
+    if (
+        entry
+        and not entry.get("document_id")
+        and str(entry.get("media_type", "")).startswith("image/")
+    ):
+        return str(entry["key"])
+    return None
+
+
+async def file_document_scan(
+    db: AsyncSession, payload: FileDocumentPayload, owner_user_id: int | None
+) -> str | None:
+    """The photo the card files, so the card shows it (#430)."""
+    return _photo_key(await _entry(db, payload.paste_id, owner_user_id))

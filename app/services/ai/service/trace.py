@@ -53,6 +53,8 @@ _TRACE_RESULT_CAP = 2_000
 def record_tool_call(trace: list[dict[str, Any]], event: FunctionToolCallEvent) -> None:
     """Append a trace entry for a starting tool call (full code kept)."""
     entry: dict[str, Any] = {"tool": event.part.tool_name}
+    if call_id := getattr(event.part, "tool_call_id", None):
+        entry["call_id"] = call_id
     args = event.part.args
     parsed: Any = None
     if isinstance(args, str):
@@ -74,12 +76,17 @@ def record_tool_result(
     trace: list[dict[str, Any]], event: FunctionToolResultEvent
 ) -> None:
     """Attach a completing call's result (and nested dispatches) to its
-    trace entry, creating one if the call event was never seen."""
+    trace entry, creating one if the call event was never seen. Matched by
+    the call's id: parallel calls of one tool finish in any order, and by
+    name alone each result landed on another call's args (#428)."""
     name = event.part.tool_name
-    entry = next(
-        (e for e in reversed(trace) if e["tool"] == name and "result" not in e),
-        None,
-    )
+    call_id = getattr(event.part, "tool_call_id", None)
+    waiting = [e for e in trace if e["tool"] == name and "result" not in e]
+    entry = next((e for e in waiting if call_id and e.get("call_id") == call_id), None)
+    if entry is None and not call_id and waiting:
+        # A result with no id (a caller that never had one) takes the
+        # last call of its name, as before.
+        entry = waiting[-1]
     if entry is None:
         entry = {"tool": name}
         trace.append(entry)

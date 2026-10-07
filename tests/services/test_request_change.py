@@ -252,6 +252,49 @@ class TestALetterOnAMatterProposesItsDemands:
         assert card.payload["dropped"] == 1
 
     @pytest.mark.asyncio
+    async def test_a_tax_forms_printed_instructions_are_not_asks(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A 1099 filed on the 2025 Tax Return matter came back as "Complete
+        Form 8919 and attach it to your return" - instructions printed for
+        every recipient, not anything asked of this household (#431)."""
+        from app.services.documents.domains.reading import propose_reading
+        from app.services.documents.service import DocumentService
+        from app.services.matters.models import matter_tag
+
+        matter_id, document_id = await _letter(async_db_session)
+        await self._pages(
+            async_db_session,
+            document_id,
+            "Instructions for Recipient\nYou must also complete Form 8919",
+        )
+        await DocumentService(async_db_session).tag(document_id, matter_tag(matter_id))
+        await async_db_session.flush()
+        from app.services.documents.domains.reading.letters import (
+            LetterReading,
+            ReadItem,
+        )
+
+        async def instructions(pages):
+            return LetterReading(
+                items=[
+                    ReadItem(
+                        asked="Complete Form 8919 and attach it to your return.",
+                        kind="form",
+                        page=1,
+                        quote="You must also complete Form 8919",
+                    )
+                ],
+            )
+
+        await propose_reading(
+            opens(async_db_session), document_id, read_letter=instructions
+        )
+        await async_db_session.commit()
+
+        assert await self._cards(async_db_session, document_id) == []
+
+    @pytest.mark.asyncio
     async def test_filed_nowhere_it_asks_nothing(
         self, async_db_session: AsyncSession
     ) -> None:

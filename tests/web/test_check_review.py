@@ -108,3 +108,35 @@ class TestFixingThePayee:
         # The line it was read from stays, whichever shape it was filed in.
         assert "ORDER OF Holly Cow" in card.text_content()
         one(card, "img[data-scan]")
+
+
+class TestAFiledPhotoOnItsCard:
+    @pytest.mark.asyncio
+    async def test_the_photo_is_drawn_and_served(
+        self, client: TestClient, async_db_session: AsyncSession, ledger: Ledger
+    ) -> None:
+        """A photo filed from chat shows on its card, as a check does (#430)."""
+        from app.core.storage import get_storage
+        from app.services.ai.domains.chat.pastes import store_image
+        from app.services.matters.matters import MatterService
+
+        matter = await MatterService(async_db_session).open(title="2025 Tax Return")
+        key = await get_storage().put(_jpeg(), content_type="image/jpeg")
+        photo = await store_image(
+            "0", key, "image/jpeg", "IMG_6611.jpeg", async_db_session
+        )
+        change = await propose(
+            async_db_session,
+            "document.file",
+            {"paste_id": photo["id"], "matter_id": matter.id},
+            owner_user_id=None,
+        )
+        await async_db_session.commit()
+
+        card = one(client.get("/review").text, f"#change-{change.id}")
+        assert (
+            one(card, "img[data-scan]").get("src")
+            == f"/review/changes/{change.id}/scan"
+        )
+        served = client.get(f"/review/changes/{change.id}/scan")
+        assert served.status_code == 200 and served.content[:3] == b"\xff\xd8\xff"

@@ -31,6 +31,7 @@ async def shelf(
     *,
     q: str | None = None,
     kind: str | None = None,
+    tag: str | None = None,
     unattributed: bool = False,
     owner_user_id: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -55,7 +56,7 @@ async def shelf(
     from app.services.matters.service import PartyService
 
     rows, _total = await DocumentService(db).list_documents(
-        owner_user_id=owner_user_id, kind=kind, page_size=SHELF_PAGE
+        owner_user_id=owner_user_id, kind=kind, tag=tag, page_size=SHELF_PAGE
     )
     if q and q.strip():
         needle = q.strip().casefold()

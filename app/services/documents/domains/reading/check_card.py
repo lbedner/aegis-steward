@@ -97,6 +97,13 @@ async def check_execute(
     return {"transaction_id": payload.transaction_id, "documents": filed}
 
 
+async def check_scan(
+    db: AsyncSession, payload: CheckPayload, owner_user_id: int | None
+) -> str | None:
+    """The check's own front, not the page of four it was cut from."""
+    return payload.front_key
+
+
 async def check_describe(
     db: AsyncSession, payload: CheckPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
@@ -109,8 +116,7 @@ async def check_describe(
             label="Check",
             value=f"#{payload.number}, front and back",
             note=f"page {payload.page}",
-            document_id=payload.document_id,
-            page=payload.page,
+            scan=True,
         ),
     ]
     if payload.payee:

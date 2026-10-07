@@ -172,6 +172,29 @@ class TestTaxPaper:
             f for f in read_document(_pages(prose)) if f.field != "document_date"
         ] == []
 
+    def test_a_photographed_form_reads_through_its_ocr(self) -> None:
+        """Page 2 of a 1095-C, photographed: "Form 1095-¢ (2025)". The ¢ is
+        the C, and the year in brackets is the year it is for (#431)."""
+        found = {
+            f.field: f.value
+            for f in read_document(
+                _pages("Form 1095-¢ (2025)\nPage 2\nPremium Tax Credit")
+            )
+        }
+        assert (found["kind"], found["form_type"], found["tax_year"]) == (
+            "tax",
+            "1095-C",
+            2025,
+        )
+
+    def test_the_back_of_a_form_is_tax_paper(self) -> None:
+        """The back of the Citizens 1099-INT prints no form number - only
+        "Instructions for Recipient" - and its instructions came back as
+        asks on the tax matter (#431)."""
+        back = "Instructions for Recipient\nThe information provided may be different"
+        found = {f.field: f.value for f in read_document(_pages(back))}
+        assert found["kind"] == "tax"
+
     def test_a_year_on_paper_that_is_not_tax_is_not_proposed(self) -> None:
         found = {f.field for f in read_document(_pages("Statement\nPlan year 2026"))}
         assert "tax_year" not in found

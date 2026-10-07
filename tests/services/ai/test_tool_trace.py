@@ -217,3 +217,41 @@ class TestTheToolNominatesWhatIsDrawn:
         record_tool_result(trace, _result_event("pending", json.dumps(listing)))
 
         assert [m["batch_id"] for m in trace[0]["component"]] == ["b-1"]
+
+
+class TestParallelCallsKeepTheirOwnResults:
+    def test_each_result_lands_on_the_call_that_made_it(self) -> None:
+        """Seven parallel propose calls finished out of order, and each
+        result was pinned to the last call of that name still waiting:
+        the trace showed paste #bc13ca02 (IMG_6618) beside IMG_6614's card
+        (#428). The call id, not the name, says whose result it is."""
+        from pydantic_ai.messages import (
+            FunctionToolCallEvent,
+            FunctionToolResultEvent,
+            ToolCallPart,
+            ToolReturnPart,
+        )
+
+        from app.services.ai.service.trace import record_tool_call, record_tool_result
+
+        trace: list[dict[str, Any]] = []
+        for call_id, paste in (("a", "p1"), ("b", "p2"), ("c", "p3")):
+            record_tool_call(
+                trace,
+                FunctionToolCallEvent(
+                    ToolCallPart("propose", {"paste_id": paste}, tool_call_id=call_id)
+                ),
+            )
+        for call_id, paste in (("b", "p2"), ("a", "p1"), ("c", "p3")):
+            record_tool_result(
+                trace,
+                FunctionToolResultEvent(
+                    ToolReturnPart("propose", f"filed {paste}", tool_call_id=call_id)
+                ),
+            )
+
+        assert [(json.loads(e["args"])["paste_id"], e["result"]) for e in trace] == [
+            ("p1", "filed p1"),
+            ("p2", "filed p2"),
+            ("p3", "filed p3"),
+        ]

@@ -166,6 +166,12 @@ async def _propose_demands(
         if matter_id is None or await RequestService(db).citing(document_id):
             return None
         pages = await _read_pages(db, document_id)
+    # A tax form's printed instructions ("Complete Form 8919...") are
+    # written for every recipient: nothing on it is asked of anyone
+    # (#431). Read off the page, because the card that files it as tax
+    # may still be waiting - and its back names no form at all.
+    if any(f.field == "kind" and f.value == "tax" for f in read_document(pages)):
+        return None
 
     reading = checked(await read_letter(pages), pages)
     if reading is None:
@@ -273,7 +279,8 @@ def _proposed_title(
     payload: dict[str, Any],
     findings: list[Any],
 ) -> dict[str, Any] | None:
-    """A name for a document that arrived with a filename for one.
+    """A name for a document that arrived with a filename for one: for a
+    tax form, its tax year rather than the day it was printed (#431).
 
     Only then: a title somebody typed is not ours to improve. Built from
     what this same card already carries - the kind and the date read off
@@ -286,7 +293,10 @@ def _proposed_title(
     said = compose(
         letterhead[0],
         next((f for f in findings if f.field == "kind"), None) or document.kind,
-        (payload.get("document_date") or {}).get("value") or document.document_date,
+        (payload.get("tax_year") or {}).get("value")
+        or document.tax_year
+        or (payload.get("document_date") or {}).get("value")
+        or document.document_date,
     )
     if said is None or said.value == document.title:
         return None

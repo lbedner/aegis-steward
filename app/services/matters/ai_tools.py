@@ -28,6 +28,7 @@ from app.services.documents.domains.extraction.dispatch import (
     wait_for_extraction,
 )
 from app.services.documents.models import DOCUMENT_KINDS
+from app.services.documents.queries import tagged_with
 from app.services.documents.service import DocumentService
 from app.services.finance.domains.ledger import links
 from app.services.finance.utils import current_date
@@ -114,7 +115,8 @@ async def matters(status: str = "open") -> dict[str, Any]:
     'counterpart', 'participants' (role and party), 'requests'
     (counts of open and total, plus 'next_due' and 'overdue_count') and
     'transactions': the charges filed with the case ('items', and
-    'total_cents' signed - what the case has cost). File a charge with a
+    'total_cents' signed - what the case has cost) and 'documents' (how
+    many are filed on it; documents(matter_id=) lists them). File a charge with a
     case with propose("transaction.link", {"transaction_id", "matter_id"}),
     when asked or when a charge plainly belongs to an open case; "unlink":
     true takes it off. One charge can be on more than one case.
@@ -126,6 +128,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
         found = await service.find(status=wanted)
         names = await PartyService(db).names()
         spent = await links.filed(db, [matter_tag(m.id) for m in found])
+        papers = await tagged_with(db, [matter_tag(m.id) for m in found])
         rows = []
         for matter in found:
             people = await service.participants(matter.id)
@@ -154,6 +157,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
                         "overdue_count": sum(1 for one in asked if overdue(one, today)),
                     },
                     "transactions": spent[matter_tag(matter.id)],
+                    "documents": len(papers.get(matter_tag(matter.id), [])),
                 }
             )
     return {"matters": rows}
@@ -337,27 +341,26 @@ async def paper(document_id: int) -> dict[str, Any]:
 
 
 async def documents(
-    q: str | None = None, kind: str | None = None, unattributed: bool = False
+    q: str | None = None,
+    kind: str | None = None,
+    unattributed: bool = False,
+    matter_id: int | None = None,
 ) -> dict[str, Any]:
-    """What is on the shelf, found by NAME rather than by id.
-
-    Returns {'documents': [...]}, newest first, each with 'id', 'title',
-    'kind', 'document_date', 'pages' and 'from' (who it is tagged as
-    being from, as {'party_id','name'}).
-
-    'q' matches the title, case-insensitively - "county letter", "delta
-    invoice" - which is what a person actually has to go on. 'kind'
-    filters to one of {kinds}. 'unattributed=True' shows only
-    documents NOBODY is tagged on: that is the working queue, because a
-    document with no sender is one whose letterhead nothing can read.
-
-    Use it to turn a description into an id, then `paper` to read it and
-    document.metadata to say what it is and who sent it.
+    """What is on the shelf, by NAME rather than id: {'documents': [...]},
+    newest first, each with 'id', 'title', 'kind', 'form_type', 'tax_year',
+    'document_date', 'pages' and 'from' ({'party_id','name'}). 'q' matches
+    the title - "county letter", "delta invoice" - which is what a person
+    has to go on; 'kind' is one of {kinds}; 'matter_id' is what is filed on
+    that matter, the way to see a case's paper (never match titles);
+    'unattributed=True' is the working queue - documents NOBODY is tagged
+    on, whose letterhead nothing can read. Then `paper` reads one, and
+    document.metadata says what it is and who sent it.
     """
     from app.services.documents.domains.shelf import shelf
 
+    tag = matter_tag(matter_id) if matter_id is not None else None
     async with get_async_session() as db:
-        found = await shelf(db, q=q, kind=kind, unattributed=unattributed)
+        found = await shelf(db, q=q, kind=kind, tag=tag, unattributed=unattributed)
     return {"documents": found}
 
 

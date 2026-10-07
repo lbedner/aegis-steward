@@ -138,9 +138,14 @@ def _names_the_same(organization: str, descriptor: str) -> bool:
     return flat(short) in flat(descriptor)
 
 
-def _period(when: date | str | None) -> str:
+def _period(when: date | str | int | None) -> str:
+    """A date as its month, or a tax year as itself."""
     if when is None:
         return ""
+    if isinstance(when, int) or (
+        isinstance(when, str) and re.fullmatch(r"\d{4}", when)
+    ):
+        return str(when)
     if isinstance(when, str):
         try:
             when = date.fromisoformat(when)
@@ -192,7 +197,7 @@ def _without_identifiers(heading: str) -> str:
 def compose(
     letterhead: Finding | None,
     kind: Finding | str | None,
-    when: date | str | None,
+    when: date | str | int | None,
 ) -> Finding | None:
     """A name from what was already read, or nothing.
 
