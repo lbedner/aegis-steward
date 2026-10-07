@@ -51,6 +51,11 @@ class ChangeExecutor:
     # For an editable type, the fields that are a choice rather than
     # free text: ``{"kind": PARTY_KINDS}`` draws a select.
     choices: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # For an editable type, the only fields that may be edited, where not
+    # every text field is the reader's to change: a check card's scans
+    # and row are the card's own, its payee is not (#420). Empty: every
+    # text field.
+    edits: tuple[str, ...] = ()
 
 
 _EXECUTORS: dict[str, ChangeExecutor] = {}
@@ -71,6 +76,29 @@ def executor_for(change_type: str) -> ChangeExecutor:
         return _EXECUTORS[change_type]
     except KeyError:
         raise ValueError(f"unknown change type: {change_type!r}") from None
+
+
+def current_payload(
+    executor: ChangeExecutor, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """A stored card read through its contract, so one filed in an older
+    shape (a check's payee as a cited reading) edits as today's does."""
+    return executor.payload_model(**payload).model_dump(mode="json")
+
+
+def editable_fields(executor: ChangeExecutor) -> list[str]:
+    """The fields a person - or Illiana - may change on a pending card of
+    this type: ``edits`` where it names them, else every text field."""
+    if not executor.editable:
+        return []
+    texts = [
+        name
+        for name, info in executor.payload_model.model_fields.items()
+        if info.annotation in (str, str | None)
+    ]
+    return (
+        [name for name in texts if name in executor.edits] if executor.edits else texts
+    )
 
 
 def registered_change_types() -> tuple[str, ...]:

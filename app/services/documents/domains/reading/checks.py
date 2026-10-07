@@ -255,12 +255,14 @@ async def propose_checks(
     read: Read | None = None,
 ) -> int:
     """A card per check in this document that matches a ledger row and
-    is not filed or asked about already. Returns how many were made.
+    is not filed or asked about already, proposed as one batch: a
+    download is decided together, some skipped (issue 420). Returns how
+    many were made.
     Reads the scans outside any session: the model is slow, and an open
     session is the whole app's write lock."""
     from app.core.storage import get_storage
     from app.services.documents.service import DocumentService
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.domains.writes.queue import MAX_BATCH_SIZE, propose_many
 
     async with open_session() as db:
         document = await DocumentService(db).get(document_id)
@@ -316,21 +318,19 @@ async def propose_checks(
                 "back_key": await store.put(check.back, content_type="image/jpeg")
                 if check.back
                 else None,
-                "payee": {
-                    "value": payee,
-                    "page": check.page,
-                    "because": reading.payee_line,
-                }
-                if payee and row.merchant_id is None
-                else None,
+                **(
+                    {"payee": payee, "payee_because": reading.payee_line}
+                    if payee and row.merchant_id is None
+                    else {}
+                ),
             }
         )
     async with open_session() as db:
-        for payload in cards:
-            await propose(
+        for at in range(0, len(cards), MAX_BATCH_SIZE):
+            await propose_many(
                 db,
                 CHECK,
-                payload,
+                cards[at : at + MAX_BATCH_SIZE],
                 owner_user_id=owner_user_id,
                 proposed_by_agent=PROPOSED_BY,
             )

@@ -76,6 +76,9 @@ class PendingChangeResponse(BaseModel):
     note: str | None = None
     # The reader may put their own words on it before approving.
     editable: bool = False
+    # The card carries its own scan (a check's front, issue 420), served
+    # at /review/changes/{id}/scan.
+    scan: bool = False
     created_at: datetime
     resolved_at: datetime | None
 
@@ -106,6 +109,7 @@ class PendingChangeResponse(BaseModel):
             error=(row.result or {}).get("error"),
             note=(row.result or {}).get("note"),
             editable=editable,
+            scan=bool((row.payload or {}).get("front_key")),
             created_at=row.created_at,
             resolved_at=row.resolved_at,
         )

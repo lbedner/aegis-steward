@@ -26,8 +26,13 @@ from app.components.web_frontend.rendering import (
     where_from,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.writes.queue import get_change, revise
-from app.services.finance.domains.writes.registry import ChangeExecutor, executor_for
+from app.services.finance.domains.writes.queue import get_change, revise_fields
+from app.services.finance.domains.writes.registry import (
+    ChangeExecutor,
+    current_payload,
+    editable_fields,
+    executor_for,
+)
 from app.services.finance.service import FinanceService
 
 SECTION = section("review")
@@ -37,13 +42,12 @@ router = APIRouter(prefix=SECTION.path)
 def _edit_fields(
     executor: ChangeExecutor, payload: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """The payload contract as form fields: free text for every string
-    field, a select where the type names choices, nothing for lists.
-    Prefilled from the card, so what you see is what was proposed."""
+    """The editable fields as form fields: free text, a select where the
+    type names choices. Prefilled from the card, so what you see is what
+    was proposed."""
     fields: list[dict[str, Any]] = []
-    for name, info in executor.payload_model.model_fields.items():
-        if info.annotation not in (str, str | None):
-            continue
+    for name in editable_fields(executor):
+        info = executor.payload_model.model_fields[name]
         options = executor.choices.get(name)
         fields.append(
             {
@@ -99,7 +103,8 @@ async def edit_change(
 ) -> Response:
     """Your own words on a card before you approve it."""
     change, executor = await _editable(service, change_id, owner_user_id)
-    return await _edit_dialog(request, change, executor, change.payload)
+    payload = current_payload(executor, change.payload)
+    return await _edit_dialog(request, change, executor, payload)
 
 
 @router.post("/changes/{change_id:int}/edit", include_in_schema=False)
@@ -111,17 +116,32 @@ async def save_change(
 ) -> Response:
     change, executor = await _editable(service, change_id, owner_user_id)
     form = await request.form()
-    # Blank means "not given", so the contract's own defaults and
-    # required-ness apply, rather than an empty string passing as a value.
     typed = {
         f["name"]: str(form.get(f["name"]) or "").strip()
         for f in _edit_fields(executor, change.payload)
     }
-    payload = {k: v for k, v in typed.items() if v}
     try:
-        await revise(service.db, change_id, payload, owner_user_id=owner_user_id)
+        await revise_fields(service.db, change_id, typed, owner_user_id=owner_user_id)
     except ValueError as exc:
         # The dialog shows what was typed, not what was proposed.
         return await _edit_dialog(request, change, executor, typed, 422, [str(exc)])
     await service.db.commit()
     return dialog_done(where_from(request, SECTION.path), "Saved")
+
+
+@router.get("/changes/{change_id:int}/scan", include_in_schema=False)
+async def change_scan(
+    change_id: int,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The scan a card carries (a check's front, #420), so the card shows
+    the one check rather than the page it was cut from."""
+    from app.core.storage import get_storage
+
+    change = or_404(
+        await get_change(service.db, change_id, owner_user_id=owner_user_id)
+    )
+    key = change.payload.get("front_key")
+    content = or_404(await get_storage().get(key) if key else None)
+    return Response(content, media_type="image/jpeg")

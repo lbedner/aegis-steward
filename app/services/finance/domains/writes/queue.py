@@ -78,7 +78,13 @@ async def revise(
     dies here and the card is untouched. Only a type that opted in
     (``ChangeExecutor.editable``) and only while the card is pending.
     """
-    row = _require_pending(await get_change(db, change_id, owner_user_id=owner_user_id))
+    row = await get_change(db, change_id, owner_user_id=owner_user_id)
+    return await _revise_row(db, _require_pending(row), payload)
+
+
+async def _revise_row(
+    db: AsyncSession, row: FinancePendingChange, payload: dict[str, Any]
+) -> FinancePendingChange:
     executor = executor_for(row.change_type)
     if not executor.editable:
         raise ValueError(f"a {row.change_type} card is answered, not edited")
@@ -90,6 +96,50 @@ async def revise(
     db.add(row)
     await db.flush()
     return row
+
+
+async def revise_fields(
+    db: AsyncSession,
+    change_id: int,
+    fields: dict[str, str],
+    *,
+    owner_user_id: int | None = None,
+) -> FinancePendingChange:
+    """Change some fields of a pending card, by the form or by Illiana:
+    every field that is not editable stays as the card has it, the
+    editable ones take what was given (blank means not given). Asking to
+    change one that is not editable is refused, naming those that are."""
+    row = await get_change(db, change_id, owner_user_id=owner_user_id)
+    return await revise_card(db, _require_pending(row), fields)
+
+
+async def revise_card(
+    db: AsyncSession, row: FinancePendingChange, fields: dict[str, str]
+) -> FinancePendingChange:
+    """``revise_fields`` on a card already in hand: one read for many
+    cards (Illiana's "it's Holy Cow" across a batch)."""
+    from app.services.finance.domains.writes.registry import (
+        current_payload,
+        editable_fields,
+    )
+
+    _require_pending(row)
+    executor = executor_for(row.change_type)
+    editable = editable_fields(executor)
+    if not editable:
+        raise ValueError(f"a {row.change_type} card is answered, not edited")
+    if stray := sorted(set(fields) - set(editable)):
+        raise ValueError(
+            f"{', '.join(stray)} cannot be edited on a {row.change_type} card; "
+            f"only {', '.join(editable)}"
+        )
+    kept = {
+        k: v
+        for k, v in current_payload(executor, row.payload).items()
+        if k not in editable
+    }
+    given = {k: v.strip() for k, v in fields.items() if v and v.strip()}
+    return await _revise_row(db, row, kept | given)
 
 
 MAX_BATCH_SIZE = 100
