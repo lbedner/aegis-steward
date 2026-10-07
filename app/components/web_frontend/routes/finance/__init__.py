@@ -26,6 +26,7 @@ from app.components.web_frontend.routes.finance import (
     institutions,
     overview,
     projected,
+    receipts,
     review,
     review_edit,
     review_resolve,
@@ -60,3 +61,4 @@ router.include_router(settings.router)
 router.include_router(connection_placing.router)
 router.include_router(bank_attention.router)
 router.include_router(transactions.router)
+router.include_router(receipts.router)

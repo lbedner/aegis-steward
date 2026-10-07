@@ -17,8 +17,8 @@ from app.services.finance.schemas import ChangeDisplayRow
 
 
 class FileDocumentPayload(BaseModel):
-    """Which document belongs where: an account, a contact or a matter,
-    exactly one of them.
+    """Which document belongs where: an account, a contact, a matter or
+    a transaction (its receipt, #331), exactly one of them.
 
     Takes the PASTE id, because that is what the conversation is holding:
     an attached PDF is read once and stands in the message as
@@ -32,14 +32,24 @@ class FileDocumentPayload(BaseModel):
     account_id: int | None = None
     party_id: int | None = None
     matter_id: int | None = None
+    transaction_id: int | None = None
 
     @model_validator(mode="after")
     def _one_place(self) -> FileDocumentPayload:
         given = [
-            v for v in (self.account_id, self.party_id, self.matter_id) if v is not None
+            v
+            for v in (
+                self.account_id,
+                self.party_id,
+                self.matter_id,
+                self.transaction_id,
+            )
+            if v is not None
         ]
         if len(given) != 1:
-            raise ValueError("Exactly one of account_id, party_id, matter_id.")
+            raise ValueError(
+                "Exactly one of account_id, party_id, matter_id, transaction_id."
+            )
         return self
 
 
@@ -50,6 +60,7 @@ async def place(
     account_id: int | None = None,
     party_id: int | None = None,
     matter_id: int | None = None,
+    transaction_id: int | None = None,
 ) -> tuple[str, str]:
     """The label that files something under an account, a contact or a
     matter, and the place's name; a ValueError naming what was not
@@ -65,6 +76,14 @@ async def place(
         if account is None:
             raise ValueError(f"Account {account_id} not found.")
         return account_tag(account_id), account.name
+    if transaction_id is not None:
+        from app.services.finance.constants import transaction_tag
+        from app.services.finance.domains.writes.display import txn_subject
+
+        txn, subject = await txn_subject(db, transaction_id, owner_user_id)
+        if txn is None:
+            raise ValueError(f"Transaction {transaction_id} not found.")
+        return transaction_tag(transaction_id), subject
     if party_id is not None:
         party = await PartyService(db).get(party_id)
         if party is None:
@@ -142,6 +161,7 @@ async def file_document_execute(
         account_id=payload.account_id,
         party_id=payload.party_id,
         matter_id=payload.matter_id,
+        transaction_id=payload.transaction_id,
     )
     entry = await _entry(db, payload.paste_id, owner_user_id)
     if entry is None:
@@ -182,6 +202,7 @@ async def file_document_describe(
             account_id=payload.account_id,
             party_id=payload.party_id,
             matter_id=payload.matter_id,
+            transaction_id=payload.transaction_id,
         )
     except ValueError as exc:
         name = str(exc)

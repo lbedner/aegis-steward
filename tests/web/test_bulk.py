@@ -7,6 +7,7 @@ bulk alike.
 """
 
 from fastapi.testclient import TestClient
+import pytest
 
 from tests.web.conftest import REGISTER, Ledger
 from tests.web.dom import none, one, oob, select, text, triggers
@@ -66,6 +67,7 @@ class TestSelection:
 
 
 class TestBulkDelete:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_deletes_the_selection_out_of_band(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -186,6 +188,7 @@ class TestAssignPayee:
         assert create.get(":value") == "query.trim()"
         assert "names" in (one(picker, "[x-data]").get("x-data") or "")
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_new_payee_is_created_and_rows_come_back_out_of_band(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -200,6 +203,7 @@ class TestAssignPayee:
         assert payee_of(row) == "Shell"
         assert "dialog:close" in triggers(response)
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_offers_the_similar_rows_after_a_single_assignment(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -233,6 +237,7 @@ class TestAssignPayee:
         assert payee_of(one(accepted.text, f"tr#txn-{other}")) == "Market"
         assert "dialog:close" in triggers(accepted)
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_the_rows_ride_home_in_a_template_when_a_dialog_stays_open(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:
@@ -254,6 +259,7 @@ class TestAssignPayee:
             tr for tr in select(response.text, "tr") if tr.getparent().tag != "template"
         ]
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_apply_is_dead_until_there_is_something_to_apply(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:
@@ -271,6 +277,7 @@ class TestAssignPayee:
         assert offer.get("@change")
         assert one(offer, 'button[type="submit"]').get(":disabled") == "nothing"
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_the_offer_asks_about_the_category_when_the_payee_disagrees(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:
@@ -288,6 +295,7 @@ class TestAssignPayee:
         one(offer, 'select[name="category_id"]')
         assert "not all filed the same way" in text(select(response.text, "p")[0])
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_a_settled_payee_is_not_asked_about(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:
@@ -309,6 +317,7 @@ class TestAssignPayee:
 
 
 class TestBulkTag:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_tags_the_selection(self, client: TestClient, ledger: Ledger) -> None:
         page = client.get(REGISTER).text
         ids = [txn_id(page, "Gas"), txn_id(page, "Payroll")]
@@ -325,6 +334,7 @@ class TestBulkCategorize:
     """Nine Hot Topic rows, all Shopping:Clothing, and the only way to
     file them was one select at a time."""
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_files_the_whole_selection(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -342,6 +352,7 @@ class TestBulkCategorize:
             assert row.get("hx-swap-oob") == "outerHTML"
             assert one(row, f'select option[value="{category}"]').get("selected")
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_a_note_can_ride_along(self, client: TestClient, ledger: Ledger) -> None:
         """Filing IS when you know why: "school supplies" on a Target
         charge is the whole reason it went under Kids."""
@@ -361,6 +372,7 @@ class TestBulkCategorize:
         row = one(client.get(REGISTER).text, f"#txn-{ids[0]}")
         assert "school supplies" in text(row)
 
+    @pytest.mark.queryspy(threshold=5)  # each request redraws rows
     def test_a_blank_note_leaves_the_one_already_there(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -413,6 +425,7 @@ class TestTheCategoryHalfOfTheFollowUp:
     and both rows kept the category they already had.
     """
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_the_category_lands_on_rows_named_in_bulk(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:
@@ -445,6 +458,7 @@ class TestTheCategoryHalfOfTheFollowUp:
                 f"row {txn} came away with no category at all"
             )
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_the_rows_it_refiled_come_back_rendered(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:
@@ -483,6 +497,7 @@ class TestTheCategoryHalfOfTheFollowUp:
                 f"row {txn} came back without the category it was just given"
             )
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_apply_closes_the_dialog(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:

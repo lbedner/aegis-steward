@@ -111,6 +111,7 @@ class TestRegister:
         current = one(switcher, 'a[aria-current="page"]')
         assert current.get("href") == f"/accounts/{ledger.card}/overview"
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_manage_menu_follows_the_account_kind(
         self, client: TestClient, ledger: Ledger
     ) -> None:

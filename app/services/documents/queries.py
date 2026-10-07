@@ -183,6 +183,28 @@ async def tag_counts(
     return [(str(label), int(n)) for label, n in rows]
 
 
+async def tagged_with(db: AsyncSession, labels: list[str]) -> dict[str, list[int]]:
+    """``{label: live document ids}`` for these labels in ONE query: the
+    receipts on a page of transactions (#331), the inverse of
+    ``tags_for_many``."""
+    if not labels:
+        return {}
+    rows = (
+        await db.exec(
+            select(DocumentTag.label, DocumentTag.document_id)
+            .join(Document, col(Document.id) == DocumentTag.document_id)
+            .where(
+                col(DocumentTag.label).in_(set(labels)), Document.deleted_at.is_(None)
+            )
+            .order_by(DocumentTag.document_id)
+        )
+    ).all()
+    found: dict[str, list[int]] = {}
+    for label, document_id in rows:
+        found.setdefault(label, []).append(int(document_id))
+    return found
+
+
 async def tags_for_many(
     db: AsyncSession, document_ids: list[int]
 ) -> dict[int, list[str]]:

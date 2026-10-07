@@ -40,6 +40,7 @@ def payee_cell(tr):  # noqa: ANN001, ANN201
 
 
 class TestRowMenu:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_offers_the_same_verbs_as_the_selection_bar(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -48,7 +49,15 @@ class TestRowMenu:
         page = client.get(f"/accounts/{ledger.card}").text
         gas = txn_id(page, "Gas")
         items = [text(li) for li in select(page, f"#txn-{gas} [role=menu] li")]
-        assert items == ["Set payee", "Tag", "Split", "Make recurring", "Remove"]
+        assert items == [
+            "Set payee",
+            "Tag",
+            "Split",
+            "Make recurring",
+            # One row's alone: a receipt is one charge's (#331).
+            "Attach receipt",
+            "Remove",
+        ]
         payee = one(page, f"#txn-{gas} [hx-get^='/transactions/payee']")
         assert payee.get("hx-get") == f"/transactions/payee?transaction_ids={gas}"
         assert payee.get("hx-target") == "#dialog-body"
@@ -114,6 +123,7 @@ class TestRowMarkup:
 
 
 class TestCategorize:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_returns_the_row_and_the_new_count_out_of_band(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -132,6 +142,7 @@ class TestCategorize:
         assert [s.get("id") for s in siblings] == ["uncategorized-count"]
         assert text(siblings[0]) == "1 uncategorized"
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_blank_category_clears_it(self, client: TestClient, ledger: Ledger) -> None:
         page = client.get(f"/accounts/{ledger.card}").text
         gas = txn_id(page, "Gas")
@@ -154,6 +165,7 @@ class TestCategorize:
 
 
 class TestTags:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_tag_dialog_then_post_adds_a_chip_to_the_row(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:
@@ -182,6 +194,7 @@ class TestTags:
         # The dialog closes on success.
         assert triggers(response)["dialog:close"] is None
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_the_tag_picker_refuses_a_tag_the_row_already_wears(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:
@@ -200,6 +213,7 @@ class TestTags:
         assert current.get("value") == "trip"
         assert current.get("disabled") is not None
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_untag_returns_the_row_without_the_chip(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -228,6 +242,7 @@ class TestTags:
 
 
 class TestDelete:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_removes_the_row_and_updates_the_count(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -249,6 +264,7 @@ class TestDelete:
 
 
 class TestOobCounter:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_the_count_chip_keeps_its_style_when_re_sent(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -348,6 +364,7 @@ class TestTheSearchSwapsOnlyTheResults:
         assert "name='q'" not in trigger and 'name="q"' not in trigger
         assert "event.target.name!='q'" in trigger
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_clear_still_appears_when_a_search_filters(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -371,6 +388,7 @@ class TestASplitRowHasNoOneCategory:
     something you could re-file with one pick. Neither was true."""
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     async def test_the_select_is_replaced_by_what_it_actually_is(
         self, client: TestClient, finance: FinanceService, ledger: Ledger
     ) -> None:

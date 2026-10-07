@@ -50,6 +50,7 @@ class TestRename:
 
 
 class TestReconcile:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_preview_shows_the_delta_then_apply_lands_it(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:

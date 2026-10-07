@@ -6,7 +6,7 @@ DB enums) so adding a value is a normal migration on both SQLite and Postgres.
 """
 
 import calendar
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal, NamedTuple
@@ -474,5 +474,21 @@ def account_tag(account_id: int) -> str:
 def tagged_account(tag: str) -> int | None:
     """The account an ``account_tag`` names, or None for any other tag.
     Beside it so the format is written in one place."""
+    return _tagged(tag, account_tag)
+
+
+def transaction_tag(transaction_id: int) -> str:
+    """The one label that files a document on a transaction: its receipt
+    (#331), the way ``account_tag`` files a statement on its account."""
+    return f"transaction:{transaction_id}"
+
+
+def tagged_transaction(tag: str) -> int | None:
+    """The transaction a ``transaction_tag`` names, or None."""
+    return _tagged(tag, transaction_tag)
+
+
+def _tagged(tag: str, label: Callable[[int], str]) -> int | None:
+    """The id ``tag`` carries when ``label`` made it, else None."""
     prefix, _, rest = tag.partition(":")
-    return int(rest) if f"{prefix}:" == account_tag(0)[:-1] and rest.isdigit() else None
+    return int(rest) if f"{prefix}:" == label(0)[:-1] and rest.isdigit() else None

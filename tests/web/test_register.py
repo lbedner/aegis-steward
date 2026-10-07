@@ -56,6 +56,7 @@ class TestAccountRegister:
         assert heads == ["", "Date", "Payee", "Category", "Amount", "Actions"]
         assert names(page) == ["Market", "Market", "Payroll"]
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_a_card_decided_in_chat_redraws_the_rows(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:
@@ -142,6 +143,7 @@ class TestFilters:
         assert names(page) == ["Market", "Market"]
         assert one(page, 'input[name="q"]').get("value") == "Market"
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_category_filter_offers_every_category_and_narrows(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -188,6 +190,7 @@ class TestFilters:
         assert response.status_code == 200
         assert one(response.text, 'input[name="hide_transfers"]').get("checked")
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_window_chips_start_at_all_and_narrow_the_listing(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -360,6 +363,7 @@ class TestSortableColumns:
 
         assert len(sorted_heads) == 1 and "Amount" in sorted_heads[0]
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_the_order_actually_changes(
         self, client: TestClient, ledger: Ledger
     ) -> None:

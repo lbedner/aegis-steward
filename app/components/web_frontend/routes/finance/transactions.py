@@ -100,7 +100,7 @@ async def _shared_tags(
     return _shared([{tag.name for tag in (item.tags or [])} for item in items])
 
 
-async def _rows_response(
+async def rows_response(
     request: Request,
     service: FinanceService,
     txns: list[FinanceTransaction],
@@ -263,7 +263,7 @@ async def categorize_selection(
     await service.db.commit()
     names = await service.category_names({int(category_id)})
     label = names.get(int(category_id), "that category")
-    response = await _rows_response(request, service, txns, owner_user_id, show_account)
+    response = await rows_response(request, service, txns, owner_user_id, show_account)
     return close_dialog(with_toast(response, f"Filed {len(txns)} under {label}"))
 
 
@@ -336,7 +336,7 @@ async def tag(
         )
     await service.tag_transactions(transaction_ids, label, owner_user_id=owner_user_id)
     await service.db.commit()
-    response = await _rows_response(request, service, txns, owner_user_id, show_account)
+    response = await rows_response(request, service, txns, owner_user_id, show_account)
     return close_dialog(with_toast(response, f"Tagged {len(txns)} as {label}"))
 
 
@@ -354,7 +354,7 @@ async def untag(
         [transaction_id], tag_id, owner_user_id=owner_user_id
     )
     await service.db.commit()
-    return await _rows_response(
+    return await rows_response(
         request, service, txns, owner_user_id, show_account, extra={"oob_rows": False}
     )
 
@@ -487,7 +487,7 @@ async def payee(
     suggested = _followup(summary)
     ask = bool(lookalikes or suggested)
     fresh = await _txns(service, touched, owner_user_id)
-    response = await _rows_response(
+    response = await rows_response(
         request,
         service,
         fresh,
@@ -683,9 +683,7 @@ async def split(
         return await _split_dialog(request, service, txn, errors, 422, parts=stated)
     await service.db.commit()
     fresh = await _txns(service, [transaction_id], owner_user_id)
-    response = await _rows_response(
-        request, service, fresh, owner_user_id, show_account
-    )
+    response = await rows_response(request, service, fresh, owner_user_id, show_account)
     return close_dialog(with_toast(response, f"Split into {len(parts) + 1} lines"))
 
 
@@ -703,7 +701,7 @@ async def unsplit(
     )
     await service.db.commit()
     fresh = await _txns(service, [transaction_id], owner_user_id)
-    return await _rows_response(request, service, fresh, owner_user_id, show_account)
+    return await rows_response(request, service, fresh, owner_user_id, show_account)
 
 
 # --- declare recurring ---------------------------------------------------------
@@ -770,9 +768,7 @@ async def declare(
     fresh = await _txns(
         service, [t.id for t in txns if t.id is not None], owner_user_id
     )
-    response = await _rows_response(
-        request, service, fresh, owner_user_id, show_account
-    )
+    response = await rows_response(request, service, fresh, owner_user_id, show_account)
     count = created.get("streams", created.get("created", len(names) or 1))
     return close_dialog(
         with_toast(
