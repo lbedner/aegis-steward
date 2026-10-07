@@ -141,6 +141,39 @@ class TestOffTheRequestPath:
         assert enqueued == [("fold_conversation_task", "c1", summary.FOLD_AFTER)]
 
     @pytest.mark.asyncio
+    async def test_a_fold_already_queued_is_not_queued_again(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The summary does not move until a fold finishes, so every turn
+        while one ran queued another: 10 in 15 minutes on 2026-10-07, and
+        the 750-message catch-up would have been paid for per turn (#437).
+        One job id per conversation; arq refuses a second while it holds
+        the first, as this pool does."""
+        held: dict[str, tuple[Any, ...]] = {}
+
+        class Pool:
+            async def enqueue_job(
+                self, name: str, *args: Any, _job_id: str | None = None, **_: Any
+            ) -> object | None:
+                if _job_id is not None and _job_id in held:
+                    return None
+                held[_job_id or str(len(held))] = (name, *args)
+                return object()
+
+        async def pool(_queue: str) -> tuple[Pool, str]:
+            return Pool(), "system"
+
+        monkeypatch.setattr(summary, "get_queue_pool", pool)
+        conversation = _conversation(4)
+
+        for more in range(3):  # three turns while the first fold runs
+            await summary.enqueue_if_due(
+                conversation, first_kept=summary.FOLD_AFTER + more
+            )
+
+        assert held == {"fold:c1": ("fold_conversation_task", "c1", summary.FOLD_AFTER)}
+
+    @pytest.mark.asyncio
     async def test_the_job_writes_only_the_summary(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
