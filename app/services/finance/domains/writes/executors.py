@@ -9,7 +9,7 @@ debt costs); importing this module arms the whole surface.
 from __future__ import annotations
 
 from app.services.documents.domains import reading
-from app.services.documents.domains.reading import checks
+from app.services.documents.domains.reading import check_card, checks
 from app.services.finance.domains.writes import (
     accounts,
     budgets,
@@ -329,9 +329,9 @@ register(
     ChangeExecutor(
         change_type=checks.CHECK,
         title="A check's scans on its transaction",
-        payload_model=checks.CheckPayload,
-        execute=checks.check_execute,
-        describe=checks.check_describe,
+        payload_model=check_card.CheckPayload,
+        execute=check_card.check_execute,
+        describe=check_card.check_describe,
     )
 )
 # Which paper answers which ask. ST-07 makes the link a human action;
