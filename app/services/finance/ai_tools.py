@@ -256,6 +256,7 @@ async def transactions(
     amount_cents: int | None = None,
     since: str | None = None,
     until: str | None = None,
+    tag: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
     """Find PARTICULAR transactions, without reading the ledger.
@@ -263,9 +264,11 @@ async def transactions(
     Every filter is optional and they narrow together: ``payee`` matches
     the payee or the raw descriptor, ``amount_cents`` matches by
     magnitude (800 finds a $8.00 charge whichever way it is signed),
-    ``since``/``until`` are ISO dates. Returns 'total' (how many match)
-    and 'transactions' - id, date, payee, amount_cents, category,
-    account, memo, transfer - newest first, capped at ``limit``.
+    ``since``/``until`` are ISO dates, ``tag`` is a tag's name (a year of
+    "Tax Related" is one call). Returns 'total' (how many match) and
+    'transactions' - id, date, payee, amount_cents, category, tags,
+    account, memo, transfer - newest first, capped at ``limit``. 'tags'
+    is what the row wears now: read it before proposing a tag.
 
     It finds every row, transfers included. ``transfer: true`` means the
     row is flagged as money between accounts: hidden from the register
@@ -288,6 +291,18 @@ async def transactions(
         return date.fromisoformat(raw) if raw else None
 
     async with get_async_session() as session:
+        tag_id = None
+        if tag:
+            from app.services.finance.domains.ledger.transactions import list_tags
+
+            known = {
+                t.name.casefold(): t
+                for t, _count in await list_tags(session, owner_user_id=None)
+            }
+            if (found := known.get(tag.strip().casefold())) is None:
+                names = ", ".join(sorted(t.name for t in known.values()))
+                return {"error": f"No tag is called {tag!r}. Tags: {names}."}
+            tag_id = found.id
         service = FinanceService(session)
         rows, total = await service.list_transactions(
             owner_user_id=None,
@@ -295,6 +310,7 @@ async def transactions(
             amount=amount_cents,
             from_date=_date(since),
             to_date=_date(until),
+            tag_id=tag_id,
             page_size=max(1, min(int(limit), 200)),
             # A search hides nothing: the register's default hid Dad's
             # mortgage from her, and she called it "already" right (#278).
@@ -324,6 +340,7 @@ async def transactions(
                 "payee": item.payee,
                 "amount_cents": item.amount,
                 "category": item.category,
+                "tags": sorted(t.name for t in item.tags),
                 "account": accounts.get(item.account_id, ""),
                 "memo": item.memo,
                 "transfer": item.is_transfer,
