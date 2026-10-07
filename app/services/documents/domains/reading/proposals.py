@@ -75,6 +75,8 @@ async def read_and_propose(
     waits on a model in the middle, and an open session is the whole
     app's write lock - see ``OpenSession``.
     """
+    from app.services.documents.domains.extraction.vision import vision_reader
+    from app.services.documents.domains.reading.checks import propose_checks
     from app.services.documents.domains.reading.letters import letter_reader
 
     try:
@@ -83,6 +85,13 @@ async def read_and_propose(
             document_id,
             owner_user_id=owner_user_id,
             read_letter=await letter_reader(),
+        )
+        # A bank's check download: each scan on its row (#415).
+        await propose_checks(
+            open_session,
+            document_id,
+            owner_user_id=owner_user_id,
+            read=await vision_reader(),
         )
     except Exception:
         logger.exception("Reading %s proposed nothing", document_id)
