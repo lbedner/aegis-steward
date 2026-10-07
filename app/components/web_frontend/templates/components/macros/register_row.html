@@ -10,6 +10,7 @@
 {% from "components/macros/form.html" import select, control %}
 {% from "components/macros/layout.html" import dropdown, menu_item, mark %}
 {% from "components/macros/table.html" import new_mark %}
+{% from "components/macros/icons.html" import icon %}
 
 {% macro register_row(row, categories=(), show_account=False, row_oob=False) %}
 {% if row_oob %}<template id="txn-{{ row.id }}-oob">{% endif %}
@@ -18,7 +19,9 @@
   <td class="px-5 py-2 whitespace-nowrap text-aegis-text">{{ row.date|short_date }}</td>
   {% if show_account %}<td class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
   <td data-cell="payee" class="px-5 py-2 text-aegis-text">
-    <span class="inline-flex items-center gap-2">{{ mark(row, row.payee) }}<span>{{ row.payee }}</span></span>
+    <span class="inline-flex items-center gap-2">{{ mark(row, row.payee) }}<span>{{ row.payee }}</span>
+      {#- Its receipt (issue 331): the paper filed on this row, opened in the one modal. -#}
+      {%- if row.receipt %}<button type="button" data-receipt {{ hx_dialog('/documents/' ~ row.receipt) }} aria-label="Open the receipt" title="Receipt" class="text-aegis-muted hover:text-aegis-teal">{{ icon("paper-clip", "w-3.5 h-3.5") }}</button>{% endif %}</span>
     {# The note, under the payee where a split's lines go: a memo the
        user can write and never see is not a memo. #}
     {% if row.memo and not row.is_split %}<p class="mt-0.5 text-xxs text-aegis-muted" data-memo>{{ row.memo }}</p>{% endif %}
@@ -92,6 +95,7 @@
       {{ menu_item("Split", hx_dialog('/transactions/' ~ row.id ~ '/split')) }}
       {% endif %}
       {{ menu_item("Make recurring", hx_dialog('/transactions/declare?transaction_ids=' ~ row.id)) }}
+      {{ menu_item("Attach receipt", hx_dialog('/transactions/' ~ row.id ~ '/receipt' ~ ('?show_account=true' if show_account else ''))) }}
       {{ menu_item("Remove", 'hx-delete="/transactions/' ~ row.id ~ '" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Remove this transaction? A re-import will not bring it back."', danger=True) }}
     {% endcall %}
   </td>

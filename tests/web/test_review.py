@@ -21,6 +21,7 @@ def nav(page: str) -> dict[str, str]:
 
 
 class TestNav:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_four_queues_with_counts(self, client: TestClient, review: Review) -> None:
         page = client.get("/review").text
         assert nav(page) == {
@@ -194,6 +195,7 @@ class TestUncategorized:
         none(form, 'select[name="category_id"]')
         one(page, "#bulk-actions")  # the same selection bar as the register
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_auto_categorize_previews_without_writing(
         self, client: TestClient, review: Review
     ) -> None:
@@ -226,6 +228,7 @@ class TestNoPayee:
         none(form, 'select[name="merchant_id"]')
         one(page, '#bulk-actions [hx-get="/transactions/payee"]')
 
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_groups_view_and_assignment(
         self, client: TestClient, hx: TestClient, review: Review
     ) -> None:

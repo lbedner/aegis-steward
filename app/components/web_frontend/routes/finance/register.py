@@ -174,8 +174,22 @@ def is_investment(account: AccountResponse | None) -> bool:
     return account is not None and account.account_type in INVESTMENT_ACCOUNT_TYPES
 
 
-def _row(txn: TransactionResponse, account_names: dict[int, str]) -> dict[str, Any]:
+async def receipts(service: FinanceService, txns: list[Any]) -> dict[int, int]:
+    """``{transaction id: its receipt's document id}`` for a page of rows,
+    one read (#331): the paper filed on each by ``transaction_tag``. The
+    page and every row action shape rows through ``_row`` with this."""
+    from app.services.documents.queries import tagged_with
+    from app.services.finance.constants import transaction_tag
+
+    filed = await tagged_with(service.db, [transaction_tag(t.id) for t in txns])
+    return {t.id: ids[0] for t in txns if (ids := filed.get(transaction_tag(t.id)))}
+
+
+def _row(
+    txn: TransactionResponse, account_names: dict[int, str], receipt: int | None
+) -> dict[str, Any]:
     return {
+        "receipt": receipt,
         "id": txn.id,
         "account_id": txn.account_id,
         "date": txn.date,
@@ -210,9 +224,13 @@ async def rows_context(
     # By the rows' own account ids, so a row on somebody else's account
     # is named too - a page of "ours" would leave it blank.
     names = await account_names(service.db, [item.account_id for item in items])
+    filed = await receipts(service, items)
     return {
         "rows": [
-            {**_row(item, names), "suggestion": (suggestions or {}).get(item.id)}
+            {
+                **_row(item, names, filed.get(item.id)),
+                "suggestion": (suggestions or {}).get(item.id),
+            }
             for item in items
         ],
         "categories": (await list_category_options(service=service)).items,
@@ -335,6 +353,7 @@ async def register_context(
         owner_user_id=owner_user_id,
     )
     names = {a.id: a.name for a in accounts}
+    filed = await receipts(service, listing.items)
     columns = (
         TXN_COLUMNS
         if account is None
@@ -347,7 +366,9 @@ async def register_context(
         "ranges": ranges.WINDOWS,
         "columns": columns,
         "rows": await mark_new(
-            service.db, [_row(t, names) for t in listing.items], seen
+            service.db,
+            [_row(t, names, filed.get(t.id)) for t in listing.items],
+            seen,
         ),
         "total": listing.total,
         "pager": _pager(path, filters, listing.total),

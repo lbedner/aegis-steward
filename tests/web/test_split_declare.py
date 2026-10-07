@@ -2,6 +2,7 @@
 dialog, answering with rows out of band."""
 
 from fastapi.testclient import TestClient
+import pytest
 
 from tests.web.conftest import REGISTER, Ledger
 from tests.web.dom import none, one, select, text, triggers
@@ -9,6 +10,7 @@ from tests.web.test_row_actions import category_id, txn_id
 
 
 class TestSplit:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_menu_dialog_and_split(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:
@@ -42,6 +44,7 @@ class TestSplit:
         assert "dialog:close" in triggers(response)
         one(row, f'[hx-delete="/transactions/{market}/split"]')
 
+    @pytest.mark.queryspy(threshold=4)  # each request redraws rows
     def test_unsplit_returns_the_plain_row(
         self, client: TestClient, ledger: Ledger
     ) -> None:
@@ -69,6 +72,7 @@ class TestSplit:
 
 
 class TestDeclareRecurring:
+    @pytest.mark.queryspy(threshold=3)  # each request redraws rows
     def test_preview_then_declare(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:
