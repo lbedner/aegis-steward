@@ -3,7 +3,7 @@
 {% from "components/macros/layout.html" import page_header %}
 {% from "components/macros/layout.html" import badge %}
 {% from "components/macros/form.html" import control %}
-{% from "components/macros/changes.html" import display, verbs, edit_url %}
+{% from "components/macros/changes.html" import display, verbs, edit_url, edit_button %}
 
 {% block title %}{{ section.label }} - {{ project_name }}{% endblock %}
 
@@ -35,7 +35,10 @@
         <label class="inline-flex items-center gap-1 text-xxs text-aegis-muted mt-0.5" title="Leave this one out">
           <input type="checkbox" name="exclude_ids" value="{{ change.id }}" class="{{ control('checkbox') }}"> skip
         </label>
-        <div class="flex-1">{{ display(change) }}</div>
+        <div class="flex-1 min-w-0">{{ display(change) }}</div>
+        {#- One row of a batch put right before the batch is approved:
+            a misread payee on one check of fourteen (issue 420). -#}
+        {% if edit_url(change) %}<div class="text-xs">{{ edit_button(edit_url(change)) }}</div>{% endif %}
       </li>
       {% endfor %}
     </ul>

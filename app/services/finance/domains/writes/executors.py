@@ -332,6 +332,10 @@ register(
         payload_model=check_card.CheckPayload,
         execute=check_card.check_execute,
         describe=check_card.check_describe,
+        # A misread payee is put right before approving (issue 420); the
+        # scans and the row are the card's own.
+        editable=True,
+        edits=("payee",),
     )
 )
 # Which paper answers which ask. ST-07 makes the link a human action;

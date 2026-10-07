@@ -382,6 +382,49 @@ async def withdraw_batch(batch_id: str, reason: str | None = None) -> dict[str, 
     return await write()
 
 
+async def revise(
+    fields: dict[str, str],
+    pending_change_ids: list[int] | None = None,
+    about: str | None = None,
+) -> dict[str, Any]:
+    """Put right what a pending card got wrong, before the user approves
+    it - any card awaiting them whose type can be edited, not only your
+    own. Use it when the user corrects a reading: "it's Holy Cow, not
+    Holly Cow" is revise({"payee": "Holy Cow"}, about="Holly Cow"), and
+    every pending card that says Holly Cow is fixed. Name the cards by
+    ``pending_change_ids``, or by ``about`` (text the card's payload
+    contains). ``fields`` are only the ones to change; the rest of each
+    card stays. Returns {"revised": [ids]} and, per card it could not
+    change, {"errors": {id: why}} - a card that cannot be edited says so,
+    with the fields that can."""
+    from app.services.finance.domains import writes
+    from app.services.finance.domains.writes.queue import revise_card
+    from app.services.finance.domains.writes.registry import executor_for
+
+    needle = (about or "").strip().lower()
+    if not pending_change_ids and not needle:
+        return {"error": "name the cards: pending_change_ids or about"}
+    revised: list[int] = []
+    errors: dict[int, str] = {}
+    async with get_async_session() as session:
+        rows = await writes.list_changes(session, owner_user_id=None, status="pending")
+        for row in rows:
+            if pending_change_ids and row.id not in pending_change_ids:
+                continue
+            if needle and needle not in str(row.payload).lower():
+                continue
+            if not pending_change_ids and not executor_for(row.change_type).editable:
+                continue
+            try:
+                await revise_card(session, row, fields)
+            except ValueError as e:
+                errors[int(row.id or 0)] = str(e)
+                continue
+            revised.append(int(row.id or 0))
+        await session.commit()
+    return {"revised": revised, **({"errors": errors} if errors else {})}
+
+
 # Built-in registration: importing this module makes the tools grantable
 # via the agent registry. replace=True keeps re-imports idempotent.
 register_tool(
@@ -433,6 +476,13 @@ register_tool(
     "withdraw",
     withdraw,
     description="Retract one of your own still-pending proposals",
+    native_write=True,
+    replace=True,
+)
+register_tool(
+    "revise",
+    revise,
+    description="Correct a field on pending cards before the user approves them",
     native_write=True,
     replace=True,
 )

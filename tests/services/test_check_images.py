@@ -273,7 +273,7 @@ class TestProposingTheCards:
             if c.change_type == checks.CHECK
         }
         assert set(cards) == {ids["1524"], ids["1802"]}
-        assert cards[ids["1802"]]["payee"]["value"] == "Dr. Clark"
+        assert cards[ids["1802"]]["payee"] == "Dr. Clark"
         assert cards[ids["1524"]]["payee"] is None  # it has one
 
     @pytest.mark.asyncio
@@ -298,7 +298,8 @@ class TestProposingTheCards:
             "back_key": await store.put(
                 _jpeg(1800, 830, "gray"), content_type="image/jpeg"
             ),
-            "payee": {"value": "Dr. Clark", "page": 2, "because": "ORDER OF Dr. Clark"},
+            "payee": "Dr. Clark",
+            "payee_because": "ORDER OF Dr. Clark",
         }
         card = await propose(
             async_db_session, checks.CHECK, payload, owner_user_id=None

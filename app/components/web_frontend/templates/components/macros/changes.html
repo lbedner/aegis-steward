@@ -77,7 +77,15 @@
   {% for row in rows[1:] %}{{ fact_row(row) }}{% endfor %}
 </ul>
 {% endif %}
+{% if change.scan %}
+{#- A card that carries its own scan (a check's front, issue 420) shows
+    that, not the page of four it was cut from. -#}
+<img data-scan loading="lazy" width="1800" height="830" src="/review/changes/{{ change.id }}/scan"
+     alt="The scan this card files"
+     class="mt-2 w-full max-h-40 object-contain object-left rounded border border-aegis-border bg-aegis-bg">
+{% else %}
 {{ cited_page(rows) }}
+{% endif %}
 {% endif %}
 {% if change.error %}<p class="text-xs text-error">{{ change.error }}</p>{% endif %}
 {% endmacro %}
@@ -88,9 +96,10 @@
   {{ action("Reject all" if include else "Reject", 'hx-post="' ~ reject_url ~ '" hx-target="' ~ target ~ '" hx-swap="outerHTML"') }}
   {#- Your own words on it first, for the types that allow it. Opens
       the one dialog: an approve is a click, an edit is a form. -#}
-  {% if edit_url %}{{ action("Edit", hx_dialog(edit_url) ~ ' data-edit') }}{% endif %}
+  {% if edit_url %}{{ edit_button(edit_url) }}{% endif %}
 </div>
 {% endmacro %}
+{% macro edit_button(url) %}{{ action("Edit", hx_dialog(url) ~ ' data-edit') }}{% endmacro %}
 
 {#- Where an editable card's form lives, whichever surface drew the
     card: the dialog is global, so chat's card and Review's open the

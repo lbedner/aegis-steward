@@ -164,6 +164,9 @@ FINANCE_CHAT_TOOL_NAMES = (
     "pending",
     "withdraw",
     "withdraw_batch",
+    # A misread on a pending card put right when the user says so
+    # ("it's Holy Cow"), across every card that has it (issue 420).
+    "revise",
     # Durable extraction: what was read out of an ephemeral image must
     # be recorded before it is answered from - the recording is what
     # later turns get instead of the pixels.

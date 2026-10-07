@@ -9,10 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.documents.domains.reading.changes import ReadValue
 from app.services.finance.schemas import ChangeDisplayRow
 
 
@@ -29,7 +28,25 @@ class CheckPayload(BaseModel):
     number: str
     front_key: str
     back_key: str | None = None
-    payee: ReadValue | None = None
+    # Text, so it can be put right before approving (#420): by you on
+    # the card, or by Illiana. ``payee_because`` is the line it was read
+    # from, which stays when the name is corrected.
+    payee: str | None = None
+    payee_because: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_value_payee(cls, data: Any) -> Any:
+        """A card filed while the payee was a cited reading (#415) reads
+        the same: ``{"value", "page", "because"}`` becomes the two."""
+        if isinstance(data, dict) and isinstance(data.get("payee"), dict):
+            read = data["payee"]
+            data = {
+                **data,
+                "payee": read.get("value"),
+                "payee_because": data.get("payee_because") or read.get("because"),
+            }
+        return data
 
 
 async def check_execute(
@@ -68,11 +85,11 @@ async def check_execute(
             int(document.id or 0), transaction_tag(payload.transaction_id)
         )
         filed.append(int(document.id or 0))
-    if payload.payee is not None:
+    if payload.payee:
         await assign_payee_execute(
             db,
             AssignPayeePayload(
-                transaction_id=payload.transaction_id, payee=payload.payee.value
+                transaction_id=payload.transaction_id, payee=payload.payee
             ),
             owner_user_id,
         )
@@ -96,12 +113,14 @@ async def check_describe(
             page=payload.page,
         ),
     ]
-    if payload.payee is not None:
+    if payload.payee:
         rows.append(
             ChangeDisplayRow(
                 label="Payee",
-                value=f"- → {payload.payee.value}",
-                note=payload.payee.cited(),
+                value=f"- → {payload.payee}",
+                note=f"page {payload.page}: {payload.payee_because}"
+                if payload.payee_because
+                else None,
                 document_id=payload.document_id,
                 page=payload.page,
             )
