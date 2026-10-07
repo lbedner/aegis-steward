@@ -288,7 +288,17 @@ async def _describe_row(
             ChangeDisplayRow(label="Change", value=executor.title),
             ChangeDisplayRow(label="Payload (no longer valid)", value=str(row.payload)),
         ]
-    return await executor.describe(db, model, row.owner_user_id)
+    # A describe can refuse a card the world has moved past - a title
+    # for a document named since - and one such card 500'd the whole
+    # Approvals page, unrejectable (#435). It draws as what it was and
+    # why it no longer applies, so it can be rejected.
+    try:
+        return await executor.describe(db, model, row.owner_user_id)
+    except ValueError as e:
+        return [
+            ChangeDisplayRow(label="Change", value=executor.title),
+            ChangeDisplayRow(label="No longer applies", value=str(e)),
+        ]
 
 
 async def approve(
