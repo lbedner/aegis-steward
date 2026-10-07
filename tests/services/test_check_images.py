@@ -119,6 +119,69 @@ class TestReadingACheck:
         assert not checks.looks_like_check("Quarterly statement for the period")
 
 
+def _row(number: str, cents: int, posted: date) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id=hash((number, cents, posted)),
+        number=number,
+        amount=cents,
+        date_=posted,
+        merchant_id=None,
+    )
+
+
+class TestMatchingWhatWasRead:
+    """The dry run on #21 and #22 (2026-10-06): 26 of 35 matched by
+    number; the rest were an illegible number or a row renamed in
+    Quicken, and a transcription wraps its fields in table bars."""
+
+    def test_a_payee_is_read_without_the_bars_and_wide_spaces(self) -> None:
+        read = checks.parse_check(
+            "PAY TO THE\nORDER OF | Hyde Park Swim & Tennis Club |\n$178.00"
+        )
+        assert read.payee == "Hyde Park Swim & Tennis Club"
+        smart = checks.parse_check("ORDER OF Smart Park\u00a0\u00a0\u00a0 $214.11")
+        assert smart.payee == "Smart Park"
+
+    def test_an_illegible_number_matches_the_one_check_row_of_its_amount(self) -> None:
+        rows = [
+            _row("1796", -2745, date(2025, 2, 3)),
+            _row("1799", -3745, date(2025, 5, 27)),
+        ]
+        read = checks.CheckReading(amount_cents=2745)
+        assert checks.match(read, rows).number == "1796"
+
+    def test_a_read_number_never_takes_another_numbers_row(self) -> None:
+        """#1526 for $38.93 is not CHECK # 1535 for $38.93."""
+        rows = [_row("1535", -3893, date(2025, 12, 11))]
+        read = checks.CheckReading(
+            number="1526", amount_cents=3893, dated=date(2025, 12, 1)
+        )
+        assert checks.match(read, rows) is None
+
+    def test_a_renamed_row_is_found_by_amount_and_the_date_it_cleared(self) -> None:
+        """Michael Rossi's checks were renamed Portasoft and lost their
+        numbers: only the amount, cleared after the date on its face."""
+        renamed = [
+            _row("", -3893, date(2025, 1, 9)),
+            _row("", -3893, date(2025, 2, 5)),
+        ]
+        read = checks.CheckReading(
+            number="1847", amount_cents=3893, dated=date(2025, 1, 3)
+        )
+        assert checks.match(read, [], renamed).date_ == date(2025, 1, 9)
+        # No date read, nothing to tell the months apart: no answer.
+        undated = checks.CheckReading(number="1526", amount_cents=3893)
+        assert checks.match(undated, [], renamed) is None
+
+    def test_a_misread_payee_is_snapped_to_yours(self) -> None:
+        assert checks.known_payee("Nuance Health", ["NuVance Health", "Dr. Clark"]) == (
+            "NuVance Health"
+        )
+        assert checks.known_payee("Holly Cow", ["NuVance Health"]) == "Holly Cow"
+
+
 class TestSplittingTheDownload:
     def test_each_row_is_one_check_front_and_back_and_the_logo_is_dropped(
         self,

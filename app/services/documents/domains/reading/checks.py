@@ -17,19 +17,17 @@ is filed until it is approved: the scans wait in storage, named by it.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from difflib import SequenceMatcher
 import io
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import OpenSession
-from app.services.documents.domains.reading.changes import ReadValue
-from app.services.finance.schemas import ChangeDisplayRow
 
 CHECK = "check.attach"
 PROPOSED_BY = "reading"
@@ -49,6 +47,15 @@ _AMOUNT = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})*\.\d{2})\b")
 _NUMBER = re.compile(r"^\s*(\d{3,6})\b")
 _PAYEE = re.compile(r"ORDER\s+OF\b[ :]*(.*)", re.I)
 _DATE = re.compile(r"\bDATE\b\D{0,3}(\d{1,2}/\d{1,2}/\d{2,4})", re.I)
+
+# A check is cashed after it is written: its posting falls this close to
+# the date on its face.
+_CLEARS = (timedelta(days=-3), timedelta(days=60))
+# A payee read off handwriting this close to one of yours IS yours:
+# "Nuance Health" is NuVance Health, not a second payee (#22, #21).
+_SAME_PAYEE = 0.85
+# Table separators and dashes a transcription wraps a field in.
+_NOISE = " |—–-:$"
 
 Read = Callable[[bytes, str], Awaitable[tuple[str, str]]]
 
@@ -148,7 +155,7 @@ def parse_check(text: str) -> CheckReading:
             said = found.group(1).strip() or (
                 lines[n + 1] if n + 1 < len(lines) else ""
             )
-            said = _AMOUNT.split(said)[0].strip(" $:")
+            said = _clean(_AMOUNT.split(said)[0])
             if said:
                 payee, payee_line = said, f"ORDER OF {said}"
             break
@@ -172,15 +179,72 @@ def parse_check(text: str) -> CheckReading:
     )
 
 
-def match(reading: CheckReading, rows: list[Any]) -> Any | None:
-    """The one ledger row this check is: its number, and its amount when
-    the face gave one. Two candidates is no answer."""
-    if reading.number is None:
+def _clean(said: str) -> str:
+    """A field as written, without the table bars, dashes and wide
+    spaces a transcription wraps it in."""
+    return re.sub(r"\s+", " ", said.replace("\u3000", " ")).strip(_NOISE)
+
+
+def _clears(dated: date | None, posted: date) -> bool:
+    return dated is not None and _CLEARS[0] <= posted - dated <= _CLEARS[1]
+
+
+def _one(found: list[Any]) -> Any | None:
+    return found[0] if len(found) == 1 else None
+
+
+def match(
+    reading: CheckReading, rows: list[Any], renamed: Sequence[Any] = ()
+) -> Any | None:
+    """The one ledger row this check is; two candidates is no answer.
+
+    By its number (and amount, when the face gave one). Where no number
+    could be read: the one check row of its amount - cleared near its
+    date, when one was read. Where the row was renamed and lost its
+    number ("CHECK # 1526" became Portasoft in Quicken): the row on its
+    account of its amount that cleared first after the date on its face
+    - a date is required there, a renamed row has nothing else to go on.
+    A number that WAS read is never matched to another number's row."""
+    amount = reading.amount_cents
+    if reading.number is not None:
+        same = [r for r in rows if r.number == reading.number]
+        if amount is not None:
+            same = [r for r in same if abs(r.amount) == amount]
+        if same:
+            return _one(same)
+    elif amount is not None:
+        same = [
+            r
+            for r in rows
+            if abs(r.amount) == amount
+            and (reading.dated is None or _clears(reading.dated, r.date_))
+        ]
+        if same:
+            return _one(same)
+    if amount is None or reading.dated is None:
         return None
-    same = [r for r in rows if r.number == reading.number]
-    if reading.amount_cents is not None:
-        same = [r for r in same if abs(r.amount) == reading.amount_cents]
-    return same[0] if len(same) == 1 else None
+    # A renamed row repeats (a monthly $38.93): the one that cleared
+    # first after the date on the face, as a check does.
+    cleared = [
+        r
+        for r in renamed
+        if abs(r.amount) == amount and _clears(reading.dated, r.date_)
+    ]
+    return min(cleared, key=lambda r: r.date_, default=None)
+
+
+def known_payee(said: str, names: list[str]) -> str:
+    """One of your payees' names, where ``said`` is that payee misread;
+    else what was read."""
+    from app.services.finance.utils import normalize_payee
+
+    wanted = normalize_payee(said)
+    scored = [
+        (SequenceMatcher(None, wanted, normalize_payee(name)).ratio(), name)
+        for name in names
+    ]
+    best = max(scored, default=(0.0, said))
+    return best[1] if best[0] >= _SAME_PAYEE else said
 
 
 async def propose_checks(
@@ -208,9 +272,8 @@ async def propose_checks(
     if not found:
         return 0
     async with open_session() as db:
-        rows, done = await _ledger(db, document_id, owner_user_id)
-    store = get_storage()
-    cards: list[dict[str, Any]] = []
+        rows, done, payees = await _ledger(db, document_id, owner_user_id)
+    read_off: list[tuple[CheckImage, CheckReading, Any | None]] = []
     for check in found:
         if (check.page, check.slot) in done.slots:
             continue
@@ -225,10 +288,23 @@ async def propose_checks(
         # row, or the row has no payee and only handwriting names one.
         if (row is None or row.merchant_id is None) and read is not None:
             seen = parse_check((await read(check.front, "image/jpeg"))[0])
-            if found := match(seen, rows):
-                row, reading = found, seen
-        if row is None or row.id in done.transactions:
+            if (by_sight := match(seen, rows)) is not None or row is None:
+                row, reading = by_sight, seen
+        read_off.append((check, reading, row))
+    # Rows renamed out of their number: one read for every check left.
+    lost = [r for _c, r, row in read_off if row is None and r.account and r.dated]
+    if lost:
+        async with open_session() as db:
+            renamed = await _renamed(db, lost, owner_user_id)
+        read_off = [(c, r, row or match(r, [], renamed)) for c, r, row in read_off]
+    store = get_storage()
+    cards: list[dict[str, Any]] = []
+    claimed: set[int] = set()
+    for check, reading, row in read_off:
+        if row is None or row.id in done.transactions or row.id in claimed:
             continue
+        claimed.add(row.id)
+        payee = known_payee(reading.payee, payees) if reading.payee else None
         cards.append(
             {
                 "document_id": document_id,
@@ -241,11 +317,11 @@ async def propose_checks(
                 if check.back
                 else None,
                 "payee": {
-                    "value": reading.payee,
+                    "value": payee,
                     "page": check.page,
                     "because": reading.payee_line,
                 }
-                if reading.payee and row.merchant_id is None
+                if payee and row.merchant_id is None
                 else None,
             }
         )
@@ -268,6 +344,7 @@ class _CheckRow:
     number: str
     amount: int
     merchant_id: int | None
+    date_: date
 
 
 @dataclass(frozen=True)
@@ -278,14 +355,18 @@ class _Done:
 
 async def _ledger(
     db: AsyncSession, document_id: int, owner_user_id: int | None
-) -> tuple[list[_CheckRow], _Done]:
-    """The check rows a scan can be, and what is already asked or filed:
-    a card for this document's slot, or a row wearing a receipt."""
+) -> tuple[list[_CheckRow], _Done, list[str]]:
+    """The check rows a scan can be, what is already asked or filed (a
+    card for this document's slot, a row wearing a receipt), and your
+    payees' names, which a misread payee is snapped to."""
     from sqlmodel import col, or_, select
 
     from app.services.documents.queries import tagged_with
     from app.services.finance.constants import transaction_tag
     from app.services.finance.domains.ledger.queries.filters import not_duplicate
+    from app.services.finance.domains.ledger.queries.merchants import (
+        merchants_for_owner,
+    )
     from app.services.finance.domains.writes.queue import list_changes
     from app.services.finance.models import FinanceTransaction as T
 
@@ -297,7 +378,7 @@ async def _ledger(
     if owner_user_id is not None:
         query = query.where(T.owner_user_id == owner_user_id)
     rows = [
-        _CheckRow(int(t.id or 0), number, t.amount, t.merchant_id)
+        _CheckRow(int(t.id or 0), number, t.amount, t.merchant_id, t.date_)
         for t in (await db.exec(query)).all()
         if (number := t.check_number or _row_number(t.name))
     ]
@@ -309,105 +390,44 @@ async def _ledger(
     }
     filed = await tagged_with(db, [transaction_tag(r.id) for r in rows])
     receipted = {r.id for r in rows if filed.get(transaction_tag(r.id))}
-    return rows, _Done(asked, receipted)
+    payees = await merchants_for_owner(db, owner_user_id=owner_user_id)
+    return rows, _Done(asked, receipted), [m.name for m in payees]
+
+
+async def _renamed(
+    db: AsyncSession, lost: list[CheckReading], owner_user_id: int | None
+) -> list[_CheckRow]:
+    """Rows a check could be that no longer say so: on the account its
+    MICR line names (by last four), at one of the amounts read. One
+    read for every unmatched check."""
+    from sqlmodel import col, select
+
+    from app.services.finance.domains.ledger.queries.filters import not_duplicate
+    from app.services.finance.models import FinanceAccount
+    from app.services.finance.models import FinanceTransaction as T
+
+    masks = {r.account[-4:] for r in lost if r.account}
+    amounts = {-r.amount_cents for r in lost if r.amount_cents}
+    if not masks or not amounts:
+        return []
+    query = (
+        select(T)
+        .join(FinanceAccount, col(FinanceAccount.id) == T.account_id)
+        .where(
+            col(FinanceAccount.mask).in_(masks),
+            col(T.amount).in_(amounts),
+            col(T.deleted_at).is_(None),
+            not_duplicate(),
+        )
+    )
+    if owner_user_id is not None:
+        query = query.where(T.owner_user_id == owner_user_id)
+    return [
+        _CheckRow(int(t.id or 0), "", t.amount, t.merchant_id, t.date_)
+        for t in (await db.exec(query)).all()
+    ]
 
 
 def _row_number(name: str | None) -> str | None:
     found = re.search(r"\bCHECK\s*#?\s*(\d{3,6})\b", name or "", re.I)
     return found.group(1) if found else None
-
-
-# --- the card ----------------------------------------------------------------
-
-
-class CheckPayload(BaseModel):
-    """One check's scans for its ledger row, and the payee read off its
-    face where the row has none. Keys name the scans in storage."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    document_id: int
-    page: int
-    slot: int
-    transaction_id: int
-    number: str
-    front_key: str
-    back_key: str | None = None
-    payee: ReadValue | None = None
-
-
-async def check_execute(
-    db: AsyncSession, payload: CheckPayload, owner_user_id: int | None
-) -> dict[str, Any]:
-    """File the scans on the row as its receipt; name its payee."""
-    from app.core.storage import get_storage
-    from app.services.documents.service import DocumentService
-    from app.services.finance.constants import transaction_tag
-    from app.services.finance.domains.writes.curation import (
-        AssignPayeePayload,
-        assign_payee_execute,
-    )
-
-    store = get_storage()
-    documents = DocumentService(db)
-    filed: list[int] = []
-    for key, title in (
-        (payload.front_key, f"Check {payload.number}"),
-        (payload.back_key, f"Check {payload.number} (back)"),
-    ):
-        if key is None:
-            continue
-        data = await store.get(key)
-        if data is None:
-            raise ValueError(f"The scan of check {payload.number} is gone; read again.")
-        document = await documents.ingest(
-            data,
-            title=title,
-            kind="receipt",
-            media_type="image/jpeg",
-            owner_user_id=owner_user_id,
-            source="reading",
-        )
-        await documents.tag(
-            int(document.id or 0), transaction_tag(payload.transaction_id)
-        )
-        filed.append(int(document.id or 0))
-    if payload.payee is not None:
-        await assign_payee_execute(
-            db,
-            AssignPayeePayload(
-                transaction_id=payload.transaction_id, payee=payload.payee.value
-            ),
-            owner_user_id,
-        )
-    await db.flush()
-    return {"transaction_id": payload.transaction_id, "documents": filed}
-
-
-async def check_describe(
-    db: AsyncSession, payload: CheckPayload, owner_user_id: int | None
-) -> list[ChangeDisplayRow]:
-    from app.services.finance.domains.writes.display import txn_row
-
-    _txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
-    rows = [
-        subject,
-        ChangeDisplayRow(
-            label="Check",
-            value=f"#{payload.number}, front and back",
-            note=f"page {payload.page}",
-            document_id=payload.document_id,
-            page=payload.page,
-        ),
-    ]
-    if payload.payee is not None:
-        rows.append(
-            ChangeDisplayRow(
-                label="Payee",
-                value=f"- → {payload.payee.value}",
-                note=payload.payee.cited(),
-                document_id=payload.document_id,
-                page=payload.page,
-            )
-        )
-    return rows
