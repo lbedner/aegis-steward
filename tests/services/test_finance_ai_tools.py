@@ -1323,6 +1323,61 @@ async def test_transactions_narrows_by_date(
     assert (await ai_tools.transactions(until="2026-09-10"))["total"] == 1
 
 
+async def _tax_year(svc: FinanceService, session: AsyncSession) -> list[int]:
+    account = await seed_account(svc)
+    ids = []
+    for day, name in ((3, "GitHub"), (21, "OpenAI"), (24, "Netflix")):
+        row = await svc.create_transaction(
+            account_id=account.id,
+            amount=-2_163,
+            txn_date=date(2025, 9, day),
+            owner_user_id=1,
+            name=name,
+        )
+        ids.append(int(row.id or 0))
+    await svc.tag_transactions(ids[:2], "Tax Related", owner_user_id=None)
+    await svc.tag_transactions(ids[:1], "Work", owner_user_id=None)
+    await session.commit()
+    return ids
+
+
+@pytest.mark.asyncio
+async def test_transactions_say_what_each_row_is_tagged(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Asked for 2025's tax charges, she said fifteen tagged rows were
+    untagged - the tags were read and dropped - and filed a card to tag
+    them again (#426)."""
+    await _tax_year(svc, session)
+
+    rows = (await ai_tools.transactions(since="2025-01-01"))["transactions"]
+
+    assert {r["payee"]: r["tags"] for r in rows} == {
+        "GitHub": ["Tax Related", "Work"],
+        "OpenAI": ["Tax Related"],
+        "Netflix": [],
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=3)  # the tool, asked twice
+async def test_transactions_narrow_to_one_tag(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """The accountant's list is one call: a year of one tag."""
+    await _tax_year(svc, session)
+
+    found = await ai_tools.transactions(
+        tag="tax related", since="2025-01-01", until="2025-12-31"
+    )
+    assert found["total"] == 2
+    assert {r["payee"] for r in found["transactions"]} == {"GitHub", "OpenAI"}
+
+    # A tag that does not exist is said, not answered with nothing.
+    missing = await ai_tools.transactions(tag="Taxes")
+    assert "Taxes" in missing["error"] and "Tax Related" in missing["error"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.queryspy(threshold=4)  # two rolling limits seeded, then read
 async def test_budget_says_what_a_rolling_limit_carried(
