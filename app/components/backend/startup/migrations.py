@@ -65,13 +65,13 @@ def already_applied(inspector: Any, signature: tuple[str, ...]) -> bool:
         kind = signature[0]
         if kind == "table":
             return _bare(signature[1]) in set(inspector.get_table_names())
-        if kind in ("column", "foreign_key"):
+        if kind in ("column", "no_column", "foreign_key"):
             table = _bare(signature[1])
             if table not in set(inspector.get_table_names()):
                 return False
-            if kind == "column":
+            if kind in ("column", "no_column"):
                 names = {col["name"] for col in inspector.get_columns(table)}
-                return signature[2] in names
+                return (signature[2] in names) == (kind == "column")
             covered = {
                 column
                 for key in inspector.get_foreign_keys(table)

@@ -80,9 +80,8 @@ class TestABankIsAContact:
 
         contact = (await _organizations(async_db_session))["Fidelity"]
         assert bank.party_id == contact.id
+        # The homepage lives on the contact, and only there (#412).
         assert contact.contact == {"website": "https://www.fidelity.com"}
-        # The domain is derived from the homepage, never asked for twice.
-        assert bank.domain == "fidelity.com"
 
     @pytest.mark.asyncio
     async def test_a_contact_already_named_is_the_one(
@@ -144,12 +143,12 @@ class TestALinkPutsEachAccountUnderItsBank:
             "SAVINGS (0001)": "Chase Bank",
             "Invest": "M1 Finance",
         }
-        # One row per bank, each with its homepage and its contact.
-        assert sorted((b.name, b.domain) for b in banks.values()) == [
-            ("Chase Bank", "chase.com"),
-            ("M1 Finance", "m1.com"),
+        # One row per bank, each with its contact and the homepage on it.
+        sites = await institutions.websites(async_db_session, list(banks))
+        assert sorted((b.name, sites.get(b.id)) for b in banks.values()) == [
+            ("Chase Bank", "https://www.chase.com"),
+            ("M1 Finance", "https://m1.com"),
         ]
-        assert all(b.party_id for b in banks.values())
 
     @pytest.mark.asyncio
     @pytest.mark.queryspy(threshold=3)  # a link, then a place
@@ -196,12 +195,7 @@ class TestOneBankNamedTwoWays:
             if b.name == "M1 Finance"
         )
         # Named your way, with nothing on file to reach them by yet.
-        mine.name, mine.normalized_name, mine.url, mine.domain = (
-            "M1 Holdings",
-            "M1 HOLDINGS",
-            None,
-            None,
-        )
+        mine.name, mine.normalized_name = "M1 Holdings", "M1 HOLDINGS"
         party = await PartyService(async_db_session).get(mine.party_id)
         assert party is not None
         party.contact = None
@@ -219,8 +213,7 @@ class TestOneBankNamedTwoWays:
             )
         ]
         assert sorted(names) == ["Chase Bank", "M1 Holdings"]
-        # What the bank says of itself lands on YOUR row and its contact.
-        assert (mine.url, mine.domain) == ("https://m1.com", "m1.com")
+        # What the bank says of itself lands on YOUR bank's contact.
         assert party.contact == {"website": "https://m1.com"}
 
     @pytest.mark.asyncio
@@ -248,6 +241,43 @@ class TestOneBankNamedTwoWays:
             )
         ]
         assert "Chase Bank" not in names
+
+
+class TestTheWebsiteLivesOnTheContact:
+    """One home (#412): a website set on the contact - by a card in chat,
+    the Contacts page or a sync - is the bank's logo and link with
+    nothing else done. It used to sit on the bank row too, and a card
+    that set the contact's left the accounts without a logo."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # the logo, then the websites read directly
+    async def test_a_website_on_the_contact_is_the_banks_logo(
+        self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.finance.domains.ledger import merchant_icon
+
+        bank = await FinanceService(async_db_session).get_or_create_institution(
+            name="HVCU", owner_user_id=1
+        )
+        assert bank.party_id is not None
+        # What approving Illiana's contact.amend card does.
+        await PartyService(async_db_session).update(
+            bank.party_id, {"contact": {"website": "https://www.hvcu.org"}}
+        )
+        asked: list[dict[str, str]] = []
+
+        async def _keys(_db: Any, names: list[str], overrides: dict[str, str]) -> dict:
+            asked.append(overrides)
+            return {}
+
+        monkeypatch.setattr(merchant_icon, "resolve_icon_keys", _keys)
+
+        await merchant_icon.institution_icons(async_db_session, [bank])
+
+        assert asked == [{"HVCU": "hvcu.org"}]
+        assert await institutions.websites(async_db_session, [bank.id]) == {
+            bank.id: "https://www.hvcu.org"
+        }
 
 
 class TestNothingIsLostOnTheWay:

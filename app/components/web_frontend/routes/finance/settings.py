@@ -611,7 +611,8 @@ async def institutions(
     from app.services.finance.domains.ledger.merchant_icon import institution_icons
 
     rows = await service.institution_usage(owner_user_id=owner_user_id)
-    icons = await institution_icons(service.db, rows)
+    # The directory already read each bank's website off its contact.
+    icons = await institution_icons(service.db, rows, {r.id: r.url for r in rows})
     return render(
         request,
         "pages/settings/institutions.html",

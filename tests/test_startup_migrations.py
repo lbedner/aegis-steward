@@ -137,6 +137,27 @@ class TestAdoptingAPersistedDatabase:
         )
         assert already_applied(FakeInspector(), ("column", "agent", "gone")) is False
 
+    def test_a_migration_that_removes_a_column_is_proven_by_its_absence(
+        self,
+    ) -> None:
+        """055 drops the bank row's url: the table is there and the
+        column is not. A missing TABLE proves nothing (#412)."""
+        from app.components.backend.startup.migrations import already_applied
+
+        class FakeInspector:
+            def get_table_names(self, schema: str | None = None) -> list[str]:
+                return ["finance_institution"]
+
+            def get_columns(self, table: str, schema: str | None = None):  # noqa: ANN202
+                return [{"name": "id"}, {"name": "name"}]
+
+        inspector = FakeInspector()
+        assert already_applied(inspector, ("no_column", "finance_institution", "url"))
+        assert not already_applied(
+            inspector, ("no_column", "finance_institution", "name")
+        )
+        assert not already_applied(inspector, ("no_column", "gone_table", "url"))
+
     def test_a_signature_shape_nobody_defined_is_not_adopted(self) -> None:
         """Unknown means "cannot prove it ran", which must read as NOT
         applied: replaying DDL is noisy, stamping a migration that never

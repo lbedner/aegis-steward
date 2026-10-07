@@ -13,6 +13,8 @@ Forms:
   be schema-qualified; matching tolerates the bare name on engines
   without schemas (SQLite).
 - ``("column", table, col)`` - column exists (ALTER TABLE migrations).
+- ``("no_column", table, col)`` - the table exists and the column does
+  not (a migration that REMOVES one: its absence is the only proof).
 - ``("foreign_key", table, col)`` - an FK constraint covers the column
   (FK-only migrations, e.g. payment_auth_link).
 - ``("check", table, name)`` - a named CHECK constraint exists with the

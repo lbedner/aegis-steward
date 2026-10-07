@@ -109,7 +109,9 @@ async def _bank_logos(
     accounts: the institution's own mark, the one the portfolio draws
     (#410). One not fetched yet shows next time; until then the step
     shows the bank's initial."""
-    from app.components.web_frontend.routes.finance.accounts import institution_logos
+    from app.components.web_frontend.routes.finance.bank_marks import (
+        institution_logos,
+    )
 
     return await institution_logos(
         service,

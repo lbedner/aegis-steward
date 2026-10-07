@@ -29,7 +29,7 @@ unmatched merchant degrades everywhere else in this app.
 
 import asyncio
 import base64
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -190,7 +190,9 @@ async def payee_icons_by_name(
 
 
 async def institution_icons(
-    db: AsyncSession, institutions: Iterable[Any]
+    db: AsyncSession,
+    institutions: Iterable[Any],
+    sites: Mapping[int, str | None] | None = None,
 ) -> dict[int, Icon]:
     """``{institution id: Icon}`` for the banks behind a page of
     accounts.
@@ -202,11 +204,18 @@ async def institution_icons(
     account borrows its mark from its institution rather than from
     itself.
     """
+    from app.services.finance.domains.ledger.institutions import websites
+
     rows = [i for i in institutions if getattr(i, "id", None) and i.name]
+    # The bank's homepage is on its contact (#412): a website set there,
+    # by a card or the Contacts page, is the logo with nothing else done.
+    # ``sites`` when the page already read them.
+    if sites is None:
+        sites = await websites(db, [i.id for i in rows])
     overrides = {
         i.name: key
         for i in rows
-        if (key := getattr(i, "logo_url", None) or getattr(i, "domain", None))
+        if (key := getattr(i, "logo_url", None) or domain_from_website(sites.get(i.id)))
     }
     keys = await resolve_icon_keys(db, [i.name for i in rows], overrides)
     return {i.id: Icon(keys[i.name]) for i in rows if i.name in keys}

@@ -1,9 +1,11 @@
 """Who an account is held with.
 
 Split from ``accounts`` at the budget, and the seam is a real one: an
-institution is a body the ledger points at - with a logo, a domain and
-the capability flags a connection gates on - and an account is a thing
-that holds money. They are read together and changed apart.
+institution is a body the ledger points at - with the provider ids and
+capability flags a connection gates on - and an account is a thing that
+holds money. How to REACH a bank (website, phone) is neither: it lives
+on the bank's contact, once (#412), and everything here reads and
+writes it there.
 
 ``institution_for_party`` lives in ``subjects``, with the other bridge
 into the address book.
@@ -27,35 +29,62 @@ from app.services.finance.utils import normalize_payee, utcnow
 # never made without one: the one already called that, else a new one.
 
 
-async def _contacts(db: AsyncSession, owner_user_id: int | None) -> dict[str, Any]:
-    """This owner's organizations, by normalized name: one read."""
+class _Book:
+    """This owner's organizations, read once: by normalized name to find
+    a bank's contact, by id to fill one in."""
+
+    def __init__(self, parties: list[Any]) -> None:
+        self.by_name = {normalize_payee(p.name): p for p in parties}
+        self.by_id = {p.id: p for p in parties}
+
+
+async def _book(db: AsyncSession, owner_user_id: int | None) -> _Book:
     from app.services.matters.service import PartyService
 
-    found = await PartyService(db).find(
-        owner_user_id=owner_user_id, kind="organization"
+    return _Book(
+        await PartyService(db).find(owner_user_id=owner_user_id, kind="organization")
     )
-    return {normalize_payee(party.name): party for party in found}
 
 
-async def _contact_for(
-    db: AsyncSession, inst: FinanceInstitution, contacts: dict[str, Any]
-) -> None:
-    """Point ``inst`` at its contact, made if the address book lacks it."""
+async def _contact_for(db: AsyncSession, inst: FinanceInstitution, book: _Book) -> Any:
+    """``inst``'s contact, pointed at and made if the address book lacks
+    it: the one already called that, else a new one."""
     from app.services.matters.service import PartyService
 
-    if inst.party_id is not None:
-        return
-    party = contacts.get(inst.normalized_name)
+    if (party := book.by_id.get(inst.party_id)) is not None:
+        return party
+    party = book.by_name.get(inst.normalized_name)
     if party is None:
         party = await PartyService(db).create(
-            name=inst.name,
-            kind="organization",
-            owner_user_id=inst.owner_user_id,
-            contact={"website": inst.url} if inst.url else None,
+            name=inst.name, kind="organization", owner_user_id=inst.owner_user_id
         )
-        contacts[inst.normalized_name] = party
+        book.by_name[inst.normalized_name] = book.by_id[party.id] = party
     inst.party_id = party.id
     db.add(inst)
+    return party
+
+
+def _reach(party: Any, *, website: str | None = None, phone: str | None = None) -> None:
+    """Fill a contact's blank website or phone; never replace one
+    somebody set."""
+    contact = dict(party.contact or {})
+    for key, value in (("website", website), ("phone", phone)):
+        if value and not contact.get(key):
+            contact[key] = value
+    if contact != (party.contact or {}):
+        party.contact = contact
+
+
+async def websites(
+    db: AsyncSession, institution_ids: Iterable[int | None]
+) -> dict[int, str | None]:
+    """``{institution id: homepage}`` from each bank's contact, one read:
+    what its logo and its link are drawn from. Every id asked about is
+    answered - ``None`` where there is no website - so a page that read
+    them once can tell "none" from "not read" and never reads twice."""
+    wanted = [i for i in institution_ids if i is not None]
+    contacts = await queries.institution_contacts(db, wanted)
+    return {i: contacts.get(i, {}).get("website") or None for i in wanted}
 
 
 def _new(
@@ -70,17 +99,6 @@ def _new(
     )
     db.add(inst)
     return inst
-
-
-def _homepage(inst: FinanceInstitution, url: str | None) -> None:
-    """A homepage fills a blank, never replaces one somebody set; the
-    domain is derived from it, the key the icon resolver wants."""
-    from app.services.finance.domains.ledger.merchant_icon import domain_from_website
-
-    if url and not inst.url:
-        inst.url = url
-    if inst.url and not inst.domain:
-        inst.domain = domain_from_website(inst.url)
 
 
 async def get_or_create_institution(
@@ -134,9 +152,11 @@ async def get_or_create_institution(
             provider_institution_id=provider_institution_id,
             **fields,
         )
-    _homepage(inst, url)
-    if inst.party_id is None:
-        await _contact_for(db, inst, await _contacts(db, owner_user_id))
+    await db.flush()  # an id for the contact to be pointed from
+    if inst.party_id is None or url:
+        _reach(
+            await _contact_for(db, inst, await _book(db, owner_user_id)), website=url
+        )
     await db.flush()
     return inst
 
@@ -155,8 +175,8 @@ async def institutions_for_banks(
     accounts already sit under, else the one with its website, else the
     one called that - only then a new row and contact. Live, SimpleFIN's
     "Chase Bank", "Citizens Bank" and "M1" each made a second row beside
-    "JPMorgan Chase Bank, N.A.", "Citizens" and "M1 Finance" (#410). What
-    it says of itself fills your row's blanks and its contact's. Two
+    "JPMorgan Chase Bank, N.A.", "Citizens" and "M1 Finance" (#410). The
+    homepage it gives fills your bank's contact where it has none. Three
     reads for the batch, however many banks."""
     from app.services.finance.domains.ledger.merchant_icon import domain_from_website
 
@@ -170,12 +190,12 @@ async def institutions_for_banks(
     rows = await queries.institutions_for_owner(db, owner_user_id=owner_user_id)
     by_id = {inst.id: inst for inst in rows}
     by_domain = {
-        domain: inst
-        for inst in rows
-        if (domain := inst.domain or domain_from_website(inst.url))
+        domain: by_id[inst_id]
+        for inst_id, site in (await websites(db, [r.id for r in rows])).items()
+        if (domain := domain_from_website(site))
     }
     by_name = {inst.normalized_name: inst for inst in rows}
-    contacts = await _contacts(db, owner_user_id)
+    book = await _book(db, owner_user_id)
     found: dict[str, FinanceInstitution] = {}
     for name, url, under in banks:
         inst = (
@@ -187,21 +207,11 @@ async def institutions_for_banks(
         if inst is None:
             inst = _new(db, name, owner_user_id, provider="manual")
             by_name[inst.normalized_name] = inst
-        _homepage(inst, url)
-        await _contact_for(db, inst, contacts)
-        _website_on_contact(inst, contacts)
+            await db.flush()
+        _reach(await _contact_for(db, inst, book), website=url)
         found[name] = inst
     await db.flush()
     return found
-
-
-def _website_on_contact(inst: FinanceInstitution, contacts: dict[str, Any]) -> None:
-    """The bank's homepage on its contact, where the contact has none:
-    the contact is what the reader files a bank's paper by."""
-    party = next((p for p in contacts.values() if p.id == inst.party_id), None)
-    if party is None or not inst.url or (party.contact or {}).get("website"):
-        return
-    party.contact = {**(party.contact or {}), "website": inst.url}
 
 
 async def ensure_contacts(db: AsyncSession, *, owner_user_id: int | None = None) -> int:
@@ -217,9 +227,9 @@ async def ensure_contacts(db: AsyncSession, *, owner_user_id: int | None = None)
     ]
     if not rows:
         return 0
-    contacts = await _contacts(db, owner_user_id)
+    book = await _book(db, owner_user_id)
     for inst in rows:
-        await _contact_for(db, inst, contacts)
+        await _contact_for(db, inst, book)
     await db.flush()
     return len(rows)
 
@@ -251,17 +261,20 @@ async def institution_usage(
     here rather than discovered when half the accounts show the wrong
     logo.
     """
+    from app.services.finance.domains.ledger.merchant_icon import domain_from_website
+
     rows = await queries.institutions_for_owner(db, owner_user_id=owner_user_id)
     counts = await queries.account_counts_by_institution(
         db, owner_user_id=owner_user_id
     )
+    reach = await queries.institution_contacts(db, [inst.id for inst in rows])
     return [
         InstitutionUsage(
             id=inst.id,
             name=inst.name,
-            url=inst.url,
-            domain=inst.domain,
-            phone=str(inst.metadata_.get("phone") or "") or None,
+            url=(site := reach.get(inst.id, {}).get("website")),
+            domain=domain_from_website(site),
+            phone=reach.get(inst.id, {}).get("phone"),
             account_count=counts.get(inst.id, 0),
         )
         for inst in rows
@@ -277,14 +290,10 @@ async def update_institution(
     url: str | None = None,
     phone: str | None = None,
 ) -> FinanceInstitution | None:
-    """Edit how to reach a bank.
-
-    ``domain`` is DERIVED from the homepage rather than asked for twice:
-    it is only ever the key the icon resolver wants, and a person typing
-    their bank's website should not also have to know that.
-    """
-    from app.services.finance.domains.ledger.merchant_icon import domain_from_website
-    from app.services.finance.utils import normalize_payee
+    """Edit a bank's name, and how to reach it - written on its contact,
+    the one home for a website and a phone (#412). A blank clears it: a
+    record you can fill and cannot empty keeps every mistake."""
+    from app.services.matters.service import PartyService
 
     inst = await queries.institution_by_id(db, institution_id)
     if inst is None or inst.owner_user_id != owner_user_id:
@@ -292,11 +301,15 @@ async def update_institution(
     if name is not None and name.strip():
         inst.name = name.strip()
         inst.normalized_name = normalize_payee(inst.name)
-    if url is not None:
-        inst.url = url.strip() or None
-        inst.domain = domain_from_website(inst.url)
-    if phone is not None:
-        inst.metadata_ = {**inst.metadata_, "phone": phone.strip()}
+    if url is not None or phone is not None:
+        party = await _contact_for(db, inst, await _book(db, owner_user_id))
+        contact = dict(party.contact or {})
+        for key, value in (("website", url), ("phone", phone)):
+            if value is not None:
+                contact[key] = value.strip()
+        await PartyService(db).update(
+            party.id, {"contact": {k: v for k, v in contact.items() if v}}
+        )
     inst.updated_at = utcnow()
     db.add(inst)
     await db.flush()

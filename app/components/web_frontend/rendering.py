@@ -38,6 +38,8 @@ def voice() -> dict[str, object]:
         "reply": settings.VOICE_REPLY,
         "sound": settings.VOICE_WORKING_SOUND,
         "idle": settings.VOICE_LIVE_IDLE_SECONDS,
+        # A live engine is set: talking is the phone, not push-to-talk (#414).
+        "live": bool(settings.VOICE_LIVE_ENGINE),
     }
 
 

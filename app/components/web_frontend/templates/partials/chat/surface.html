@@ -81,13 +81,18 @@
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
     </label>
     {# The microphone: records while pressed on, then sends what it heard
-       as the message (static/js/voice.js). #}
+       as the message (static/js/voice.js). Disabled while a live engine
+       is set (issue 414): click-to-speak beside a realtime call is wrong,
+       the call is the phone, and a call's Mute is on its call bar. It
+       stays on the page because Listen reads her voice off it. #}
     {# data-state (voice.js) is what she is doing; voice_states draws it. #}
+    {% set heard = voice() %}
     <button type="button" id="chat-mic" data-state="idle"
-            class="group relative {{ button_classes('default') }} data-[state=recording]:text-error data-[state=recording]:border-error data-[state=speaking]:text-aegis-teal data-[state=speaking]:border-aegis-teal"
-            aria-pressed="false" aria-label="Speak a question" title="Speak a question"
+            class="group relative {{ button_classes('default') }} disabled:opacity-40 disabled:cursor-not-allowed data-[state=recording]:text-error data-[state=recording]:border-error data-[state=speaking]:text-aegis-teal data-[state=speaking]:border-aegis-teal"
+            aria-pressed="false" aria-label="Speak a question"
+            {% if heard.live %}disabled title="Talk with the phone: she hears you live"{% else %}title="Speak a question"{% endif %}
             data-transcripts="{{ chat_urls.transcripts }}" data-say="{{ chat_urls.say }}"
-            data-voice='{{ voice()|tojson }}'>
+            data-voice='{{ heard|tojson }}'>
       {% call voice_states(record=True) %}{{ icon("mic", "w-4 h-4") }}{% endcall %}
     </button>
     {# Talking live (issue 252): GPT-Live hears and speaks, her agent answers
