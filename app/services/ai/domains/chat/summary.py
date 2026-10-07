@@ -113,14 +113,24 @@ async def get_queue_pool(queue: str) -> tuple[Any, str]:
 
 async def enqueue_if_due(conversation: Conversation, first_kept: int) -> None:
     """After a turn: hand a due fold to the worker. Never fails the turn -
-    a fold missed now is due again on the next."""
+    a fold missed now is due again on the next.
+
+    One per conversation at a time: the summary does not move until a
+    fold finishes, so without a fixed job id every turn while one ran
+    queued another (#437). arq refuses the id while the job is queued or
+    running, and while its result is kept; the next fold due then takes
+    in everything that fell out meanwhile."""
     upto = due(conversation, first_kept)
     if upto is None:
         return
     try:
         pool, queue_name = await get_queue_pool("system")
         await pool.enqueue_job(
-            "fold_conversation_task", conversation.id, upto, _queue_name=queue_name
+            "fold_conversation_task",
+            conversation.id,
+            upto,
+            _job_id=f"fold:{conversation.id}",
+            _queue_name=queue_name,
         )
     except Exception:
         logger.exception("Enqueueing a conversation fold failed")
