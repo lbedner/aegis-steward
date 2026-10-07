@@ -25,8 +25,31 @@ from app.services.documents.models import (
     utcnow,
 )
 
+
 # The columns a client may change after the fact. Storage, hash, size and
 # provenance describe the bytes and are fixed by them.
+def check_fields(fields: dict[str, Any]) -> None:
+    """What a document may be called and be, refused by name: the edit
+    form, and a card that names a document it files (#430), at the door."""
+    unknown = set(fields) - _EDITABLE
+    if unknown:
+        raise ValueError(f"Cannot change {', '.join(sorted(unknown))}.")
+    if "kind" in fields and fields["kind"] not in DOCUMENT_KINDS:
+        raise ValueError(
+            f"Unknown document kind {fields['kind']!r}; expected one of "
+            f"{', '.join(DOCUMENT_KINDS)}."
+        )
+    if "title" in fields and not (fields["title"] or "").strip():
+        raise ValueError("A document needs a title.")
+    if "protected" in fields and not isinstance(fields["protected"], bool):
+        raise ValueError("protected must be true or false.")
+    if fields.get("form_type") not in (None, *TAX_FORMS):
+        raise ValueError(
+            f"Unknown tax form {fields['form_type']!r}; expected one of "
+            f"{', '.join(TAX_FORMS)}."
+        )
+
+
 _EDITABLE = frozenset(
     {
         "title",
@@ -213,23 +236,7 @@ class DocumentService:
         or the note on it. Only the keys present change. ``document_date``
         and ``note`` clear when set to None; ``title`` and ``kind`` must
         always hold a value, so None there is refused."""
-        unknown = set(fields) - _EDITABLE
-        if unknown:
-            raise ValueError(f"Cannot change {', '.join(sorted(unknown))}.")
-        if "kind" in fields and fields["kind"] not in DOCUMENT_KINDS:
-            raise ValueError(
-                f"Unknown document kind {fields['kind']!r}; expected one of "
-                f"{', '.join(DOCUMENT_KINDS)}."
-            )
-        if "title" in fields and not (fields["title"] or "").strip():
-            raise ValueError("A document needs a title.")
-        if "protected" in fields and not isinstance(fields["protected"], bool):
-            raise ValueError("protected must be true or false.")
-        if fields.get("form_type") not in (None, *TAX_FORMS):
-            raise ValueError(
-                f"Unknown tax form {fields['form_type']!r}; expected one of "
-                f"{', '.join(TAX_FORMS)}."
-            )
+        check_fields(fields)
         document = await self.get(document_id, owner_user_id=owner_user_id)
         if document is None:
             return None

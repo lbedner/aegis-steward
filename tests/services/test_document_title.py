@@ -131,6 +131,15 @@ class TestTheNameItself:
         found = compose(whose_letterhead(PAGES, ON_FILE), "statement", "2026-08-26")
         assert found.value == "Hudson Valley Credit Union statement, August 2026"
 
+    def test_a_tax_form_is_named_for_its_tax_year(self) -> None:
+        """A 1099-INT printed January 5, 2026 is the 2025 form; "January
+        2026" named it for the day it was printed (#431)."""
+        head = whose_letterhead(PAGES, ON_FILE)
+        for year in (2025, "2025"):  # read off the page, or off the card
+            assert compose(head, "1099-INT", year).value == (
+                "Hudson Valley Credit Union 1099-INT, 2025"
+            )
+
     def test_what_is_not_known_is_left_out(self) -> None:
         head = whose_letterhead(PAGES, ON_FILE)
         assert (

@@ -1,6 +1,7 @@
 from app.services.finance.domains.detection.analyst.prompt_changes import (
     PROPOSING_CHANGES,
 )
+from app.services.finance.domains.detection.analyst.prompt_taxes import TAXES
 
 """The seed prompts and their sampling budgets.
 
@@ -225,6 +226,7 @@ ONE script, compute, and print only the final figures - state persists, \
 so never re-fetch data you already hold. Aim for one script per answer, \
 two when the first run genuinely surprises you.
 """
+    + TAXES
     + PROPOSING_CHANGES
     + """\
 ## MEMORY

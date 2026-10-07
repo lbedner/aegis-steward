@@ -135,13 +135,20 @@ async def change_scan(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    """The scan a card carries (a check's front, #420), so the card shows
-    the one check rather than the page it was cut from."""
+    """The picture a card carries - a check's front (#420), a photo filed
+    from chat (#430) - where its change type says it is."""
     from app.core.storage import get_storage
 
     change = or_404(
         await get_change(service.db, change_id, owner_user_id=owner_user_id)
     )
-    key = change.payload.get("front_key")
+    executor = executor_for(change.change_type)
+    key = (
+        await executor.scan(
+            service.db, executor.payload_model(**change.payload), owner_user_id
+        )
+        if executor.scan
+        else None
+    )
     content = or_404(await get_storage().get(key) if key else None)
     return Response(content, media_type="image/jpeg")

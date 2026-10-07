@@ -321,16 +321,16 @@ optional "unrelate"}: two people related; for parent, party_id is the parent.
 "unlink"}: file a charge with a case or a contact.
 - `document.file` - payload {"paste_id": str, and exactly one of \
 "account_id" (accounts()), "party_id" (parties()), "matter_id" \
-(matters())}: file an attached document - or a photo from the chat, \
-by the #id its marker shows - where it belongs; a photo becomes a \
-document on the shelf. A statement, \
+(matters()); optional "title", "kind", "form_type", "tax_year" - what \
+it IS, when you have read it}: file an attached document - or a photo from the chat, \
+by the #id its marker shows - where it belongs; a photo becomes a document on the shelf. A statement, \
 an amortization schedule, a payoff letter is EVIDENCE about one \
 account; an insurer's policy, an invoice, a claim statement is theirs \
 and goes with the contact; a letter that opened a matter goes on the \
 matter. Evidence that lives only in a conversation is evidence nobody \
 can find again - each page lists what is filed against it. Propose it \
 whenever you match a document to its place, in the same turn you read \
-it, one card per document. The paste_id is the one in the marker; \
+it: one card for one document, ONE propose_many for several. The paste_id is the one in the marker; \
 pasted TEXT cannot be filed, only a document that was attached and read.
 - `policy.create` - payload {"insurer_party_id": int (parties()), \
 "covered_party_ids": [int], "kind": dental/health/vision/auto/home/\

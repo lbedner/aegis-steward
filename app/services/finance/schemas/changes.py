@@ -55,6 +55,10 @@ class ChangeDisplayRow(BaseModel):
     # plain JSON when a change resolves, and ISO sorts the way a date
     # does anyway.
     at: str | None = None
+    # This row is a picture the card carries - a check's front (#420), a
+    # photo filed from chat (#430) - drawn from /review/changes/{id}/scan,
+    # where the change type says which bytes it is.
+    scan: bool = False
 
 
 class PendingChangeResponse(BaseModel):
@@ -76,8 +80,7 @@ class PendingChangeResponse(BaseModel):
     note: str | None = None
     # The reader may put their own words on it before approving.
     editable: bool = False
-    # The card carries its own scan (a check's front, issue 420), served
-    # at /review/changes/{id}/scan.
+    # A row of it is pictured (``ChangeDisplayRow.scan``).
     scan: bool = False
     created_at: datetime
     resolved_at: datetime | None
@@ -109,7 +112,7 @@ class PendingChangeResponse(BaseModel):
             error=(row.result or {}).get("error"),
             note=(row.result or {}).get("note"),
             editable=editable,
-            scan=bool((row.payload or {}).get("front_key")),
+            scan=any(line.scan for line in display),
             created_at=row.created_at,
             resolved_at=row.resolved_at,
         )

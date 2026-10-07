@@ -92,6 +92,7 @@ register(
         execute=filing.file_document_execute,
         describe=filing.file_document_describe,
         after_commit=filing.file_document_read,
+        scan=filing.file_document_scan,
     )
 )
 register(
@@ -332,6 +333,7 @@ register(
         payload_model=check_card.CheckPayload,
         execute=check_card.check_execute,
         describe=check_card.check_describe,
+        scan=check_card.check_scan,
         # A misread payee is put right before approving (issue 420); the
         # scans and the row are the card's own.
         editable=True,

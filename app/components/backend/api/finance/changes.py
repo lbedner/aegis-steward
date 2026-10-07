@@ -100,9 +100,6 @@ async def _marks(
             marks[row.id] = paper
             continue
         txn_id, stream_id = _key(row, "transaction_id"), _key(row, "stream_id")
-        if paper := by_document.get(_key(row, "document_id") or -1):
-            marks[row.id] = paper
-            continue
         own = by_txn.get(txn_id) if txn_id else None
         borrowed = by_stream.get(stream_id) if stream_id else None
         # The payment's own payee wins when it has one; otherwise the bill's.

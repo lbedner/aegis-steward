@@ -63,6 +63,9 @@ KIND_MARKERS: tuple[tuple[str, str], ...] = (
     # "Payment Receipt", Amazon's "Order Confirmation".
     ("receipt", "receipt"),
     ("order confirmation", "receipt"),
+    # The back of a tax form prints its instructions and no form number:
+    # the Citizens 1099-INT's says only this (#431).
+    ("instructions for recipient", "tax"),
 )
 
 # How much a heading may say BESIDES the kind. "Combined Contract and
@@ -137,14 +140,22 @@ def _kind(lines: list[tuple[int, str]]) -> Finding | None:
     return None
 
 
+# A photographed form's text reads its letters as what they look like:
+# "Form 1095-¢ (2025)" (#431).
+_OCR = str.maketrans({"¢": "C"})
+# The year a form is for, bracketed beside its name: "Form 1095-C (2025)".
+_FORM_YEAR = re.compile(r"\(((?:19|20)\d{2})\)")
+
+
 def _form(lines: list[tuple[int, str]]) -> Finding | None:
     for page, line in lines:
         said = line.casefold()
         for caption, form in FORM_CAPTIONS:
             if caption in said:
                 return Finding("form_type", form, page, line)
-        if len(line) <= HEADING_CHARS and (named := _FORM.search(line)):
-            if mostly(line, named.group(0)):
+        read = line.translate(_OCR)
+        if len(line) <= HEADING_CHARS and (named := _FORM.search(read)):
+            if mostly(read, named.group(0)):
                 form = next(
                     f for f in TAX_FORMS if f.casefold() == named.group(1).casefold()
                 )
@@ -152,12 +163,14 @@ def _form(lines: list[tuple[int, str]]) -> Finding | None:
     return None
 
 
-def _tax_year(pages: Iterable[Page]) -> Finding | None:
+def _tax_year(pages: Iterable[Page], form: Finding) -> Finding | None:
     for page in list(pages)[:OPENING_PAGES]:
         if found := _TAX_YEAR.search(page["text"] or ""):
             # The label and the year quoted as one line, however it wrapped.
             said = " ".join(found.group(0).split())
             return Finding("tax_year", int(found.group(1)), page["page"], said)
+    if bracketed := _FORM_YEAR.search(form.because):
+        return Finding("tax_year", int(bracketed.group(1)), form.page, form.because)
     return None
 
 
@@ -173,7 +186,7 @@ def read_document(pages: Iterable[Page]) -> list[Finding]:
         kind = Finding("kind", "tax", form.page, form.because)
         return [
             found
-            for found in (_dated(lines), kind, form, _tax_year(pages))
+            for found in (_dated(lines), kind, form, _tax_year(pages, form))
             if found is not None
         ]
     return [found for found in (_dated(lines), _kind(lines)) if found is not None]
