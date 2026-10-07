@@ -183,25 +183,26 @@ class TestTheCondenseCall:
     async def test_it_bills_the_conversations_user(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The real call, with the model faked: a conversation keeps its
-        user in its metadata, and every fold failed reading a ``user_id``
-        it did not have before ``Conversation.user_id`` read it there."""
-        from types import SimpleNamespace
+        """The real call, with only the model faked: a conversation keeps
+        its user in its metadata, and every fold failed reading a
+        ``user_id`` it did not have before ``Conversation.user_id`` read it
+        there. A real pydantic-ai agent and result, because a hand-made
+        result kept ``usage()`` callable after 2.51 made it a property, and
+        every fold failed in the worker for ten days while this passed
+        (#429)."""
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
 
         from app.services.ai import usage_recording
         from app.services.ai.domains.llm import providers
 
-        class Agent:
-            async def run(self, prompt: str, **_: Any) -> Any:
-                usage = SimpleNamespace(input_tokens=10, output_tokens=5)
-                return SimpleNamespace(output=" Biscuit. ", usage=lambda: usage)
-
+        agent = Agent(TestModel(custom_output_text=" Biscuit. "))
         billed: list[Any] = []
 
         async def record(*args: Any, **kwargs: Any) -> None:
             billed.append((args, kwargs))
 
-        monkeypatch.setattr(providers, "get_agent", lambda *_a, **_k: Agent())
+        monkeypatch.setattr(providers, "get_agent", lambda *_a, **_k: agent)
         monkeypatch.setattr(usage_recording, "record_usage", record)
         conversation = _conversation(4)
         conversation.metadata["user_id"] = "u7"
@@ -209,6 +210,7 @@ class TestTheCondenseCall:
         assert await summary._condense("p", conversation=conversation) == "Biscuit."
         ((args, kwargs),) = billed
         assert args[0] == "chat:summary" and args[3] == "u7"
+        assert args[2]["input_tokens"] > 0  # what the run reported
         assert kwargs["conversation_id"] == "c1"
 
 
