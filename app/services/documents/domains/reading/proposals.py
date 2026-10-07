@@ -118,6 +118,7 @@ async def propose_reading(
     while it does - see ``OpenSession``.
     """
     # Its own module, imported here: it reads with this module's helpers.
+    from app.services.documents.domains.reading import receipts
     from app.services.documents.domains.reading.banks import propose_bank
 
     async with open_session() as db:
@@ -127,6 +128,9 @@ async def propose_reading(
         )
         metadata = await _propose_metadata(db, document_id, owner_user_id)
         bank = await propose_bank(db, document_id, owner_user_id)
+        # Filed as a receipt already (the paperclip, mail): its charge
+        # may be on file, or it starts waiting for it (#330).
+        await receipts.match_waiting(db, owner_user_id=owner_user_id)
     request = await _propose_demands(
         open_session, document_id, owner_user_id=owner_user_id, read_letter=read_letter
     )

@@ -40,6 +40,7 @@ def _extract_in_background(client: TestClient, title: str) -> str:
     return str(started.json()["job_id"])
 
 
+@pytest.mark.queryspy(threshold=3)  # two readings, each looks for waiting receipts
 def test_every_job_is_listed_with_when_it_started(
     authenticated_app_client: TestClient,
 ) -> None:

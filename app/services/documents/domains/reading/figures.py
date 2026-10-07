@@ -56,7 +56,7 @@ _LABEL = re.compile(r"\b(" + "|".join(BALANCE_LABELS) + r")\b", re.I)
 # one. It must carry a currency sign or cents: "New balance as of
 # 09/07/26" has a date in it, and a bare "09" read as money makes the
 # balance nine dollars.
-_MONEY = re.compile(r"-?\$\s?\d[\d,]*(?:\.\d{2})?|-?\d[\d,]*\.\d{2}")
+MONEY = re.compile(r"-?\$\s?\d[\d,]*(?:\.\d{2})?|-?\d[\d,]*\.\d{2}")
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,7 @@ def balances(pages: Iterable[Page]) -> list[Balance]:
             # $7,857.27" has a date in it that is not money, and the
             # label itself may carry digits.
             tail = said[_LABEL.search(said).end() :]
-            money = _MONEY.search(tail)
+            money = MONEY.search(tail)
             if money is None:
                 continue
             cents = money_to_cents(money.group().replace(" ", ""))

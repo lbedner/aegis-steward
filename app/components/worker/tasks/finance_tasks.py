@@ -30,7 +30,7 @@ async def finance_sync_connection_task(
     """One connection, synced from where it stands: after accounts are
     placed (``connections.placing``), the whole history they held."""
     from app.core.db import get_async_session
-    from app.services.documents.domains.reading import filing
+    from app.services.documents.domains.reading import filing, receipts
     from app.services.finance.adapters.providers import connections
 
     async with get_async_session() as db:
@@ -40,5 +40,7 @@ async def finance_sync_connection_task(
         # A bank just said what its accounts are called and numbered,
         # and who it is: what an unfiled statement may print (#409).
         await filing.reread_unfiled(db, owner_user_id=owner_user_id)
+        # A charge a waiting receipt is for may have just posted (#330).
+        await receipts.match_waiting(db, owner_user_id=owner_user_id)
         await db.commit()
     return {"added": result.added if result else 0}

@@ -46,8 +46,7 @@ class TestTheCardShowsItsWorking:
         )
 
         rows = {
-            r.label: r
-            for r in await metadata_describe(async_db_session, payload, None)
+            r.label: r for r in await metadata_describe(async_db_session, payload, None)
         }
         assert rows["Document"].value == "Mortgage Interest Statement.pdf"
         assert rows["Kind"].value == "other → statement"
@@ -239,6 +238,7 @@ class TestReadingADocumentProducesACard:
         assert filed.kind == "other" and filed.document_date is None
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two readings, each looks for waiting receipts
     async def test_reading_it_again_does_not_stack_up_cards(
         self, async_db_session: AsyncSession
     ) -> None:

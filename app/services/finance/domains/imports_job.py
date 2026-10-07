@@ -47,6 +47,7 @@ async def run_import(
     # ``finance.import.finished``, a run with only this one is a run whose
     # process died - which is how the 2026-09-19 OOM went unread.
     logger.info("finance.import.started", file_name=file_name, bytes=len(data))
+    from app.services.documents.domains.reading import receipts
     from app.services.finance.service import FinanceService
 
     async with get_async_session() as session:
@@ -57,6 +58,8 @@ async def run_import(
             account_id=account_id,
             on_label=on_label,
         )
+        # A charge a waiting receipt is for may be in the file (#330).
+        await receipts.match_waiting(session, owner_user_id=owner_user_id)
         await session.commit()
     return import_result_payload(result)
 
