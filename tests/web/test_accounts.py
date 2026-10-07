@@ -465,6 +465,7 @@ class TestTheInstitutionsSettingsTab:
         page = client.get("/settings/institutions").text
         assert "No institutions yet" in text(one(page, "#institutions"))
 
+    @pytest.mark.queryspy(threshold=4)  # the page, the dialog, the save, the page again
     def test_the_details_dialog_edits_how_to_reach_them(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:

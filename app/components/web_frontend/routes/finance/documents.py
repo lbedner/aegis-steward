@@ -84,7 +84,9 @@ async def documents_page(
         {
             **context,
             **account_tabs(account_id, "documents", len(filed)),
-            **await _header_context(service, selected, owner_user_id),
+            **await _header_context(
+                service, selected, owner_user_id, context["bank_sites"]
+            ),
             "documents": filed,
             "document_columns": list(DOCUMENT_COLUMNS),
         },

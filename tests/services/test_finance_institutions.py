@@ -17,6 +17,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.service import FinanceService
+from app.services.matters.service import PartyService
 from tests.services._finance_factories import seed_account as _account
 
 
@@ -30,7 +31,8 @@ class TestOwnedLikeTheRestOfTheCuration:
         )
         assert mine.owner_user_id == 1
         assert mine.provider == "manual"
-        assert mine.url == "https://fidelity.com"
+        (row,) = await svc.institution_usage(owner_user_id=1)
+        assert row.url == "https://fidelity.com"
 
     @pytest.mark.asyncio
     async def test_the_same_name_twice_is_one_row(self, svc: FinanceService) -> None:
@@ -146,6 +148,7 @@ class TestWhatTheDirectoryShows:
         assert {r.name: r.account_count for r in rows} == {"Chase": 0, "Fidelity": 2}
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # a bank named, then edited
     async def test_details_can_be_edited(self, svc: FinanceService) -> None:
         bank = await svc.get_or_create_institution(name="Fidelity", owner_user_id=1)
 
@@ -159,11 +162,19 @@ class TestWhatTheDirectoryShows:
 
         assert updated is not None
         assert updated.name == "Fidelity Investments"
-        assert updated.url == "https://fidelity.com"
-        assert updated.metadata_["phone"] == "800-343-3548"
-        # The homepage is where the logo comes from, so it is derived
-        # rather than asked for twice.
-        assert updated.domain == "fidelity.com"
+        # Kept on the bank's contact, the one home for how to reach it
+        # (#412); the domain the logo wants is derived from the homepage.
+        (row,) = await svc.institution_usage(owner_user_id=1)
+        assert (row.url, row.phone, row.domain) == (
+            "https://fidelity.com",
+            "800-343-3548",
+            "fidelity.com",
+        )
+        contact = await PartyService(svc.db).get(updated.party_id)
+        assert contact is not None and contact.contact == {
+            "website": "https://fidelity.com",
+            "phone": "800-343-3548",
+        }
 
     @pytest.mark.asyncio
     async def test_renaming_keeps_the_dedup_key_honest(

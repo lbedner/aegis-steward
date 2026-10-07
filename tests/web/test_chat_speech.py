@@ -270,6 +270,27 @@ class TestTheControls:
     already holds (the script only picks one)."""
 
     @pytest.mark.parametrize("path_client", ["client", "hx"])
+    def test_with_a_live_engine_the_mic_is_not_push_to_talk(
+        self,
+        request: pytest.FixtureRequest,
+        path_client: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Click-to-speak beside a realtime call read as "listening, then
+        it hangs" (#414): the call is the phone. The mic stays on the page,
+        disabled, so Listen still reads how she is heard off it."""
+        monkeypatch.setattr(settings, "VOICE_LIVE_ENGINE", "gpt-live")
+        page = request.getfixturevalue(path_client).get("/chat").text
+        mic = one(page, "#chat-composer button#chat-mic")
+        assert mic.get("disabled") is not None
+        assert "phone" in (mic.get("title") or "").lower()
+        assert mic.get("data-say") == SAY
+
+        monkeypatch.setattr(settings, "VOICE_LIVE_ENGINE", "")
+        page = request.getfixturevalue(path_client).get("/chat").text
+        assert one(page, "#chat-composer button#chat-mic").get("disabled") is None
+
+    @pytest.mark.parametrize("path_client", ["client", "hx"])
     def test_the_composer_has_a_microphone(
         self, request: pytest.FixtureRequest, path_client: str
     ) -> None:
@@ -284,6 +305,7 @@ class TestTheControls:
             "reply": settings.VOICE_REPLY,
             "sound": settings.VOICE_WORKING_SOUND,
             "idle": settings.VOICE_LIVE_IDLE_SECONDS,
+            "live": bool(settings.VOICE_LIVE_ENGINE),
         }
         # What the mic is doing shows on the mic itself: the page draws each
         # state, voice.js only sets data-state.

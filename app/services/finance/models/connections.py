@@ -41,9 +41,9 @@ class FinanceInstitution(SQLModel, table=True):
     back when they need to get in touch.
 
     One row serves every account with it, so a brokerage typed once
-    covers all three of its accounts - and ``domain`` is what the icon
-    resolver already turns into a logo, so naming it is also how the
-    account gets its brand mark.
+    covers all three of its accounts. How to reach it - website, phone -
+    is its contact's (``party_id``), and only there (#412): the logo is
+    drawn from the contact's website.
     """
 
     __tablename__ = "finance_institution"
@@ -94,10 +94,8 @@ class FinanceInstitution(SQLModel, table=True):
     party_id: int | None = Field(default=None, index=True)
     # The dedup key, as for a payee: typed names forgive case and spacing.
     normalized_name: str = Field(default="", max_length=128)
-    domain: str | None = Field(default=None, max_length=255)
     logo_url: str | None = Field(default=None)
     primary_color: str | None = Field(default=None, max_length=16)
-    url: str | None = Field(default=None)
     country: str | None = Field(default=None, max_length=2)
     oauth_required: bool = Field(default=False)
     uses_tokenized_account_numbers: bool = Field(default=False)

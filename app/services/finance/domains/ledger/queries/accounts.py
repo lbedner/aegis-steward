@@ -7,7 +7,9 @@ a manual correction.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
+from typing import Any
 
 from sqlalchemy import func
 from sqlmodel import col, select
@@ -349,6 +351,25 @@ async def institutions_for_owner(
         else query.where(FinanceInstitution.owner_user_id.is_(None))
     )
     return list((await db.exec(query)).all())
+
+
+async def institution_contacts(
+    db: AsyncSession, institution_ids: Iterable[int]
+) -> dict[int, dict[str, Any]]:
+    """``{institution id: its contact's details}`` in one read: website,
+    phone, address - how to reach a bank lives on its contact and only
+    there (#412)."""
+    from app.services.matters.models import Party
+
+    wanted = {i for i in institution_ids if i is not None}
+    if not wanted:
+        return {}
+    rows = await db.exec(
+        select(FinanceInstitution.id, Party.contact)
+        .join(Party, col(Party.id) == FinanceInstitution.party_id)
+        .where(col(FinanceInstitution.id).in_(wanted))
+    )
+    return {int(inst_id): dict(contact or {}) for inst_id, contact in rows.all()}
 
 
 async def latest_account_institution(

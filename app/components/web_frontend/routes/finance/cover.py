@@ -209,7 +209,9 @@ async def cover(
         {
             **context,
             **account_tabs(account_id, "cover", len(filed)),
-            **await _header_context(service, selected, owner_user_id),
+            **await _header_context(
+                service, selected, owner_user_id, context["bank_sites"]
+            ),
             "loan_terms": loan_terms(selected),
             "reveal_number": f"{SECTION.path}/{account_id}/number/reveal",
             "cash_terms": cash_terms(

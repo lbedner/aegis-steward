@@ -30,6 +30,10 @@ from app.components.web_frontend.rendering import (
     with_toast,
 )
 from app.components.web_frontend.routes.finance import subjects
+from app.components.web_frontend.routes.finance.bank_marks import (
+    account_icons,
+    held_with,
+)
 from app.components.web_frontend.routes.finance.portfolio import (
     balance,
     grouped,
@@ -53,6 +57,7 @@ from app.services.finance.constants import (
     account_classification,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.ledger.institutions import websites
 from app.services.finance.schemas import AccountResponse
 from app.services.finance.service import FinanceService
 
@@ -120,6 +125,7 @@ async def _accounts(
         service=service,
         owner_user_id=owner_user_id,
     )
+    sites = await websites(service.db, {a.institution_id for a in listing.items})
     return listing.items, {
         "section": SECTION,
         **await subjects.chips(service, seeing),
@@ -132,8 +138,12 @@ async def _accounts(
         "total": sum(balance(a) for a in listing.items),
         "statement_lines": {a.id: statement_line(a) for a in listing.items},
         # A brand mark per account, borrowed from the bank it is held at.
-        # One resolution for the page, never one per row.
-        "account_icons": await _account_icons(service, listing.items, owner_user_id),
+        # One resolution for the page, never one per row - and the banks'
+        # websites read once, for the marks and the header's link (#412).
+        "account_icons": await account_icons(
+            service, listing.items, owner_user_id, sites
+        ),
+        "bank_sites": sites,
     }
 
 
@@ -209,6 +219,7 @@ async def _header_context(
     service: FinanceService,
     selected: AccountResponse | None,
     owner_user_id: int | None,
+    sites: dict[int, str | None],
 ) -> dict[str, Any]:
     """What ``account_header`` renders: which account, what it is worth,
     the facts that identify it, and what can be done to it.
@@ -225,73 +236,13 @@ async def _header_context(
         "selected": selected,
         "selected_balance": balance(selected) if selected else None,
         "statement_line": statement_line(selected) if selected else None,
-        "held_with": await held_with(service, selected, owner_user_id),
+        "held_with": await held_with(service, selected, owner_user_id, sites),
         "whose_name": await subjects.whose_name(
             service, selected.subject_id if selected else None
         ),
         "actions": actions(selected) if selected else [],
         "updated": await _last_updated(service, selected),
     }
-
-
-async def institution_logos(
-    service: FinanceService, wanted: set[int], owner_user_id: int | None
-) -> dict[int, str]:
-    """``{institution id: icon url}`` for these banks, where one resolves:
-    a stored logo or domain, else a guess from the bank's name. The one
-    path every bank's mark comes through - the portfolio's and the
-    Place dialog's alike."""
-    from app.services.finance.domains.ledger.merchant_icon import institution_icons
-
-    if not wanted:
-        return {}
-    banks = [
-        i
-        for i in await service.list_institutions(owner_user_id=owner_user_id)
-        if i.id in wanted
-    ]
-    return {
-        i: icon.url for i, icon in (await institution_icons(service.db, banks)).items()
-    }
-
-
-async def _account_icons(
-    service: FinanceService,
-    accounts: list[AccountResponse],
-    owner_user_id: int | None,
-) -> dict[int, str]:
-    """``{account id: icon url}`` for the accounts whose institution
-    resolves to one. An account without a bank has no brand to show and
-    falls back to its type's glyph (see ``account_glyph``)."""
-    logos = await institution_logos(
-        service, {a.institution_id for a in accounts if a.institution_id}, owner_user_id
-    )
-    return {
-        a.id: logos[a.institution_id] for a in accounts if a.institution_id in logos
-    }
-
-
-async def held_with(
-    service: FinanceService,
-    account: AccountResponse | None,
-    owner_user_id: int | None,
-) -> dict[str, str] | None:
-    """Who this account is WITH, and how to get to them.
-
-    The institution has been a link on the account all along - the
-    Manage menu sets it, the portfolio draws its logo - but the account
-    itself never SAID whose it was, so the one place you go to ask "what
-    is this costing me" could not tell you who to ask. The homepage is
-    the point: a debt you cannot reach is one you cannot pay off early.
-    """
-    if account is None or not account.institution_id:
-        return None
-    banks = await service.list_institutions(owner_user_id=owner_user_id)
-    bank = next((i for i in banks if i.id == account.institution_id), None)
-    if bank is None:
-        return None
-    url = bank.url or (f"https://{bank.domain}" if bank.domain else None)
-    return {"name": bank.name, "url": url or ""}
 
 
 async def _register_page(
@@ -329,7 +280,9 @@ async def _register_page(
         "pages/account_register.html",
         {
             **context,
-            **await _header_context(service, selected, owner_user_id),
+            **await _header_context(
+                service, selected, owner_user_id, context["bank_sites"]
+            ),
             # A debt's terms above its rows: the cover sheet owns the
             # shaping, and the register borrows it rather than keeping a
             # second copy of what a loan is called.
