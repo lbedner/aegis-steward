@@ -67,7 +67,9 @@ async def place_dialog(
     if offered is None:
         offered = await placing.choices(service.db, connection)
     picks = await placing.suggestions(service.db, offered)
-    logos = await _bank_logos(service, [held for held, _yours in offered])
+    logos = await _bank_logos(
+        service, [held for held, _yours in offered], connection.owner_user_id
+    )
     rows: list[dict[str, Any]] = []
     for held, yours in offered:
         pick = picks.get(held["id"])
@@ -85,7 +87,7 @@ async def place_dialog(
                 "chosen": (answers or {}).get(held["id"])
                 or (str(pick.account_id) if pick else None),
                 "reason": pick.reason if pick else None,
-                "logo": logos.get(held.get("bank") or ""),
+                "logo": logos.get(held.get("institution_id") or 0),
             }
         )
     return dialog(
@@ -101,19 +103,19 @@ async def place_dialog(
 
 
 async def _bank_logos(
-    service: FinanceService, held: list[dict[str, Any]]
-) -> dict[str, str]:
-    """``{bank name: logo url}`` for the banks behind the held accounts, the
-    way an account's bank gets its mark: the bank's own domain beats a
-    guess from its name. One not fetched yet is asked for and shows next
-    time; until then the step shows the bank's initial."""
-    from app.services.finance.domains.ledger import merchant_icon
+    service: FinanceService, held: list[dict[str, Any]], owner_user_id: int | None
+) -> dict[int, str]:
+    """``{institution id: logo url}`` for the banks behind the held
+    accounts: the institution's own mark, the one the portfolio draws
+    (#410). One not fetched yet shows next time; until then the step
+    shows the bank's initial."""
+    from app.components.web_frontend.routes.finance.accounts import institution_logos
 
-    banks = {h["bank"]: h.get("bank_domain") for h in held if h.get("bank")}
-    keys = await merchant_icon.resolve_icon_keys(
-        service.db, list(banks), {bank: d for bank, d in banks.items() if d}
+    return await institution_logos(
+        service,
+        {h["institution_id"] for h in held if h.get("institution_id")},
+        owner_user_id,
     )
-    return {bank: merchant_icon.icon_url(key) for bank, key in keys.items()}
 
 
 async def _connection(

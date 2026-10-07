@@ -79,6 +79,9 @@ class MetadataPayload(BaseModel):
     # and the household stores that last four already, so the paper can
     # land on the account without anybody choosing from a list.
     account: ReadValue | None = None
+    # The account's last four, read off the paper where nobody entered
+    # one (#409); needs ``account``, since it is that account's.
+    last_four: ReadValue | None = None
 
     @model_validator(mode="after")
     def _says_something_it_can_mean(self) -> MetadataPayload:
@@ -89,6 +92,8 @@ class MetadataPayload(BaseModel):
             and self.account is None
         ):
             raise ValueError("Nothing to change.")
+        if self.last_four is not None and self.account is None:
+            raise ValueError("A last four is an account's: say which.")
         if self.sender is not None and not self.sender.value.strip().isdigit():
             raise ValueError(
                 "The sender is a parties() id, not a name: a name typed here "
@@ -183,6 +188,7 @@ async def metadata_execute(
 ) -> dict[str, Any]:
     from app.services.documents.service import DocumentService
     from app.services.finance.constants import account_tag
+    from app.services.finance.domains.ledger.numbers import set_last_four
     from app.services.matters.models import matter_tag, party_tag
 
     document = await _document(db, payload.document_id)
@@ -199,6 +205,8 @@ async def metadata_execute(
     if case := await _matter_of(db, payload):
         await service.tag(payload.document_id, matter_tag(case.id))
     if held := await _account_of(db, payload):
+        if payload.last_four is not None:
+            await set_last_four(db, held.id, payload.last_four.value)
         await service.tag(payload.document_id, account_tag(held.id))
     await db.flush()
     return {
@@ -265,11 +273,13 @@ async def metadata_describe(
             )
         )
     if (held := await _account_of(db, payload)) is not None:
+        # With the last four the paper supplies, cited on the same row.
+        four = payload.last_four
         rows.append(
             ChangeDisplayRow(
                 label="About",
-                value=held.name,
-                note=payload.account.cited(),
+                value=held.name + (f" · last four {four.value}" if four else ""),
+                note=payload.account.cited() + (f"; {four.cited()}" if four else ""),
                 document_id=payload.document_id,
                 page=payload.account.page,
             )

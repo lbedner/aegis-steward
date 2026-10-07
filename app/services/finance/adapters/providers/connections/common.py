@@ -36,7 +36,7 @@ from app.services.finance.constants import (
     sync_source,
 )
 from app.services.finance.models import FinanceConnection
-from app.services.finance.utils import to_cents
+from app.services.finance.utils import stored_owner, to_cents
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def record_run(
             # already uses: the column is NOT NULL, and a single-user
             # install has no owner to name. Caught live rather than in a
             # test, because every test names owner 1.
-            owner_user_id=0 if owner_user_id is None else owner_user_id,
+            owner_user_id=stored_owner(owner_user_id),
             connection_id=connection_id,
             source_type=sync_source(provider),
             status="committed" if result else "failed",

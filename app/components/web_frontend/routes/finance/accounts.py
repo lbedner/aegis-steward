@@ -234,6 +234,27 @@ async def _header_context(
     }
 
 
+async def institution_logos(
+    service: FinanceService, wanted: set[int], owner_user_id: int | None
+) -> dict[int, str]:
+    """``{institution id: icon url}`` for these banks, where one resolves:
+    a stored logo or domain, else a guess from the bank's name. The one
+    path every bank's mark comes through - the portfolio's and the
+    Place dialog's alike."""
+    from app.services.finance.domains.ledger.merchant_icon import institution_icons
+
+    if not wanted:
+        return {}
+    banks = [
+        i
+        for i in await service.list_institutions(owner_user_id=owner_user_id)
+        if i.id in wanted
+    ]
+    return {
+        i: icon.url for i, icon in (await institution_icons(service.db, banks)).items()
+    }
+
+
 async def _account_icons(
     service: FinanceService,
     accounts: list[AccountResponse],
@@ -242,19 +263,11 @@ async def _account_icons(
     """``{account id: icon url}`` for the accounts whose institution
     resolves to one. An account without a bank has no brand to show and
     falls back to its type's glyph (see ``account_glyph``)."""
-    from app.services.finance.domains.ledger.merchant_icon import institution_icons
-
-    wanted = {a.institution_id for a in accounts if a.institution_id}
-    if not wanted:
-        return {}
-    banks = [
-        i
-        for i in await service.list_institutions(owner_user_id=owner_user_id)
-        if i.id in wanted
-    ]
-    icons = await institution_icons(service.db, banks)
+    logos = await institution_logos(
+        service, {a.institution_id for a in accounts if a.institution_id}, owner_user_id
+    )
     return {
-        a.id: icons[a.institution_id].url for a in accounts if a.institution_id in icons
+        a.id: logos[a.institution_id] for a in accounts if a.institution_id in logos
     }
 
 

@@ -27,6 +27,26 @@ async def document_by_content(
     return (await db.exec(query)).first()
 
 
+async def unfiled_documents(
+    db: AsyncSession, *, owner_user_id: int | None = None
+) -> list[int]:
+    """Live documents filed under nobody and nothing: no sender, no
+    account. What a new fact reads again (``reading.filing``)."""
+    from app.services.finance.constants import account_tag
+    from app.services.matters.models import PARTY_TAG_PREFIX
+
+    filed = select(DocumentTag.document_id).where(
+        col(DocumentTag.label).startswith(PARTY_TAG_PREFIX)
+        | col(DocumentTag.label).startswith(account_tag(0)[:-1])
+    )
+    query = select(Document.id).where(
+        Document.deleted_at.is_(None), col(Document.id).not_in(filed)
+    )
+    if owner_user_id is not None:
+        query = query.where(Document.owner_user_id == owner_user_id)
+    return [int(found) for found in (await db.exec(query.order_by(Document.id))).all()]
+
+
 async def document_by_id(
     db: AsyncSession, document_id: int, *, owner_user_id: int | None = None
 ) -> Document | None:

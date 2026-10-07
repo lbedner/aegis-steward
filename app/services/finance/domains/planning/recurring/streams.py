@@ -20,14 +20,12 @@ from app.services.finance.domains.planning.recurring import queries
 from app.services.finance.domains.planning.recurring.membership import (
     claimable_strays,
 )
-from app.services.finance.models import (
-    FinanceRecurringStream,
-    FinanceTransaction,
-)
+from app.services.finance.models import FinanceRecurringStream, FinanceTransaction
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     FREQUENCY_STEPS,
     current_date,
+    stored_owner,
     utcnow,
 )
 
@@ -96,7 +94,7 @@ async def create_recurring_stream(
         raise ValueError(f"frequency must be one of {sorted(_STREAM_FREQUENCIES)}")
     await accounts.get_or_create_currency(db, DEFAULT_CURRENCY)
     stream = FinanceRecurringStream(
-        owner_user_id=0 if owner_user_id is None else owner_user_id,
+        owner_user_id=stored_owner(owner_user_id),
         subject_id=subject_id,
         account_id=account_id,
         name=name,

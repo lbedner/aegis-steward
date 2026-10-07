@@ -90,6 +90,12 @@ FREQUENCY_STEPS: dict[str, Callable[[date], date]] = {
 }
 
 
+def stored_owner(owner_user_id: int | None) -> int:
+    """The owner a NOT NULL owner column stores: a standalone install's
+    NULL owner as the ``0`` sentinel."""
+    return 0 if owner_user_id is None else owner_user_id
+
+
 def utcnow() -> datetime:
     """Naive-UTC timestamp (matches the models' convention)."""
     return clockutcnow()

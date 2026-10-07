@@ -21,12 +21,18 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
-from app.services.finance.adapters.providers.connections import placing
+from app.services.finance.adapters.providers.connections import arrivals, placing
 from app.services.finance.constants import FILE_SOURCES
-from app.services.finance.domains.ledger import bank_link, payee_aliases, two_feeds
+from app.services.finance.domains.ledger import (
+    bank_link,
+    institutions,
+    payee_aliases,
+    two_feeds,
+)
 from app.services.finance.models import (
     FinanceAccount,
     FinanceConnection,
+    FinanceInstitution,
     FinanceTransaction,
 )
 from app.services.finance.service import FinanceService
@@ -50,7 +56,7 @@ class ProviderAccount:
     # The bank behind it, as the provider names it, and its web domain
     # (its logo) - for placing it among yours (``placing``).
     bank: str | None = None
-    bank_domain: str | None = None
+    bank_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -158,6 +164,7 @@ async def _attach_to_yours(
     connection: FinanceConnection,
     accounts: list[ProviderAccount],
     found: list[FinanceAccount | None],
+    banks: dict[str, FinanceInstitution],
 ) -> set[str]:
     """Match what is still unmatched against the accounts a file export
     feeds (#309): one of the same kind whose last four - and bank, when it
@@ -195,7 +202,8 @@ async def _attach_to_yours(
                 found[index] = exact[0]
                 yours = [a for a in yours if a is not exact[0]]
         for index in open_:
-            waiting = placing.waiting(accounts[index])
+            bank = banks.get(accounts[index].bank or "")
+            waiting = placing.waiting(accounts[index], bank.id if bank else None)
             if found[index] is None and placing.fits(waiting, yours):
                 held.append(waiting)
     placing.hold(connection, held)
@@ -234,9 +242,16 @@ async def upsert_accounts(
         if found[index] is None and (match := _find_kept(pool, connection, reported)):
             pool = [row for row in pool if row is not match]
             found[index] = match
-    held = await _attach_to_yours(db, connection, accounts, found)
+    # The bank each account was reported by (#410): SimpleFIN names one
+    # per account behind a token; a one-bank link names it on the
+    # connection instead.
+    banks = await institutions.institutions_for_banks(
+        db, zip(accounts, found, strict=True), owner_user_id=connection.owner_user_id
+    )
+    held = await _attach_to_yours(db, connection, accounts, found, banks)
 
     upserted: dict[str, FinanceAccount] = {}
+    made: list[FinanceAccount] = []
     for reported, account in zip(accounts, found, strict=True):
         if reported.provider_account_id in held:
             continue
@@ -250,6 +265,7 @@ async def upsert_accounts(
                 name=reported.name,
                 is_manual=False,
             )
+            made.append(account)
         # (Re)point at this connection and refresh what the provider says.
         # The name and an institution someone picked are theirs: a
         # provider names an account only when it makes one.
@@ -260,7 +276,12 @@ async def upsert_accounts(
             provider_account_id=reported.provider_account_id,
             persistent_account_id=reported.persistent_account_id,
         )
-        account.institution_id = account.institution_id or connection.institution_id
+        bank = banks.get(reported.bank or "")
+        account.institution_id = (
+            account.institution_id
+            or (bank.id if bank else None)
+            or connection.institution_id
+        )
         account.currency = reported.currency
         account.mask = reported.mask
         account.current_balance = reported.current_balance
@@ -270,6 +291,7 @@ async def upsert_accounts(
         db.add(account)
         upserted[reported.provider_account_id] = account
     await db.flush()
+    await arrivals.announce(db, connection, made)  # #313
     return {provider_id: account.id for provider_id, account in upserted.items()}
 
 

@@ -142,6 +142,7 @@ class PlaidClient:
         client_name: str = "Aegis Finance",
         products: list[str] | None = None,
         update_access_token: str | None = None,
+        account_selection: bool = False,
     ) -> tuple[str, str]:
         """Create a Hosted Link session: Plaid hosts the entire connect UI.
 
@@ -160,6 +161,10 @@ class PlaidClient:
         }
         if update_access_token is not None:
             body["access_token"] = update_access_token
+            if account_selection:
+                # Update mode that offers the accounts the Item lacks
+                # (NEW_ACCOUNTS_AVAILABLE), not only a sign-in (#313).
+                body["update"] = {"account_selection_enabled": True}
         else:
             body["products"] = products or ["transactions"]
         webhook_url = get_webhook_url()

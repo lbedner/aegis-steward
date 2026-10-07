@@ -179,9 +179,14 @@ class ConnectionResponse(BaseModel):
     created_at: datetime
     # Accounts its link reported that wait for you to place them (#309).
     unplaced: int = 0
+    # The bank said it holds accounts nobody added yet (#313).
+    new_accounts: bool = False
 
     @classmethod
     def from_row(cls, row: FinanceConnection) -> ConnectionResponse:
+        from app.services.finance.adapters.providers.connections.arrivals import (
+            waiting_to_add,
+        )
         from app.services.finance.adapters.providers.connections.placing import (
             unplaced,
         )
@@ -197,6 +202,7 @@ class ConnectionResponse(BaseModel):
             last_successful_sync_at=row.last_successful_sync_at,
             created_at=row.created_at,
             unplaced=len(unplaced(row)),
+            new_accounts=waiting_to_add(row),
         )
 
 

@@ -92,6 +92,44 @@ class TestTheBanner:
         assert "10 days" in text(row)
 
 
+class TestNewAccountsToAdd:
+    """Plaid said the bank has accounts nobody added (#313)."""
+
+    async def test_the_banner_offers_reconnect_to_add_them(
+        self, hx: TestClient, async_db_session: AsyncSession, connection: int
+    ) -> None:
+        await _set(
+            async_db_session,
+            connection,
+            last_successful_sync_at=utcnow(),
+            metadata_={"new_accounts": True},
+        )
+
+        row = one(hx.get(ATTENTION).text, "[data-attention] li")
+        assert "New accounts to add" in text(row)
+        one(row, f'[hx-post="/settings/connections/{connection}/reconnect"]')
+
+    async def test_done_clears_it_and_checks_the_bank(
+        self,
+        client: TestClient,
+        hx: TestClient,
+        async_db_session: AsyncSession,
+        connection: int,
+        queued: list[tuple],
+    ) -> None:
+        await _set(
+            async_db_session,
+            connection,
+            last_successful_sync_at=utcnow(),
+            metadata_={"new_accounts": True},
+        )
+
+        client.post(f"/settings/connections/{connection}/reconnect/done")
+
+        none(hx.get(ATTENTION).text, "[data-attention] li")
+        assert queued == [("finance_sync_connection_task", connection, None)]
+
+
 class TestTheCard:
     async def test_the_card_says_the_status_in_words_and_offers_reconnect(
         self, client: TestClient, async_db_session: AsyncSession, connection: int

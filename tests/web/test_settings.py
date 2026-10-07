@@ -19,6 +19,7 @@ from app.components.web_frontend.routes.finance.connect_providers import (
 )
 from app.core.config import settings
 from app.services.finance.adapters.providers.simplefin import DEMO_PAGE
+from app.services.finance.service import FinanceService
 from tests.web.conftest import Ledger, Streams
 from tests.web.dom import none, one, select, table_rows, text, triggers
 
@@ -211,7 +212,14 @@ class TestPlacingAHeldAccount:
         row = await async_db_session.get(FinanceConnection, held)
         (account,) = placing.unplaced(row)
         today = current_date()
-        account["bank"], account["bank_domain"] = "Chase Bank", "chase.com"
+        # The bank behind it, as the link made it: the logo is the
+        # institution's, the same mark the portfolio draws (#410).
+        bank = await FinanceService(async_db_session).get_or_create_institution(
+            name="Chase Bank",
+            owner_user_id=row.owner_user_id,
+            url="https://www.chase.com",
+        )
+        account["bank"], account["institution_id"] = bank.name, bank.id
         account["charges"] = [
             [today.isoformat(), -3000, "Market"],
             [(today - timedelta(days=1)).isoformat(), -1500, "Market"],

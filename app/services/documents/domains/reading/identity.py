@@ -124,6 +124,17 @@ def _hit(known: Known, line: str) -> bool:
     return False
 
 
+def front_lines(pages: Iterable[Page]) -> list[tuple[int, str]]:
+    """``(page, line)`` for every line on the front of a document: what
+    is read for who sent it and what it is about."""
+    return [
+        (page["page"], line.strip())
+        for page in list(pages)[:OPENING_PAGES]
+        for line in (page["text"] or "").splitlines()
+        if line.strip()
+    ]
+
+
 def identify(
     pages: Iterable[Page], known: Iterable[Known]
 ) -> list[tuple[Known, Finding]]:
@@ -132,12 +143,7 @@ def identify(
     One hit per known thing: a phone printed in the header and again in
     the footer is one sender, not two.
     """
-    front = [
-        (page["page"], line.strip())
-        for page in list(pages)[:OPENING_PAGES]
-        for line in (page["text"] or "").splitlines()
-        if line.strip()
-    ]
+    front = front_lines(pages)
     found: list[tuple[Known, Finding]] = []
     seen: set[tuple[str, int, str]] = set()
     for page, line in front:

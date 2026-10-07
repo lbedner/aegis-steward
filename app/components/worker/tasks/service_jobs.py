@@ -11,6 +11,7 @@ from typing import Any
 from arq.worker import Function, func
 
 from app.services.ai.jobs import analyze_sentiment_job, sync_llm_catalog_job
+from app.services.documents.domains.reading.filing import reread_unfiled_job
 from app.services.documents.domains.reading.joins import join_arrivals_job
 from app.services.finance.jobs import (
     finance_bill_due_email_job,
@@ -46,6 +47,7 @@ SERVICE_JOB_TASKS = [
     as_task(finance_sync_connections_job, timeout=LONG_RUNNING_SECONDS),
     as_task(sync_llm_catalog_job, timeout=LONG_RUNNING_SECONDS),
     as_task(matters_deadline_nag_job, timeout=LONG_RUNNING_SECONDS),
+    as_task(reread_unfiled_job),
     as_task(join_arrivals_job),
     as_task(analyze_sentiment_job),
     as_task(finance_goal_auto_contribute_job),

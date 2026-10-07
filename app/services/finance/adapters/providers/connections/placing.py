@@ -47,10 +47,12 @@ SKIP = "skip"
 Choices = list[tuple[dict[str, Any], list[FinanceAccount]]]
 
 
-def waiting(reported: ProviderAccount) -> dict[str, Any]:
+def waiting(
+    reported: ProviderAccount, institution_id: int | None = None
+) -> dict[str, Any]:
     """A reported account as its connection holds it: enough to recognise
-    it by - the bank, the balance - and its recent charges once a sync
-    has read them (``remember_charges``)."""
+    it by - the bank (its row, for the logo), the balance - and its recent
+    charges once a sync has read them (``remember_charges``)."""
     return {
         "id": reported.provider_account_id,
         "name": reported.name,
@@ -58,7 +60,7 @@ def waiting(reported: ProviderAccount) -> dict[str, Any]:
         "account_type": reported.account_type,
         "classification": reported.classification,
         "bank": reported.bank,
-        "bank_domain": reported.bank_domain,
+        "institution_id": institution_id,
         "balance": reported.current_balance,
     }
 
@@ -105,7 +107,7 @@ def own_accounts(connection: FinanceConnection) -> set[str]:
     return set((connection.metadata_ or {}).get(OWN_ACCOUNTS, []))
 
 
-def _remember(connection: FinanceConnection, key: str, value: list[Any]) -> None:
+def remember(connection: FinanceConnection, key: str, value: Any) -> None:
     kept = {k: v for k, v in (connection.metadata_ or {}).items() if k != key}
     if value:
         kept[key] = value
@@ -115,7 +117,7 @@ def _remember(connection: FinanceConnection, key: str, value: list[Any]) -> None
 
 def hold(connection: FinanceConnection, accounts: list[dict[str, Any]]) -> None:
     """Hold ``accounts`` on the connection, or clear it when none are."""
-    _remember(connection, UNPLACED, accounts)
+    remember(connection, UNPLACED, accounts)
 
 
 def fits(held: dict[str, Any], accounts: list[FinanceAccount]) -> list[FinanceAccount]:
@@ -269,6 +271,7 @@ async def place(
     is wrong with the answers, changing nothing; each of yours once.
     ``offered`` is ``choices``, when the caller has read them to show."""
     chosen: dict[str, FinanceAccount | None] = {}
+    banks: dict[str, int | None] = {}
     skipped: list[dict[str, Any]] = []
     errors: list[str] = []
     if offered is None:
@@ -282,6 +285,7 @@ async def place(
             chosen[held["id"]] = None
         elif answer in by_id and all(by_id[answer] is not a for a in chosen.values()):
             chosen[held["id"]] = by_id[answer]
+            banks[held["id"]] = held.get("institution_id")
         else:
             errors.append(f"Say where {held['name']} goes - each of yours once.")
     if errors:
@@ -295,9 +299,11 @@ async def place(
                 connection_id=connection.id,
                 provider_account_id=held_id,
             )
+            # The bank says which bank it is at, where nobody had (#410).
+            account.institution_id = account.institution_id or banks.get(held_id)
             db.add(account)
     own = own_accounts(connection) | {i for i, a in chosen.items() if a is None}
-    _remember(connection, OWN_ACCOUNTS, sorted(own))
+    remember(connection, OWN_ACCOUNTS, sorted(own))
     hold(connection, skipped)
     # Its rows were held with it: ask the provider for everything again.
     # What is already stored matches by id; only the held history is new.

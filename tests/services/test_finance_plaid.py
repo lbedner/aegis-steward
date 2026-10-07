@@ -221,12 +221,14 @@ class FakePlaidClient:
         client_name="Aegis Finance",
         products=None,
         update_access_token=None,
+        account_selection=False,
     ):
         self.hosted_link_calls.append(
             {
                 "user_id": user_id,
                 "products": products,
                 "update_access_token": update_access_token,
+                "account_selection": account_selection,
             }
         )
         return "https://hosted.example/link", "link-token-x"

@@ -19,7 +19,6 @@ from app.services.finance.adapters.providers.connections.upserts import (
     ProviderAccount,
     ProviderTransaction,
 )
-from app.services.finance.domains.ledger.merchant_icon import domain_from_website
 
 
 def _day(seconds: Any) -> date:
@@ -68,7 +67,7 @@ def simplefin_accounts(payload: dict[str, Any]) -> list[ProviderAccount]:
                 name=name,
                 mask=last_four(name),
                 bank=bank.get("name") or bank.get("org_name"),
-                bank_domain=domain_from_website(bank.get("org_url")),
+                bank_url=bank.get("org_url") or None,
                 currency=_currency(account.get("currency")),
                 account_type=account_type,
                 classification=classification,
