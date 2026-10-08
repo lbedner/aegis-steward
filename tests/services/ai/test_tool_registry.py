@@ -63,6 +63,27 @@ class TestRegistration:
         register_tool("echo", other, replace=True)
         assert unwrapped(resolve_tools(["echo"])) == [other]
 
+    @pytest.mark.asyncio
+    async def test_a_script_reads_the_money_the_model_is_shown(self) -> None:
+        """#460: the model is shown each ``*_cents`` with its ``*_usd``; a
+        script calling the same tool got cents alone, read ``amount_usd``
+        off a bill, found None, and she said no bill was $250."""
+
+        async def bill() -> dict[str, Any]:
+            """One bill."""
+            return {"bills": [{"amount_cents": 25_000}]}
+
+        def count() -> dict[str, Any]:
+            """A count."""
+            return {"spent_cents": 1_920}
+
+        register_tool("bill", bill)
+        register_tool("count", count)
+        resolved_bill, resolved_count = resolve_tools(["bill", "count"])
+
+        assert (await resolved_bill())["bills"][0]["amount_usd"] == "$250.00"
+        assert resolved_count()["spent_usd"] == "$19.20"
+
     def test_unregister_unknown_is_an_error(self) -> None:
         with pytest.raises(KeyError):
             unregister_tool("never-registered")

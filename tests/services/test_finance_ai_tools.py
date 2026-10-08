@@ -901,6 +901,73 @@ async def test_bills_lists_the_recurring_surface(
 
 
 @pytest.mark.asyncio
+async def test_bills_say_where_they_draw_from_and_what_they_are(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """#460: asked about "the one paying from the Chase checking", she read
+    each bill's account and got nothing - the Bills page shows it, the
+    tool did not, and she said no bill was tied to that account."""
+    checking = await seed_account(svc, name="TOTAL CHECKING")
+    payment = await seed_category(session, "Transfer:Credit Card Payment")
+    stream = await seed_stream(
+        svc,
+        name="Card",
+        expected_amount=25_000,
+        next_expected_date=date(2026, 11, 5),
+        account_id=checking.id,
+    )
+    paid = await svc.create_transaction(
+        account_id=checking.id,
+        amount=-25_000,
+        txn_date=date(2026, 10, 5),
+        owner_user_id=1,
+        name="CARD PAYMENT",
+    )
+    paid.recurring_stream_id = stream.id
+    paid.category_id = payment.id
+    session.add(paid)
+    await session.commit()
+
+    row = {b["name"]: b for b in (await ai_tools.bills())["bills"]}["Card"]
+
+    assert (row["account"], row["account_id"]) == ("TOTAL CHECKING", checking.id)
+    assert row["category"] == "Transfer:Credit Card Payment"
+
+
+@pytest.mark.asyncio
+async def test_a_transaction_says_which_bill_it_pays(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """#460: the payment was already the bill's, so it was no match
+    candidate - and with nothing saying so, she took that to mean the bill
+    did not exist. Both tools that read rows say so."""
+    account = await seed_account(svc)
+    stream = await seed_stream(
+        svc, name="Card", expected_amount=25_000, next_expected_date=date(2026, 11, 5)
+    )
+    for day, bill in ((5, stream.id), (6, None)):
+        txn = await svc.create_transaction(
+            account_id=account.id,
+            amount=-25_000,
+            txn_date=date(2026, 10, day),
+            owner_user_id=1,
+            name="CARD PAYMENT",
+        )
+        txn.recurring_stream_id = bill
+        session.add(txn)
+    await session.commit()
+
+    found = (await ai_tools.transactions(payee="card"))["transactions"]
+    read = (await ai_tools.ledger(months=1, detail="transactions"))["transactions"]
+
+    for rows in (found, read):
+        assert {t["date"]: t["bill_id"] for t in rows} == {
+            "2026-10-05": stream.id,
+            "2026-10-06": None,
+        }
+
+
+@pytest.mark.asyncio
 async def test_a_bill_the_user_never_priced_still_reports_an_amount(
     svc: FinanceService, session: AsyncSession
 ) -> None:
@@ -1150,6 +1217,46 @@ async def test_projection_walks_cash_forward_over_a_requested_window(
     assert "upcoming_total_cents" in result
     point = result["points"][0]
     assert {"amount_cents", "balance_cents"} <= set(point)
+
+
+@pytest.mark.asyncio
+async def test_a_transaction_reads_the_same_from_either_tool(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """#460: the same row came back in two shapes - ``bill_id`` reached
+    one tool and not the other, and 'account' was "" in one and None in
+    the other. One builder, one shape."""
+    account = await seed_account(svc)
+    await seed_txn(svc, account.id, -4_50, current_date(), name="Starbucks")
+    await session.commit()
+
+    (found,) = (await ai_tools.transactions(payee="starbucks"))["transactions"]
+    (read,) = (await ai_tools.ledger(months=1, detail="transactions"))["transactions"]
+
+    assert found == read
+    assert {"bill_id", "uncategorized", "transfer", "memo", "tags"} <= set(found)
+
+
+@pytest.mark.asyncio
+async def test_a_projected_bill_says_which_bill_it_is(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """#460: a bill due in the walk ties to ``bills()`` by id, not by a
+    name three Citi bills share."""
+    account = await seed_account(svc, current_balance=500_000)
+    stream = await seed_stream(
+        svc,
+        name="Citi",
+        expected_amount=25_000,
+        next_expected_date=current_date() + timedelta(days=5),
+        account_id=account.id,
+    )
+    await session.commit()
+
+    result = await ai_tools.projection(days=30)
+
+    assert {b["bill_id"] for b in result["bills"]} == {stream.id}
+    assert stream.id in {p["bill_id"] for p in result["points"]}
 
 
 @pytest.mark.asyncio

@@ -78,6 +78,7 @@ def upcoming_outflows(
             "due_date": p.due_date,
             "amount": -p.amount,
             "category": p.category,
+            "bill_id": p.stream_id,
         }
         for p in bills
     ]

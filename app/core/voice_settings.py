@@ -9,8 +9,8 @@ from typing import Any, Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
-# The speech speed the TTS API accepts, and the longest a live call may
-# sit in dead air: every model, form and profile bounds by these.
+# The speech speed the TTS API accepts, and the longest quiet before she
+# checks in on a live call: every model, form and profile bounds by these.
 TTS_SPEED_MIN, TTS_SPEED_MAX = 0.25, 4.0
 LIVE_IDLE_MAX_SECONDS = 600
 
@@ -54,8 +54,9 @@ class VoiceSettings(BaseSettings):
     # key taps ("typing"), or nothing. Instead of narrating her tool calls,
     # which ran behind her own answer (2026-09-25).
     VOICE_WORKING_SOUND: WorkingSound = "typing"
-    # A live call hangs up after this many seconds of dead air (0: never):
-    # GPT-Live bills by the minute, silence included.
+    # Seconds of quiet on a live call before she checks in (0: never); what
+    # follows is call-state.js (#458). GPT-Live bills by the minute, silence
+    # included.
     VOICE_LIVE_IDLE_SECONDS: int = Field(default=30, ge=0, le=LIVE_IDLE_MAX_SECONDS)
     # The engine a live call runs on: a key in voice/live_engines.py.
     VOICE_LIVE_ENGINE: str = "gpt-live"

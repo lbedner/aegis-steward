@@ -31,12 +31,12 @@
   const mic = () => document.getElementById('chat-mic');
   const voice = () => JSON.parse(mic()?.dataset.voice || '{}');
 
+  const phrase = (state) => document.getElementById('chat-mic-states')
+    ?.content.querySelector(`[data-state="${state}"]`);
   const say = (state, text) => {
     const status = document.getElementById('chat-mic-status');
     if (!status) return;
-    const phrase = state && document.getElementById('chat-mic-states')
-      ?.content.querySelector(`[data-state="${state}"]`);
-    status.textContent = text ?? phrase?.textContent ?? '';
+    status.textContent = text ?? (state && phrase(state)?.textContent) ?? '';
   };
 
   const pressed = (on) => mic()?.setAttribute('aria-pressed', String(on));
@@ -325,12 +325,13 @@
   // answer back to be said. Each answered turn lands in the conversation,
   // approval cards and all, so the thread reloads after each one.
   let call = null;
-  // A call as it starts, whichever way it travels: nothing heard or said,
-  // no work, no timers.
   // How she opens: the server's line for this call, else the page's.
   const greeting = () => call.greeting || phone().dataset.greeting;
+  // A call as it starts, whichever way it travels: nothing heard or said,
+  // no work, quiet counted by the profile's seconds.
   const newCall = (how) => ({
-    heard: '', said: '', work: Promise.resolve(), working: 0, quiet: null, idle: null, ...how,
+    heard: '', said: '', work: Promise.resolve(),
+    state: callState.start(voice().idle * 1000), ...how,
   });
   const phone = () => document.getElementById('chat-live');
   // Ending is two steps. Hanging up stops the mic and the sound at once and
@@ -338,7 +339,8 @@
   // session.closed, which carries the call's final billed seconds (issue
   // 270). ``finish`` tears down, on that event or after the wait.
   const CLOSE_WAIT_MS = 2500;
-  // How long her goodbye is given to finish playing before the hang-up.
+  // How far the transcript runs ahead of her audio, for a goodbye heard
+  // only in what she said (GPT-Live).
   const GOODBYE_MS = 2500;
   // Her sign-off, heard in what she said: the call is over.
   const signsOff = (text) => (text || '').includes(phone().dataset.signOff);
@@ -363,8 +365,10 @@
       // A turn saved as the call closed never reached this page.
       showSaved(call.conversation);
     }
-    clearTimeout(call.quiet);
+    clearTimeout(call.audioEnd);
     clearTimeout(call.idle);
+    clearTimeout(call.leave);
+    clearTimeout(call.grace);
     call.closing = setTimeout(finish, live ? CLOSE_WAIT_MS : 0);
     stopTyping();
     stopBar();
@@ -383,6 +387,7 @@
     const seconds = Math.max((Date.now() - call.started) / 1000, call.billed || 0);
     field('timer').textContent = clock(seconds);
     if (call.rate) showCost(seconds * call.rate);
+    if (call.state.nudged) sayState(); // the countdown
   };
   const startBar = (engine) => {
     call.started = Date.now();
@@ -401,69 +406,103 @@
     if (callBar()) callBar().hidden = true;
     if (chatComposer()) chatComposer().hidden = false;
   };
-  // Mute: your audio stops going out (GPT-Live is told too), and dead air
-  // does not count while you are muted.
+  // Mute: your voice stops going out (GPT-Live is told too).
   const muted = (on) => {
     document.getElementById('chat-mute')?.setAttribute('aria-pressed', String(on));
     if (!call) return;
-    call.muted = on;
+    call.mutedAt = on ? Date.now() : null;
     for (const track of call.stream.getAudioTracks()) track.enabled = !on;
     if (call.transport === 'gpt_live' && !call.closing) {
       try {
         call.channel.send(JSON.stringify({ type: on ? 'session.input_audio.mute' : 'session.input_audio.unmute' }));
       } catch (_) {}
     }
-    if (on) {
-      clearTimeout(call.idle);
-      say('muted');
-    } else {
-      rest();
-    }
+    happen({ type: 'mute', on });
   };
-  // Dead air costs the same as talk: after the profile's seconds with
-  // nobody speaking and nothing being worked on, hang up (0: never).
-  const awake = () => {
-    if (!call || call.closing || call.muted) return;
-    clearTimeout(call.idle);
-    const seconds = voice().idle;
-    if (seconds > 0 && !call.working) call.idle = setTimeout(hangUp, seconds * 1000);
+  // What just happened on the call, put through its rules (call-state.js),
+  // and what they say to do: the quiet clock, the goodbye's timers, a cue
+  // for her, the hang-up. Every engine's events come through here.
+  const arm = (name, ms) => {
+    clearTimeout(call[name]);
+    call[name] = ms == null ? null : setTimeout(() => happen({ type: name }), ms);
   };
-  // Between her sentences the call is listening, or - while her agent is
-  // pulling data - working, with the typing under it. GPT-Live says "let me
-  // check" mid-delegation; when it stops, the work shows again.
-  const rest = () => {
+  const happen = (event) => {
     if (!call || call.closing) return;
-    const working = call.working > 0;
-    show(phone(), working ? 'working' : 'recording');
-    // The step she is running (the relay names it, as the trail will).
-    say(call.muted ? 'muted' : working ? 'working' : 'live', working ? call.step : null);
-    if (working) startTyping();
-    else stopTyping();
-    awake();
+    const was = call.state;
+    const out = callState.next(was, event);
+    const now = out.state;
+    call.state = now;
+    if (out.quiet) {
+      arm('idle', out.quiet === 'stop' ? null : now.quietMs);
+      call.quietEnds = out.quiet === 'count' ? Date.now() + now.quietMs : null;
+    }
+    if (out.leave) arm('leave', out.leave === 'arm' ? callState.LEAVE_MS : null);
+    if (out.grace) arm('grace', out.grace === 'arm' ? callState.GRACE_MS : null);
+    if (out.cue) cue(out.cue);
+    if (out.hangUp) return hangUp();
+    // Redrawn on a change it shows: a step's own label too; the quiet's
+    // re-arming only once it is a countdown.
+    const changed = ['talking', 'working', 'muted', 'nudged'].some((key) => now[key] !== was[key]);
+    if (changed || event.type === 'begin' || event.type === 'step' || (out.quiet && now.nudged)) draw();
   };
-  // She is talking: no typing under her, no dead-air hang-up.
-  const speaking = () => {
-    stopTyping();
-    clearTimeout(call.idle);
-    show(phone(), 'speaking');
+  // The call as it stands: her speaking, her working (the typing under
+  // it - GPT-Live says "let me check" mid-delegation), or listening.
+  const draw = () => {
+    const { talking, working } = call.state;
+    show(phone(), talking ? 'speaking' : working ? 'working' : 'recording');
+    if (working && !talking) startTyping();
+    else stopTyping();
+    sayState();
+  };
+  // The status line: the quiet counted down to the hang-up once she has
+  // checked in (a pause to think is no warning), muted, the step she is
+  // running (as the relay names it and the trail will), or listening.
+  const sayState = () => {
+    const { nudged, muted, working } = call.state;
+    const left = nudged && call.quietEnds && Math.ceil((call.quietEnds - Date.now()) / 1000);
+    if (left > 0) {
+      const line = phrase('hanging-up').cloneNode(true);
+      line.querySelector('[data-countdown]').textContent = left;
+      return say(null, line.textContent);
+    }
+    say(muted ? 'muted' : working ? 'working' : 'live', working ? call.step : null);
   };
   // A step she runs (the relay names it), and the end of her steps.
   const stepping = (step = null) => {
-    call.working += 1;
     call.step = step;
-    rest();
+    happen({ type: 'step', on: true });
   };
   const stepped = () => {
-    call.working = 0;
     call.step = null;
-    rest();
+    happen({ type: 'step', on: false });
   };
-  // Something for her to say: a delegation's answer, or (``id`` null) her
-  // greeting as the call opens.
+  // Her reply is done: no longer the cut one, and her steps with it.
+  const replied = () => {
+    happen({ type: 'reply' });
+    stepped();
+  };
+  // Her audio as you hear it, done ``ms`` after the last of it.
+  const herAudio = (ms) => {
+    happen({ type: 'audio', on: true });
+    clearTimeout(call.audioEnd);
+    call.audioEnd = setTimeout(() => happen({ type: 'audio', on: false }), ms);
+  };
+  // Something for her to say: a delegation's answer, or (``id`` null) a
+  // cue - her greeting, a check-in - each its own event.
   const answer = (id, content) => call.channel.send(JSON.stringify({
-    type: 'session.commentary.append', event_id: `steward-${id ?? 'greeting'}`, delegation_id: id, content,
+    type: 'session.commentary.append', event_id: `steward-${id ?? `cue-${Date.now()}`}`, delegation_id: id, content,
   }));
+  // A cue for her to speak to (her greeting, a check-in), however the
+  // call reaches her: a realtime response, GPT-Live commentary, or - on
+  // the relay - the server's line by name.
+  const tell = (text) => (call.transport === 'realtime'
+    ? call.channel.send(JSON.stringify({ type: 'response.create', response: { instructions: text } }))
+    : answer(null, text));
+  const cue = (line) => (call.transport === 'relay'
+    ? call.ws.send(JSON.stringify({ type: 'cue', line }))
+    : tell(JSON.parse(phone().dataset.cues)[line]));
   const delegate = async (id) => {
+    const asked = call;
     const text = call.heard.trim();
     call.heard = '';
     if (!text) return answer(id, phone().dataset.notHeard);
@@ -477,7 +516,7 @@
       });
       data = await answer.json();
     } catch (_) {}
-    if (!call) return;
+    if (call !== asked) return; // that call is over
     stepped();
     answer(id, data.speak || phone().dataset.sorry);
     showTurns(data.conversation_id);
@@ -507,45 +546,49 @@
   const showSaved = (id) => setTimeout(() => showTurns(id), REALTIME_SAVE_MS);
   const followRealtime = (event) => {
     if (event.type === 'session.created') {
-      call.channel.send(JSON.stringify({
-        // The server's opening: a greeting, or picking up a dropped call.
-        type: 'response.create', response: { instructions: greeting() },
-      }));
+      tell(greeting()); // the server's opening: a greeting, or picking up a dropped call
     } else if (event.type === 'input_audio_buffer.speech_started') {
-      awake();
+      happen({ type: 'speech', on: true });
+    } else if (event.type === 'input_audio_buffer.speech_stopped') {
+      happen({ type: 'speech', on: false });
+    } else if (event.type.startsWith('conversation.item.input_audio_transcription.')
+      && (event.delta ?? event.transcript)?.trim()) {
+      happen({ type: 'words' }); // as they are transcribed, or once done
+    } else if (event.type === 'output_audio_buffer.started') {
+      // Her audio as you hear it: the transcript runs well ahead of it.
+      happen({ type: 'audio', on: true });
+    } else if (event.type === 'output_audio_buffer.stopped') {
+      happen({ type: 'audio', on: false });
+    } else if (event.type === 'output_audio_buffer.cleared') {
+      happen({ type: 'cut' });
+    } else if (event.type === 'response.created') {
+      happen({ type: 'reply' });
     } else if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
-      // Her end_call: hang up once this response (her goodbye) is done.
-      if (event.item.name === phone().dataset.endCall) call.ending = true;
+      if (event.item.name === phone().dataset.endCall) happen({ type: 'goodbye' });
       else stepping();
     } else if (event.type === 'response.done') {
-      if (call.ending) setTimeout(hangUp, GOODBYE_MS);
-      if (call.working) stepped();
+      replied();
       showSaved(call.conversation);
     } else if (event.type === 'error') {
       console.warn('[live]', event);
     }
   };
   const heard = (event) => {
-    const speech = event.type === 'session.output_transcript.delta'
-      || event.type === 'response.output_audio_transcript.delta';
-    if (call.transport === 'realtime' && !speech) return followRealtime(event);
-    if (event.type === 'session.started') answer(null, greeting());
+    if (call.transport === 'realtime') return followRealtime(event);
+    if (event.type === 'session.started') tell(greeting());
     else if (event.type === 'session.input_transcript.delta') {
       call.heard += event.delta;
-      awake();
-    } else if (speech) {
-      speaking();
+      // No speech onset here: each piece of your words is speech.
+      happen({ type: 'speech', on: true });
+      happen({ type: 'words' });
+      happen({ type: 'speech', on: false });
+    } else if (event.type === 'session.output_transcript.delta') {
+      if (!call.state.talking) call.said = ''; // a new reply of hers
       call.said += event.delta;
       const done = signsOff(call.said);
-      clearTimeout(call.quiet);
-      // ponytail: the transcript runs a little ahead of her audio, so a
-      // goodbye hangs up on a longer pause; end_ms timing if it clips her.
-      call.quiet = setTimeout(() => {
-        if (!call) return;
-        call.said = '';
-        if (done) hangUp();
-        else rest();
-      }, done ? GOODBYE_MS : 1200);
+      // ponytail: end_ms timing if a goodbye's longer pause clips her.
+      herAudio(done ? GOODBYE_MS : 1200);
+      if (done) happen({ type: 'goodbye' });
     } else if (event.type === 'session.delegation.created' && event.delegation?.target === 'client') {
       call.work = call.work.then(() => delegate(event.delegation.id));
     } else if (event.type === 'session.usage.updated') {
@@ -602,7 +645,7 @@
       return say('offline');
     }
     startBar(call.engine);
-    rest();
+    happen({ type: 'begin' });
   };
   // --- The relay (issue 273): Gemini Live has no WebRTC, so the call's
   // audio goes through our server's WebSocket. The mic is captured at the
@@ -610,6 +653,7 @@
   // her voice comes back as PCM16 at its output rate and is scheduled
   // gap-free. The server says what the call is doing in small JSON events.
   const FRAME = 640; // samples a frame: 40ms at 16 kHz
+  const MUTE_TAIL_MS = 1500; // past Gemini's 800ms end of speech
   const pcm16 = (samples) => {
     const out = new Int16Array(samples.length);
     for (let i = 0; i < samples.length; i++) out[i] = Math.max(-1, Math.min(1, samples[i])) * 0x7fff;
@@ -621,7 +665,13 @@
     const node = new AudioWorkletNode(call.mic, 'mic-pcm');
     let batch = [];
     node.port.onmessage = ({ data }) => {
-      if (!call || call.muted || call.ws.readyState !== WebSocket.OPEN) return;
+      if (!call || call.ws.readyState !== WebSocket.OPEN) return;
+      // Muted, a moment of silence still goes, for Gemini to hear you stop
+      // (or its turn for you never ends); then nothing - it bills audio in.
+      if (call.mutedAt && Date.now() - call.mutedAt > MUTE_TAIL_MS) {
+        batch = [];
+        return;
+      }
       batch.push(...data);
       if (batch.length < FRAME) return;
       call.ws.send(pcm16(batch));
@@ -645,29 +695,14 @@
     call.playhead = at + buffer.duration;
     call.sources.push(node);
     node.onended = () => { if (call) call.sources = call.sources.filter((s) => s !== node); };
-    speaking();
-    clearTimeout(call.quiet);
-    call.quiet = setTimeout(spoken, (call.playhead - call.speaker.currentTime) * 1000 + 300);
-  };
-  // Her audio has played out: listening again, or - after the sign-off -
-  // hanging up.
-  const spoken = () => {
-    if (!call) return;
-    if (call.signingOff) return hangUp();
-    rest();
-  };
-  // The call is ending (her end_call, or her sign-off): hang up once her
-  // audio has played out, or shortly if none is queued.
-  const signOff = () => {
-    call.signingOff = true;
-    if (!call.sources.length) setTimeout(spoken, 1500);
+    herAudio((call.playhead - call.speaker.currentTime) * 1000 + 300);
   };
   const hush16 = () => {
     for (const node of call.sources) try { node.stop(); } catch (_) {}
     call.sources = [];
     call.playhead = 0;
-    clearTimeout(call.quiet);
-    rest();
+    clearTimeout(call.audioEnd);
+    happen({ type: 'cut' });
   };
   const relayed = async (event) => {
     if (!call) return;
@@ -684,19 +719,22 @@
         return say('unsupported');
       }
       startBar(event.engine);
-      rest();
+      happen({ type: 'begin' });
     } else if (event.type === 'interrupted') {
       hush16(); // she was spoken over: drop what was not yet heard
+    } else if (event.type === 'hearing') {
+      happen({ type: 'speech', on: true }); // your first transcribed words: you
+      happen({ type: 'words' });
     } else if (event.type === 'heard') {
-      awake();
+      happen({ type: 'speech', on: false });
     } else if (event.type === 'said') {
-      if (signsOff(event.text)) signOff();
+      if (signsOff(event.text)) happen({ type: 'goodbye' });
     } else if (event.type === 'hang_up') {
-      signOff();
+      happen({ type: 'goodbye' });
     } else if (event.type === 'working') {
       stepping(event.label);
-    } else if (event.type === 'done' && call.working) {
-      stepped();
+    } else if (event.type === 'done') {
+      replied();
     } else if (event.type === 'card') {
       // A chart up while she talks about it; the saved turn replaces it.
       const slot = clone('chat-live-card');
@@ -730,7 +768,7 @@
     });
   };
   document.addEventListener('click', (event) => {
-    if (event.target.closest?.('#chat-mute')) return call && muted(!call.muted);
+    if (event.target.closest?.('#chat-mute')) return call && muted(!call.state.muted);
     if (event.target.closest?.('#chat-hang-up')) return hangUp();
     const button = event.target.closest?.('#chat-live');
     if (!button) return;

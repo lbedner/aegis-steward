@@ -72,10 +72,9 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
     'this_month' beside 'last_month_same_days' (each 'income', 'spending',
     'saved' in cents). Compare a part-finished month with
     'last_month_same_days', never with last month's whole total. Transaction detail returns keys 'total', 'returned'
-    and 'transactions': a list, newest first, of entries carrying
-    'date', 'payee', 'amount_cents' (signed, negative = outflow),
-    'category', 'account' and 'pending'; fewer returned rows than
-    'total' means the page was capped.
+    and 'transactions': a list, newest first, of rows shaped as
+    ``transactions`` returns them ('amount_cents' signed, negative =
+    outflow); fewer returned rows than 'total' means the page was capped.
     """
     if detail == "monthly":
         span = max(1, min(int(months), 24))
@@ -107,55 +106,65 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
             from_date=from_date,
             limit=_TRANSACTIONS_ROW_CAP,
         )
-        category_names = await category_names_by_id(
-            session,
-            {t.category_id for t, _name in rows if t.category_id is not None},
-        )
-        account_rows, _count = await accounts_page(
-            session,
-            owner_user_id=None,
-            include_hidden=True,
-            page=1,
-            page_size=500,
-            subject_id=EVERYONE,
-        )
-        tags_by_txn = await transaction_tags(
-            session, [t.id for t, _name in rows if t.id is not None]
-        )
+        items = await transaction_rows(session, rows)
+    return {"total": total, "returned": len(items), "transactions": items}
+
+
+async def transaction_rows(
+    session: Any, rows: list[tuple[Any, str | None]]
+) -> list[dict[str, Any]]:
+    """A transaction as the agent reads it, whichever tool found it: one
+    shape, so a field added reaches every tool (``bill_id`` once reached
+    ``transactions`` and not ``ledger``, #460). ``rows`` pairs each with
+    its curated payee name, or None."""
+    category_names = await category_names_by_id(
+        session, {t.category_id for t, _name in rows if t.category_id is not None}
+    )
+    account_rows, _count = await accounts_page(
+        session,
+        owner_user_id=None,
+        include_hidden=True,
+        page=1,
+        page_size=500,
+        subject_id=EVERYONE,
+    )
     account_names = {account.id: account.name for account in account_rows}
-    return {
-        "total": total,
-        "returned": len(rows),
-        "transactions": [
-            {
-                # The id is what a transaction.categorize proposal's
-                # 'transaction_id' takes - names alone cannot propose.
-                "id": txn.id,
-                "date": txn.date_.isoformat(),
-                # Curated merchant name first - what the register shows -
-                # then the provider's merchant string, then the raw
-                # descriptor. A renamed payee that only lived in the
-                # curation layer was invisible to the assistant.
-                "payee": payee_label(curated_name, txn.merchant_name, txn.name),
-                "amount_cents": txn.amount,
-                "category": category_names.get(txn.category_id),
-                "category_id": txn.category_id,
-                # True for BOTH shapes of uncategorized: no category at
-                # all, or the import catch-all bucket ("Uncategorized",
-                # "Misc", ...). Filtering category is None alone misses
-                # the second shape - a model burned four runs on that.
-                "uncategorized": txn.category_id is None
-                or (category_names.get(txn.category_id) or "").lower()
-                in UNCATEGORIZED_CATEGORY_NAMES,
-                "account": account_names.get(txn.account_id),
-                # The label axis, orthogonal to category ("Business" on
-                # a Software row) - what tag rollups compute over.
-                "tags": sorted(t.name for t in tags_by_txn.get(txn.id, [])),
-                "pending": txn.pending,
-            }
-            for txn, curated_name in rows
-        ],
-    }
+    tags_by_txn = await transaction_tags(
+        session, [t.id for t, _name in rows if t.id is not None]
+    )
+    return [
+        {
+            # The id is what a transaction.categorize proposal's
+            # 'transaction_id' takes - names alone cannot propose.
+            "id": txn.id,
+            "date": txn.date_.isoformat(),
+            # Curated merchant name first - what the register shows -
+            # then the provider's merchant string, then the raw
+            # descriptor. A renamed payee that only lived in the
+            # curation layer was invisible to the assistant.
+            "payee": payee_label(curated_name, txn.merchant_name, txn.name),
+            "amount_cents": txn.amount,
+            "category": category_names.get(txn.category_id),
+            "category_id": txn.category_id,
+            # True for BOTH shapes of uncategorized: no category at
+            # all, or the import catch-all bucket ("Uncategorized",
+            # "Misc", ...). Filtering category is None alone misses
+            # the second shape - a model burned four runs on that.
+            "uncategorized": txn.category_id is None
+            or (category_names.get(txn.category_id) or "").lower()
+            in UNCATEGORIZED_CATEGORY_NAMES,
+            "account": account_names.get(txn.account_id),
+            # The label axis, orthogonal to category ("Business" on
+            # a Software row) - what tag rollups compute over.
+            "tags": sorted(t.name for t in tags_by_txn.get(txn.id, [])),
+            "memo": txn.memo,
+            "transfer": txn.is_transfer,
+            "pending": txn.pending,
+            # The bill (``bills``' id) the row is already matched to.
+            "bill_id": txn.recurring_stream_id,
+        }
+        for txn, curated_name in rows
+    ]
 
 
 async def quote(ticker: str) -> dict[str, Any]:
@@ -245,6 +254,7 @@ async def projection(
                 "balance_cents": p.balance,
                 "account": p.account,
                 "category": p.category,
+                "bill_id": p.stream_id,  # ``bills``' id; null for a non-bill point
             }
             for p in walk.points
         ],
@@ -266,9 +276,13 @@ async def transactions(
     magnitude (800 finds a $8.00 charge whichever way it is signed),
     ``since``/``until`` are ISO dates, ``tag`` is a tag's name (a year of
     "Tax Related" is one call). Returns 'total' (how many match) and
-    'transactions' - id, date, payee, amount_cents, category, tags,
-    account, memo, transfer - newest first, capped at ``limit``. 'tags'
-    is what the row wears now: read it before proposing a tag.
+    'transactions' - id, date, payee, amount_cents, category,
+    category_id, uncategorized (no category, or a catch-all bucket), tags,
+    account, memo, transfer, pending, bill_id - newest first, capped at
+    ``limit``.
+    'tags' is what the row wears now: read it before proposing a tag.
+    'bill_id' is the bill (``bills``' id) the row is already matched to,
+    or null.
 
     It finds every row, transfers included. ``transfer: true`` means the
     row is flagged as money between accounts: hidden from the register
@@ -284,7 +298,6 @@ async def transactions(
     two years of rows to find three. ``ledger`` is for the SHAPE of
     spending; this is for the rows.
     """
-    from app.services.finance.domains.ledger.hydrate import hydrate_transactions
     from app.services.finance.service import FinanceService
 
     def _date(raw: str | None) -> date | None:
@@ -316,38 +329,13 @@ async def transactions(
             # mortgage from her, and she called it "already" right (#278).
             include_transfers=True,
         )
-        items = await hydrate_transactions(service, rows)
-        accounts = {
-            account.id: account.name
-            for account in (
-                await accounts_page(
-                    session,
-                    owner_user_id=None,
-                    include_hidden=True,
-                    page=1,
-                    page_size=500,
-                    subject_id=EVERYONE,
-                )
-            )[0]
-        }
-    return {
-        "total": total,
-        "returned": len(items),
-        "transactions": [
-            {
-                "id": item.id,
-                "date": item.date.isoformat(),
-                "payee": item.payee,
-                "amount_cents": item.amount,
-                "category": item.category,
-                "tags": sorted(t.name for t in item.tags),
-                "account": accounts.get(item.account_id, ""),
-                "memo": item.memo,
-                "transfer": item.is_transfer,
-            }
-            for item in items
-        ],
-    }
+        payees = await service.merchant_names(
+            {t.merchant_id for t in rows if t.merchant_id is not None}
+        )
+        items = await transaction_rows(
+            session, [(t, payees.get(t.merchant_id)) for t in rows]
+        )
+    return {"total": total, "returned": len(items), "transactions": items}
 
 
 async def budget(period_month: int | None = None) -> dict[str, Any]:
