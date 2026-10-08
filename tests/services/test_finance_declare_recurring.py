@@ -811,6 +811,39 @@ class TestInterleavedAmountsSplit:
         assert len(live) == 1
         assert live[0].occurrence_count == 5
 
+    @pytest.mark.asyncio
+    async def test_a_varying_bill_whose_bands_each_look_monthly_stays_one(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The demo's PG&E as of 2026-10-08: one bill on the 8th every
+        month, its amount swinging between two bands. With October's
+        charge the dearer band (Mar, Apr, Sep, Oct) passed for monthly on
+        its own, the bill split, and the cheaper band waited for a Sep 8
+        charge its sibling had claimed - "hasn't been paid" (#440). Bands
+        that never charge in the same month are one bill varying."""
+        account = await _account(svc)
+        for m, cents in (
+            (3, -17_053),
+            (4, -15_569),
+            (5, -11_847),
+            (6, -9_888),
+            (7, -11_874),
+            (8, -11_365),
+            (9, -15_722),
+            (10, -14_838),
+        ):
+            await _txn(
+                svc, account.id, "PACIFIC GAS & ELECTRIC", date(2026, m, 8), cents
+            )
+
+        await detect_recurring(
+            async_db_session, owner_user_id=1, today=date(2026, 10, 8)
+        )
+
+        live = await _live_streams(async_db_session)
+        assert len(live) == 1
+        assert live[0].occurrence_count == 8
+
 
 class TestMultipleBillsPerPayee:
     """One payee can sell you two things. Anthropic bills a subscription

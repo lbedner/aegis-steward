@@ -287,13 +287,25 @@ def split_interleaved(
     neither: one viable band, but the whole group keeps its own clean
     rhythm and stays whole. The dominant band keeps the base key;
     members in no viable band are returned for release.
+
+    Two viable bands are two bills only when they are not the whole
+    group's own rhythm: two subscriptions charge in the same cycle, so
+    together they tick faster than either (or not at all), while one
+    bill swinging in price charges once a cycle whichever band it lands
+    in. The demo's PG&E, monthly on the 8th, split the day its dearer
+    months passed for a monthly band of their own, and the cheaper band
+    "hadn't been paid" (#440).
     """
     expanded: list[tuple[int, str, str, list[FinanceTransaction]]] = []
     released: list[FinanceTransaction] = []
     for account_id, direction, payee, members in work:
         if len(members) >= 2 * MIN_OCCURRENCES:
             bands = [b for b in _amount_bands(members) if _group_cadence(b, today)]
-            if bands and (len(bands) >= 2 or _group_cadence(members, today) is None):
+            whole = _group_cadence(members, today)
+            one_bill_varying = whole is not None and all(
+                _group_cadence(b, today) == whole for b in bands
+            )
+            if bands and ((len(bands) >= 2 and not one_bill_varying) or whole is None):
                 for index, band in enumerate(bands):
                     key = payee if index == 0 else f"{payee}{SPLIT_MARK}a{index + 1}"
                     expanded.append((account_id, direction, key, band))
