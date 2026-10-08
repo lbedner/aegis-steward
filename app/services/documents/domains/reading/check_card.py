@@ -99,9 +99,9 @@ async def check_execute(
 
 async def check_scan(
     db: AsyncSession, payload: CheckPayload, owner_user_id: int | None
-) -> str | None:
+) -> list[str]:
     """The check's own front, not the page of four it was cut from."""
-    return payload.front_key
+    return [payload.front_key]
 
 
 async def check_describe(

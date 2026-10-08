@@ -100,6 +100,8 @@ async def shelf(
                 if row.document_date
                 else None,
                 "pages": row.page_count,
+                # What it says, kept on it (#442).
+                "figures": (row.meta_data or {}).get("figures") or {},
                 "from": [
                     {"party_id": pid, "name": names.get(pid, "")} for pid in found
                 ],

@@ -43,6 +43,16 @@
   <span id="reading-progress" class="text-sm"></span>
 </div>
 
+{% set figures = (document.meta_data or {}).get("figures") or {} %}
+{% if figures %}
+{#- What the paper says, kept on it: a form's boxes as printed (issue 442),
+    to read beside the original rather than out of the raw page text. -#}
+<dl class="mb-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm" data-figures>
+  {% for label, value in figures.items() %}
+  <dt class="text-aegis-muted">{{ label }}</dt><dd class="text-aegis-text tabular-nums">{{ value }}</dd>
+  {% endfor %}
+</dl>
+{% endif %}
 {% if pages %}
 <details class="-mt-2 mb-4 group/text">
   <summary class="list-none cursor-pointer inline-flex items-center gap-1 text-xs text-aegis-muted hover:text-aegis-text transition-colors">

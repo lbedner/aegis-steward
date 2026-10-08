@@ -310,9 +310,8 @@ async def paper(document_id: int) -> dict[str, Any]:
     said nothing is never mistaken for one nobody read.
 
     Returns 'id', 'title', 'kind', 'media_type', 'page_count', 'dated',
-    'read', 'reading' (the job id, only while it is still on the worker)
-    and 'text' - the pages in order, each under a '--- page N ---'
-    heading.
+    'read', 'reading' (the job id, only while still on the worker), 'text'
+    (each page under '--- page N ---') and 'figures' kept on it.
     """
     async with get_async_session() as db:
         document = await DocumentService(db).get(document_id)
@@ -337,6 +336,7 @@ async def paper(document_id: int) -> dict[str, Any]:
         "read": bool(text),
         "reading": reading,
         "text": text or "",
+        "figures": (document.meta_data or {}).get("figures") or {},
     }
 
 

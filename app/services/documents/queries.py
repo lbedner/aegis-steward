@@ -251,6 +251,22 @@ async def pages_for(db: AsyncSession, document_id: int) -> list[DocumentPage]:
     return list(rows)
 
 
+async def first_pages(
+    db: AsyncSession, document_ids: list[int]
+) -> dict[int, DocumentPage]:
+    """Page 1 of each document, in one query: a photo's one page, as it
+    was read, for the document it becomes a page of (#439)."""
+    if not document_ids:
+        return {}
+    rows = await db.exec(
+        select(DocumentPage).where(
+            col(DocumentPage.document_id).in_(document_ids),
+            DocumentPage.page_number == 1,
+        )
+    )
+    return {row.document_id: row for row in rows.all()}
+
+
 async def page_for(
     db: AsyncSession, document_id: int, page_number: int
 ) -> DocumentPage | None:

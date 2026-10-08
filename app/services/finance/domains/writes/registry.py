@@ -56,9 +56,10 @@ class ChangeExecutor:
     # and row are the card's own, its payee is not (#420). Empty: every
     # text field.
     edits: tuple[str, ...] = ()
-    # Where the picture a card shows lives (a storage key), for a type
-    # whose display marks a row ``scan``; None when it has none.
-    scan: Callable[[AsyncSession, Any, int | None], Awaitable[str | None]] | None = None
+    # Where the pictures a card shows live (storage keys, in the order its
+    # display marks rows ``scan``): a check's front, a photo, a combined
+    # document's pages (#439). None for a type that pictures nothing.
+    scan: Callable[[AsyncSession, Any, int | None], Awaitable[list[str]]] | None = None
 
 
 _EXECUTORS: dict[str, ChangeExecutor] = {}

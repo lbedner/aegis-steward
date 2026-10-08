@@ -50,6 +50,22 @@ def check_fields(fields: dict[str, Any]) -> None:
         )
 
 
+# A form's figures as printed: "box 1 nonemployee compensation" ->
+# "$86,380.00" (#442). Bounded, because they ride every listing of it.
+MAX_FIGURES = 40
+
+
+def check_figures(figures: dict[str, str]) -> None:
+    """Each figure a label and a value, and not a page of them."""
+    if len(figures) > MAX_FIGURES:
+        raise ValueError(f"At most {MAX_FIGURES} figures on one document.")
+    for label, value in figures.items():
+        if not label.strip() or not str(value).strip():
+            raise ValueError("Each figure needs a label and a value.")
+        if len(label) > 80 or len(str(value)) > 200:
+            raise ValueError(f"The figure {label[:40]!r} is too long to be one.")
+
+
 _EDITABLE = frozenset(
     {
         "title",
@@ -327,6 +343,21 @@ class DocumentService:
 
     async def tags_for(self, document_id: int) -> list[str]:
         return await queries.tags_for(self.db, document_id)
+
+    async def add_figures(self, document_id: int, figures: dict[str, str]) -> None:
+        """What the paper says, kept on it (#442): the figures read off a
+        form, beside any it has, a label read again replacing its value."""
+        check_figures(figures)
+        document = await self.get(document_id)
+        if document is None or not figures:
+            return
+        kept = dict((document.meta_data or {}).get("figures") or {})
+        document.meta_data = {
+            **(document.meta_data or {}),
+            "figures": {**kept, **figures},
+        }
+        self.db.add(document)
+        await self.db.flush()
 
     async def soft_delete(
         self,

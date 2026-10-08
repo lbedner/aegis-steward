@@ -80,8 +80,8 @@ class PendingChangeResponse(BaseModel):
     note: str | None = None
     # The reader may put their own words on it before approving.
     editable: bool = False
-    # A row of it is pictured (``ChangeDisplayRow.scan``).
-    scan: bool = False
+    # How many of its rows are pictured (``ChangeDisplayRow.scan``).
+    scans: int = 0
     created_at: datetime
     resolved_at: datetime | None
 
@@ -112,7 +112,7 @@ class PendingChangeResponse(BaseModel):
             error=(row.result or {}).get("error"),
             note=(row.result or {}).get("note"),
             editable=editable,
-            scan=any(line.scan for line in display),
+            scans=sum(1 for line in display if line.scan),
             created_at=row.created_at,
             resolved_at=row.resolved_at,
         )

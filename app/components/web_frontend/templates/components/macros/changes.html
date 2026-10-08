@@ -77,12 +77,17 @@
   {% for row in rows[1:] %}{{ fact_row(row) }}{% endfor %}
 </ul>
 {% endif %}
-{% if change.scan %}
-{#- A card that carries its own scan (a check's front, issue 420) shows
-    that, not the page of four it was cut from. -#}
-<img data-scan loading="lazy" width="1800" height="830" src="/review/changes/{{ change.id }}/scan"
-     alt="The scan this card files"
-     class="mt-2 w-full max-h-40 object-contain object-left rounded border border-aegis-border bg-aegis-bg">
+{% if change.scans %}
+{#- A card that carries its own pictures shows them, not the page they
+    were cut from: a check's front (issue 420), a photo (issue 430), each
+    page of a combined document in order (issue 439). -#}
+<div class="mt-2 flex flex-wrap gap-2">
+  {% for n in range(change.scans) %}
+  <img data-scan loading="lazy" width="1800" height="830" src="/review/changes/{{ change.id }}/scan{%- if n -%}?page={{ n }}{%- endif -%}"
+       alt="Picture {{ n + 1 }} of {{ change.scans }} this card files"
+       class="{{ 'w-full' if change.scans == 1 else 'w-36' }} max-h-40 object-contain object-left rounded border border-aegis-border bg-aegis-bg">
+  {% endfor %}
+</div>
 {% else %}
 {{ cited_page(rows) }}
 {% endif %}

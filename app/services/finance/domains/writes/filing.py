@@ -39,14 +39,17 @@ class FileDocumentPayload(BaseModel):
     kind: str | None = None
     form_type: str | None = None
     tax_year: int | None = None
+    # What it SAYS, as printed: "box 1 interest income" -> "$127.78" (#442).
+    figures: dict[str, str] = {}
 
     @model_validator(mode="after")
     def _named_as_a_document_can_be(self) -> FileDocumentPayload:
-        from app.services.documents.service import check_fields
+        from app.services.documents.service import check_fields, check_figures
 
         if self.form_type and not self.kind:
             self.kind = "tax"  # a form type is tax paper
         check_fields(self.naming())
+        check_figures(self.figures)
         return self
 
     def naming(self) -> dict[str, Any]:
@@ -123,7 +126,7 @@ async def place(
     return matter_tag(matter.id), matter.title
 
 
-async def _entry(
+async def chat_entry(
     db: AsyncSession, paste_id: str, owner_user_id: int | None
 ) -> dict[str, Any] | None:
     """The user's index entry a paste id names: a read document, or a
@@ -146,7 +149,7 @@ async def filed_document(
     db: AsyncSession, paste_id: str, owner_user_id: int | None
 ) -> tuple[int, str] | None:
     """The read document a paste id names, as (id, title), or None."""
-    entry = await _entry(db, paste_id, owner_user_id)
+    entry = await chat_entry(db, paste_id, owner_user_id)
     if entry is None or not entry.get("document_id"):
         return None
     return int(entry["document_id"]), str(entry.get("title") or "document")
@@ -191,7 +194,7 @@ async def file_document_execute(
         matter_id=payload.matter_id,
         transaction_id=payload.transaction_id,
     )
-    entry = await _entry(db, payload.paste_id, owner_user_id)
+    entry = await chat_entry(db, payload.paste_id, owner_user_id)
     if entry is None:
         raise ValueError(
             f"{payload.paste_id!r} is not an attached document or photo. Only a "
@@ -206,6 +209,7 @@ async def file_document_execute(
     await DocumentService(db).tag(document_id, tag)
     if payload.naming():
         await DocumentService(db).update(document_id, payload.naming())
+    await DocumentService(db).add_figures(document_id, payload.figures)
     await db.flush()
     # A photo just made a document is read once the approval commits.
     return {"document_id": document_id, "filed_under": tag, "read": made}
@@ -236,7 +240,7 @@ async def file_document_describe(
         )
     except ValueError as exc:
         name = str(exc)
-    found = await _entry(db, payload.paste_id, owner_user_id)
+    found = await chat_entry(db, payload.paste_id, owner_user_id)
     said = (
         str(found.get("title") or "document") if found else f"paste {payload.paste_id}"
     )
@@ -244,16 +248,24 @@ async def file_document_describe(
         ChangeDisplayRow(
             label="Document",
             value=f"{said} → {payload.title}" if payload.title else said,
-            scan=_photo_key(found) is not None,
+            scan=photo_key(found) is not None,
         ),
         ChangeDisplayRow(label="File under", value=name),
     ]
     if what := [str(v) for k, v in payload.naming().items() if k != "title"]:
         rows.append(ChangeDisplayRow(label="Is", value=" · ".join(what)))
-    return rows
+    return rows + figure_rows(payload.figures)
 
 
-def _photo_key(entry: dict[str, Any] | None) -> str | None:
+def figure_rows(figures: dict[str, str]) -> list[ChangeDisplayRow]:
+    """A form's figures on its card, each as printed, to check against
+    the photo before they are kept (#442)."""
+    return [
+        ChangeDisplayRow(label=label, value=value) for label, value in figures.items()
+    ]
+
+
+def photo_key(entry: dict[str, Any] | None) -> str | None:
     """A photo kept from chat, not yet a document: its bytes in the store."""
     if (
         entry
@@ -266,6 +278,7 @@ def _photo_key(entry: dict[str, Any] | None) -> str | None:
 
 async def file_document_scan(
     db: AsyncSession, payload: FileDocumentPayload, owner_user_id: int | None
-) -> str | None:
+) -> list[str]:
     """The photo the card files, so the card shows it (#430)."""
-    return _photo_key(await _entry(db, payload.paste_id, owner_user_id))
+    key = photo_key(await chat_entry(db, payload.paste_id, owner_user_id))
+    return [key] if key else []

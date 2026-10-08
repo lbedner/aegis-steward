@@ -70,7 +70,7 @@ class TestTheCardSaysWhatItIs:
         assert document.value == "IMG_6611.jpeg → Citizens Bank 1099-INT, 2025"
         assert document.scan is True
         assert {r.label: r.value for r in rows}["Is"] == "tax · 1099-INT · 2025"
-        assert await file_document_scan(async_db_session, payload, None) == key
+        assert await file_document_scan(async_db_session, payload, None) == [key]
 
     @pytest.mark.asyncio
     async def test_approving_files_it_under_its_name(
@@ -123,3 +123,40 @@ def test_the_prompt_names_paper_by_what_it_is() -> None:
     assert "NEVER by its file name" in prompt
     assert "documents(matter_id=...)" in prompt
     assert '"tax_year"' in prompt  # document.file names what it files
+    assert "document.combine" in prompt  # pages of one paper are one document
+    assert "papers, never photos" in prompt
+    assert '"figures"' in prompt  # a form's boxes go on the card that files it
+
+
+class TestTheFiguresStayWithTheForm:
+    """The 1099-NEC's $86,380.00 lived only in her readings, which keep
+    the newest eight and belong to no document (#442)."""
+
+    FIGURES = {
+        "box 1 interest income": "$127.78",
+        "payer": "Citizens Bank N.A.",
+    }
+
+    @pytest.mark.asyncio
+    async def test_filing_a_form_saves_what_it_says(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        from app.services.documents.service import DocumentService
+
+        paste_id, _key, matter_id = await _photo(async_db_session)
+        payload = _named(paste_id, matter_id, figures=self.FIGURES)
+
+        said = {
+            r.label: r.value
+            for r in await file_document_describe(async_db_session, payload, None)
+        }
+        result = await file_document_execute(async_db_session, payload, None)
+
+        assert said["box 1 interest income"] == "$127.78"
+        document = await DocumentService(async_db_session).get(result["document_id"])
+        assert document is not None
+        assert document.meta_data["figures"] == self.FIGURES
+
+    def test_a_figure_is_a_label_and_a_value(self) -> None:
+        with pytest.raises(ValidationError, match="figure"):
+            _named("p", 1, figures={"": "$1.00"})
