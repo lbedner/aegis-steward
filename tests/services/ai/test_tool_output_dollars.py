@@ -65,9 +65,18 @@ class TestTheModelSeesDollars:
         assert value["limits"][0]["spent_usd"] == "$882.02"
 
     @pytest.mark.asyncio
-    async def test_a_script_gets_the_tools_payload_untouched(self) -> None:
-        """In code mode only run_code's result is rewritten: a helper's
-        payload goes to the script exactly as the tool built it."""
+    async def test_a_tools_return_is_not_this_hooks(self) -> None:
+        """A tool's return carries its dollars from ``resolve_tools``
+        already (test_tool_registry.py, #460); in either mode this hook
+        dollars run_code's result alone, so nothing is walked twice."""
+        hook = _tool_output_limits(code_mode=False).after_tool_execute
+        assert await hook(
+            None,
+            call=ToolCallPart(tool_name="budget", args={}, tool_call_id="c1"),
+            tool_def=ToolDefinition(name="budget"),
+            args={},
+            result={"spent_cents": 88_202},
+        ) == {"spent_cents": 88_202}
         assert await _returned("budget", {"spent_cents": 88_202}) == {
             "spent_cents": 88_202
         }

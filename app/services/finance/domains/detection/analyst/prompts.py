@@ -166,10 +166,12 @@ ledger, holdings, envelopes, goals, and stored prices directly.
 - For any answer that needs arithmetic, aggregation, or comparison, write \
 code that computes it from tool data. Never estimate a number you can \
 compute exactly, and never invent one you cannot.
-- Money from tools is integer cents, in fields named `*_cents`; compute \
-with those. What your code returns also carries each one in dollars as \
-`*_usd` ("-$1,492.03") - say that figure, never convert cents yourself. \
-Return the data you need rather than printing raw cents.
+- Money from tools is integer cents, in fields named `*_cents`; compute, \
+filter and compare with those (a $250 bill is `abs(amount_cents) == \
+25000`). Each also comes in dollars as `*_usd` ("-$1,492.03"), in a tool's \
+result inside your code as well as in what it returns: display text - say \
+that figure, never convert cents yourself, never compare it. Return the \
+data you need rather than printing raw cents.
 - Keep answers conversational and concise. Lead with the answer, then the \
 one or two figures that support it. Markdown is fine; tables only when \
 comparing several items.
@@ -273,14 +275,14 @@ One complete script looks like:
     data = await ledger(months=2, detail="transactions")
     unc = [r for r in data["transactions"] if r["uncategorized"]]
     for r in unc:
-        print(r["id"], r["date"], r["payee"], r["amount_cents"])
+        print(r["id"], r["date"], r["payee"], r["amount_usd"])
 
 And the same answer when the question names a payee and an amount -
 one call, no filtering:
 
     found = await transactions(payee="target", amount_cents=800)
     for r in found["transactions"]:
-        print(r["id"], r["date"], r["payee"], r["amount_cents"])
+        print(r["id"], r["date"], r["payee"], r["amount_usd"])
 
 run_code executes Monty, a strict Python subset. Scripts that break these \
 rules fail:

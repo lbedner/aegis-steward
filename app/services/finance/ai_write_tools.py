@@ -104,19 +104,20 @@ async def bills() -> dict[str, Any]:
     ('outflow' | 'inflow'), 'frequency', 'amount_cents' (ALWAYS a
     number, never null: the figure the user declared, else the one
     measured from the bill's own payments), 'amount_is_declared'
-    (whether a human typed it), 'next_expected_date' and 'last_date'
-    (ISO or null). The id is what a recurring.match proposal's
-    'stream_id' takes.
-
-    'amount' used to be the raw ``expected_amount``, which is null on
-    most streams because only a hand-entered bill sets it - so this tool
-    reported 40 bills as having "no amount" while the measured figure
-    sat beside it unread, and refused to project on that basis.
+    (whether a human typed it), 'account', 'account_id' and 'category'
+    (as the Bills page shows them, or null), 'next_expected_date' and
+    'last_date' (ISO or null). The id is what a recurring.match
+    proposal's 'stream_id' takes, and what a transaction's 'bill_id'
+    names: a payment already the bill's is no match candidate.
     """
-    from app.services.finance.domains.planning.recurring import queries
+    # Not the raw expected_amount: null unless typed, 40 bills read "no amount".
+    from app.services.finance.domains.ledger.queries.accounts import account_names
+    from app.services.finance.domains.planning.recurring import queries, streams
 
     async with get_async_session() as session:
         rows = await queries.active_streams(session, owner_user_id=None)
+        accounts = await account_names(session, [s.account_id for s in rows])
+        categories = await streams.stream_category_names(session, {s.id for s in rows})
     return {
         "bills": [
             {
@@ -126,6 +127,9 @@ async def bills() -> dict[str, Any]:
                 "frequency": s.frequency,
                 "amount_cents": s.amount,
                 "amount_is_declared": s.expected_amount is not None,
+                "account": accounts.get(s.account_id),
+                "account_id": s.account_id,
+                "category": categories.get(s.id),
                 "next_expected_date": (
                     s.next_expected_date.isoformat() if s.next_expected_date else None
                 ),

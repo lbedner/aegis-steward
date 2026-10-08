@@ -358,6 +358,8 @@ class TestTheSettings:
         assert _model_settings("openai:gpt-realtime-2.1", "cedar", 1200) == {
             "openai_voice": "cedar",
             "input_transcription_model": INPUT_TRANSCRIPTION,
+            "openai_input_noise_reduction": "far_field",
+            "openai_turn_detection": {"type": "semantic_vad", "eagerness": "low"},
             "max_tokens": 1200,
         }
 
@@ -368,7 +370,11 @@ class TestTheSettings:
 
         assert _model_settings("google:gemini-3.8-live", "cedar", 1200) == {
             "max_tokens": 1200,
-            "google_vad": {"start_sensitivity": "low", "end_sensitivity": "high"},
+            "google_vad": {
+                "start_sensitivity": "low",
+                "end_sensitivity": "high",
+                "silence_duration_ms": 800,  # a pause mid-thought (#458)
+            },
         }
 
     def test_gpt_live_through_pydantic_ai_is_told_how_to_speak(self) -> None:
@@ -390,7 +396,7 @@ class TestTheSettings:
         from app.services.ai.domains.voice.realtime_calls import _model_settings
 
         vad = _model_settings("google:gemini-3.8-live", None, None)["google_vad"]
-        assert vad == {"start_sensitivity": "low", "end_sensitivity": "high"}
+        assert (vad["start_sensitivity"], vad["end_sensitivity"]) == ("low", "high")
 
 
 class TestDrivingACall:

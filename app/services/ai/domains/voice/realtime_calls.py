@@ -178,13 +178,25 @@ def _model_settings(
                 settings["openai_live_instructions"] = instructions
             return settings
         settings["input_transcription_model"] = INPUT_TRANSCRIPTION
+        # Her turn was taken by sounds (#458): a laptop's keys and room set
+        # off the default detector, and she answered them with "what's
+        # next?" and cut in on a pause mid-thought. Noise filtered for a
+        # laptop mic, and a turn that ends when the thought does.
+        settings["openai_input_noise_reduction"] = "far_field"
+        settings["openai_turn_detection"] = {"type": "semantic_vad", "eagerness": "low"}
     if model.startswith("google:"):
         # A TV in the room held Gemini's turn open: its default detector
         # heard "speech", never decided you had finished, and never
         # answered until you hung up (2026-09-30). Stricter about what
         # STARTS a turn (background talk is quieter than you), quicker to
-        # END one.
-        settings["google_vad"] = {"start_sensitivity": "low", "end_sensitivity": "high"}
+        # END one - but not on a breath mid-thought (#458): Google's advice
+        # against cutting in is 500-800ms of silence. Gemini has no noise
+        # filter to set; the strict start is its defence against noise.
+        settings["google_vad"] = {
+            "start_sensitivity": "low",
+            "end_sensitivity": "high",
+            "silence_duration_ms": 800,
+        }
     if max_output_tokens:
         settings["max_tokens"] = max_output_tokens
     return settings

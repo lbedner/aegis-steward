@@ -264,11 +264,14 @@ class TestHerModel:
 
 class TestHangingUp:
     """Minutes cost money: the call ends on its own when the conversation
-    is over (her sign-off) or after the profile's seconds of dead air."""
+    is over (her sign-off), or when it stays quiet after she checks in
+    (#458)."""
 
     def test_her_instructions_end_on_the_sign_off_the_page_listens_for(
         self, client: TestClient
     ) -> None:
+        import json
+
         assert chat_live.LIVE_SIGN_OFF in FINANCE_LIVE_INSTRUCTIONS
         button = one(client.get("/chat").text, "button#chat-live")
         assert button.get("data-sign-off") == chat_live.LIVE_SIGN_OFF
@@ -279,8 +282,10 @@ class TestHangingUp:
         assert button.get("data-not-heard") == chat_live.LIVE_NOT_HEARD
         # She opens the call: a cue, not a script, so the words vary.
         assert button.get("data-greeting") == chat_live.LIVE_GREETING
+        # What she says into the quiet: the server's lines (#458).
+        assert json.loads(button.get("data-cues") or "{}") == chat_live.LIVE_CUES
 
-    def test_the_dead_air_limit_rides_with_how_she_is_heard(
+    def test_the_quiet_limit_rides_with_how_she_is_heard(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import json
@@ -454,6 +459,9 @@ class TestTheCallBar:
         one(page, "#chat-call [data-call-cost]")
         one(page, "#chat-call [data-call-engine]")
         one(page, "template#chat-mic-states [data-state=muted]")
+        # The quiet, counted down to the hang-up on the status line, which
+        # has the width the call bar has not in the drawer (#458).
+        one(page, "template#chat-mic-states [data-state=hanging-up] [data-countdown]")
 
     def test_gpt_live_says_its_rate(self, client: TestClient, live: _Live) -> None:
         body = client.post(SESSIONS, json={"sdp": "v=0 offer"}).json()
@@ -495,6 +503,7 @@ class TestTheRelay:
         from pydantic_ai.messages import (
             FunctionToolCallEvent,
             PartEndEvent,
+            PartStartEvent,
             RealtimeTurnCompleteEvent,
             SpeechPart,
             ToolCallPart,
@@ -506,6 +515,7 @@ class TestTheRelay:
 
         fake = FakeRealtime(
             [
+                PartStartEvent(index=0, part=SpeechPart(speaker="user", transcript="")),
                 PartEndEvent(
                     index=0, part=SpeechPart(speaker="user", transcript="Hi there")
                 ),
@@ -576,6 +586,9 @@ class TestTheRelay:
         assert heard == [VOICE]  # her voice, as the model spoke it
         assert gemini.live.audio == [b"\x10\x20"]  # yours, as the page sent it
         assert gemini.live.sent == [chat_live.LIVE_GREETING]  # she speaks first
+        # you were heard from your first word to your last: no quiet
+        # counts in between (#458)
+        assert told[0] == {"type": "hearing"}
         said = [t["text"] for t in told if t["type"] == "said"]
         assert said == ["Hello! Talk soon."]
         # each step as it runs, labelled as the thread's trail labels it
@@ -598,6 +611,17 @@ class TestTheRelay:
         )
 
         assert response.json()["greeting"] == chat_live.LIVE_CONTINUE
+
+    def test_the_page_cues_her_check_in_and_goodbye(
+        self, client: TestClient, gemini: Any
+    ) -> None:
+        """#458: the page counts the quiet; she says the server's lines."""
+        with client.websocket_connect(chat_live.RELAY) as ws:
+            ws.receive_json()
+            ws.send_json({"type": "cue", "line": "check_in"})
+            ws.send_json({"type": "cue", "line": "goodbye"})
+            ws.send_json({"type": "cue", "line": "anything else"})  # not hers
+        assert gemini.live.sent[1:] == [chat_live.LIVE_CHECK_IN, chat_live.LIVE_GOODBYE]
 
     def test_a_dropped_call_picks_up_where_it_stopped(
         self, client: TestClient, gemini: Any, monkeypatch: pytest.MonkeyPatch

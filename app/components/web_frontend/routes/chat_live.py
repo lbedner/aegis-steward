@@ -12,6 +12,7 @@ GPT-Live should say.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, WebSocket
@@ -19,6 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     PartEndEvent,
+    PartStartEvent,
     RealtimeResponseInterruptedEvent,
     RealtimeTurnCompleteEvent,
     SpeechPart,
@@ -99,6 +101,19 @@ LIVE_RESUME = (
     "then pick that answer up."
 )
 
+# Her lines into the quiet; the page counts it (call-state.js, #458).
+# Cues, not scripts, so the words vary.
+# The check-in is a question they can tell apart: "I'm ready when you
+# are" went unnoticed as one.
+LIVE_CHECK_IN = (
+    'It has gone quiet on the call. Ask them "Are you still there?" and nothing else.'
+)
+LIVE_GOODBYE = (
+    "It is still quiet; they seem to have stepped away. Say a short goodbye "
+    "and end the call."
+)
+LIVE_CUES = {"check_in": LIVE_CHECK_IN, "goodbye": LIVE_GOODBYE}
+
 
 def _opening(conversation: Any) -> str:
     """How she opens the call: picking up a dropped one, carrying on a
@@ -118,6 +133,7 @@ templates.env.globals["live_lines"] = {
     "sorry": LIVE_SORRY,
     "not_heard": LIVE_NOT_HEARD,
     "greeting": LIVE_GREETING,
+    "cues": LIVE_CUES,
 }
 
 
@@ -333,6 +349,14 @@ async def _tell(ws: WebSocket, event: Any) -> None:
             said = {"type": "working", "label": trace_label(step[0])}
     elif isinstance(event, RealtimeTurnCompleteEvent):
         said = {"type": "done"}
+    elif (
+        isinstance(event, PartStartEvent)
+        and isinstance(event.part, SpeechPart)
+        and event.part.speaker == "user"
+    ):
+        # Gemini reports no speech onset; your first transcribed words are
+        # it, and "heard" is the end (#458).
+        said = {"type": "hearing"}
     elif isinstance(event, PartEndEvent) and isinstance(event.part, SpeechPart):
         side = "heard" if event.part.speaker == "user" else "said"
         said = {"type": side, "text": event.part.transcript or ""}
@@ -385,6 +409,11 @@ async def _carry(
                 break
             if message.get("bytes"):
                 await session.send_audio(message["bytes"])
+            elif message.get("text"):
+                # The page's cue into the quiet: only lines of hers.
+                line = LIVE_CUES.get(json.loads(message["text"]).get("line"))
+                if line:
+                    await session.send(line)
     finally:
         voice.cancel()
         await session.close()
