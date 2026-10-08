@@ -143,9 +143,9 @@ class TestOpeningASession:
 
 
 class TestDoingTheWork:
-    """A delegated turn is a typed turn: the same stream, so what it keeps
-    (tool trace, model, cost) is what the thread draws its trail, cards
-    and footer from. ``chat()`` kept none of it (2026-09-25)."""
+    """A delegated turn is a typed turn: ``chat()`` runs the one stream
+    (#455), so what it keeps (tool trace, model, cost) is what the thread
+    draws its trail, cards and footer from."""
 
     @staticmethod
     def _answers(
@@ -161,8 +161,12 @@ class TestDoingTheWork:
             yield StreamingMessage(
                 content=content,
                 is_final=True,
+                message_id="m-9",
                 conversation_id="c-9",
-                metadata={"tool_trace": [{"tool": "run_code"}]},
+                metadata={
+                    "conversation_id": "c-9",
+                    "tool_trace": [{"tool": "run_code"}],
+                },
             )
 
         monkeypatch.setattr(ai_service, "stream_chat", _stream)

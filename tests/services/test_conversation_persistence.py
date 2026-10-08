@@ -8,7 +8,7 @@ conversation memory works correctly for both streaming and non-streaming modes.
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 import uuid
 
 import pytest
@@ -54,11 +54,6 @@ def _no_user_memory_db(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # raising=False: the memory backend ships without the user-memory block.
     monkeypatch.setattr(
-        "app.services.ai.service.chat.build_user_memory_context",
-        no_memory,
-        raising=False,
-    )
-    monkeypatch.setattr(
         "app.services.ai.service.streaming.build_user_memory_context",
         no_memory,
         raising=False,
@@ -99,9 +94,12 @@ def _fake_runtime(reply: str) -> Iterator[None]:
         mock_config.return_value.enabled = True
         mock_config.return_value.provider = AIProvider.OPENAI
         mock_config.return_value.model = "gpt-4"
-        agent = AsyncMock()
-        agent.run = AsyncMock(return_value=MagicMock(output=reply))
-        runtime.return_value = agent
+        # A real agent on pydantic-ai's test model: a turn streams the way
+        # a provider's does, whichever entry point asked for it (#455).
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+
+        runtime.return_value = Agent(TestModel(custom_output_text=reply))
         yield
 
 

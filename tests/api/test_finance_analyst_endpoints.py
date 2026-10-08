@@ -13,7 +13,6 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.chat import module_context
-from app.services.ai.domains.chat.agent_loader import invalidate_agent_cache
 from app.services.finance.domains.detection import analyst
 from app.services.finance.models import FinanceInsight
 from app.services.finance.service import FinanceService
@@ -24,11 +23,7 @@ RUN_URL = "/api/v1/finance/analyst/run"
 INSIGHTS_URL = "/api/v1/finance/insights"
 
 
-@pytest.fixture(autouse=True)
-def _clean_agent_cache():
-    invalidate_agent_cache()
-    yield
-    invalidate_agent_cache()
+pytestmark = pytest.mark.usefixtures("clean_agent_cache")
 
 
 @pytest.fixture

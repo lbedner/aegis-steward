@@ -7,8 +7,8 @@ layer may call the ones beneath it:
       └─ UsageMixin      token extraction, pricing, usage rollups
          └─ ContextsMixin   health/usage/catalog context builders
             └─ PromptMixin    persona overlay + per-request runtime construction
-               └─ ChatMixin      the non-streaming turn
-                  └─ StreamingMixin  the streaming turn
+               └─ ChatMixin      conversation setup/teardown
+                  └─ StreamingMixin  the turn: stream_chat, and chat draining it
                      └─ VoiceMixin     empty (voice off)
     StatusMixin          conversations, status, validation (base only)
 

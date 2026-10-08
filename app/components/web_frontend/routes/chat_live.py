@@ -431,28 +431,23 @@ async def billed(report: Billed) -> Response:
 @router.post(DELEGATIONS, include_in_schema=False)
 async def delegate(said: Said) -> Response:
     """Her voice agent's turn on what was said, as what GPT-Live says back.
-    Run through the typed turn's stream, drained: ``chat()`` keeps no tool
-    trace, model or cost, and the thread draws the trail, the approval
-    cards and the footer from those. A failure is still something to say:
-    the session stays up."""
-    final = None
+    The typed turn (#455): it keeps the tool trace, model and cost the
+    thread draws the trail, the approval cards and the footer from. A
+    failure is still something to say: the session stays up."""
     try:
-        async for frame in ai_service.stream_chat(
+        reply = await ai_service.chat(
             message=said.text,
             conversation_id=said.conversation_id,
             user_id=STANDALONE_USER_ID,
             agent_slug=FINANCE_VOICE_AGENT_SLUG,
             surface=SURFACE,
-        ):
-            if frame.is_final:
-                final = frame
+        )
     except Exception:
         logger.exception("A live delegation failed")
-    if final is None:
         return JSONResponse({"speak": LIVE_SORRY, "conversation_id": None})
     return JSONResponse(
         {
-            "speak": to_spoken(readable(final.content), LIVE_ANSWER_CHARS),
-            "conversation_id": final.conversation_id,
+            "speak": to_spoken(readable(reply.content), LIVE_ANSWER_CHARS),
+            "conversation_id": reply.metadata.get("conversation_id"),
         }
     )

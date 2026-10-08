@@ -1,8 +1,6 @@
-"""The streaming chat entrypoint.
-
-Same turn shape as ``chat()`` one file over, but yielding
-``StreamingMessage`` chunks as the model produces them, with usage
-captured after the stream drains.
+"""The chat turn: ``stream_chat()`` yields ``StreamingMessage`` chunks as
+the model produces them, with usage captured after the stream drains;
+``chat()`` runs the same turn to its end and returns the reply (#455).
 """
 
 from collections.abc import AsyncIterator
@@ -44,6 +42,7 @@ from app.services.ai.domains.chat.user_memory import (
 )
 from app.services.ai.domains.llm.providers import ProviderNotInstalledError
 from app.services.ai.models import (
+    ConversationMessage,
     MessageRole,
     StreamingConversation,
     StreamingMessage,
@@ -82,6 +81,59 @@ class StreamingMixin(ChatMixin):
             message_id=message_id,
             conversation_id=conversation_id,
             metadata={"event": "tool", "tool": tool_name, "args": args},
+        )
+
+    async def chat(
+        self,
+        message: str,
+        conversation_id: str | None = None,
+        user_id: str = "default",
+        agent_slug: str | None = None,
+        surface: str | None = None,
+        attachments: list[ChatAttachment] | None = None,
+    ) -> ConversationMessage:
+        """
+        Send a chat message and get AI response.
+
+        Args:
+            message: The user's message
+            conversation_id: Optional conversation ID (creates new if None)
+            user_id: User identifier for conversation ownership
+            agent_slug: Agent row to speak as (None = the default agent)
+            surface: Originating chat surface, recorded on new
+                conversations so each embedded chat lists only its own
+                history
+            attachments: Image parts riding this turn (screenshots,
+                receipts); the model sees them alongside the message
+
+        Returns:
+            ConversationMessage: The AI's response message
+
+        Raises:
+            AIServiceError: If service is disabled or not configured
+            ProviderError: If AI provider fails
+            ConversationError: If conversation management fails
+        """
+        # One path (#455): the streamed turn, run to its end.
+        final: StreamingMessage | None = None
+        async for frame in self.stream_chat(
+            message=message,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            agent_slug=agent_slug,
+            surface=surface,
+            attachments=attachments,
+        ):
+            if frame.is_final:
+                final = frame
+        if final is None or final.message_id is None:
+            raise AIServiceError("The turn ended without a reply.")
+        return ConversationMessage(
+            id=final.message_id,
+            role=MessageRole.ASSISTANT,
+            content=final.content,
+            timestamp=final.timestamp,
+            metadata=final.metadata,
         )
 
     async def stream_chat(
@@ -279,18 +331,9 @@ class StreamingMixin(ChatMixin):
                                 )
                             continue
                         elif isinstance(event, AgentRunResultEvent):
-                            usage_obj = event.result.usage
-                            if usage_obj:
-                                stream_usage = {
-                                    "input_tokens": getattr(
-                                        usage_obj, "input_tokens", 0
-                                    )
-                                    or 0,
-                                    "output_tokens": getattr(
-                                        usage_obj, "output_tokens", 0
-                                    )
-                                    or 0,
-                                }
+                            # The shared extractor: cache-read and
+                            # cache-write tokens ride along for pricing.
+                            stream_usage = self._extract_usage(event.result)
 
                         if not text_chunk:
                             continue
@@ -323,10 +366,23 @@ class StreamingMixin(ChatMixin):
                 MessageRole.ASSISTANT, final_content, message_id=message_id
             )
 
-            # Calculate cost for status line
             input_tokens = stream_usage.get("input_tokens", 0)
             output_tokens = stream_usage.get("output_tokens", 0)
-            cost = await self.calculate_cost(input_tokens, output_tokens)
+            # The model that answered: an agent's pin, else the global. It
+            # is what the turn is priced at and what the message reports.
+            answered_by = (
+                agent_config.model_id
+                if agent_config is not None and agent_config.model_id
+                else current.model
+            )
+            # One price lookup: the ledger row's cost is the message's.
+            cost = await self._record_usage(
+                f"chat:{agent_config.slug}",
+                stream_usage,
+                user_id,
+                conversation_id=conversation.id,
+                model=answered_by,
+            )
 
             # Calculate TPS (tokens per second) for performance metrics
             # This is especially useful for Ollama but works for all providers
@@ -336,16 +392,11 @@ class StreamingMixin(ChatMixin):
 
             # One metadata dict: what the final frame reports is what the
             # message keeps, so a conversation reopened from history shows
-            # the same model, cost and trace the live turn did. The model
-            # is the one that answered: an agent's pin, else the global.
+            # the same model, cost and trace the live turn did.
             final_metadata: dict[str, Any] = {
                 "conversation_id": conversation.id,
                 "provider": current.provider,
-                "model": (
-                    agent_config.model_id
-                    if agent_config is not None and agent_config.model_id
-                    else current.model
-                ),
+                "model": answered_by,
                 "response_time_ms": response_time_ms,
                 "stream_complete": True,
                 # Token usage and cost for CLI status line
@@ -361,14 +412,6 @@ class StreamingMixin(ChatMixin):
                 final_metadata["tool_trace"] = tool_trace
             ai_message.metadata.update(final_metadata)
 
-            # Record usage tracking (PydanticAI provides streaming usage)
-            await self._record_usage(
-                f"stream_chat:{agent_config.slug}",
-                stream_usage,
-                user_id,
-                conversation_id=conversation.id,
-            )
-
             # Extractions recorded mid-run outlive the image AND the
             # thread: they belong to the user, so a new conversation
             # opens still holding them.
@@ -376,11 +419,7 @@ class StreamingMixin(ChatMixin):
                 user_id, staged_readings, legacy=conversation.metadata.get("readings")
             )
             # Finalize conversation (update metadata and save)
-            await self._finalize_conversation(
-                conversation,
-                response_time_ms,
-                is_streaming=True,
-            )
+            await self._finalize_conversation(conversation, response_time_ms)
 
             # Yield final streaming message
             yield StreamingMessage(

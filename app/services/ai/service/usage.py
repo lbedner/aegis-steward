@@ -42,25 +42,6 @@ class UsageMixin(AIServiceBase):
         # the same code the non-chat callers use.
         return usage_recording.extract_usage(result)
 
-    async def calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
-        """
-        Calculate cost for given token usage.
-
-        Looks up the current model's pricing and calculates the total cost.
-        Returns 0.0 if model or pricing not found.
-
-        Args:
-            input_tokens: Number of input/prompt tokens
-            output_tokens: Number of output/completion tokens
-
-        Returns:
-            Total cost in USD
-        """
-
-        return await usage_recording.calculate_cost(
-            self.config.model, input_tokens, output_tokens
-        )
-
     async def _record_usage(
         self,
         action: str,
@@ -69,21 +50,23 @@ class UsageMixin(AIServiceBase):
         success: bool = True,
         error_message: str | None = None,
         conversation_id: str | None = None,
-    ) -> None:
+        model: str | None = None,
+    ) -> float:
         """
-        Record LLM usage with cost calculation.
+        Record LLM usage with cost calculation; returns the cost, so a
+        caller showing it needs no second price lookup.
 
         Args:
-            action: The action type (e.g., "chat", "stream_chat")
+            action: The action type (e.g., "chat:<agent>")
             usage: Token usage dict with input_tokens and output_tokens
             user_id: User identifier
             success: Whether the request succeeded
             error_message: Error message if request failed
         """
 
-        await usage_recording.record_usage(
+        return await usage_recording.record_usage(
             action,
-            self.config.model,
+            model or self.config.model,
             usage,
             user_id,
             success=success,

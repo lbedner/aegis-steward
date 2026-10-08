@@ -35,7 +35,6 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import SQLITE_BUSY_TIMEOUT_MS
-from app.services.ai.domains.chat.agent_loader import invalidate_agent_cache
 from app.services.finance.domains.detection import analyst
 from app.services.finance.domains.detection.analyst.deep_dive import run_deep_dive
 from app.services.finance.models import FinanceInsight
@@ -50,12 +49,7 @@ HEADLINE = "One category moved. Nothing else did."
 # whether the lock is HELD, not how patiently the loser waits.
 
 
-@pytest.fixture(autouse=True)
-def _clean_agent_cache():
-    """``resolve_agent`` memoizes per process; tests must not inherit rows."""
-    invalidate_agent_cache()
-    yield
-    invalidate_agent_cache()
+pytestmark = pytest.mark.usefixtures("clean_agent_cache")
 
 
 def _opens_new(maker: Any) -> Any:
