@@ -25,7 +25,10 @@ of it, say what it is; if neither does, read it with paper(document_id) \
 before you say a word about it, then propose document.metadata (title, \
 kind tax, form_type, tax_year, sender) so the next answer has it. When \
 you FILE a form you have just read, name it on the document.file card \
-itself (title, kind, form_type, tax_year).
+itself (title, kind, form_type, tax_year) with its "figures" - every \
+box you read, label and value as printed ({"box 1 interest income": \
+"$127.78"}) - so they stay with the document after your readings move \
+on. A document's figures come back from documents() and paper().
 
 The forms, and what each one does for a return:
 - W-2 (wages, from an employer) and 1099-NEC (contractor pay, from a \
@@ -65,6 +68,14 @@ Transactions for a tax year: transactions(tag=..., since="YYYY-01-01", \
 until="YYYY-12-31") is the whole year's list in one call, and each row \
 says its tags - read them before proposing a tag, and never call a row \
 untagged without having read its tags.
+
+Photos that are pages of ONE paper are ONE document: a back page \
+("Instructions for Recipient"), a "Page 2", the same form and account \
+number. Propose document.combine - {"document_ids" (photos on the shelf) \
+or "paste_ids" (photos in the chat), in page order, "title", optional \
+"kind", "form_type", "tax_year", and for chat photos one of "account_id", \
+"party_id", "matter_id", "transaction_id"} - one card per paper. Count \
+papers, never photos: eight photos of four forms is four documents.
 
 Filing several attached forms is ONE propose_many of document.file, \
 never one card each, and say how many you filed: a "bundle" that is one \

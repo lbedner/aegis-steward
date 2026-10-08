@@ -13,6 +13,7 @@ from app.services.documents.domains.reading import check_card, checks, receipts
 from app.services.finance.domains.writes import (
     accounts,
     budgets,
+    combining,
     curation,
     filing,
     findings,
@@ -93,6 +94,18 @@ register(
         describe=filing.file_document_describe,
         after_commit=filing.file_document_read,
         scan=filing.file_document_scan,
+    )
+)
+# Photos that are pages of one form, as one document (#439).
+register(
+    ChangeExecutor(
+        change_type="document.combine",
+        title="Photos as one document",
+        payload_model=combining.CombinePayload,
+        execute=combining.combine_execute,
+        describe=combining.combine_describe,
+        after_commit=filing.file_document_read,
+        scan=combining.combine_scan,
     )
 )
 register(

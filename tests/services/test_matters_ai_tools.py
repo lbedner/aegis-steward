@@ -414,3 +414,39 @@ async def test_a_matters_documents_are_listed_by_the_matter_not_by_their_names(
 
     assert sorted(d["id"] for d in listed["documents"]) == sorted(on_it)
     assert case["documents"] == 2
+
+
+async def test_a_documents_figures_come_back_with_it(
+    async_db_session: AsyncSession,
+) -> None:
+    """How much was the 1099-NEC? On the document, not in a reading that
+    may have aged out (#442)."""
+    from app.services.documents.service import DocumentService
+
+    db = async_db_session
+    documents = DocumentService(db)
+    form = await documents.ingest(
+        b"1099-NEC", title="Pure Proactive Health 1099-NEC, 2025"
+    )
+    await documents.add_figures(
+        int(form.id or 0), {"box 1 nonemployee compensation": "$86,380.00"}
+    )
+    from app.services.documents.models import DocumentPage
+
+    db.add(
+        DocumentPage(
+            document_id=int(form.id or 0),
+            page_number=1,
+            status="read",
+            method="text",
+            text="NONEMPLOYEE COMPENSATION 1 86380.00",
+        )
+    )
+    await db.commit()
+
+    (listed,) = (await ai_tools.documents(q="1099-NEC"))["documents"]
+    read = await ai_tools.paper(int(form.id or 0))
+
+    expected = {"box 1 nonemployee compensation": "$86,380.00"}
+    assert listed["figures"] == expected
+    assert read["figures"] == expected

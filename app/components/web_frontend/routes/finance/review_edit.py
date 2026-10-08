@@ -132,23 +132,26 @@ async def save_change(
 @router.get("/changes/{change_id:int}/scan", include_in_schema=False)
 async def change_scan(
     change_id: int,
+    page: int = 0,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    """The picture a card carries - a check's front (#420), a photo filed
-    from chat (#430) - where its change type says it is."""
+    """A picture a card carries - a check's front (#420), a photo filed
+    from chat (#430), a combined document's page (#439) - where its change
+    type says it is; ``page`` counts from 0."""
     from app.core.storage import get_storage
 
     change = or_404(
         await get_change(service.db, change_id, owner_user_id=owner_user_id)
     )
     executor = executor_for(change.change_type)
-    key = (
+    keys = (
         await executor.scan(
             service.db, executor.payload_model(**change.payload), owner_user_id
         )
         if executor.scan
-        else None
+        else []
     )
+    key = keys[page] if 0 <= page < len(keys) else None
     content = or_404(await get_storage().get(key) if key else None)
     return Response(content, media_type="image/jpeg")
