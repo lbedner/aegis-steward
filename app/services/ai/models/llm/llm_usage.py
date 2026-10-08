@@ -14,7 +14,7 @@ class LLMUsage(SQLModel, table=True):
     usage tracking from catalog lifecycle. Joins can be done on model_id.
 
     The action field accepts any string value for flexibility -
-    callers can define their own action types (e.g., "chat", "stream_chat",
+    callers can define their own action types (e.g., "chat:<agent>",
     "completion", etc.).
     """
 

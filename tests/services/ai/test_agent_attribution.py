@@ -19,7 +19,6 @@ import pytest
 
 from app.services.ai.domains.chat.agent_loader import AgentConfig, default_agent_config
 from app.services.ai.service import AIService
-import app.services.ai.service.chat as chat_module
 import app.services.ai.service.prompt as prompt_module
 import app.services.ai.service.streaming as streaming_module
 
@@ -68,9 +67,6 @@ class _FakeEventStream:
 
 
 class _FakeAgent:
-    async def run(self, prompt: str) -> _FakeResult:
-        return _FakeResult()
-
     @asynccontextmanager
     async def run_stream_events(self, prompt: str) -> AsyncIterator[Any]:
         yield _FakeEventStream()
@@ -117,10 +113,10 @@ def harness(
     async def no_memory(user_id: str, **kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr(chat_module, "build_user_memory_context", no_memory)
     monkeypatch.setattr(streaming_module, "build_user_memory_context", no_memory)
 
-    recorder = AsyncMock()
+    # The ledger row's cost is the message's cost (#455).
+    recorder = AsyncMock(return_value=0.0)
     monkeypatch.setattr(service, "_record_usage", recorder)
 
     captured: dict[str, Any] = {}
@@ -143,7 +139,6 @@ def _stub_resolve(monkeypatch: pytest.MonkeyPatch, config: AgentConfig) -> None:
     async def resolve(slug: str = "assistant", **kwargs: object) -> AgentConfig:
         return config
 
-    monkeypatch.setattr(chat_module, "resolve_agent", resolve)
     monkeypatch.setattr(streaming_module, "resolve_agent", resolve)
 
 
@@ -163,31 +158,7 @@ class TestTheTurnCarriesItsUser:
         _stub_resolve(monkeypatch, _custom_config())
         seen: dict[str, Any] = {}
 
-        class _RecordingAgent(_FakeAgent):
-            async def run(self, prompt: str) -> Any:
-                seen["user_id"] = current_user_id.get()
-                return await super().run(prompt)
-
-        monkeypatch.setattr(
-            prompt_module,
-            "get_agent",
-            lambda *a, **k: _RecordingAgent(),
-        )
-
-        await service.chat("remember something", user_id="u42")
-
-        assert seen["user_id"] == "u42"
-        assert current_user_id.get() is None  # restored after the turn
-
-    async def test_streaming_path_sets_the_user_for_the_turn(
-        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
-    ) -> None:
-        from app.services.ai.domains.chat.user_memory import current_user_id
-
-        service, _recorder, _captured, monkeypatch = harness
-        _stub_resolve(monkeypatch, _custom_config())
-        seen: dict[str, Any] = {}
-
+        # chat() runs the streamed turn (#455): the user is set there.
         class _RecordingAgent(_FakeAgent):
             @asynccontextmanager
             async def run_stream_events(self, prompt: str) -> AsyncIterator[Any]:
@@ -200,11 +171,10 @@ class TestTheTurnCarriesItsUser:
             lambda *a, **k: _RecordingAgent(),
         )
 
-        async for _chunk in service.stream_chat("remember something", user_id="u42"):
-            pass
+        await service.chat("remember something", user_id="u42")
 
         assert seen["user_id"] == "u42"
-        assert current_user_id.get() is None
+        assert current_user_id.get() is None  # restored after the turn
 
 
 class TestAgentGrantsReachTheApiChatPath:
@@ -286,26 +256,9 @@ class TestAgentSlugSelection:
             seen.append(slug)
             return default_agent_config()
 
-        monkeypatch.setattr(chat_module, "resolve_agent", resolve)
-
-        await service.chat("hello", agent_slug="support")
-
-        assert seen == ["support"]
-
-    async def test_stream_chat_agent_slug_reaches_the_resolver(
-        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
-    ) -> None:
-        service, _recorder, _captured, monkeypatch = harness
-        seen: list[str] = []
-
-        async def resolve(slug: str = "assistant", **kwargs: object) -> AgentConfig:
-            seen.append(slug)
-            return default_agent_config()
-
         monkeypatch.setattr(streaming_module, "resolve_agent", resolve)
 
-        async for _chunk in service.stream_chat("hello", agent_slug="support"):
-            pass
+        await service.chat("hello", agent_slug="support")
 
         assert seen == ["support"]
 
@@ -450,7 +403,6 @@ class TestUserMemoryInjection:
             assert user_id == "u9"
             return "<user_memory>\n- [food] allergic to peanuts\n</user_memory>"
 
-        monkeypatch.setattr(chat_module, "build_user_memory_context", fake_memory)
         monkeypatch.setattr(streaming_module, "build_user_memory_context", fake_memory)
 
         await service.chat("hello", user_id="u9")
@@ -534,17 +486,3 @@ class TestToolUseSurfacing:
 
         finals = [chunk for chunk in chunks if chunk.is_final]
         assert finals and finals[-1].content == "ok"
-
-
-class TestStreamChatAttribution:
-    async def test_stream_usage_carries_agent_slug(
-        self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
-    ) -> None:
-        service, recorder, _, monkeypatch = harness
-        _stub_resolve(monkeypatch, default_agent_config())
-
-        async for _chunk in service.stream_chat("hello"):
-            pass
-
-        action = recorder.call_args.args[0]
-        assert action == "stream_chat:assistant"

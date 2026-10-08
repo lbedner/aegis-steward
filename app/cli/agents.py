@@ -67,26 +67,19 @@ async def _load_modules() -> list[MemoryModule]:
 
 
 async def _run_test_turn(slug: str, message: str) -> tuple[AgentConfig, str]:
-    """One turn through the loader: resolved config -> configured model."""
+    """One turn the way chat runs it (#455): the agent's tools, memory and
+    code mode, usage recorded - in a conversation of its own, deleted
+    after. A bare model call on the prompt alone tested another agent."""
     from app.core.config import settings
-    from app.services.ai.config import AIServiceConfig
     from app.services.ai.domains.chat.agent_loader import resolve_agent
+    from app.services.ai.service import AIService
 
     config = await resolve_agent(slug)
-    service_config = AIServiceConfig.from_settings(settings)
-    update: dict[str, object] = {
-        "temperature": config.temperature,
-        "max_tokens": config.max_tokens,
-    }
-    if config.model_id:
-        update["model"] = config.model_id
-    service_config = service_config.model_copy(update=update)
-
-    from app.services.ai.domains.llm.providers import get_agent
-
-    agent = get_agent(service_config, settings, config.system_prompt)
-    result = await agent.run(message)
-    return config, str(result.output)
+    service = AIService(settings)
+    reply = await service.chat(message, agent_slug=slug, surface="agents-test")
+    if conversation_id := reply.metadata.get("conversation_id"):
+        await service.conversation_manager.delete_conversation(conversation_id)
+    return config, reply.content
 
 
 def _active_text(is_active: bool) -> str:

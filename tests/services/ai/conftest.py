@@ -151,3 +151,33 @@ def sample_price(
     db_session.commit()
     db_session.refresh(price)
     return price
+
+
+@pytest.fixture
+async def finance_agent(app_owned_engine):
+    """Illiana's agent row, as seeded, in the database the app opens for
+    itself. The app-owned database is shared by the worker's tests; another
+    may have seeded her already, so her row is made to match the seed.
+    Returns her slug."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from sqlmodel import select
+    from sqlmodel.ext.asyncio.session import AsyncSession
+
+    from app.services.ai.models import Agent
+    from app.services.finance.domains.detection.analyst.seeds import (
+        finance_chat_agent_definition,
+    )
+
+    maker = async_sessionmaker(app_owned_engine, class_=AsyncSession)
+    definition = finance_chat_agent_definition()
+    async with maker() as setup:
+        row = (
+            await setup.exec(select(Agent).where(Agent.slug == definition["slug"]))
+        ).first()
+        if row is None:
+            setup.add(Agent(**definition))
+        else:
+            for field, value in definition.items():
+                setattr(row, field, value)
+        await setup.commit()
+    return str(definition["slug"])

@@ -19,7 +19,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.config import AIServiceConfig
 from app.services.ai.domains.chat import module_context
-from app.services.ai.domains.chat.agent_loader import invalidate_agent_cache
 from app.services.ai.domains.llm.providers import ProviderError, model_for
 from app.services.ai.models import AIProvider
 from app.services.finance.domains.detection import analyst
@@ -37,12 +36,7 @@ TODAY = current_date()
 YESTERDAY = TODAY - timedelta(days=1)
 
 
-@pytest.fixture(autouse=True)
-def _clean_agent_cache():
-    """``resolve_agent`` memoizes per process; tests must not inherit rows."""
-    invalidate_agent_cache()
-    yield
-    invalidate_agent_cache()
+pytestmark = pytest.mark.usefixtures("clean_agent_cache")
 
 
 @pytest.fixture

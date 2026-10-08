@@ -140,7 +140,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _queryspy_shape.shape_loaded_baseline(session.config)
 
 
-
 # Swap the module-level ``cache`` singleton to the in-memory dict
 # backend for the whole test session. The Redis-backed singleton
 # binds its async connection pool to the event loop alive when it
@@ -645,3 +644,15 @@ def acting_owner_user_id() -> int | None:
 def authenticated_app_client(client: TestClient) -> TestClient:
     """Use the regular client in this stack's unauthenticated tests."""
     return client
+
+
+@pytest.fixture
+def clean_agent_cache():
+    """``resolve_agent`` memoizes per process: a test that seeds or edits an
+    agent row must not inherit another test's, nor leave its own behind.
+    Opt in with ``pytestmark = pytest.mark.usefixtures("clean_agent_cache")``."""
+    from app.services.ai.domains.chat.agent_registry import invalidate_agent_cache
+
+    invalidate_agent_cache()
+    yield
+    invalidate_agent_cache()

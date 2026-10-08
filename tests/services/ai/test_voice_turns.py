@@ -11,15 +11,11 @@ conversation owned by ``system_voice_convert``.
 
 from typing import Any
 
-from pydantic_ai.messages import ModelResponse, SystemPromptPart, TextPart
+from pydantic_ai.messages import SystemPromptPart
 from pydantic_ai.models.function import FunctionModel
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
-from app.services.ai.domains.chat.agent_registry import invalidate_agent_cache
 from app.services.ai.domains.voice import STTService, TTSService
 from app.services.ai.domains.voice.models import (
     AudioFormat,
@@ -30,11 +26,9 @@ from app.services.ai.domains.voice.models import (
     TranscriptionResult,
     TTSProvider,
 )
-from app.services.ai.models import Agent
 from app.services.ai.service import AIService
 from app.services.finance.domains.detection.analyst.seeds import (
     FINANCE_CHAT_SYSTEM_PROMPT,
-    finance_chat_agent_definition,
 )
 
 AGENT = "finance-assistant"
@@ -75,11 +69,7 @@ def _voiced(service: AIService) -> tuple[FakeSTT, FakeTTS]:
     return stt, tts
 
 
-@pytest.fixture(autouse=True)
-def _clean_agent_cache() -> Any:
-    invalidate_agent_cache()
-    yield
-    invalidate_agent_cache()
+pytestmark = pytest.mark.usefixtures("clean_agent_cache")
 
 
 def test_the_service_can_hear_and_speak() -> None:
@@ -96,29 +86,15 @@ def test_the_service_can_hear_and_speak() -> None:
 # runs exactly twice by design; three would still be an N+1 inside a turn.
 @pytest.mark.queryspy(threshold=3)
 async def test_a_spoken_turn_is_the_typed_turn(
-    app_owned_engine: Any, monkeypatch: pytest.MonkeyPatch
+    finance_agent: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Typed, then spoken, in one conversation: both turns reach the model
     as Illiana (her prompt), both land in that conversation, and nothing
     else is written."""
-    # The app-owned database is shared by the worker's tests; another may
-    # have seeded her already, so her row is made to match the seed.
-    maker = async_sessionmaker(app_owned_engine, class_=AsyncSession)
-    definition = finance_chat_agent_definition()
-    async with maker() as setup:
-        row = (
-            await setup.exec(select(Agent).where(Agent.slug == definition["slug"]))
-        ).first()
-        if row is None:
-            setup.add(Agent(**definition))
-        else:
-            for field, value in definition.items():
-                setattr(row, field, value)
-        await setup.commit()
-
     prompts: list[str] = []
 
-    async def _respond(messages: Any, info: Any) -> ModelResponse:
+    async def _stream(messages: Any, info: Any) -> Any:
+        # Every turn streams (#455): typed and spoken alike.
         prompts.append(
             "\n".join(
                 part.content
@@ -127,7 +103,7 @@ async def test_a_spoken_turn_is_the_typed_turn(
                 if isinstance(part, SystemPromptPart)
             )
         )
-        return ModelResponse(parts=[TextPart(ANSWER)])
+        yield ANSWER
 
     # Pinned to Ollama and only its model swapped, so the agent itself
     # (prompt, tools, grants) is built the real way. Pinned because CI has
@@ -136,7 +112,7 @@ async def test_a_spoken_turn_is_the_typed_turn(
     monkeypatch.setattr(settings, "AI_PROVIDER", "ollama")
     monkeypatch.setattr(
         "app.services.ai.domains.llm.agents._ollama_model",
-        lambda config, settings: FunctionModel(_respond),
+        lambda config, settings: FunctionModel(stream_function=_stream),
     )
 
     service = AIService(settings)
