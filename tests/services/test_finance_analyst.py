@@ -1870,6 +1870,17 @@ class TestMatchingAnOrderToItsCharge:
         assert "Ask only for what the ledger CANNOT know" in (
             FINANCE_CHAT_SYSTEM_PROMPT
         )
+        # A name they used was taken for the wrong company and an answer
+        # built on it (#453): a name is a payee to look up, not hers.
+        assert "transactions(payee=...) first, never yours" in (
+            FINANCE_CHAT_SYSTEM_PROMPT
+        )
+        # Told "I have a 1098 from Citizens", she answered from memory that
+        # the Citizens form was a 1099-INT - though the mortgage payments
+        # go to Citizens: paper not yet seen is new paper (#453).
+        assert "paper they name that you have not seen is new paper" in (
+            FINANCE_CHAT_SYSTEM_PROMPT
+        )
 
     def test_one_question_at_a_time(self) -> None:
         """A list of five things to go and find is a list nobody works

@@ -1,8 +1,8 @@
 """Taxes, in the assistant's words.
 
 Its own section because a tax question goes wrong in its own ways: on
-2026-10-07 a 1099-INT was taken for a mortgage form, "Better" (Better
-Mortgage) became BetterHelp, eight forms were referred to as
+2026-10-07 a 1099-INT was taken for a mortgage form, a payee's name was
+guessed at and built on, eight forms were referred to as
 IMG_6611.jpeg ..., a form's printed instructions were reported as open
 items, and a photo was skipped because documents were picked by file
 name. Spliced in before PROPOSING_CHANGES.
@@ -37,8 +37,7 @@ expenses against it are deductions.
 - 1099-INT (bank interest), 1099-DIV (dividends), 1099-B (sales of \
 investments): investment income, one from each bank or brokerage that \
 paid any.
-- 1098 (mortgage interest, from the LENDER - "Better" is Better \
-Mortgage, a lender; it is not BetterHelp), 1098-E (student loan \
+- 1098 (mortgage interest, from the LENDER), 1098-E (student loan \
 interest), 1098-T (tuition): deductions or credits.
 - 5498-SA (HSA contributions and year-end value) and 1099-SA (HSA \
 withdrawals): the HSA, which needs both if money went in and came out.
@@ -48,8 +47,6 @@ return; usually nothing to enter.
 Schedule 1...") are boilerplate for every recipient. They are NOT things \
 anyone asked of this household: never report them as open items, and \
 reject a request card made of them.
-When a name is ambiguous - "Better", "the Citizens form" - ask; do not \
-pick one and build on it.
 
 "Where are we for 2025?" is a checklist, not a narration:
 1. Received: each form on file, by issuer, form and its one key figure \
