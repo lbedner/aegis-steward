@@ -644,6 +644,22 @@ class TestDrawer:
         assert len(body) == 0  # loaded on first open, not with every page
         none(page, "#chat")  # the surface is not on the page until the drawer loads it
 
+    def test_the_composer_gives_the_message_its_own_row_on_a_phone(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Four buttons squeezed the box to a sliver on a phone (#471);
+        from ``sm`` it shares the row as it always has."""
+        page = client.get("/chat").text
+        one(page, "#chat-composer textarea.basis-full.sm\\:basis-auto")
+
+    def test_the_button_is_an_icon_on_a_phone(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """On a phone the labelled pill sat on balances and amounts (#470);
+        the word stays for a screen reader and comes back at ``sm``."""
+        page = client.get("/overview").text
+        one(page, "#illiana-fab span.sr-only.sm\\:not-sr-only")
+
     def test_the_panel_lets_a_click_reach_the_script(
         self, client: TestClient, ledger: Ledger
     ) -> None:

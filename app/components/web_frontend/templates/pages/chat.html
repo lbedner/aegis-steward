@@ -7,7 +7,9 @@
 {% block app_content %}
 {# The page is the chat surface (partials/chat/surface.html), the same one
    the Illiana drawer shows on every other page. #}
-<div class="flex flex-col h-[calc(100vh-7rem)]">
+{# ``dvh``: a phone's 100vh counts the browser bar it is showing, which
+   put the composer under it. A desktop's dvh is its vh. #}
+<div class="flex flex-col h-[calc(100dvh-7rem)]">
   {% call page_header(section.label, "Ask " ~ assistant ~ " about your money") %}{{ chat_toolbar(path) }}{% endcall %}
   <div class="flex-1 min-h-0">{% include "partials/chat/surface.html" %}</div>
 </div>

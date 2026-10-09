@@ -41,7 +41,12 @@
   <template id="category-options">
     {% for category in register.categories %}<option value="{{ category.id }}">{{ category.name }}</option>{% endfor %}
   </template>
+  {# The finer filters, folded on a phone (issue 466): they filled its first
+     screen before a single row. Open when any is set, because a pick
+     re-renders this form and a fold that shut on every pick would hide
+     what was just chosen. #}
   <form id="register-filters" method="get" action="{{ register.path }}"
+        x-data="{ more: {{ register.filters.folded }} }"
         {{ hx_replace(register.path, "#register") }}
         {# The search box asks for itself now (below), so a blur after
            typing must not swap the whole register a second time. #}
@@ -62,12 +67,16 @@
                           ' hx-target="#register-results" hx-select="#register-results"'
                           ' hx-select-oob="#register-clear" hx-swap="outerHTML"'
                           ' hx-trigger="keyup changed delay:150ms, search"') }}
+    <button type="button" data-filters-toggle @click="more = !more" :aria-expanded="more"
+            class="chip sm:hidden">Filters{% if register.filters.folded %} · {{ register.filters.folded }}{% endif %}</button>
+    <div data-more-filters :data-open="more" class="contents">
     {% if not register.filters.uncategorized %}{{ select("category_id", register.categories, register.filters.category_id, blank="All categories") }}{% endif %}
     {% if not register.filters.without_merchant %}{{ select("merchant_id", register.merchants, register.filters.merchant_id, blank="All payees") }}{% endif %}
     {% if register.tags %}{{ select("tag_id", register.tags, register.filters.tag_id, blank="All tags") }}{% endif %}
     {{ date_input("from", register.filters.from_date, label="From") }}
     {{ date_input("to", register.filters.to_date, label="To") }}
     {{ checkbox("hide_transfers", register.filters.hide_transfers, label="Hide transfers") }}
+    </div>
     {% if register.filters.page_size != 50 %}<input type="hidden" name="page_size" value="{{ register.filters.page_size }}">{% endif %}
     <span id="uncategorized-count" class="text-xxs text-aegis-muted">{{ register.uncategorized_total }} uncategorized</span>
     {# Always present, sometimes empty: a search that clears its own text

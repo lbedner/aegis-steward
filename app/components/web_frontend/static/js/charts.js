@@ -47,6 +47,16 @@ function money(value) {
 	return `${value < 0 ? "-" : ""}$${abs}`;
 }
 
+// An axis label: a round number, so no cents, and thousands as K - at
+// $18,000.00 a phone's y-axis took a third of the chart (issue 474). The
+// tooltip keeps the exact figure.
+const compactMoney = new Intl.NumberFormat(undefined, {
+	style: "currency",
+	currency: "USD",
+	notation: "compact",
+	maximumFractionDigits: 1,
+});
+
 // A bar's tone, decided by the server: the highest bright teal, the lowest
 // violet, the rest a darker teal (Pulse's day-of-week chart).
 function toneColor(tone) {
@@ -199,8 +209,9 @@ function build(Chart, canvas) {
 	);
 	const kind = canvas.dataset.chart;
 	// Dollars unless the data says it counts something else.
-	const shown =
-		data.format === "count" ? (v) => Number(v).toLocaleString() : money;
+	const count = data.format === "count";
+	const shown = count ? (v) => Number(v).toLocaleString() : money;
+	const tick = count ? shown : compactMoney.format;
 	const existing = Chart.getChart(canvas);
 	if (existing) existing.destroy();
 	const muted = token("--n");
@@ -208,7 +219,7 @@ function build(Chart, canvas) {
 	const axes = {
 		x: { ticks: { color: muted }, grid: { color: grid } },
 		y: {
-			ticks: { color: muted, callback: (v) => shown(v) },
+			ticks: { color: muted, callback: tick },
 			grid: { color: grid },
 		},
 	};

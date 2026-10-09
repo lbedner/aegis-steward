@@ -47,7 +47,7 @@ router = APIRouter(prefix=SECTION.path)
 
 PARTY_COLUMNS = (
     {"key": "sort_name", "label": "Filed under"},
-    {"key": "name", "label": "Name", "kind": "page"},
+    {"key": "name", "label": "Name", "kind": "page", "phone": "primary"},
     {"key": "kind", "label": "Kind"},
     {"key": "reach", "label": "How to reach them"},
 )

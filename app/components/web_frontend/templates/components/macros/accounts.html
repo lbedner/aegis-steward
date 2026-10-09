@@ -83,7 +83,7 @@
      {% if current %}aria-current="page"{% endif %}
      class="flex items-baseline justify-between gap-6 px-3 py-1.5 text-sm whitespace-nowrap
             text-aegis-text hover:bg-aegis-border/20 aria-[current=page]:bg-aegis-teal/10 transition-colors">
-    <span class="truncate">{{ label }}</span>{{ amount(cents, account.currency if account else "USD") }}
+    <span class="min-w-0 truncate">{{ label }}</span>{{ amount(cents, account.currency if account else "USD") }}
   </a>
 </li>
 {% endmacro %}
@@ -171,7 +171,7 @@
    until somebody deliberately widens it. #}
 {% macro whose_bar(options, current, path, also_held=()) %}
 {% if options %}
-<nav data-whose class="flex items-center gap-2 mb-4" aria-label="Whose money">
+<nav data-whose class="flex flex-wrap items-center gap-2 mb-4" aria-label="Whose money">
   {% for option in options %}
   {% set url = path ~ "?whose=" ~ option.key %}
   {{ chip(option.label, active=(option.key == current), href=url, hx=hx_page(url)) }}

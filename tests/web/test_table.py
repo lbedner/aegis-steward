@@ -258,3 +258,49 @@ class TestThePortfolioCarriesTheSameMark:
     ) -> None:
         page = client.get("/accounts").text
         assert not select(page, "#portfolio [data-arrived]")
+
+
+class TestOnAPhone:
+    """Below ``sm`` a row stacks: what it is and what it cost on top, the
+    rest beneath with its label. The layout is CSS keyed on each cell's
+    role, so every table gets it from the macro and none builds its own
+    (issue 465)."""
+
+    def _roles(self, html: str) -> list[str]:
+        return [td.get("data-role") for td in select(html, "tbody td")]
+
+    def test_what_the_row_is_leads_and_the_first_money_column_is_the_amount(
+        self,
+    ) -> None:
+        """A date or a status says when or how a row stands, not what it
+        is, so the lead passes over it."""
+        html = render(COLUMNS, [Row(date(2026, 7, 15), "Coffee", -450)])
+        assert self._roles(html) == ["detail", "primary", "amount"]
+        one(html, "table[data-table]")
+
+    def test_a_detail_cell_carries_its_column_label(self) -> None:
+        html = render(COLUMNS, [Row(date(2026, 7, 15), "Coffee", -450)])
+        assert one(html, "td[data-role=detail]").get("data-label") == "Date"
+
+    def test_a_column_can_claim_the_lead(self) -> None:
+        columns = [{**COLUMNS[0], "phone": "primary"}, COLUMNS[1], COLUMNS[2]]
+        html = render(columns, [Row(date(2026, 7, 15), "Coffee", -450)])
+        assert self._roles(html) == ["primary", "detail", "amount"]
+
+    def test_a_column_can_claim_the_amount(self) -> None:
+        columns = [
+            {"key": "name", "label": "Name"},
+            {"key": "income", "label": "Income", "kind": "money"},
+            {"key": "saved", "label": "Saved", "kind": "money", "phone": "amount"},
+        ]
+        html = render(columns, [{"name": "2026", "income": 100, "saved": 40}])
+        assert self._roles(html) == ["primary", "detail", "amount"]
+
+    def test_the_register_row_declares_the_same_roles(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get(f"/accounts/{ledger.checking}").text
+        row = select(page, "#register tbody tr")[0]
+        roles = {td.get("data-role") for td in select(row, "td")}
+        assert {"select", "primary", "amount", "actions"} <= roles
+        one(row, "td[data-role=primary][data-cell=payee]")
