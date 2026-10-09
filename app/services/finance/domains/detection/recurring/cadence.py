@@ -150,6 +150,17 @@ _KEY_NOISE = re.compile(r"\b(?:X{2,}\w*|\w*\d{3,}\w*)\b")
 _SPACES = re.compile(r"\s+")
 
 
+_FEE_PFC = "BANK_FEES"
+# Whole words: as bare letters "FEE" sat inside every "COFFEE".
+_FEE_RE = re.compile(r"\bFEES?\b|INTEREST CHARGE|FINANCE CHARGE", re.IGNORECASE)
+
+
+def is_fee(txn: FinanceTransaction) -> bool:
+    """A charge the account's own bank levied - a fee or interest - read
+    from the provider's category or the descriptor."""
+    return txn.pfc_primary == _FEE_PFC or bool(_FEE_RE.search(txn.name or ""))
+
+
 def _descriptor_key(raw: str) -> str:
     """``normalize_payee`` minus the parts that change between charges.
 

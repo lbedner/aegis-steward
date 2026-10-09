@@ -12,6 +12,10 @@ from app.services.finance.domains.detection.insights.formatting import format_us
 from app.services.finance.domains.ledger import transactions
 from app.services.finance.schemas import ChangeDisplayRow
 
+# How a card names a row its payload points at and the ledger does not
+# have. Proposing one is refused (``ai_write_tools``): an id made up.
+MISSING = "(missing)"
+
 
 async def txn_subject(
     db: AsyncSession, transaction_id: int, owner_user_id: int | None
@@ -32,7 +36,7 @@ async def txn_subject(
         db, transaction_id, owner_user_id=owner_user_id
     )
     if txn is None:
-        return None, f"transaction {transaction_id} (missing)"
+        return None, f"transaction {transaction_id} {MISSING}"
     return txn, (
         f"{await payee_of(db, txn)} "
         f"({format_usd(abs(txn.amount))} on {format_date(txn.date_)})"

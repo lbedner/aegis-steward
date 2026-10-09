@@ -13,7 +13,7 @@ from typing import Any
 
 from app.core.db import get_async_session
 from app.services.ai.domains.chat.tools import register_tool
-from app.services.finance.domains.writes.display import candidate_row, for_model
+from app.services.finance.domains.writes.display import MISSING, for_model
 
 
 async def propose_many(
@@ -50,15 +50,13 @@ async def propose_many(
                         "status": row.status,
                         # Tool results serialize into the model's context:
                         # typed rows become plain dicts at this boundary.
-                        "display": [
-                            for_model(line)
-                            for line in await writes.describe_change(session, row)
-                        ],
+                        "display": await _card(session, row),
                     }
                     for row in rows
                 ]
                 await session.commit()
             except ValueError as e:
+                await session.rollback()  # the session commits on exit
                 return {
                     "error": str(e),
                     "registered_change_types": list(writes.registered_change_types()),
@@ -72,6 +70,21 @@ async def propose_many(
         }
 
     return await write()
+
+
+async def _card(session: Any, row: Any) -> list[dict[str, Any]]:
+    """A filed proposal's card as she reads it - refused (ValueError, so
+    nothing commits) when it points at a row the ledger does not have:
+    with empty candidate lists she once filed three ids she made up."""
+    from app.services.finance.domains import writes
+
+    lines = await writes.describe_change(session, row)
+    missing = [line.value for line in lines if MISSING in line.value]
+    if missing:
+        raise ValueError(
+            f"No such row: {'; '.join(missing)}. Take ids from a tool's result."
+        )
+    return [for_model(line) for line in lines]
 
 
 async def categories() -> dict[str, Any]:
@@ -96,65 +109,6 @@ async def categories() -> dict[str, Any]:
             {"id": row.id, "name": row.name, "classification": row.classification}
             for row in rows
         ]
-    }
-
-
-async def bills() -> dict[str, Any]:
-    """Every live bill and income stream: 'id', 'name', 'direction'
-    ('outflow' | 'inflow'), 'frequency', 'amount_cents' (ALWAYS a
-    number, never null: the figure the user declared, else the one
-    measured from the bill's own payments), 'amount_is_declared'
-    (whether a human typed it), 'account', 'account_id' and 'category'
-    (as the Bills page shows them, or null), 'next_expected_date' and
-    'last_date' (ISO or null). The id is what a recurring.match
-    proposal's 'stream_id' takes, and what a transaction's 'bill_id'
-    names: a payment already the bill's is no match candidate.
-    """
-    # Not the raw expected_amount: null unless typed, 40 bills read "no amount".
-    from app.services.finance.domains.ledger.queries.accounts import account_names
-    from app.services.finance.domains.planning.recurring import queries, streams
-
-    async with get_async_session() as session:
-        rows = await queries.active_streams(session, owner_user_id=None)
-        accounts = await account_names(session, [s.account_id for s in rows])
-        categories = await streams.stream_category_names(session, {s.id for s in rows})
-    return {
-        "bills": [
-            {
-                "id": s.id,
-                "name": s.name,
-                "direction": s.direction,
-                "frequency": s.frequency,
-                "amount_cents": s.amount,
-                "amount_is_declared": s.expected_amount is not None,
-                "account": accounts.get(s.account_id),
-                "account_id": s.account_id,
-                "category": categories.get(s.id),
-                "next_expected_date": (
-                    s.next_expected_date.isoformat() if s.next_expected_date else None
-                ),
-                "last_date": s.last_date.isoformat() if s.last_date else None,
-            }
-            for s in rows
-        ]
-    }
-
-
-async def bill_candidates(stream_id: int) -> dict[str, Any]:
-    """The ranked shortlist of unclaimed transactions that could be this
-    bill's payment - the same heuristic the app's manual match picker
-    uses (direction, amount band, due-date window, name affinity).
-    Each candidate's 'id' is what a recurring.match proposal's
-    'transaction_id' takes. Propose matches ONLY from this list."""
-    from app.services.finance.domains.planning.recurring.matching import (
-        recurring_match_candidates,
-    )
-
-    async with get_async_session() as session:
-        rows = await recurring_match_candidates(session, stream_id, owner_user_id=None)
-    return {
-        "stream_id": stream_id,
-        "candidates": [candidate_row(t) for t in rows],
     }
 
 
@@ -200,12 +154,10 @@ async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
                     proposed_by_agent=current_agent_slug.get(),
                     conversation_id=current_conversation_id.get(),
                 )
-                display = [
-                    for_model(line)
-                    for line in await writes.describe_change(session, row)
-                ]
+                display = await _card(session, row)
                 await session.commit()
             except ValueError as e:
+                await session.rollback()  # the session commits on exit
                 return {
                     "error": str(e),
                     "registered_change_types": list(writes.registered_change_types()),
@@ -435,18 +387,6 @@ register_tool(
     "categories",
     categories,
     description="Assignable categories with the ids proposals need",
-    replace=True,
-)
-register_tool(
-    "bills",
-    bills,
-    description="Live bills and income streams with the ids matches need",
-    replace=True,
-)
-register_tool(
-    "bill_candidates",
-    bill_candidates,
-    description="Ranked unclaimed transactions that could be a bill's payment",
     replace=True,
 )
 register_tool(

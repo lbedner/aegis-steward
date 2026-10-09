@@ -638,6 +638,70 @@ class TestAConfirmedBillIsNotReproposed:
         assert [s.name for s in live] == ["HBO Max"]
 
     @pytest.mark.asyncio
+    async def test_a_named_payee_is_still_the_confirmed_bill(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The bill was settled on its descriptor key; naming the payee
+        afterwards re-keys its charges as ``merchant:N``, which shares no
+        token with "ACME GYM". Detection proposed the bill a second time,
+        the twin claimed the next payment, and the settled bill sat
+        overdue with its own payment out of reach (confirmed live)."""
+        account = await _account(svc)
+        await seed_stream(
+            svc,
+            name="Acme Gym",
+            expected_amount=2_005,
+            next_expected_date=date(2026, 7, 17),
+            account_id=account.id,
+        )
+        charges = [
+            await _txn(svc, account.id, "ACME GYM", date(2026, m, 17), -2_005)
+            for m in range(3, 7)
+        ]
+        merchant = await svc.create_merchant("Acme Gym", owner_user_id=1)
+        await svc.assign_merchant([t.id for t in charges], merchant.id, owner_user_id=1)
+
+        await detect_recurring(
+            async_db_session, owner_user_id=1, today=date(2026, 7, 1)
+        )
+
+        live = await _live_streams(async_db_session)
+        assert [s.name for s in live] == ["Acme Gym"]
+
+    @pytest.mark.asyncio
+    async def test_a_payee_named_unlike_the_descriptor_is_still_the_bill(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The bill was declared on a bank descriptor, then its payee was
+        named something sharing no word with it. Name nesting cannot see
+        that; the payee the bill's OWN payments wear can - without it the
+        next deposits were proposed as a second bill that claimed them
+        (confirmed live)."""
+        account = await _account(svc)
+        descriptor = "DEPOSIT ACH ACME TREAS 310"
+        settled = [
+            await _txn(svc, account.id, descriptor, date(2026, m, 3), 150_000)
+            for m in range(1, 5)
+        ]
+        await declare_recurring(
+            async_db_session, [t.id for t in settled], owner_user_id=1
+        )
+        later = [
+            await _txn(svc, account.id, descriptor, date(2026, m, 3), 150_000)
+            for m in range(5, 8)
+        ]
+        merchant = await svc.create_merchant("Benefits Office", owner_user_id=1)
+        await svc.assign_merchant(
+            [t.id for t in settled + later], merchant.id, owner_user_id=1
+        )
+
+        await detect_recurring(
+            async_db_session, owner_user_id=1, today=date(2026, 7, 10)
+        )
+
+        assert len(await _live_streams(async_db_session)) == 1
+
+    @pytest.mark.asyncio
     async def test_a_different_product_of_the_same_payee_still_proposes(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:

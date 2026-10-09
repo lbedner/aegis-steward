@@ -19,7 +19,6 @@ from app.services.ai.models.llm import (
     LargeLanguageModel,
     LLMDeployment,
     LLMOrg,
-    LLMOrgRole,
     LLMPrice,
 )
 
@@ -31,20 +30,16 @@ def all_rows(session: Session, table: type[RowT]) -> Sequence[RowT]:
     return session.exec(select(table)).all()
 
 
-def llm_by_model_id(session: Session, model_id: str) -> LargeLanguageModel | None:
-    return session.exec(
-        select(LargeLanguageModel).where(LargeLanguageModel.model_id == model_id)
-    ).first()
-
-
-def org_by_slug(session: Session, slug: str) -> LLMOrg | None:
-    return session.exec(select(LLMOrg).where(LLMOrg.slug == slug)).first()
-
-
-def org_role(session: Session, org_id: int, role: str) -> LLMOrgRole | None:
-    return session.exec(
-        select(LLMOrgRole).where(LLMOrgRole.org_id == org_id, LLMOrgRole.role == role)
-    ).first()
+def llms_by_model_ids(
+    session: Session, model_ids: Sequence[str]
+) -> dict[str, LargeLanguageModel]:
+    """The catalog rows for these ids, in one read - keyed by model_id."""
+    rows = session.exec(
+        select(LargeLanguageModel).where(
+            LargeLanguageModel.model_id.in_(list(model_ids))
+        )
+    ).all()
+    return {row.model_id: row for row in rows}
 
 
 @dataclass

@@ -24,6 +24,11 @@ from app.components.backend.startup.health_backend import (
 )
 from app.services.system.models import ComponentStatusType
 
+# The checks introspect the configured app. Built by whichever test ran
+# first, these passed in the full suite and failed alone; each now builds
+# its own.
+pytestmark = pytest.mark.usefixtures("app")
+
 
 class _Route:
     """The three numbers ``_active_message`` reads off route metadata."""

@@ -26,3 +26,17 @@ def test_gpt_live_keeps_it_to_itself_too() -> None:
 
 def test_she_can_still_explain_it_when_asked() -> None:
     assert "unless they ask" in ABOUT_YOURSELF
+
+
+def test_a_match_is_not_confined_to_the_shortlist() -> None:
+    """Told to take ids "ONLY" from bill_candidates, she refused the gym
+    payment she had just read aloud - a detector's twin of the bill held
+    it, so the shortlist never offered it. The shortlist is where to
+    look first; a payment transactions() found is as good an id."""
+    from app.services.finance.domains.detection.analyst.prompt_changes import (
+        PROPOSING_CHANGES,
+    )
+
+    match = PROPOSING_CHANGES.split("`recurring.match`", 1)[1].split("\n- `", 1)[0]
+    assert "transactions(" in match
+    assert "ONLY" not in match

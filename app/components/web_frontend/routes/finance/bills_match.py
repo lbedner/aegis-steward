@@ -16,7 +16,6 @@ from starlette.responses import Response
 from app.components.backend.api.finance.recurring import (
     candidate_items,
     confirm_recurring,
-    list_recurring,
     mute_recurring,
     resume_recurring,
     unmute_recurring,
@@ -28,16 +27,11 @@ from app.components.web_frontend.rendering import (
     or_404,
     with_toast,
 )
-from app.components.web_frontend.routes.finance.bills import (
-    REVIEW_LIMIT,
-    _row_response,
-    _stream,
-    needs_review,
-)
+from app.components.web_frontend.routes.finance.bills import _row_response, _stream
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.planning.recurring.review import review_queue
 from app.services.finance.models import FinanceRecurringStream
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import current_date
 
 SECTION = section("bills")
 router = APIRouter(prefix=SECTION.path)
@@ -75,23 +69,6 @@ async def _match_dialog(
     )
 
 
-async def _review_queue(
-    service: FinanceService, owner_user_id: int | None
-) -> list[int]:
-    """The overdue curated bills that have at least one candidate payment."""
-    listing = await list_recurring(service=service, owner_user_id=owner_user_id)
-    today = current_date()
-    queue: list[int] = []
-    for stream in listing.items:
-        if len(queue) >= REVIEW_LIMIT:
-            break
-        if needs_review(stream, today) and await service.recurring_match_candidates(
-            stream.id, owner_user_id=owner_user_id
-        ):
-            queue.append(stream.id)
-    return queue
-
-
 def _ids(csv: str) -> list[int]:
     return [int(part) for part in csv.split(",") if part.strip()]
 
@@ -117,7 +94,9 @@ async def review(
 ) -> Response:
     """Walk the overdue bills that have a candidate payment, one dialog
     at a time. The first call computes the queue; later steps carry it."""
-    queue = _ids(ids) if ids else await _review_queue(service, owner_user_id)
+    queue = _ids(ids) or [
+        stream.id for stream, _rows in await review_queue(service, owner_user_id)
+    ]
     if not queue:
         # The button counts overdue bills; the queue needs a payment to
         # offer. Nothing to show means no swap (204), or the dialog would

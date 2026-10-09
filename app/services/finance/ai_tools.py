@@ -21,7 +21,7 @@ from datetime import date
 from typing import Any
 
 from app.core.db import get_async_session
-from app.core.formatting import cents_named, payee_label
+from app.core.formatting import payee_label
 from app.services.ai.domains.chat.tools import register_tool
 from app.services.finance.constants import UNCATEGORIZED_CATEGORY_NAMES
 from app.services.finance.domains.investments import queries as investment_queries
@@ -35,6 +35,11 @@ from app.services.finance.domains.ledger.queries.transactions import (
 )
 from app.services.finance.domains.ledger.transactions import (
     transaction_tags,
+)
+from app.services.finance.schemas.agent_tools import (
+    Projection,
+    TransactionRow,
+    Transactions,
 )
 from app.services.finance.utils import current_date, month_start_before
 
@@ -112,7 +117,7 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
 
 async def transaction_rows(
     session: Any, rows: list[tuple[Any, str | None]]
-) -> list[dict[str, Any]]:
+) -> list[TransactionRow]:
     """A transaction as the agent reads it, whichever tool found it: one
     shape, so a field added reaches every tool (``bill_id`` once reached
     ``transactions`` and not ``ledger``, #460). ``rows`` pairs each with
@@ -205,7 +210,7 @@ async def quote(ticker: str) -> dict[str, Any]:
 async def projection(
     days: int = 180,
     account_ids: list[int] | None = None,
-) -> dict[str, Any]:
+) -> Projection:
     """Cash walked forward from today through the scheduled bills and
     income, over any window: 'as_of', 'horizon_days',
     'start_balance_cents', 'end_balance_cents', 'upcoming_total_cents'
@@ -239,9 +244,12 @@ async def projection(
         "upcoming_total_cents": walk.upcoming_total,
         "bills": [
             {
-                **cents_named(bill, "amount"),
+                "name": bill["name"],
                 "date": bill["date"].isoformat(),
                 "due_date": bill["due_date"].isoformat() if bill["due_date"] else None,
+                "amount_cents": bill["amount"],
+                "category": bill["category"],
+                "bill_id": bill["bill_id"],
             }
             for bill in upcoming_outflows(walk)
         ],
@@ -268,7 +276,7 @@ async def transactions(
     until: str | None = None,
     tag: str | None = None,
     limit: int = 50,
-) -> dict[str, Any]:
+) -> Transactions:
     """Find PARTICULAR transactions, without reading the ledger.
 
     Every filter is optional and they narrow together: ``payee`` matches
@@ -314,7 +322,12 @@ async def transactions(
             }
             if (found := known.get(tag.strip().casefold())) is None:
                 names = ", ".join(sorted(t.name for t in known.values()))
-                return {"error": f"No tag is called {tag!r}. Tags: {names}."}
+                return {
+                    "total": 0,
+                    "returned": 0,
+                    "transactions": [],
+                    "error": f"No tag is called {tag!r}. Tags: {names}.",
+                }
             tag_id = found.id
         service = FinanceService(session)
         rows, total = await service.list_transactions(
@@ -444,9 +457,8 @@ register_tool(
 # importing them here keeps "import ai_tools" the one line that
 # registers the whole finance tool surface.
 from app.services.finance.ai_account_tools import accounts  # noqa: E402,F401
+from app.services.finance.ai_bill_tools import bill_candidates, bills  # noqa: E402,F401
 from app.services.finance.ai_write_tools import (  # noqa: E402,F401
-    bill_candidates,
-    bills,
     categories,
     pending,
     propose,

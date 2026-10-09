@@ -170,8 +170,14 @@ async def transactions_page(
         # By MAGNITUDE: a receipt says $8.00, not -800, and the sign is
         # the ledger's business rather than the reader's. This is the
         # filter that turns "which charge was the $8.00 Target one" from
-        # a page of ledger into a row.
-        filters.append(func.abs(FinanceTransaction.amount) == abs(amount))
+        # a page of ledger into a row. Whole dollars are how a bill is
+        # SAID ("MVP, $970" for $970.44), so they match within the dollar
+        # either side; cents given are cents meant.
+        cents = abs(amount)
+        slack = 99 if cents % 100 == 0 else 0
+        filters.append(
+            func.abs(FinanceTransaction.amount).between(cents - slack, cents + slack)
+        )
     count_query = select(func.count()).select_from(FinanceTransaction).where(*filters)
     total = (await db.exec(count_query)).one()
     query_obj = select(FinanceTransaction).where(*filters)

@@ -422,6 +422,51 @@ class TestInflowsOnLiabilityAccounts:
 
         assert result.detected == 1
 
+    @pytest.mark.parametrize(
+        "name, cents",
+        [("INTEREST CHARGED TO STANDARD PURCH", -2_924), ("ANNUAL FEE", -32_500)],
+    )
+    @pytest.mark.asyncio
+    async def test_the_cards_own_charges_are_not_bills(
+        self,
+        svc: FinanceService,
+        async_db_session: AsyncSession,
+        name: str,
+        cents: int,
+    ) -> None:
+        """Interest and fees are the card charging itself: no money leaves
+        any account of yours until the card payment, which is the bill.
+        Proposed as bills, a card's interest lines sat overdue beside the
+        payment from checking that already covers them (confirmed live)."""
+        card = await svc.create_manual_account(
+            name="Card",
+            account_type="credit_card",
+            classification="liability",
+            owner_user_id=1,
+        )
+        await _spend(svc, card.id, [date(2026, m, 7) for m in range(1, 7)], cents, name)
+
+        result = await detect_recurring(
+            async_db_session, owner_user_id=1, today=date(2026, 8, 2)
+        )
+
+        assert result.detected == 0
+
+
+def test_coffee_is_not_a_fee() -> None:
+    """ "FEE" sits inside "COFFEE"; a fee is the word, not the letters."""
+    from app.services.finance.domains.detection.recurring.cadence import is_fee
+    from app.services.finance.models import FinanceTransaction
+
+    def charge(name: str) -> FinanceTransaction:
+        return FinanceTransaction(
+            account_id=1, source="manual", date_=date(2026, 1, 1), name=name
+        )
+
+    assert not is_fee(charge("BLUE BOTTLE COFFEE"))
+    assert is_fee(charge("LATE FEE"))
+    assert is_fee(charge("Interest Charge"))
+
 
 class TestTwoMonthAndSixMonthRhythms:
     """Cadences the forecast could always step but detection could not name.
