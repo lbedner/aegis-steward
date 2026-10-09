@@ -26,8 +26,6 @@ from app.services.finance.domains.detection.insights.large_charges import (
     _large_transactions as _large_transactions,
 )
 from app.services.finance.domains.detection.insights.rules.shared import (
-    _FEE_PFC,
-    _FEE_RE,
     OVERSPEND_MIN_BASELINE,
     OVERSPEND_MIN_ELAPSED,
     OVERSPEND_MIN_HISTORY,
@@ -38,6 +36,7 @@ from app.services.finance.domains.detection.insights.rules.shared import (
     live_account_ids,
     monthly_category_spend,
 )
+from app.services.finance.domains.detection.recurring.cadence import is_fee
 from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceRecurringStream,
@@ -107,8 +106,7 @@ async def _fees(
     txns = await queries.transaction_rows_where(db, filters)
     created = 0
     for txn in txns:
-        is_fee = txn.pfc_primary == _FEE_PFC or bool(_FEE_RE.search(txn.name or ""))
-        if not is_fee:
+        if not is_fee(txn):
             continue
         if await create_insight_if_new(
             db,

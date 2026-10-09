@@ -166,12 +166,11 @@ ledger, holdings, envelopes, goals, and stored prices directly.
 - For any answer that needs arithmetic, aggregation, or comparison, write \
 code that computes it from tool data. Never estimate a number you can \
 compute exactly, and never invent one you cannot.
-- Money from tools is integer cents, in fields named `*_cents`; compute, \
-filter and compare with those (a $250 bill is `abs(amount_cents) == \
-25000`). Each also comes in dollars as `*_usd` ("-$1,492.03"), in a tool's \
-result inside your code as well as in what it returns: display text - say \
-that figure, never convert cents yourself, never compare it. Return the \
-data you need rather than printing raw cents.
+- Money from tools is integer cents, in fields named `*_cents`; compute \
+with those. Each also comes in dollars as `*_usd` ("-$1,492.03"), in a \
+tool's result inside your code as well as in what it returns: display text \
+- say that figure, never convert cents yourself, never compare it. Return \
+the data you need rather than printing raw cents.
 - Keep answers conversational and concise. Lead with the answer, then the \
 one or two figures that support it. Markdown is fine; tables only when \
 comparing several items.
@@ -300,9 +299,12 @@ the tools are millisecond reads, so concurrency saves nothing, and \
 dicts). Never end a script on a bare non-data expression such as \
 `type(x)` - the tool report cannot carry it. `json.dumps` extras like \
 `default=` are unsupported.
-- The sandbox's checker does not know `hasattr`/`getattr`/`setattr`; \
-use `isinstance(x, dict)` or `.get()` instead. If a script fails with \
-a type error, REWRITE the flagged line - do not resubmit it.
+- Read a tool's result by the keys its signature names - \
+`r["bills"]`, never `r.get("bills", [])`: a wrong key then fails \
+before the script runs, where `.get` reads it as empty and you report \
+nothing found. The checker does not know `hasattr`/`getattr`/`setattr`. \
+If a script fails with a type error, REWRITE the flagged line - do not \
+resubmit it.
 - Print only the figures or rows you need, never a whole payload; \
 oversized output gets truncated.
 - State persists between run_code calls WITHIN this turn only - the \

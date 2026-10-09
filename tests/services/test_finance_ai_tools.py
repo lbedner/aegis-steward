@@ -57,10 +57,10 @@ def _tools_use_test_session(
     monkeypatch.setattr(ai_tools, "get_async_session", opens(session))
     # The balance sheet and the write tools live in their own modules,
     # each with their own import of the session opener.
-    from app.services.finance import ai_account_tools, ai_write_tools
+    from app.services.finance import ai_account_tools, ai_bill_tools, ai_write_tools
 
-    monkeypatch.setattr(ai_account_tools, "get_async_session", opens(session))
-    monkeypatch.setattr(ai_write_tools, "get_async_session", opens(session))
+    for module in (ai_account_tools, ai_bill_tools, ai_write_tools):
+        monkeypatch.setattr(module, "get_async_session", opens(session))
 
 
 def test_finance_tools_register_on_import() -> None:
@@ -518,6 +518,32 @@ async def test_propose_is_the_only_write_and_moves_nothing(
     assert row.conversation_id == "conv-9"
     await session.refresh(txn)
     assert txn.category_id is None  # proposing moved nothing
+
+
+@pytest.mark.asyncio
+async def test_a_proposal_naming_a_row_that_does_not_exist_is_refused(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """Her candidate lists came back empty and she proposed transaction
+    56001, 56002 and 56012 - ids she made up. Each became a card reading
+    "transaction 56001 (missing)" for the user to sort out; now she is
+    told, and nothing is filed."""
+    from sqlmodel import select
+
+    from app.services.finance.models import FinancePendingChange
+
+    stream = await seed_stream(
+        svc, name="AT&T", expected_amount=24_300, next_expected_date=date(2026, 10, 1)
+    )
+    await session.commit()
+    made_up = {"transaction_id": 56_001, "stream_id": stream.id}
+
+    one = await ai_tools.propose("recurring.match", made_up)
+    many = await ai_tools.propose_many("recurring.match", [made_up])
+
+    assert "56001" in one["error"] and "56001" in many["error"]
+    filed = (await session.exec(select(FinancePendingChange))).all()
+    assert filed == []
 
 
 @pytest.mark.asyncio
@@ -1028,14 +1054,68 @@ async def test_bill_candidates_returns_the_ranked_shortlist(
     )
     await session.commit()
 
-    result = await ai_tools.bill_candidates(stream.id)
+    (bill,) = (await ai_tools.bill_candidates(stream.id))["bills"]
 
-    ids = [c["id"] for c in result["candidates"]]
+    ids = [c["id"] for c in bill["candidates"]]
     assert payment.id in ids
-    top = result["candidates"][0]
+    top = bill["candidates"][0]
     assert top["amount_cents"] == -100_000
     assert top["date"] == "2026-07-31"
-    assert result["stream_id"] == stream.id
+    assert bill["stream_id"] == stream.id
+
+
+@pytest.mark.asyncio
+async def test_bill_candidates_walks_every_overdue_bill_in_one_call(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """ "Match my overdue bills" was one bill_candidates call per bill -
+    192 in one call, over all 72 streams. Without a bill it is the Bills
+    page's Review queue: every overdue bill that has a payment to offer."""
+    account = await seed_account(svc)
+    today = current_date()
+    overdue = await seed_stream(
+        svc,
+        name="Citizens",
+        expected_amount=255_323,
+        next_expected_date=today - timedelta(days=7),
+        account_id=account.id,
+    )
+    await seed_stream(  # overdue, nothing paid it: nothing to offer
+        svc,
+        name="Mimi",
+        expected_amount=100_000,
+        next_expected_date=today - timedelta(days=9),
+        account_id=account.id,
+    )
+    await seed_stream(  # not due yet
+        svc,
+        name="Netflix",
+        expected_amount=2_918,
+        next_expected_date=today + timedelta(days=20),
+        account_id=account.id,
+    )
+    payment = await seed_txn(
+        svc,
+        account.id,
+        -255_323,
+        today - timedelta(days=7),
+        name="Citizens",
+        owner_user_id=None,
+    )
+    await seed_txn(
+        svc,
+        account.id,
+        -2_918,
+        today - timedelta(days=3),
+        name="Netflix",
+        owner_user_id=None,
+    )
+    await session.commit()
+
+    (bill,) = (await ai_tools.bill_candidates())["bills"]
+
+    assert bill["stream_id"] == overdue.id
+    assert [c["id"] for c in bill["candidates"]] == [payment.id]
 
 
 @pytest.mark.asyncio
@@ -1393,6 +1473,7 @@ async def test_transactions_finds_transfer_flagged_rows_and_says_so(
 
 
 @pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=3)  # the tool, asked twice
 async def test_transactions_matches_the_amount_whichever_way_it_is_signed(
     svc: FinanceService, session: AsyncSession
 ) -> None:
@@ -1409,6 +1490,29 @@ async def test_transactions_matches_the_amount_whichever_way_it_is_signed(
 
     assert (await ai_tools.transactions(amount_cents=800))["total"] == 1
     assert (await ai_tools.transactions(amount_cents=-800))["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_transactions_finds_a_spoken_round_amount(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """ "MVP, $970" is how a bill is said; it was $970.44, an exact match
+    found nothing, and she gave up on a payment sitting in checking."""
+    account = await seed_account(svc)
+    for cents in (-97_044, -97_200):
+        await svc.create_transaction(
+            account_id=account.id,
+            amount=cents,
+            txn_date=date(2026, 10, 5),
+            owner_user_id=1,
+            name="MVP",
+        )
+    await session.commit()
+
+    found = await ai_tools.transactions(payee="MVP", amount_cents=97_000)
+    assert [t["amount_cents"] for t in found["transactions"]] == [-97_044]
+    # Cents given are cents meant.
+    assert (await ai_tools.transactions(amount_cents=97_045))["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -1613,3 +1717,26 @@ async def test_budget_keeps_commitments_out_of_the_limits(
     assert all(
         row["category"] != "Food & Dining:Groceries" for row in result["commitments"]
     )
+
+
+@pytest.mark.parametrize(
+    ("tool", "keys"),
+    [
+        ("bills", {"bills"}),
+        ("bill_candidates", {"bills"}),
+        ("projection", {"bills", "points"}),
+        ("transactions", {"total", "transactions"}),
+    ],
+)
+def test_a_matching_tool_shows_its_keys(tool: str, keys: set[str]) -> None:
+    """Her scripts read keys she cannot see: typed ``dict[str, Any]``,
+    every tool rendered ``-> dict``, and all eight scripts of one call read
+    ``bill_candidates(...)['transactions']`` - the key is 'candidates' -
+    got nothing back, and she proposed ids she made up. The return type
+    is what code mode prints in the signature she codes against."""
+    from pydantic_ai import Tool
+
+    from app.services.ai.domains.chat.tools import resolve_tools
+
+    schema = Tool(resolve_tools([tool])[0]).function_schema.return_schema
+    assert keys <= set(schema.get("properties", {}))

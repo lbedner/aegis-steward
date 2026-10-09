@@ -12,7 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection.insights.formatting import format_usd
 from app.services.finance.domains.ledger import categories, splits
-from app.services.finance.domains.writes.display import txn_row
+from app.services.finance.domains.writes.display import MISSING, txn_row
 from app.services.finance.schemas import ChangeDisplayRow, SplitPart
 
 
@@ -65,7 +65,7 @@ async def match_describe(
         holder = await streams.get_recurring(db, txn.recurring_stream_id, owner_user_id)
         if holder is not None:
             before = holder.name
-    after = stream.name if stream is not None else f"bill {payload.stream_id} (missing)"
+    after = stream.name if stream is not None else f"bill {payload.stream_id} {MISSING}"
     return [
         subject.model_copy(update={"label": "Payment"}),
         ChangeDisplayRow(label="Bill", value=f"{before} \u2192 {after}"),

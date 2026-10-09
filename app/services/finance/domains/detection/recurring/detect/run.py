@@ -17,11 +17,13 @@ from app.services.finance.domains.detection.recurring.cadence import (
     MIN_RHYTHM_RATIO,
     MIN_STREAM_AMOUNT,
     _canonical_days,
+    _descriptor_key,
     _frequency_for,
     _has_gone_quiet,
     _payee_key,
     _rhythm_ratio,
     amount_profile,
+    is_fee,
     split_interleaved,
 )
 from app.services.finance.domains.detection.recurring.detect.purge import (
@@ -109,15 +111,28 @@ async def detect_recurring(
     ):
         confirmed_by_slot.setdefault((bill.account_id, bill.direction), []).append(bill)
     groups: dict[tuple[int, str, str], list[FinanceTransaction]] = {}
+    # The payees a confirmed bill's own payments wear, for the repropose
+    # guard - read off rows already loaded, so it costs no query.
+    bill_payees: dict[int, set[int]] = {}
     for txn in txns:
         # Already spoken for by a real bill - not detection's business.
         if txn.id in curated:
+            if txn.recurring_stream_id is not None and txn.merchant_id is not None:
+                bill_payees.setdefault(txn.recurring_stream_id, set()).add(
+                    txn.merchant_id
+                )
             continue
         key = _payee_key(txn)
         if not key:
             continue
         direction = "outflow" if txn.amount < 0 else "inflow"
         if direction == "inflow" and txn.account_id in liability_accounts:
+            continue
+        # Nor is the card's own interest or fee a bill: nothing leaves an
+        # account of yours until the card payment, which IS the bill and
+        # already covers it. Proposed, the interest lines sat overdue
+        # beside that payment.
+        if txn.account_id in liability_accounts and is_fee(txn):
             continue
         groups.setdefault((txn.account_id, direction, key), []).append(txn)
 
@@ -189,11 +204,20 @@ async def detect_recurring(
         if median_amount < MIN_STREAM_AMOUNT:
             _release(members)
             continue
+        # A bill settled on its descriptor stays that bill once its payee
+        # is named: the group then keys as "merchant:7", sharing no token
+        # with it. So the payee's name is tested too, and so is the payee
+        # the bill's own payments wear - "IRS" shares no word with the
+        # deposit descriptor it names. Missed, the twin claims the bill's
+        # payments and the bill reads overdue.
+        payee_id = members[-1].merchant_id
         if _is_the_bill_again(
             confirmed_by_slot.get((account_id, direction), []),
-            payee,
+            (payee, _descriptor_key(merchant_names.get(payee_id or 0) or "")),
             frequency,
             median_amount,
+            payee_id=payee_id,
+            bill_payees=bill_payees,
         ):
             _release(members)
             continue

@@ -1570,7 +1570,7 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND (finance_transaction.recurring_stream_id IS NULL OR NOT (EXISTS (SELECT finance_recurring_stream.id FROM finance_recurring_stream WHERE finance_recurring_stream.id = finance_transaction.recurring_stream_id AND finance_recurring_stream.deleted_at IS NULL))) AND finance_transaction.amount < :amount_1 AND finance_transaction.owner_user_id IS NULL AND abs(finance_transaction.amount) BETWEEN :abs_1 AND :abs_2 AND finance_transaction.date BETWEEN :date_1 AND :date_2 ORDER BY finance_transaction.date DESC LIMIT :param_1",
+      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND (finance_transaction.recurring_stream_id IS NULL OR NOT (EXISTS (SELECT finance_recurring_stream.id FROM finance_recurring_stream WHERE finance_recurring_stream.id = finance_transaction.recurring_stream_id AND finance_recurring_stream.deleted_at IS NULL AND (finance_recurring_stream.id = :id_1 OR finance_recurring_stream.is_user_confirmed IS true OR finance_recurring_stream.source != :source_1)))) AND finance_transaction.amount < :amount_1 AND finance_transaction.owner_user_id IS NULL AND abs(finance_transaction.amount) BETWEEN :abs_1 AND :abs_2 AND finance_transaction.date BETWEEN :date_1 AND :date_2 ORDER BY finance_transaction.date DESC LIMIT :param_1",
       "file": "app/services/finance/domains/planning/recurring/queries.py",
       "function": "candidate_rows"
     },

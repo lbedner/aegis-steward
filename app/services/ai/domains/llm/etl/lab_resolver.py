@@ -144,13 +144,16 @@ async def resolve_lab(model_id: str) -> LabInfo | None:
     )
 
 
-def _grant_role(session: Session, org: LLMOrg, role: str) -> None:
-    """Record a hat this org wears; roles are additive and idempotent."""
-    if org.id is None:
+def _grant_role(
+    session: Session, org: LLMOrg, role: str, held: set[tuple[int, str]]
+) -> None:
+    """Record a hat this org wears; roles are additive and idempotent.
+    ``held`` is every (org_id, role) already recorded, read once by the
+    caller - a brand-new org holds none."""
+    if org.id is None or (org.id, role) in held:
         return
-    existing = queries.org_role(session, org.id, role)
-    if existing is None:
-        session.add(LLMOrgRole(org_id=org.id, role=role))
+    held.add((org.id, role))
+    session.add(LLMOrgRole(org_id=org.id, role=role))
 
 
 async def attach_labs(session: Session, model_ids: list[str]) -> None:
@@ -159,18 +162,27 @@ async def attach_labs(session: Session, model_ids: list[str]) -> None:
     One registry lookup per model that has no lab yet, so a re-sync
     of an unchanged catalog costs nothing. A model the registry does
     not know keeps a null lab - unmarked beats mislabelled.
+
+    Every lookup runs before anything is written: a write left pending
+    across a network call holds SQLite's lock - the one every other
+    process is waiting for - and committing per model instead expired
+    every row read, so each next one re-read itself.
     """
-    for model_id in model_ids:
-        model = queries.llm_by_model_id(session, model_id)
-        if model is None or model.made_by_org_id is not None:
-            continue
-        info = await resolve_lab(model_id)
-        if info is None:
-            continue
+    models = queries.llms_by_model_ids(session, model_ids)
+    unlabelled = [
+        models[i] for i in model_ids if i in models and models[i].made_by_org_id is None
+    ]
+    found = [(model, await resolve_lab(model.model_id)) for model in unlabelled]
+    labs = [(model, info) for model, info in found if info is not None]
+    if not labs:
+        return
+    orgs = {org.slug: org for org in queries.all_rows(session, LLMOrg)}
+    held = {(r.org_id, r.role) for r in queries.all_rows(session, LLMOrgRole)}
+    for model, info in labs:
         # The maker may already exist as a SERVING org (OpenAI serves
         # what it builds); that is one row wearing a second hat, not a
         # second row.
-        org = queries.org_by_slug(session, info.slug)
+        org = orgs.get(info.slug)
         if org is None:
             org = LLMOrg(
                 slug=info.slug,
@@ -181,13 +193,11 @@ async def attach_labs(session: Session, model_ids: list[str]) -> None:
             )
             session.add(org)
             session.flush()
+            orgs[info.slug] = org
         elif info.icon_b64 and not org.icon_b64:
             org.icon_b64 = info.icon_b64
             session.add(org)
-        _grant_role(session, org, ROLE_MAKER)
+        _grant_role(session, org, ROLE_MAKER, held)
         model.made_by_org_id = org.id
         session.add(model)
-        # Each model lands on its own. The next one's lookup is a network
-        # call, and a write left pending would hold SQLite's lock across
-        # it - the same lock every other process is waiting for.
-        session.commit()
+    session.commit()

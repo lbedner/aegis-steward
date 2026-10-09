@@ -50,14 +50,20 @@ async def recurring_match_candidates(
         if stream.direction == "inflow"
         else FinanceTransaction.amount < 0
     )
-    # "Unclaimed" includes rows held by a DELETED stream: a dismissed
-    # detector guess keeps claiming its pattern (that is how a
-    # dismissal stays silent), but a human reconciling a confirmed
-    # bill outranks a dead proposal - hiding those rows made the
-    # Fidelity payment invisible here twice (confirmed live).
+    # "Unclaimed" means no SETTLED bill holds the row - this one, or one
+    # the user confirmed or typed in. A detector guess's claim hides
+    # nothing: a dismissed one keeps claiming its pattern (that is how a
+    # dismissal stays silent; it hid the Fidelity payment twice), and a
+    # live twin of a settled bill claimed that bill's own payment, so it
+    # sat overdue with nothing to offer (both confirmed live).
     live_claim = select(FinanceRecurringStream.id).where(
         FinanceRecurringStream.id == FinanceTransaction.recurring_stream_id,
         FinanceRecurringStream.deleted_at.is_(None),
+        or_(
+            FinanceRecurringStream.id == stream.id,
+            FinanceRecurringStream.is_user_confirmed.is_(True),
+            FinanceRecurringStream.source != "derived",
+        ),
     )
     filters = [
         FinanceTransaction.deleted_at.is_(None),

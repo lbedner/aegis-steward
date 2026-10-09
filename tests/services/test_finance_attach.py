@@ -641,6 +641,44 @@ class TestNameTakesPrecedence:
         assert updated is not None
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # the matcher, asked for both streams
+    async def test_a_detector_guess_does_not_hide_the_bills_own_payment(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """A live proposal - detection's twin of a settled bill - claimed
+        the month's payment, so the bill sat overdue with its own payment
+        on nobody's shortlist and the assistant refused to match what
+        was plainly the gym (confirmed live). A guess outranks nobody."""
+        account = await _account(svc)
+        bill = await _bill(
+            svc,
+            account,
+            name="Acme Gym",
+            expected_amount=2_005,
+            next_expected_date=date(2026, 9, 17),
+        )
+        guess = await _bill(
+            svc,
+            account,
+            name="Acme Gym twin",
+            expected_amount=2_005,
+            next_expected_date=date(2026, 10, 17),
+        )
+        guess.source, guess.is_user_confirmed = "derived", False
+        payment = await _payment(
+            svc, account, day=date(2026, 9, 17), cents=-2_005, name="ACME GYM"
+        )
+        payment.recurring_stream_id = guess.id
+        async_db_session.add_all([guess, payment])
+        await async_db_session.flush()
+
+        offered = await svc.recurring_match_candidates(bill.id, owner_user_id=1)
+        own = await svc.recurring_match_candidates(guess.id, owner_user_id=1)
+
+        assert payment.id in [t.id for t in offered]
+        assert payment.id not in [t.id for t in own]  # already the guess's
+
+    @pytest.mark.asyncio
     async def test_strangers_still_show_when_nothing_wears_the_name(
         self, svc: FinanceService
     ) -> None:

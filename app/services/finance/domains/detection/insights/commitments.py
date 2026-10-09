@@ -45,7 +45,7 @@ class CommitmentRollup(TypedDict):
     one_time: list[FinanceRecurringStream]
 
 
-def is_commitment(stream: FinanceRecurringStream) -> bool:
+def is_commitment(stream: FinanceRecurringStream | RecurringStreamResponse) -> bool:
     """Whether a stream is part of THE RECORD - created or confirmed by
     the user - and therefore counts.
 
@@ -56,7 +56,8 @@ def is_commitment(stream: FinanceRecurringStream) -> bool:
     monthly guess through, which is how the headline read "$23,575 fixed
     this month from 97 detected bills" about rows nobody had touched, and
     how the app nagged about "missed" bills the user never acknowledged
-    having. Confirm is the one door in.
+    having. Confirm is the one door in. Takes the response schema too:
+    the Bills page's tabs and Review ask the same question of it.
     """
     return stream.is_user_confirmed or stream.source == "user"
 

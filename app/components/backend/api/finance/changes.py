@@ -46,8 +46,8 @@ async def _marks(
     Both hydrations are batched. Icons are one lookup per batch and never
     per row, so neither can be folded into a loop over changes.
     """
-    from app.components.backend.api.finance.recurring import hydrate_streams
     from app.components.backend.api.finance.register import hydrate_transactions
+    from app.services.finance.domains.planning.recurring.review import hydrate_streams
 
     def _key(row: FinancePendingChange, name: str) -> int | None:
         value = (row.payload or {}).get(name)

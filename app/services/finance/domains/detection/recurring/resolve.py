@@ -7,6 +7,8 @@ CONFIRMED bill owns its membership outright - regrouping must never
 absorb members into a bill the user settled.
 """
 
+from collections.abc import Mapping, Sequence
+
 from sqlmodel import or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -102,21 +104,34 @@ def _keys_nest(a: str, b: str) -> bool:
 
 def _is_the_bill_again(
     bills: list[FinanceRecurringStream],
-    payee: str,
+    keys: Sequence[str],
     frequency: str,
     median_amount: int,
+    *,
+    payee_id: int | None = None,
+    bill_payees: Mapping[int, set[int]] | None = None,
 ) -> bool:
-    """ "Is it HBO or not": a group whose key tokens NEST with a
-    confirmed bill's, on the same cadence, at roughly the bill's price,
-    is that bill's own history - a dead price era, a descriptor that
-    grew a city tail - and reproposing it beside the settled bill is
-    the one duplicate detection must never make. Nesting, not overlap:
-    ANTHROPIC SUBS and ANTHROPIC USAGE share a token but nest neither
-    way, and stay two bills."""
+    """ "Is it HBO or not": a group that is a confirmed bill's own payee,
+    on the same cadence, at roughly the bill's price, is that bill's own
+    history - a dead price era, a descriptor that grew a city tail, a
+    payee named after the bill was settled - and reproposing it beside
+    the settled bill is the one duplicate detection must never make.
+
+    Same payee: any of ``keys`` NESTS with the bill's key, or the group's
+    ``payee_id`` is the bill's, or one its payments wear
+    (``bill_payees``). Nesting, not overlap: ANTHROPIC SUBS and
+    ANTHROPIC USAGE share a token but nest neither way, and stay two
+    bills."""
     for bill in bills:
         if bill.frequency != frequency:
             continue
-        if not _keys_nest(payee, bill.normalized_payee or ""):
+        wears = (bill_payees or {}).get(bill.id or 0, set())
+        same_payee = payee_id is not None and (
+            payee_id == bill.merchant_id or payee_id in wears
+        )
+        if not same_payee and not any(
+            _keys_nest(key, bill.normalized_payee or "") for key in keys
+        ):
             continue
         average = float(bill.average_amount or 0)
         if average and abs(median_amount - average) <= (

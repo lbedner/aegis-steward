@@ -17,7 +17,6 @@ from starlette.responses import Response
 
 from app.components.backend.api.finance.categories import list_category_options
 from app.components.backend.api.finance.recurring import (
-    hydrate_streams,
     list_recurring,
     pause_recurring,
     rescan_recurring,
@@ -42,7 +41,13 @@ from app.services.finance.constants import (
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.detection.insights.commitments import (
+    is_commitment,
     is_paused,
+)
+from app.services.finance.domains.planning.recurring.review import (
+    hydrate_streams,
+    needs_review,
+    past_due,
 )
 from app.services.finance.models import FinanceRecurringStream
 from app.services.finance.schemas import RecurringPause, RecurringStreamResponse
@@ -78,43 +83,18 @@ FREQUENCIES = [
     {"id": key, "name": label} for key, label in BILL_FREQUENCY_OPTIONS.items()
 ]
 PAUSE_MONTHS = 3
-REVIEW_LIMIT = 50
 
 
 # --- presentation rules (pure) -----------------------------------------
-
-
-def is_curated(stream: RecurringStreamResponse) -> bool:
-    """A stream the user vouched for: hand-entered or confirmed. The
-    detector's own guesses (including its subscription flag) wait in
-    Detected until confirmed."""
-    return stream.source == "user" or stream.is_user_confirmed
-
-
-def past_due(stream: RecurringStreamResponse, today: date) -> bool:
-    return stream.next_expected_date is not None and stream.next_expected_date < today
 
 
 def tab_of(stream: RecurringStreamResponse) -> str:
     """Bills and Income hold curated, unmuted rows; everything else (the
     detector's proposals in both directions, anything muted) is Detected,
     so Unmute stays reachable."""
-    if not is_curated(stream) or stream.is_muted:
+    if not is_commitment(stream) or stream.is_muted:
         return "detected"
     return "income" if stream.direction == "inflow" else "bills"
-
-
-def needs_review(stream: RecurringStreamResponse, today: date) -> bool:
-    """A curated bill whose due date has passed and is still worth chasing
-    (no grace window: Review is the user asking "what has passed?")."""
-    return (
-        stream.direction == "outflow"
-        and is_curated(stream)
-        and not stream.is_muted
-        and not is_paused(stream, today)
-        and stream.staleness != "stale"
-        and past_due(stream, today)
-    )
 
 
 def health(stream: RecurringStreamResponse, today: date) -> dict[str, str]:
@@ -174,7 +154,7 @@ def state(stream: RecurringStreamResponse, today: date) -> dict[str, str]:
         return {"label": "Paused", "tone": "muted"}
     if stream.is_payment:
         return {"label": "Payment", "tone": "accent"}
-    if stream.direction == "inflow" or is_curated(stream):
+    if stream.direction == "inflow" or is_commitment(stream):
         return {"label": "Good", "tone": "ok"}
     return {"label": "Detected", "tone": "warn"}
 
@@ -196,7 +176,7 @@ def row(stream: RecurringStreamResponse, today: date) -> dict[str, Any]:
         "health": health(stream, today),
         "state": state(stream, today),
         "direction": stream.direction,
-        "curated": is_curated(stream),
+        "curated": is_commitment(stream),
         "muted": stream.is_muted,
         "paused": is_paused(stream, today),
         "pause_note": stream.pause_note,

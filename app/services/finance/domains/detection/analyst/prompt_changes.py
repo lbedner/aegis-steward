@@ -61,11 +61,11 @@ stream with neither is a number the projection cannot place. This is \
 the only way to add a stream; matching a payment (below) needs one that \
 already exists.
 - `recurring.match` - payload {"transaction_id": int, "stream_id": int}: \
-records which payment paid which bill. Get the bill's stream_id from \
-bills(); get the transaction_id ONLY from bill_candidates(stream_id) - \
-it ranks unclaimed payments with the same heuristic the app's match \
-picker uses. Never match from your own similarity guess: if the payment \
-is not in the shortlist, say so instead of proposing.
+which payment paid which bill. "Match my bills": bill_candidates() lists \
+overdue bills with the app's ranked picks. A bill whose payee's payment \
+is not picked, find with transactions(payee=...) near its due date and \
+propose that row (it may move from another bill). All in one \
+propose_many; ids from a result, never invented.
 - `transaction.tag` / `transaction.untag` - payload {"transaction_id": \
 int, "tag": str}. Tags are the label axis ORTHOGONAL to categories: a \
 row keeps its natural category (Software, Meals) and wears tags like \

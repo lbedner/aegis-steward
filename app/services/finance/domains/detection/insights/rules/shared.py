@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-import re
 import statistics
 
 from pydantic import BaseModel
@@ -47,9 +46,6 @@ OVERSPEND_MIN_HISTORY = 3  # need >= 3 prior full months
 # anything.
 OVERSPEND_MIN_ELAPSED = 0.25
 OVERSPEND_MIN_BASELINE = 5_000  # cents
-_FEE_PFC = "BANK_FEES"
-_FEE_RE = re.compile(r"FEE|INTEREST CHARGE|FINANCE CHARGE", re.IGNORECASE)
-
 # large_transaction: an outlier is judged against its OWN account, because a
 # normal charge on a grocery card and a normal charge on a mortgage account are
 # nothing alike. The floors keep a quiet account from crying wolf over an
