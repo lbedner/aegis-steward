@@ -12,6 +12,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.core.log import logger
+from app.core.seed import seed_rows
 from app.services.ai.domains.chat.agent_loader import (
     DEFAULT_AGENT_SLUG,
     default_agent_config,
@@ -85,16 +86,15 @@ def load_agent_fixtures(session: Session) -> dict[str, int]:
 
     # Sync registered tools into grantable rows: every callable in the
     # Python registry gets a matching ``tool`` row (by name) so the agent
-    # CRUD can attach it. Rows are never mutated or deleted here - a
-    # stale row degrades to a skipped-name warning at resolve time.
-    tools_added = 0
-    present = set(session.exec(select(Tool.name)).all())
+    # CRUD can attach it. A stale row is never deleted; it degrades to a
+    # skipped-name warning at resolve time.
+    tool_rows = []
     for name in registered_tool_names():
-        if name in present:
-            continue
         entry = get_tool(name)
-        session.add(Tool(name=name, description=entry.description if entry else None))
-        tools_added += 1
+        tool_rows.append(
+            {"name": name, "description": entry.description if entry else None}
+        )
+    tools_added = seed_rows(session, Tool, "name", tool_rows)
     if tools_added:
         session.commit()
         logger.info(f"Seeded {tools_added} tool row(s) from the registry")

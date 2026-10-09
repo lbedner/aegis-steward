@@ -425,6 +425,7 @@ class TestSchedulerRegistration:
 
 
 class TestFixturesReachTheRegistry:
+    @pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
     def test_seeding_makes_the_agent_resolvable(self, db_session: Session) -> None:
         analyst.load_finance_agent_fixtures(db_session)
 

@@ -15,6 +15,9 @@ from app.services.ai.domains.chat.fetchers import (
     registered_fetcher_names,
     run_fetcher,
 )
+from app.services.ai.fixtures.memory_module_fixtures import (
+    load_memory_module_fixtures,
+)
 from app.services.ai.models.agents import Agent, MemoryModule
 from app.services.finance.constants import ANALYST_NOTE_INSIGHT_TYPE
 from app.services.finance.domains.detection import analyst, generate_insights
@@ -689,7 +692,11 @@ class TestFetcherRegistration:
 
 
 class TestFixtures:
+    @pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
     def test_seeds_the_agents_and_their_module(self, db_session: Session) -> None:
+        modules = load_memory_module_fixtures(
+            db_session, analyst.memory_module_definitions()
+        )
         counts = analyst.load_finance_agent_fixtures(db_session)
 
         # The nightly note, the deep dive, the chat assistant behind the
@@ -697,7 +704,7 @@ class TestFixtures:
         assert counts["finance_agents"] == len(
             analyst.seeds.finance_agent_definitions()
         )
-        assert counts["finance_memory_modules"] == 1
+        assert modules["memory_modules"] == len(analyst.memory_module_definitions())
         agent = db_session.exec(
             select(Agent).where(Agent.slug == analyst.ANALYST_AGENT_SLUG)
         ).one()
@@ -710,6 +717,7 @@ class TestFixtures:
         assert module.fetch_function == analyst.SNAPSHOT_MODULE_SLUG
         assert agent.model_id is None  # follows the service's configured model
 
+    @pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
     def test_the_voice_agent_extends_the_chat_agent(self, db_session: Session) -> None:
         """#260: she is one agent spoken to two ways. The voice row names
         no tools and no memory of its own, so both come from the chat
@@ -728,12 +736,13 @@ class TestFixtures:
         assert voice.tools == []
         assert voice.model_id is None  # follows the active model (see seeds)
 
+    @pytest.mark.queryspy(threshold=5)  # seeds twice, reads the agent back
     def test_second_run_adds_nothing(self, db_session: Session) -> None:
         analyst.load_finance_agent_fixtures(db_session)
         again = analyst.load_finance_agent_fixtures(db_session)
 
         assert again["finance_agents"] == 0
-        assert again["finance_memory_modules"] == 0
+        assert again["finance_module_links"] == 0
         assert again["finance_tool_links"] == 0
         agents = db_session.exec(
             select(Agent).where(Agent.slug == analyst.ANALYST_AGENT_SLUG)
@@ -792,6 +801,56 @@ class TestFixtures:
 
         assert result.returncode == 0, result.stderr
 
+    @pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
+    def test_the_amazon_exports_module_is_static_text(
+        self, db_session: Session
+    ) -> None:
+        load_memory_module_fixtures(db_session, analyst.memory_module_definitions())
+        assert (
+            load_memory_module_fixtures(
+                db_session, analyst.memory_module_definitions()
+            )["memory_modules"]
+            == 0
+        )
+
+        module = db_session.exec(
+            select(MemoryModule).where(
+                MemoryModule.slug == analyst.AMAZON_EXPORTS_MODULE_SLUG
+            )
+        ).one()
+        assert module.fetch_function is None
+        assert "privacy-central/data-requests" in (module.prompt_content or "")
+
+    @pytest.mark.queryspy(threshold=5)  # seeds twice, reads the agent back
+    def test_a_module_new_to_the_definition_reaches_an_existing_agent(
+        self, db_session: Session
+    ) -> None:
+        """A seeded agent row is never rewritten, but a module its
+        definition gained since is appended on the next boot, the way
+        tool grants are. What was already on the row stays in order."""
+        from app.services.finance.domains.detection.analyst.shared import (
+            FINANCE_CHAT_AGENT_SLUG,
+        )
+
+        analyst.load_finance_agent_fixtures(db_session)
+        chat_agent = db_session.exec(
+            select(Agent).where(Agent.slug == FINANCE_CHAT_AGENT_SLUG)
+        ).one()
+        chat_agent.memory_modules = ["kept_by_hand"]
+        db_session.add(chat_agent)
+        db_session.commit()
+
+        counts = analyst.load_finance_agent_fixtures(db_session)
+
+        db_session.refresh(chat_agent)
+        assert chat_agent.memory_modules == [
+            "kept_by_hand",
+            analyst.SNAPSHOT_MODULE_SLUG,
+            analyst.AMAZON_EXPORTS_MODULE_SLUG,
+        ]
+        assert counts["finance_module_links"] == 2
+
+    @pytest.mark.queryspy(threshold=5)  # seeds twice, reads the agent back
     def test_an_edited_agent_survives_reseeding(self, db_session: Session) -> None:
         """Both rows are editable from the dashboard; a re-seed must not
         quietly undo the user's tuning."""
@@ -1361,6 +1420,7 @@ class TestTheDeepDiveAgent:
         assert analyst.DEEP_DIVE_AGENT_SLUG in slugs
         assert analyst.ANALYST_AGENT_SLUG in slugs
 
+    @pytest.mark.queryspy(threshold=5)  # seeds twice, reads the agent back
     def test_reseeding_adds_nothing(self, db_session: Session) -> None:
         analyst.load_finance_agent_fixtures(db_session)
         db_session.commit()

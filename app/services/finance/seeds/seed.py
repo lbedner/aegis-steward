@@ -8,8 +8,9 @@ new row here, not a new parser.
 
 import logging
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col
 
+from app.core.seed import seed_rows
 from app.services.finance.models import FinanceCurrency, FinanceImportProfile
 
 logger = logging.getLogger(__name__)
@@ -144,12 +145,7 @@ CSV_IMPORT_PROFILES = [
 
 def seed_finance_tables(session: Session) -> None:
     """Create default currencies + CSV import profiles if absent."""
-    for currency in DEFAULT_CURRENCIES:
-        existing = session.exec(
-            select(FinanceCurrency).where(FinanceCurrency.code == currency["code"])
-        ).first()
-        if existing is None:
-            session.add(FinanceCurrency(**currency))
+    seed_rows(session, FinanceCurrency, "code", DEFAULT_CURRENCIES)
 
     # Before the profiles, not with them. A profile's ``currency`` is a
     # foreign key onto ``code``, which is not the primary key, so the
@@ -158,14 +154,14 @@ def seed_finance_tables(session: Session) -> None:
     # database until a commit that orders the children first and fails.
     session.flush()
 
-    for profile in CSV_IMPORT_PROFILES:
-        existing = session.exec(
-            select(FinanceImportProfile).where(
-                FinanceImportProfile.owner_user_id.is_(None),
-                FinanceImportProfile.name == profile["name"],
-            )
-        ).first()
-        if existing is None:
-            session.add(FinanceImportProfile(is_system=True, **profile))
+    # Only system (ownerless) profiles count as present: a user may own a
+    # profile with the same name.
+    seed_rows(
+        session,
+        FinanceImportProfile,
+        "name",
+        [{**profile, "is_system": True} for profile in CSV_IMPORT_PROFILES],
+        col(FinanceImportProfile.owner_user_id).is_(None),
+    )
 
     session.commit()

@@ -61,6 +61,7 @@ class TestAgentSeed:
             (c.agent_id, c.system_prompt, c.source) for c in changes
         ) == sorted((a.id, a.system_prompt, "seed") for a in agents)
 
+    @pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
     def test_seed_is_idempotent(self, session: Session) -> None:
         load_agent_fixtures(session)
         counts = load_agent_fixtures(session)
@@ -87,6 +88,7 @@ class TestAgentSeed:
         finally:
             unregister_tool("cm_probe")
 
+    @pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
     def test_seed_never_overwrites_edited_agent(self, session: Session) -> None:
         load_agent_fixtures(session)
         agent = session.exec(
@@ -131,6 +133,7 @@ class TestStartupSeedsTheRegistry:
             is not None
         )
 
+    @pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
     def test_reseeding_changes_nothing(
         self, session: Session, monkeypatch: pytest.MonkeyPatch
     ) -> None:
