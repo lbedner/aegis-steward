@@ -1,18 +1,16 @@
 """The database handoff: agent + memory-module seed rows and their loader."""
 
+from collections.abc import Sequence
 from typing import Any
 
-from sqlmodel import (
-    Session,
-    select,
-)
+from sqlmodel import Session, col, select
 
 from app.core.log import logger
+from app.core.seed import missing_rows, seed_rows
 from app.services.ai.domains.chat.agent_registry import seed_agent
 from app.services.ai.models.agents import (
     Agent,
     AgentTool,
-    MemoryModule,
     Tool,
 )
 
@@ -35,6 +33,7 @@ from app.services.finance.domains.detection.analyst.prompts import (
     FINANCE_VOICE_TEMPERATURE,
 )
 from app.services.finance.domains.detection.analyst.shared import (
+    AMAZON_EXPORTS_MODULE_SLUG,
     ANALYST_AGENT_SLUG,
     DEEP_DIVE_AGENT_SLUG,
     FINANCE_CHAT_AGENT_SLUG,
@@ -66,6 +65,38 @@ def snapshot_module_definition() -> dict[str, Any]:
         "token_estimate": SNAPSHOT_TOKEN_ESTIMATE,
         "is_active": True,
     }
+
+
+AMAZON_EXPORTS_TEXT = """\
+If the user asks about Amazon purchases or wants to match Amazon charges
+to what was bought, point them to Amazon's data request page:
+https://www.amazon.com/hz/privacy-central/data-requests/preview.html
+For itemized purchases, request "Your Orders" (products, prices paid,
+delivery dates, returns). For Prime, Subscribe & Save, Kindle Unlimited and
+other recurring charges, request "Subscriptions" (status, billing period,
+price, card used). Amazon emails a download link once the export is ready."""
+
+
+def amazon_exports_module_definition() -> dict[str, Any]:
+    """The seed row for where Amazon's order and subscription exports live."""
+    return {
+        "slug": AMAZON_EXPORTS_MODULE_SLUG,
+        "name": "Amazon data exports",
+        "description": "Where to request Amazon order and subscription exports",
+        "category": "finance",
+        "prompt_content": AMAZON_EXPORTS_TEXT,
+        "fetch_function": None,
+        "context_key": AMAZON_EXPORTS_MODULE_SLUG,
+        "priority": 50,
+        "token_estimate": 110,
+        "is_active": True,
+    }
+
+
+def memory_module_definitions() -> tuple[dict[str, Any], ...]:
+    """Every memory module the app seeds. Which agent reads one is the
+    agent definition's ``memory_modules``, not the module's concern."""
+    return (snapshot_module_definition(), amazon_exports_module_definition())
 
 
 def analyst_agent_definition() -> dict[str, Any]:
@@ -231,7 +262,7 @@ def finance_chat_agent_definition() -> dict[str, Any]:
         "system_prompt": FINANCE_CHAT_SYSTEM_PROMPT,
         "temperature": FINANCE_CHAT_TEMPERATURE,
         "max_tokens": FINANCE_CHAT_MAX_TOKENS,
-        "memory_modules": [SNAPSHOT_MODULE_SLUG],
+        "memory_modules": [SNAPSHOT_MODULE_SLUG, AMAZON_EXPORTS_MODULE_SLUG],
         "knowledge_base_ids": [],
         "is_active": True,
         "code_mode": True,
@@ -282,65 +313,68 @@ def finance_agent_definitions() -> tuple[dict[str, Any], ...]:
     )
 
 
+def _attach_memory_modules(
+    session: Session, definitions: Sequence[dict[str, Any]]
+) -> int:
+    """Append to each existing agent the definition's modules it lacks.
+
+    Additive only, like tool grants: what the row already lists stays, in
+    order, so a module added to a definition reaches an agent seeded before
+    it. The caller commits. Returns how many grants were added.
+    """
+    wanted = {
+        d["slug"]: d["memory_modules"] for d in definitions if d["memory_modules"]
+    }
+    if not wanted:
+        return 0
+    added = 0
+    for agent in session.exec(select(Agent).where(col(Agent.slug).in_(wanted))).all():
+        current = list(agent.memory_modules or [])
+        new = [slug for slug in wanted[agent.slug] if slug not in current]
+        if new:
+            agent.memory_modules = current + new
+            session.add(agent)
+            added += len(new)
+    return added
+
+
 def _attach_chat_tools(session: Session) -> int:
-    """Link the chat agent to the finance tool rows, idempotently."""
+    """Link the chat agent to the finance tool rows (see ``app.core.seed``)."""
     agent = session.exec(
         select(Agent).where(Agent.slug == FINANCE_CHAT_AGENT_SLUG)
     ).first()
     if agent is None or agent.id is None:
         return 0
-    linked = {
-        link.tool_id
-        for link in session.exec(
-            select(AgentTool).where(AgentTool.agent_id == agent.id)
-        ).all()
-    }
-    attached = 0
-    for name in FINANCE_CHAT_TOOL_NAMES:
-        tool = session.exec(select(Tool).where(Tool.name == name)).first()
-        if tool is None or tool.id is None:
-            logger.warning(f"Finance chat tool row missing, skipping: {name}")
-            continue
-        if tool.id in linked:
-            continue
-        session.add(AgentTool(agent_id=agent.id, tool_id=tool.id))
-        attached += 1
-    return attached
+    tools = session.exec(
+        select(Tool).where(col(Tool.name).in_(FINANCE_CHAT_TOOL_NAMES))
+    ).all()
+    for name in sorted(set(FINANCE_CHAT_TOOL_NAMES) - {t.name for t in tools}):
+        logger.warning(f"Finance chat tool row missing, skipping: {name}")
+    return seed_rows(
+        session,
+        AgentTool,
+        "tool_id",
+        [{"agent_id": agent.id, "tool_id": tool.id} for tool in tools],
+        col(AgentTool.agent_id) == agent.id,
+    )
 
 
 def load_finance_agent_fixtures(session: Session) -> dict[str, int]:
-    """Seed the finance agents and their memory module, skipping existing rows.
-
-    Idempotent, and never mutates a row that is already there: all of it is
-    editable from the dashboard, and a re-seed must not undo that. Tool
-    attachments for the chat agent are additive by name.
-    """
-    counts = {
-        "finance_agents": 0,
-        "finance_memory_modules": 0,
-        "finance_tool_links": 0,
-    }
-
-    module = snapshot_module_definition()
-    if (
-        session.exec(
-            select(MemoryModule).where(MemoryModule.slug == module["slug"])
-        ).first()
-        is None
-    ):
-        session.add(MemoryModule(**module))
-        counts["finance_memory_modules"] = 1
-        logger.info(f"Seeded memory module '{module['slug']}'")
-
-    for definition in finance_agent_definitions():
-        if (
-            session.exec(select(Agent).where(Agent.slug == definition["slug"])).first()
-            is not None
-        ):
-            continue
+    """Seed the finance agents (see ``app.core.seed``). Tool and
+    memory-module grants are additive by name, so one a definition gained
+    since an agent was seeded still reaches it."""
+    definitions = finance_agent_definitions()
+    counts = {"finance_agents": 0, "finance_module_links": 0, "finance_tool_links": 0}
+    missing = missing_rows(session, Agent, "slug", definitions)
+    for definition in missing:
         seed_agent(session, definition)
         counts["finance_agents"] += 1
         logger.info(f"Seeded agent '{definition['slug']}'")
+    # A freshly seeded agent already lists its modules; only rows that
+    # were there before can lack one.
+    seeded = {d["slug"] for d in missing}
+    present = [d for d in definitions if d["slug"] not in seeded]
+    counts["finance_module_links"] = _attach_memory_modules(session, present)
 
     if any(counts.values()):
         session.commit()

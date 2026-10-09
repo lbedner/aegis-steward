@@ -56,9 +56,11 @@ from app.services.finance.domains.detection.analyst.sections import (
 from app.services.finance.domains.detection.analyst.seeds import (
     analyst_agent_definition,
     load_finance_agent_fixtures,
+    memory_module_definitions,
     snapshot_module_definition,
 )
 from app.services.finance.domains.detection.analyst.shared import (
+    AMAZON_EXPORTS_MODULE_SLUG,
     ANALYST_AGENT_SLUG,
     DEEP_DIVE_AGENT_SLUG,
     DEEP_DIVE_INSIGHT_TYPE,
@@ -69,6 +71,7 @@ from app.services.finance.domains.detection.analyst.shared import (
 )
 
 __all__ = [
+    "AMAZON_EXPORTS_MODULE_SLUG",
     "ANALYST_AGENT_SLUG",
     "ANALYST_NOTE_INSIGHT_TYPE",
     "ANALYST_RULES",
@@ -94,6 +97,7 @@ __all__ = [
     "diff_facts",
     "findings_digest",
     "load_finance_agent_fixtures",
+    "memory_module_definitions",
     "owner_user_id_for",
     "render_deep_dive",
     "render_report",

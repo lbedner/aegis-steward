@@ -36,6 +36,7 @@ _NOTE_INSIGHT_TYPES = frozenset({ANALYST_NOTE_INSIGHT_TYPE, DEEP_DIVE_INSIGHT_TY
 
 
 SNAPSHOT_MODULE_SLUG = "finance_snapshot"
+AMAZON_EXPORTS_MODULE_SLUG = "amazon-exports"
 
 
 ANALYST_SURFACE = "finance-analyst"

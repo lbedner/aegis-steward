@@ -142,18 +142,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM agent WHERE agent.slug = :slug_1",
-      "file": "app/services/finance/domains/detection/analyst/seeds.py",
-      "function": "load_finance_agent_fixtures"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM agent_tool WHERE agent_tool.agent_id = :agent_id_1",
-      "file": "app/services/finance/domains/detection/analyst/seeds.py",
-      "function": "_attach_chat_tools"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM agent_user_memory WHERE agent_user_memory.user_id = :user_id_1",
       "file": "app/services/ai/domains/chat/user_memory.py",
       "function": "get_user_memory"
@@ -562,12 +550,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_account WHERE finance_account.institution_id IS NOT NULL AND finance_account.deleted_at IS NULL GROUP BY finance_account.institution_id",
-      "file": "app/services/finance/domains/ledger/queries/accounts.py",
-      "function": "account_counts_by_institution"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_account WHERE finance_account.name = :name_1 AND finance_account.deleted_at IS NOT NULL AND finance_account.owner_user_id = :owner_user_id_1",
       "file": "app/services/finance/adapters/importers/queries.py",
       "function": "removed_account_exists"
@@ -712,12 +694,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_category WHERE finance_category.id = :pk_1",
-      "file": "app/services/finance/domains/ledger/queries/categories.py",
-      "function": "category_by_id"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_category WHERE finance_category.id IN (__[POSTCOMPILE_id_1])",
       "file": "app/services/finance/domains/ledger/queries/categories.py",
       "function": "category_names_by_id"
@@ -832,12 +808,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_currency WHERE finance_currency.code = :code_1",
-      "file": "app/services/finance/seeds/seed.py",
-      "function": "seed_finance_tables"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_holding JOIN finance_account ON finance_account.id = finance_holding.account_id WHERE finance_holding.deleted_at IS NULL AND finance_account.deleted_at IS NULL AND finance_holding.account_id = :account_id_1 ORDER BY finance_holding.as_of_date",
       "file": "app/services/finance/domains/investments/queries.py",
       "function": "live_holdings_joined"
@@ -889,24 +859,6 @@
       "label": "SELECT ... FROM finance_import_batch WHERE finance_import_batch.owner_user_id = :owner_user_id_1 AND finance_import_batch.file_sha256 = :file_sha256_1",
       "file": "app/services/finance/adapters/importers/queries.py",
       "function": "prior_batch"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_import_batch WHERE finance_import_batch.source_type = :source_type_1",
-      "file": "tests/services/test_finance_plaid.py",
-      "function": "_batches"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_import_profile",
-      "file": "tests/services/test_finance_reference_seed.py",
-      "function": "test_seeding_twice_changes_nothing"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_import_profile WHERE finance_import_profile.owner_user_id IS NULL AND finance_import_profile.name = :name_1",
-      "file": "app/services/finance/seeds/seed.py",
-      "function": "seed_finance_tables"
     },
     {
       "kind": "repeated_statement",
@@ -1117,12 +1069,6 @@
       "label": "SELECT ... FROM finance_merchant_alias WHERE finance_merchant_alias.normalized_alias IN (__[POSTCOMPILE_normalized_alias_1]) AND finance_merchant_alias.owner_user_id IS NULL",
       "file": "app/services/finance/domains/ledger/queries/merchants.py",
       "function": "merchant_aliases_by_normalized"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_merchant_alias WHERE finance_merchant_alias.owner_user_id = :owner_user_id_1",
-      "file": "app/services/finance/domains/ledger/queries/merchants.py",
-      "function": "delete_merchant_aliases"
     },
     {
       "kind": "repeated_statement",
@@ -1498,6 +1444,12 @@
     },
     {
       "kind": "repeated_statement",
+      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id = :account_id_1 AND finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.status = :status_1 AND finance_transaction.date <= :date_1",
+      "file": "app/services/finance/domains/ledger/queries/accounts.py",
+      "function": "register_balance_through"
+    },
+    {
+      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id = :account_id_1 AND finance_transaction.deleted_at IS NULL AND finance_transaction.import_hash = :import_hash_1",
       "file": "app/services/finance/domains/ledger/queries/transactions.py",
       "function": "dedup_match"
@@ -1507,12 +1459,6 @@
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id = :account_id_1 AND finance_transaction.deleted_at IS NULL AND finance_transaction.source = :source_1 AND finance_transaction.external_id = :external_id_1",
       "file": "app/services/finance/domains/ledger/queries/transactions.py",
       "function": "dedup_match"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id = :account_id_1 AND finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.status = :status_1 AND finance_transaction.date <= :date_1",
-      "file": "app/services/finance/domains/ledger/queries/accounts.py",
-      "function": "register_balance_through"
     },
     {
       "kind": "repeated_statement",
@@ -1558,12 +1504,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.account_id IN (__[POSTCOMPILE_account_id_1]) AND finance_transaction.source = :source_1 AND finance_transaction.deleted_at IS NULL",
-      "file": "app/services/finance/adapters/providers/queries.py",
-      "function": "provider_rows_for_accounts"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.category_id IN (__[POSTCOMPILE_category_id_1]) AND finance_transaction.deleted_at IS NULL AND finance_transaction.amount < :amount_1 AND finance_transaction.is_transfer IS false GROUP BY finance_transaction.category_id",
       "file": "app/services/finance/domains/planning/budgets/queries.py",
       "function": "category_first_spend"
@@ -1573,36 +1513,6 @@
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND (finance_transaction.recurring_stream_id IS NULL OR NOT (EXISTS (SELECT finance_recurring_stream.id FROM finance_recurring_stream WHERE finance_recurring_stream.id = finance_transaction.recurring_stream_id AND finance_recurring_stream.deleted_at IS NULL AND (finance_recurring_stream.id = :id_1 OR finance_recurring_stream.is_user_confirmed IS true OR finance_recurring_stream.source != :source_1)))) AND finance_transaction.amount < :amount_1 AND finance_transaction.owner_user_id IS NULL AND abs(finance_transaction.amount) BETWEEN :abs_1 AND :abs_2 AND finance_transaction.date BETWEEN :date_1 AND :date_2 ORDER BY finance_transaction.date DESC LIMIT :param_1",
       "file": "app/services/finance/domains/planning/recurring/queries.py",
       "function": "candidate_rows"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL)",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND abs(finance_transaction.amount) = :abs_1",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND abs(finance_transaction.amount) = :abs_1 ORDER BY finance_transaction.date DESC, finance_transaction.id DESC LIMIT :param_1 OFFSET :param_2",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.account_id = :account_id_1",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.account_id = :account_id_1 ORDER BY finance_transaction.date DESC, finance_transaction.id DESC LIMIT :param_1 OFFSET :param_2",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
     },
     {
       "kind": "repeated_statement",
@@ -1633,12 +1543,6 @@
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.excluded_from_reports IS false AND finance_transaction.is_split IS false AND (finance_transaction.category_id IS NULL OR finance_transaction.category_id IN (SELECT finance_category.id FROM finance_category WHERE lower(finance_category.name) IN (__[POSTCOMPILE_lower_1]))) ORDER BY finance_transaction.date DESC LIMIT :param_1",
       "file": "app/services/finance/domains/ledger/queries/transactions.py",
       "function": "uncategorized_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.excluded_from_reports IS false AND finance_transaction.is_split IS false AND (finance_transaction.category_id IS NULL OR finance_transaction.category_id IN (SELECT finance_category.id FROM finance_category WHERE lower(finance_category.name) IN (__[POSTCOMPILE_lower_1]))) ORDER BY finance_transaction.date DESC, finance_transaction.id DESC LIMIT :param_1 OFFSET :param_2",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
     },
     {
       "kind": "repeated_statement",
@@ -1697,24 +1601,6 @@
     {
       "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.is_transfer IS false ORDER BY finance_transaction.date DESC, finance_transaction.id DESC LIMIT :param_1 OFFSET :param_2",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.merchant_id IS NULL",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) AND finance_transaction.merchant_id IS NULL ORDER BY finance_transaction.date DESC, finance_transaction.id DESC LIMIT :param_1 OFFSET :param_2",
-      "file": "app/services/finance/domains/ledger/queries/transactions.py",
-      "function": "transactions_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL) ORDER BY finance_transaction.date DESC, finance_transaction.id DESC LIMIT :param_1 OFFSET :param_2",
       "file": "app/services/finance/domains/ledger/queries/transactions.py",
       "function": "transactions_page"
     },
@@ -1852,6 +1738,12 @@
     },
     {
       "kind": "repeated_statement",
+      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.merchant_id IS NOT NULL GROUP BY finance_transaction.merchant_id",
+      "file": "app/services/finance/domains/ledger/queries/merchants.py",
+      "function": "merchant_usage_rows"
+    },
+    {
+      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.owner_user_id = :owner_user_id_1 AND finance_transaction.account_id IN (__[POSTCOMPILE_account_id_1]) GROUP BY finance_transaction.account_id",
       "file": "app/services/finance/domains/ledger/queries/accounts.py",
       "function": "transaction_totals_by_account"
@@ -1873,24 +1765,6 @@
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.transfer_group_id IS NULL AND finance_transaction.amount > :amount_1 AND finance_transaction.account_id IN (__[POSTCOMPILE_account_id_1]) AND finance_transaction.owner_user_id IS NULL",
       "file": "app/services/finance/domains/detection/queries.py",
       "function": "transaction_rows_where"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.merchant_id IS NOT NULL AND finance_transaction.owner_user_id = :owner_user_id_1",
-      "file": "app/services/finance/domains/ledger/queries/merchants.py",
-      "function": "named_transactions"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.merchant_id IS NOT NULL GROUP BY finance_transaction.merchant_id",
-      "file": "app/services/finance/domains/ledger/queries/merchants.py",
-      "function": "merchant_usage_rows"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.deleted_at IS NULL AND finance_transaction.merchant_id IS NULL",
-      "file": "app/services/finance/domains/ledger/queries/merchants.py",
-      "function": "payeeless_transactions"
     },
     {
       "kind": "repeated_statement",
@@ -1948,12 +1822,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.id IN (__[POSTCOMPILE_id_1]) AND finance_transaction.deleted_at IS NULL AND finance_transaction.owner_user_id IS NULL",
-      "file": "app/services/finance/domains/detection/queries.py",
-      "function": "transaction_rows_where"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.merchant_id IN (__[POSTCOMPILE_merchant_id_1]) AND finance_transaction.deleted_at IS NULL GROUP BY finance_transaction.merchant_id, finance_transaction.category_id",
       "file": "app/services/finance/domains/ledger/queries/merchants.py",
       "function": "category_tallies_by_merchants"
@@ -1997,12 +1865,6 @@
     {
       "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.owner_user_id = :owner_user_id_1 AND finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND finance_transaction.excluded_from_reports IS false AND finance_transaction.is_transfer IS false AND finance_transaction.recurring_stream_id IS NULL AND finance_transaction.amount < :amount_1 AND finance_transaction.date >= :date_1 AND finance_transaction.account_id IN (SELECT finance_account.id FROM finance_account WHERE finance_account.deleted_at IS NULL AND finance_account.owner_user_id = :owner_user_id_2)",
-      "file": "app/services/finance/domains/detection/queries.py",
-      "function": "transaction_rows_where"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.owner_user_id IS NULL AND finance_transaction.deleted_at IS NULL AND finance_transaction.dedup_status != :dedup_status_1 AND (finance_transaction.is_transfer IS false AND finance_transaction.excluded_from_reports IS false OR (EXISTS (SELECT finance_transfer.id FROM finance_transfer JOIN finance_account ON finance_account.id = (SELECT finance_transaction.account_id FROM finance_transaction WHERE finance_transaction.id = finance_transfer.to_transaction_id) WHERE finance_transfer.from_transaction_id = finance_transaction.id AND finance_transfer.status = :status_1 AND finance_account.classification = :classification_1))) AND finance_transaction.status = :status_2",
       "file": "app/services/finance/domains/detection/queries.py",
       "function": "transaction_rows_where"
     },
@@ -2077,12 +1939,6 @@
       "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.recurring_stream_id IS NOT NULL AND finance_transaction.deleted_at IS NULL",
       "file": "app/services/finance/domains/detection/queries.py",
       "function": "linked_stream_ids"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_transaction WHERE finance_transaction.source = :source_1",
-      "file": "tests/services/test_finance_plaid.py",
-      "function": "_plaid_rows"
     },
     {
       "kind": "repeated_statement",
@@ -2398,12 +2254,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM memory_module WHERE memory_module.slug = :slug_1",
-      "file": "app/services/finance/domains/detection/analyst/seeds.py",
-      "function": "load_finance_agent_fixtures"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM party ORDER BY party.name",
       "file": "app/components/web_frontend/documents.py",
       "function": "places"
@@ -2527,18 +2377,6 @@
       "label": "SELECT ... FROM sign_in WHERE sign_in.site_party_id = :site_party_id_1 AND sign_in.deleted_at IS NULL ORDER BY sign_in.label",
       "file": "app/services/matters/signins.py",
       "function": "at_site"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM tool",
-      "file": "app/services/ai/fixtures/agent_fixtures.py",
-      "function": "load_agent_fixtures"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM tool WHERE tool.name = :name_1",
-      "file": "app/services/finance/domains/detection/analyst/seeds.py",
-      "function": "_attach_chat_tools"
     },
     {
       "kind": "repeated_statement",

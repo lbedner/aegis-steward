@@ -70,6 +70,7 @@ def test_the_currencies_the_profiles_reference_are_there_too(
     assert used <= codes, f"profiles reference currencies never seeded: {used - codes}"
 
 
+@pytest.mark.queryspy(threshold=3)  # seeds, then reads the rows back
 def test_seeding_twice_changes_nothing(startup_session: Session) -> None:
     """The hook runs on every boot."""
     seed_finance_tables(startup_session)
