@@ -53,3 +53,5 @@ scheduler_backend: sqlite
 scheduler_with_persistence: true
 version: 0.1.0
 worker_backend: arq
+include_inference: true
+inference_placement: host
