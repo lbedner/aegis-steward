@@ -43,6 +43,44 @@ document.addEventListener('alpine:init', () => {
   }));
 });
 
+// A dropdown (macros/layout.html) opens on the side its macro asked for.
+// A button that wrapped to the other edge of a phone would open it off
+// the screen, so on opening it takes the other side, then slides back
+// whatever still overhangs. ``toggle`` does not bubble, so it is caught
+// on the way down.
+function placeDropdown(details) {
+  const menu = details.lastElementChild;
+  menu.style.left = menu.style.right = menu.style.translate = '';
+  if (!details.open) return;
+  // The page's width, not innerWidth: a phone zooms out to show a menu
+  // that overhangs, which widens innerWidth until it "fits". The gutter
+  // is the macro's ``max-w-[calc(100vw-2rem)]``.
+  const gutter = 16;
+  const width = document.documentElement.clientWidth;
+  const overhang = () => {
+    const r = menu.getBoundingClientRect();
+    if (r.left < gutter) return gutter - r.left;
+    if (r.right > width - gutter) return width - gutter - r.right;
+    return 0;
+  };
+  if (!overhang()) return;
+  const [side, other] = menu.classList.contains('right-0') ? ['right', 'left'] : ['left', 'right'];
+  menu.style[side] = 'auto';
+  menu.style[other] = '0';
+  const shift = overhang();
+  if (shift) menu.style.translate = `${shift}px 0`;
+}
+document.addEventListener('toggle', (event) => {
+  if (event.target.matches?.('details[data-dropdown]')) placeDropdown(event.target);
+}, true);
+// A click anywhere else closes an open dropdown, and so does picking one
+// of its items; a panel's controls (the account filter) leave it open.
+document.addEventListener('click', (event) => {
+  for (const details of document.querySelectorAll('details[data-dropdown][open]')) {
+    if (!details.contains(event.target) || event.target.closest('[role=menu] button')) details.removeAttribute('open');
+  }
+});
+
 // Markup a script needs is cloned from a <template> in its partial, so
 // styling has one home (the template), never a JS string.
 function clone(id) {

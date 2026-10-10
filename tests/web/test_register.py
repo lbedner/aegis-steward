@@ -393,3 +393,26 @@ class TestSortableColumns:
         page = client.get(f"{REGISTER}?sort=owner_user_id").text
 
         assert not select(page, '#register thead th[aria-sort="descending"]')
+
+
+class TestFiltersFoldOnAPhone:
+    """On a phone the filters filled the first screen before a single
+    row (#466). The range chips and search stay out; the rest fold behind
+    one toggle that says how many of them are set."""
+
+    def test_the_finer_filters_sit_in_the_fold(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        page = client.get(REGISTER).text
+        fold = one(page, "#register-filters [data-more-filters]")
+        one(fold, "input[name=from]")
+        one(fold, "input[name=hide_transfers]")
+        none(fold, "input[name=q]")
+
+    def test_the_toggle_counts_the_filters_set(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        today = current_date().isoformat()
+        page = client.get(f"{REGISTER}?from={today}&hide_transfers=on").text
+        toggle = one(page, "#register-filters [data-filters-toggle]")
+        assert text(toggle) == "Filters · 2"

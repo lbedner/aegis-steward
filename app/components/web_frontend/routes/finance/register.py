@@ -62,7 +62,7 @@ HOLDING_COLUMNS = [
 TRADE_COLUMNS = [
     {"key": "date", "label": "Date", "kind": "date"},
     {"key": "type", "label": "Type"},
-    {"key": "ticker", "label": "Ticker"},
+    {"key": "ticker", "label": "Ticker", "phone": "primary"},
     {"key": "quantity", "label": "Quantity", "align": "right"},
     {"key": "amount", "label": "Amount", "kind": "money", "align": "right"},
 ]
@@ -94,6 +94,27 @@ class RegisterFilters:
     # it and the table would spring back on the next click.
     sort: str | None = None
     sort_dir: str = "desc"
+
+    @property
+    def _picks(self) -> tuple[object, ...]:
+        """The finer filters a reader picks in the bar."""
+        return (
+            self.category_id,
+            self.merchant_id,
+            self.tag_id,
+            self.from_date,
+            self.to_date,
+        )
+
+    @property
+    def narrowed(self) -> bool:
+        """Whether a pick cuts the rows down (not the transfers opt-out)."""
+        return any(self._picks)
+
+    @property
+    def folded(self) -> int:
+        """How many filters sit behind a phone's Filters toggle."""
+        return sum(map(bool, self._picks)) + self.hide_transfers
 
     def query(self, **overrides: Any) -> str:
         """The filters as a query string (``from``/``to`` in URL form)."""
@@ -381,13 +402,5 @@ async def register_context(
         "tags": await list_tags(service=service, owner_user_id=owner_user_id),
         "uncategorized_total": await uncategorized_total(service, owner_user_id),
         "show_account": account is None,
-        "filtered": bool(
-            filters.days != ranges.ALL
-            or filters.q
-            or filters.category_id
-            or filters.merchant_id
-            or filters.tag_id
-            or filters.from_date
-            or filters.to_date
-        ),
+        "filtered": bool(filters.days != ranges.ALL or filters.q or filters.narrowed),
     }

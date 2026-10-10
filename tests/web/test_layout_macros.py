@@ -10,7 +10,7 @@ from tests.web.dom import none, one, select, text
 
 IMPORT = (
     '{% from "components/macros/layout.html" '
-    "import card, stat_tile, chart_panel, dialog, tab_bar, tab_item, chip, page_header, figures, stats_strip, ranked_rows %}"
+    "import card, stat_tile, chart_panel, dialog, tab_bar, tab_item, chip, dropdown, page_header, figures, stats_strip, ranked_rows %}"
 )
 
 
@@ -101,7 +101,7 @@ class TestDialog:
         html = render("{{ dialog() }}")
         dialog = one(html, "dialog#dialog")
         assert "flex" not in (dialog.get("class") or "").split()
-        assert "max-h-[90vh]" in (dialog.get("class") or "")
+        assert "max-h-[90dvh]" in (dialog.get("class") or "")
         body = one(dialog, "#dialog-body")
         assert "overflow-y-auto" in (body.get("class") or "")
         chrome = one(dialog, "button[aria-label='Close']").getparent()
@@ -138,6 +138,24 @@ class TestTabsAndChips:
         idle = one(render('{{ chip("90d", False, "/x?days=90") }}'), "a")
         assert active.get("class") == "chip" and active.get("aria-current") == "page"
         assert idle.get("class") == "chip" and idle.get("aria-current") is None
+
+
+class TestDropdown:
+    def test_app_js_places_every_dropdown(self) -> None:
+        """A right-aligned menu whose button wrapped to the left of a phone
+        opened off the screen; one listener in app.js moves any dropdown
+        that would, keyed on ``data-dropdown``."""
+        html = render('{% call dropdown("Connect") %}<li>x</li>{% endcall %}')
+        details = one(html, "details[data-dropdown]")
+        one(details, "summary + [role=menu]")
+
+    def test_a_panel_holds_controls_not_actions(self) -> None:
+        html = render(
+            '{% call dropdown("Accounts", panel="p-2") %}<p>x</p>{% endcall %}'
+        )
+        panel = one(html, "details[data-dropdown] > div")
+        assert panel.get("role") is None
+        assert "p-2" in (panel.get("class") or "").split()
 
 
 class TestPageHeader:
@@ -247,3 +265,15 @@ class TestTheAccountFilterIsSectioned:
 
         assert "Banking" in labels
         assert len(labels) == len(set(labels)), "a group is listed once"
+
+    def test_the_panel_is_the_shared_dropdown(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """Its own copy of the popover missed the phone fix and opened off
+        the screen; through ``dropdown`` it can take either side."""
+        page = client.get("/overview").text
+
+        panel = one(page, "#filter details[data-dropdown] > div")
+
+        assert panel.get("role") is None, "checkboxes, not a menu of actions"
+        assert "Banking" in [text(p) for p in select(panel, "p")]

@@ -76,7 +76,7 @@
               placeholder="Message {{ assistant }}"
               @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); if (text.trim() || staged) $el.form.requestSubmit() }"
               @input="$el.style.height = 'auto'; $el.style.height = $el.scrollHeight + 'px'"
-              class="{{ control('textarea') }} flex-1 resize-none max-h-40 leading-relaxed min-h-0 py-3"></textarea>
+              class="{{ control('textarea') }} flex-1 basis-full sm:basis-auto resize-none max-h-40 leading-relaxed min-h-0 py-3"></textarea>
     <label class="{{ button_classes('default') }} cursor-pointer" title="Attach images">
       <input type="file" id="chat-attach" accept="{{ (chat_composer.images + chat_composer.documents)|join(',') }}" multiple class="sr-only" aria-label="Attach images or PDFs">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
@@ -107,7 +107,9 @@
       {{ phone_states() }}
     </button>
     <button type="button" id="chat-stop" hidden class="{{ button_classes('default') }}" aria-label="Stop">Stop</button>
-    <button type="submit" id="chat-send" class="{{ button_classes() }}" aria-label="Send" :disabled="!text.trim() && !staged">Send</button>
+    {#- On a phone the box takes its own row (issue 471) and the buttons wrap
+        under it; Send keeps the right edge. -#}
+    <button type="submit" id="chat-send" class="ml-auto {{ button_classes() }}" aria-label="Send" :disabled="!text.trim() && !staged">Send</button>
   </form>
   {# In a call (issue 273) the composer row gives way to this: what she is
      doing (voice_states), the engine, a timer and the running cost, mute

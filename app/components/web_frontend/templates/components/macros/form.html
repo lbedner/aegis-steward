@@ -34,29 +34,26 @@
   {% if ranges %}{{ range_chips(ranges, None if dates and dates[0] else days, attrs='@change="$root.querySelectorAll(\'input[type=date]\').forEach((i) => (i.value = \'\'))"' if dates else "") }}{% endif %}
   {% if dates %}{{ date_input("from", dates[0], label="From") }}{{ date_input("to", dates[1], label="To") }}{% endif %}
   {% if accounts %}
-  <details class="relative">
-    <summary class="list-none {{ button_classes("default", "xs") }}">
-      Accounts{% if selected_ids %} ({{ selected_ids|length }}){% endif %}
-    </summary>
+  {#- Imported here: layout.html imports this file at its top. -#}
+  {% from "components/macros/layout.html" import dropdown %}
+  {% call dropdown("Accounts" ~ (" (%d)" % selected_ids|length if selected_ids else ""), panel="min-w-[16rem] max-h-[70vh] overflow-y-auto p-2") %}
     {# Sectioned, in the same ledger order the Accounts page uses - a
        flat list of fifteen made the reader scan for a name they already
        knew the KIND of. ``account_sections`` is the one bucketing, so a
        new account type appears in both places or neither. #}
-    <div class="absolute right-0 top-full mt-1 z-30 min-w-[16rem] max-h-[70vh] overflow-y-auto floating p-2">
-      {% for label, group in account_sections(accounts) %}
-      <p class="px-2 pt-2 pb-1 micro-label text-aegis-muted">{{ label }}</p>
-      <div class="space-y-1 pb-1">
-        {% for account in group %}
-        <label class="flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-aegis-border/30 cursor-pointer">
-          <input type="checkbox" name="account_ids" value="{{ account.id }}"
-                 class="accent-aegis-teal" {% if account.id in selected_ids %}checked{% endif %}>
-          <span class="text-aegis-text truncate">{{ account.name }}</span>
-        </label>
-        {% endfor %}
-      </div>
+    {% for label, group in account_sections(accounts) %}
+    <p class="px-2 pt-2 pb-1 micro-label text-aegis-muted">{{ label }}</p>
+    <div class="space-y-1 pb-1">
+      {% for account in group %}
+      <label class="flex items-center gap-2 px-2 py-1 text-sm rounded hover:bg-aegis-border/30 cursor-pointer">
+        <input type="checkbox" name="account_ids" value="{{ account.id }}"
+               class="accent-aegis-teal" {% if account.id in selected_ids %}checked{% endif %}>
+        <span class="text-aegis-text truncate">{{ account.name }}</span>
+      </label>
       {% endfor %}
     </div>
-  </details>
+    {% endfor %}
+  {% endcall %}
   {% endif %}
 </form>
 {% endmacro %}

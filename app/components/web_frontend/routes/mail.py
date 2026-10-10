@@ -24,7 +24,7 @@ DOCUMENTS = section("documents").path
 
 COLUMNS = (
     {"key": "sender", "label": "From", "kind": "contact"},
-    {"key": "subject", "label": "Subject", "kind": "open"},
+    {"key": "subject", "label": "Subject", "kind": "open", "phone": "primary"},
     {"key": "attachments", "label": "Attachments", "kind": "open"},
     {"key": "became", "label": "Became"},
 )

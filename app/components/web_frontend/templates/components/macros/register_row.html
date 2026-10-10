@@ -15,10 +15,10 @@
 {% macro register_row(row, categories=(), show_account=False, row_oob=False) %}
 {% if row_oob %}<template id="txn-{{ row.id }}-oob">{% endif %}
 <tr id="txn-{{ row.id }}" {% if row_oob %}hx-swap-oob="outerHTML"{% endif %} class="hover:bg-aegis-border/20 transition-colors">
-  <td class="relative pl-5 pr-2 py-2">{{ new_mark(row) }}<input type="checkbox" name="transaction_ids" value="{{ row.id }}" aria-label="Select" class="{{ control('checkbox') }}"></td>
-  <td class="px-5 py-2 whitespace-nowrap text-aegis-text">{{ row.date|short_date }}</td>
-  {% if show_account %}<td class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
-  <td data-cell="payee" class="px-5 py-2 text-aegis-text">
+  <td data-role="select" class="relative pl-5 pr-2 py-2">{{ new_mark(row) }}<input type="checkbox" name="transaction_ids" value="{{ row.id }}" aria-label="Select" class="{{ control('checkbox') }}"></td>
+  <td data-role="detail" class="px-5 py-2 whitespace-nowrap text-aegis-text">{{ row.date|short_date }}</td>
+  {% if show_account %}<td data-role="detail" class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
+  <td data-cell="payee" data-role="primary" class="px-5 py-2 text-aegis-text">
     <span class="inline-flex items-center gap-2">{{ mark(row, row.payee) }}<span>{{ row.payee }}</span>
       {#- Its receipt (issue 331): the paper filed on this row, opened in the one modal. -#}
       {%- if row.receipt %}<button type="button" data-receipt {{ hx_dialog('/documents/' ~ row.receipt) }} aria-label="Open the receipt" title="Receipt" class="text-aegis-muted hover:text-aegis-teal">{{ icon("paper-clip", "w-3.5 h-3.5") }}</button>{% endif %}</span>
@@ -50,7 +50,7 @@
     </span>
     {% endfor %}
   </td>
-  <td class="px-5 py-2 whitespace-nowrap">
+  <td data-role="detail" class="px-5 py-2 whitespace-nowrap">
     {# A split row has no ONE category, and the select said it did: it
        showed the parent's - "Shopping" over a charge actually spread
        across Kids:Clothes, Home Supplies and Groceries - and offered to
@@ -83,8 +83,8 @@
     </select>
     {% endif %}
   </td>
-  <td class="px-5 py-2 whitespace-nowrap text-right tabular-nums {{ 'text-aegis-teal' if row.amount > 0 else 'text-aegis-text' }}">{{ row.amount|money(row.currency) }}</td>
-  <td class="px-2 py-2 text-right">
+  <td data-role="amount" class="px-5 py-2 whitespace-nowrap text-right tabular-nums {{ 'text-aegis-teal' if row.amount > 0 else 'text-aegis-text' }}">{{ row.amount|money(row.currency) }}</td>
+  <td data-role="actions" class="px-2 py-2 text-right">
     {% call dropdown("", align="right") %}
       {% set for_row = "?transaction_ids=" ~ row.id ~ ("&show_account=true" if show_account else "") %}
       {{ menu_item("Set payee", hx_dialog("/transactions/payee" ~ for_row)) }}
