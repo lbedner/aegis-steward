@@ -31,8 +31,8 @@ MESSAGES: dict[str, str] = {
     "bench.auth.one_only": "Pass only one of --as-admin / --as-user / --anon.",
     "bench.driver.fallback": "Falling back to the {driver} driver: {reason}.",
     "bench.driver.method": "ab cannot issue {method}",
-    "bench.driver.missing": "ab is not installed",    "bench.driver.docker": "no local ab, using the httpd image instead",
-
+    "bench.driver.missing": "ab is not installed",
+    "bench.driver.docker": "no local ab, using the httpd image instead",
     "bench.driver.warning": (
         "This driver tops out below what either engine can serve, so the two "
         "look equal no matter what. Install ab (apache2-utils) for a "
@@ -493,11 +493,6 @@ MESSAGES: dict[str, str] = {
     "tasks.help": "예약 작업 관리 명령어",
     "tasks.help_list": "모든 예약된 작업의 현재 상태와 세부 정보를 표시합니다.",
     # ── Migrate ──────────────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  경고: '{table}' 테이블이 누락되어 있습니다. "
-        "수동 마이그레이션을 생성하세요: "
-        "alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "기존 마이그레이션을 찾을 수 없습니다. 먼저 'make migrate'를 실행하세요.",
     "migrate.checking_schema": "모델 대비 스키마 확인 중...",
     "migrate.applying_pending": "보류 중인 마이그레이션을 먼저 적용합니다...",
@@ -589,7 +584,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "현재 사용 중 (로컬)",
     "ai.prov_need_key": "API 키 필요",
     "ai.prov_not_installed": "미설치",
-    "ai.prov_error": "오류",
     "ai.providers_tip": "팁: '{app} ai add-provider <이름>'을 실행하여 누락된 제공자를 설치하세요.",
     # Usage panel
     "ai.usage_title": "AI 사용량 요약",
@@ -861,7 +855,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "부하 테스트 완료 대기 중...",
     "loadtest.waiting_elapsed": "완료 대기 중... ({elapsed}초)",
     "loadtest.timeout_progress": "시간 초과됨",
-    "loadtest.completed_progress": "부하 테스트 완료!",
     # Quick test output
     "loadtest.quick_cpu_title": "빠른 CPU 부하 테스트",
     "loadtest.quick_cpu_tasks": "{count}개 CPU 집약적 작업",
@@ -930,16 +923,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "작업 ID가 정확하고 테스트가 완료되었는지 확인하세요",
     "loadtest.results_failed": "결과 조회 실패:",
     # Error/timeout display
-    "loadtest.timed_out_title": "부하 테스트 시간 초과",
     "loadtest.failed_title": "부하 테스트 실패",
     "loadtest.error_label": "오류:",
     "loadtest.test_id_label": "테스트 ID:",
-    "loadtest.what_this_means": "이것이 의미하는 것:",
-    "loadtest.timeout_explanation": "오케스트레이터 작업이 시간 초과되었지만, 개별 워커 작업은 성공적으로 완료되었을 수 있습니다. 큐 시간 초과를 넘는 대규모 부하 테스트에서 자주 발생합니다.",
-    "loadtest.to_investigate": "조사하려면:",
-    "loadtest.tip_check_logs": "워커 로그에서 개별 작업 완료를 확인하세요",
-    "loadtest.tip_smaller_batch": "대규모 테스트에는 더 작은 배치 크기를 사용해 보세요",
-    "loadtest.tip_check_metrics": "큐 메트릭에서 실제 작업 완료 수를 확인하세요",
     "loadtest.analysis_panel": "부하 테스트 분석",
     "loadtest.next_steps": "다음 단계:",
     "loadtest.tip_check_worker_logs": "워커 로그에서 상세 오류 정보를 확인하세요",

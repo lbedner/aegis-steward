@@ -9,7 +9,9 @@ by the CLI and dashboard tests that consume them.
 
 from datetime import UTC, datetime
 
-from app.core.formatting import format_relative_time, format_slug
+import pytest
+
+from app.core.formatting import format_relative_time, format_slug, split_matches
 
 NOW = datetime(2026, 5, 19, 12, 0, 0, tzinfo=UTC)
 
@@ -18,6 +20,13 @@ class TestFormatRelativeTime:
     def test_empty_returns_dash(self):
         assert format_relative_time("") == "—"
         assert format_relative_time(None) == "—"
+
+    def test_takes_a_datetime_as_well_as_iso_text(self):
+        """Model columns are datetimes; callers pass them as they are."""
+        aware = datetime(2026, 5, 19, 11, 55, tzinfo=UTC)
+        naive = datetime(2026, 5, 19, 9, 0)
+        assert format_relative_time(aware, now=NOW) == "5 minutes ago"
+        assert format_relative_time(naive, now=NOW) == "3 hours ago"
 
     def test_just_now_under_one_minute(self):
         ts = "2026-05-19T11:59:30+00:00"  # 30s before NOW
@@ -157,3 +166,112 @@ class TestTheDisplayNameSettings:
             ).PROJECT_DISPLAY_NAME
             == "Steward"
         )
+
+
+def test_format_span_reads_in_its_two_largest_units() -> None:
+    from app.core.formatting import format_span
+
+    assert format_span(8) == "8s"
+    assert format_span(125) == "2m 5s"
+    assert format_span(3720) == "1h 2m"
+    assert format_span(90061) == "1d 1h"
+    assert format_span(None) is None
+
+
+class TestSafeFilename:
+    """A name bound for Content-Disposition cannot end the header or the
+    quoted value: a newline there is header injection."""
+
+    def test_line_breaks_quotes_and_backslashes_are_dropped(self) -> None:
+        from app.core.formatting import safe_filename
+
+        assert safe_filename('bad"\r\nSet-Cookie: x\\.pdf') == "badSet-Cookie: x.pdf"
+
+    def test_an_empty_result_falls_back(self) -> None:
+        from app.core.formatting import safe_filename
+
+        assert safe_filename('\r\n"', fallback="download") == "download"
+
+
+# Each chart format's reading, for format_value and its browser twin
+# (charts.js formatValue, tests/web/test_charts_js.py).
+CHART_FORMATS = [
+    (12.5, "percent", "12.5%"),
+    (128 * 2**20, "bytes", "128.0 MB"),
+    (2048, "bytes_per_second", "2.0 KB/s"),
+    (512, "bytes_per_second", "512 B/s"),
+    (1.24, "seconds", "1.2 s"),
+    (70.4, "seconds", "70 s"),
+    (-1234.5, "money", "-$1,234.50"),
+    (1234, None, "1,234"),
+]
+
+
+@pytest.mark.parametrize(("value", "fmt", "expected"), CHART_FORMATS)
+def test_a_charted_value_reads_in_its_charts_format(
+    value: float, fmt: str | None, expected: str
+) -> None:
+    from app.core.formatting import format_value
+
+    assert format_value(value, fmt) == expected
+
+
+# A search's matches, for split_matches and its browser twin (app.js
+# splitMatches, the client-side filter: tests/web/test_app_js.py).
+MATCH_CASES = [
+    (
+        "Write failed, write again",
+        "WRITE",
+        [("Write", True), (" failed, ", False), ("write", True), (" again", False)],
+    ),
+    ("Write failed", "", [("Write failed", False)]),
+    ("Write failed", "nothing", [("Write failed", False)]),
+    ("a.b (c)", ".b (", [("a", False), (".b (", True), ("c)", False)]),
+]
+
+
+@pytest.mark.parametrize(("text", "query", "runs"), MATCH_CASES)
+def test_split_matches_marks_every_match_whatever_its_case(
+    text: str, query: str, runs: list[tuple[str, bool]]
+) -> None:
+    assert split_matches(text, query) == runs
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"), [(0, "0 drafts"), (1, "1 draft"), (2, "2 drafts")]
+)
+def test_a_count_takes_its_noun_singular_only_for_one(
+    count: int, expected: str
+) -> None:
+    from app.core.formatting import counted
+
+    assert counted(count, "draft") == expected
+
+
+def test_a_noun_whose_plural_is_not_an_s_names_it() -> None:
+    from app.core.formatting import counted
+
+    assert counted(1, "watch", "watches") == "1 watch"
+    assert counted(3, "watch", "watches") == "3 watches"
+
+
+@pytest.mark.parametrize(
+    ("target", "local"),
+    [
+        ("/notes", True),
+        ("/overseer/components/worker?view=map", True),
+        ("//evil.example", False),
+        ("/\\evil.example", False),  # browsers read a backslash as a slash
+        ("/notes\\..\\evil", False),
+        ("https://evil.example", False),
+        ("javascript:alert(1)", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_only_a_path_on_this_site_is_local(target: str | None, local: bool) -> None:
+    """What a ``next`` or a redirect may send someone to: a path here, never
+    an address that leaves the site, however it is spelled."""
+    from app.core.formatting import is_local_path
+
+    assert is_local_path(target) is local

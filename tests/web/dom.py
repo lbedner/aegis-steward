@@ -92,8 +92,13 @@ def id_of(element: HtmlElement, prefix: str) -> str:
 def chart_data(markup: Markup, kind: str) -> dict[str, Any]:
     """The JSON a ``chart_panel`` canvas of ``kind`` points at."""
     canvas = one(markup, f'canvas[data-chart="{kind}"]')
-    payload = one(markup, f"#{canvas.get('data-chart-data')}")
-    return json.loads(payload.text or "")
+    return chart_json(markup, canvas.get("data-chart-data"))
+
+
+def chart_json(markup: Markup, script_id: str) -> dict[str, Any]:
+    """A chart's data script by its id, as a page renders it or a live
+    stream re-sends it (``chart_data`` in macros/layout.html)."""
+    return json.loads(one(markup, f"#{script_id}").text or "")
 
 
 def location(response: Any) -> str:
@@ -122,6 +127,12 @@ def oob(markup: str) -> tuple[list[HtmlElement], list[HtmlElement]]:
     return primary, siblings
 
 
+def row_text(markup: Markup, rows: str, needle: str) -> str:
+    """The text of the first row (``rows``, a CSS selector) mentioning
+    ``needle``."""
+    return next(text(row) for row in select(markup, rows) if needle in text(row))
+
+
 def table_rows(markup: Markup, table: str = "table") -> list[dict[str, HtmlElement]]:
     """Each body row of ``table`` as ``{header label: cell}``, so tests read
     cells by name instead of counting columns."""
@@ -139,3 +150,9 @@ def portfolio_row(markup: Markup, name: str) -> HtmlElement:
         if text(cell).strip() == name:
             return cell.getparent().getparent().getparent()
     raise AssertionError(f"no portfolio row named {name!r}")
+
+
+def checked(markup: Markup, css: str) -> list[str]:
+    """The values of the checked inputs ``css`` finds: a radio row's pick,
+    or the boxes ticked."""
+    return [i.get("value") for i in select(markup, css) if i.get("checked") is not None]

@@ -48,6 +48,7 @@ from app.components.frontend.dashboard.modals.modal_sections import (
 )
 from app.components.frontend.theme import AegisTheme as Theme
 from app.core.formatting import format_date
+from app.services.finance.utils import current_date
 
 # staleness (backend, stream_staleness) -> (label, color, tooltip-body).
 # Mirrors the exact recency signal _missed_recurring already uses to
@@ -263,7 +264,7 @@ class RowsMixin(RecurringTabState):
         # but a row whose due date has passed reading "Active" is a lie
         # to the person scanning the table (and disagrees with the
         # Review queue, which counts exactly these).
-        if staleness == "fresh" and past_due(stream, date.today().isoformat()):
+        if staleness == "fresh" and past_due(stream, current_date().isoformat()):
             staleness = "overdue"
         label, color, tooltip = _HEALTH_STYLE.get(staleness, _HEALTH_STYLE["fresh"])
         if stream.get("staleness") == "stale" and stream.get("last_date"):
@@ -310,7 +311,7 @@ class RowsMixin(RecurringTabState):
                 )
             ]
         if self._range_days < 9000:
-            cutoff = date.today() - timedelta(days=self._range_days)
+            cutoff = current_date() - timedelta(days=self._range_days)
 
             def _in_range(stream: dict) -> bool:
                 last = stream.get("last_date")

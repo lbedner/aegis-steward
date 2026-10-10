@@ -5,8 +5,11 @@ here. ``render`` is the one-route-two-paths rule: the same handler serves
 a full page inside the app shell and a bare fragment for htmx.
 """
 
+from base64 import b64decode
+from hashlib import sha1
 import json
 from typing import Any, TypeVar
+from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
@@ -23,8 +26,10 @@ from app.components.web_frontend.glyphs import (
     file_badge_table,
 )
 from app.components.web_frontend.nav import NAV, section
+from app.core import series
 from app.core.config import settings
 from app.services.finance.constants import account_sections
+from app.services.system import topology, ui_runtime
 
 templates = Jinja2Templates(directory=str(COMPONENT_DIR / "templates"))
 
@@ -57,7 +62,25 @@ templates.env.globals["project_description"] = settings.PROJECT_DESCRIPTION
 # on this at render time. AUTH_ENABLED is False when the service was not
 # selected.
 templates.env.globals["auth_enabled"] = settings.AUTH_ENABLED
-templates.env.globals["registration_enabled"] = settings.REGISTRATION_ENABLED
+
+
+def registration_enabled() -> bool:
+    """Whether signups are open, read as a page renders: a value saved in
+    the Overseer applies once the process has booted, after import."""
+    return settings.REGISTRATION_ENABLED
+
+
+templates.env.globals["registration_enabled"] = registration_enabled
+templates.env.globals["email_flows_enabled"] = (
+    settings.AUTH_ENABLED and settings.AUTH_LEVEL != "basic"
+)
+# A container's live figures by name (CPU, Memory...), as Flet and the
+# charts name them.
+templates.env.globals["figure_names"] = ui_runtime.FIGURES
+# What each map node is (a store, the queue, an outside provider), by name.
+templates.env.globals["map_roles"] = topology.Role
+# Every sparkline's box, the one ``series.sparkline`` draws its points in.
+templates.env.globals["spark_box"] = f"0 0 {series.SPARK_WIDTH} {series.SPARK_HEIGHT}"
 # The appearance choices, listed once. The sidebar's picker renders the
 # ones with a legend; <html> carries all of them for static/js/theme.js,
 # which takes the first value of each as the default. The DaisyUI themes
@@ -155,8 +178,20 @@ def hx_dialog(url: str, extra: str = "") -> Markup:
     refresh". Saying it here costs nothing and cannot be borrowed
     against.
     """
+    return _hx_open(url, "#dialog-body", extra)
+
+
+def hx_drawer(url: str) -> Markup:
+    """The attributes for "open this in the side drawer": the panel an item
+    is edited in beside the page, without the address bar naming it (the
+    list-driven ``drawer_sync`` does that). Same stated swap as
+    ``hx_dialog``, for the same reason."""
+    return _hx_open(url, "#drawer-body")
+
+
+def _hx_open(url: str, target: str, extra: str = "") -> Markup:
     return Markup(
-        f'hx-get="{escape(url)}" hx-target="#dialog-body" hx-swap="innerHTML" {extra}'
+        f'hx-get="{escape(url)}" hx-target="{target}" hx-swap="innerHTML" {extra}'
     )
 
 
@@ -221,6 +256,131 @@ def hx_replace(url: str, target: str, oob: str | None = None) -> Markup:
     return Markup(" ".join(f'{k}="{escape(v)}"' for k, v in attrs.items()))
 
 
+def image_response(
+    request: Request, icon_b64: str, media_type: str = "image/png"
+) -> Response:
+    """A stored base64 image served for the browser to cache: a day's
+    ``max-age`` and an ETag of its bytes, so a revalidation is a 304 and a
+    changed image is fetched fresh. For icon routes (``<img src=...>``)."""
+    etag = '"' + sha1(icon_b64.encode(), usedforsecurity=False).hexdigest()[:16] + '"'
+    headers = {"Cache-Control": "public, max-age=86400", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(b64decode(icon_b64), media_type=media_type, headers=headers)
+
+
+async def form_fields(request: Request) -> dict[str, str]:
+    """A form post's fields as text, for an editor with more fields than a
+    handler's signature should spell out."""
+    return {key: str(value) for key, value in (await request.form()).items()}
+
+
+def form_number(raw: str | None, label: str, kind: type = int) -> Any:
+    """An optional number from a form field: blank is None, anything else
+    must parse as ``kind`` (``int`` or ``float``) or it is a ``ValueError``
+    naming the field, which a handler turns into its error toast."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return kind(text)
+    except ValueError:
+        noun = "a whole number" if kind is int else "a number"
+        raise ValueError(f"{label} must be {noun}.") from None
+
+
+def one_decimal(row: dict[str, Any], *keys: str) -> dict[str, Any]:
+    """Round the named figures for display; the table macro prints values as-is."""
+    return row | {key: f"{float(row.get(key) or 0):.1f}" for key in keys}
+
+
+def status_cell(label: str, tone: str) -> dict[str, str]:
+    """A ``data_table`` status cell (rendered as a ``badge``); ``tone`` is ok,
+    warn, error, muted or accent."""
+    return {"label": label, "tone": tone}
+
+
+def columns(
+    pairs: tuple[tuple[str, str], ...], *, status: tuple[str, ...] = ()
+) -> list[dict[str, str]]:
+    """A ``ui_*`` module's ``(key, label)`` pairs as ``data_table`` columns,
+    the ``status`` keys rendered as badges (their cells are ``status_cell``)."""
+    return [
+        {"key": key, "label": label} | ({"kind": "status"} if key in status else {})
+        for key, label in pairs
+    ]
+
+
+def ranked(rows: list[dict[str, Any]], by: str) -> list[dict[str, Any]]:
+    """Rows for the ``ranked_rows`` macro: each gains the ``ratio`` of its
+    ``by`` figure to the largest row's, the width of its bar. A bar is a
+    size, so a negative figure (money out) measures by its magnitude."""
+    top = max((abs(row[by]) for row in rows), default=0)
+    return [row | {"ratio": abs(row[by]) / top if top else 0} for row in rows]
+
+
+def chart(
+    labels: list[str], label: str, values: list[float], money: bool = False
+) -> dict[str, Any]:
+    """Data for the ``chart_panel`` macro: one labelled series, drawn as
+    dollars when ``money``, else as plain numbers (charts.js reads a chart
+    that names no format as money)."""
+    return {
+        "labels": labels,
+        "series": [{"label": label, "values": values}],
+        "format": "money" if money else "count",
+    }
+
+
+def drawer_state(param: str, url: str | None) -> dict[str, str | None]:
+    """What a list hands ``drawer_sync``: the open item's drawer URL (None
+    closes it) and the query parameter that holds the item."""
+    return {"open_drawer": url, "drawer_param": param}
+
+
+def with_query(path: str, **params: str | list[str] | None) -> str:
+    """``path`` with the given query parameters, leaving out empty ones; a
+    list (a multi-select's picks) repeats its key once per value."""
+    pairs = [
+        (key, value)
+        for key, given in params.items()
+        for value in (given if isinstance(given, list) else [given])
+        if value
+    ]
+    query = urlencode(pairs)
+    return f"{path}?{query}" if query else path
+
+
+def pager(
+    path: str,
+    page: int,
+    page_size: int,
+    total: int,
+    *,
+    param: str = "page",
+    **params: str | list[str] | None,
+) -> dict[str, Any] | None:
+    """The ``pager`` macro's ``{start, end, total, prev, next}`` for ``page``
+    (1-based) of ``total`` items, or None when everything fits on one page.
+    ``params`` ride along on the previous/next links (filters, say), the
+    empty ones left out (``with_query``); ``param`` names the page number,
+    for a second list paged on the same URL."""
+    if total <= page_size:
+        return None
+
+    def link(number: int) -> str:
+        return with_query(path, **params, **{param: str(number)})
+
+    start = (page - 1) * page_size
+    return {
+        "start": start + 1 if total else 0,
+        "end": min(start + page_size, total),
+        "total": total,
+        "prev": link(page - 1) if page > 1 else None,
+        "next": link(page + 1) if start + page_size < total else None,
+    }
+
+
 templates.env.globals["hx_replace"] = hx_replace
 
 
@@ -250,12 +410,20 @@ templates.env.globals["hx_page"] = hx_page
 templates.env.globals["hx_filter"] = hx_filter
 templates.env.globals["hx_load"] = hx_load
 templates.env.globals["hx_dialog"] = hx_dialog
+templates.env.globals["hx_drawer"] = hx_drawer
 templates.env.globals["hx_dialog_post"] = hx_dialog_post
 templates.env.filters.update(FILTERS)
 
 
 SHELL_LAYOUT = "layouts/app_shell.html"
 FRAGMENT_LAYOUT = "layouts/fragment.html"
+
+
+def is_htmx(request: Request) -> bool:
+    """A request htmx made. It follows a redirect itself and swaps what it
+    gets, so one refused for a dead session gets a plain 401 instead, which
+    auth.js answers by renewing the session or signing in whole."""
+    return request.headers.get("HX-Request") == "true"
 
 
 def wants_fragment(request: Request) -> bool:
@@ -265,8 +433,13 @@ def wants_fragment(request: Request) -> bool:
     needs the shell; history restores never reach here because the htmx
     config turns them into full page loads.
     """
-    headers = request.headers
-    return headers.get("HX-Request") == "true" and headers.get("HX-Boosted") != "true"
+    return is_htmx(request) and request.headers.get("HX-Boosted") != "true"
+
+
+def fragment(name: str, **context: Any) -> str:
+    """Template ``name`` rendered on its own: an SSE frame or a swapped
+    part, not a page."""
+    return templates.env.get_template(name).render(**context)
 
 
 def render(
@@ -274,6 +447,7 @@ def render(
     name: str,
     context: dict[str, Any] | None = None,
     status_code: int = 200,
+    page_layout: str = SHELL_LAYOUT,
 ) -> Response:
     """Render page template ``name`` for either render path.
 
@@ -282,7 +456,7 @@ def render(
     so a view has one URL and one template. ``Vary`` tells caches the two
     bodies differ. ``status_code`` is for validation re-renders (422).
     """
-    layout = FRAGMENT_LAYOUT if wants_fragment(request) else SHELL_LAYOUT
+    layout = FRAGMENT_LAYOUT if wants_fragment(request) else page_layout
     response = templates.TemplateResponse(
         request=request,
         name=name,
@@ -367,6 +541,12 @@ def with_toast(response: Response, text: str, tone: str = "ok") -> Response:
     return trigger(response, "toast", {"text": text, "tone": tone})
 
 
+def toast_response(text: str, tone: str = "ok") -> Response:
+    """An action's whole answer when the page stays as it is: a toast.
+    An error toast leaves a form holding what was typed."""
+    return with_toast(Response(status_code=200), text, tone)
+
+
 def close_dialog(response: Response) -> Response:
     """Close the one modal from a successful in-dialog action (pattern 4).
 
@@ -377,16 +557,26 @@ def close_dialog(response: Response) -> Response:
     return trigger(response, "dialog:close", header="HX-Trigger-After-Settle")
 
 
-def navigate(response: Response, path: str, target: str = "#app-content") -> Response:
+def navigate(
+    response: Response,
+    path: str,
+    target: str = "#app-content",
+    select: str | None = None,
+) -> Response:
     """Send the browser to ``path`` the htmx way: a GET with HX-Request
     swapped into ``target`` and pushed to the URL bar (``HX-Location``).
-    The usual close of a dialog form that made something new.
+    The usual close of a dialog form that made something new. ``select``
+    takes that element out of the answer and swaps it for ``target``
+    whole, for a page that answers with more than the target holds.
 
     Closes the dialog with the plain trigger: htmx follows HX-Location
     instead of swapping this response, so nothing after-settle would ever
     fire, and nothing swaps into the dialog that could re-open it.
     """
-    response.headers["HX-Location"] = json.dumps({"path": path, "target": target})
+    location = {"path": path, "target": target}
+    if select:
+        location |= {"select": select, "swap": "outerHTML"}
+    response.headers["HX-Location"] = json.dumps(location)
     return trigger(response, "dialog:close")
 
 
@@ -421,12 +611,22 @@ def where_from(request: Request, fallback: str) -> str:
     return path if path.startswith("/") else fallback
 
 
-def dialog_done(path: str, toast: str) -> Response:
+def go_to(path: str, toast: str, target: str) -> Response:
+    """Replace ``target`` with the same element from ``path`` and say what
+    happened: the ``hx_replace`` recipe, for a region inside a page (the
+    Overseer's main area). Swapping the whole answer in would nest the
+    page's shell, sidebar and all, inside the target."""
+    response = Response(status_code=200)
+    navigate(response, path, target=target, select=target)
+    return with_toast(response, toast)
+
+
+def dialog_done(path: str, toast: str, tone: str = "ok") -> Response:
     """The end of a dialog form that made something: close it, say what
     happened, and send the content area where the result lives."""
     response = Response(status_code=200)
     navigate(response, path)
-    return close_dialog(with_toast(response, toast))
+    return close_dialog(with_toast(response, toast, tone))
 
 
 def or_404(row: T | None) -> T:

@@ -5,10 +5,18 @@ Extracted from the system health module; registered via the same
 register_health_check machinery.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from app.core.config import settings
+from app.core.constants import ComponentName
 from app.core.log import logger
 
 from .models import ComponentStatus, ComponentStatusType
+
+if TYPE_CHECKING:
+    from app.components.inference.ollama import OllamaServerStatus
 
 
 async def check_ollama_health() -> ComponentStatus:
@@ -19,97 +27,17 @@ async def check_ollama_health() -> ComponentStatus:
         ComponentStatus indicating Ollama infrastructure health with model info
     """
     try:
-        from app.services.ai.domains.llm.ollama import OllamaClient
+        from app.components.inference.ollama import OllamaClient
 
         # Get Ollama URL from settings (uses effective URL for Docker/local auto-detection)
         ollama_url = settings.ollama_base_url_effective
 
         client = OllamaClient(base_url=ollama_url)
-
-        # Get comprehensive server status
-        server_status = await client.get_server_status()
-
-        if not server_status.available:
-            return ComponentStatus(
-                name="ollama",
-                status=ComponentStatusType.UNHEALTHY,
-                message="Ollama server not reachable",
-                response_time_ms=None,
-                metadata={
-                    "available": False,
-                    "base_url": ollama_url,
-                    "error": "Connection failed",
-                },
-            )
-
-        # Feed the activity tracker: diffing the running set on every poll
-        # is how idle evictions and externally triggered loads get noticed
-        # (Ollama has no event API).
-        from app.services.ai.domains.llm.ollama_activity import get_ollama_activity
-
-        get_ollama_activity().observe(
-            {m.name: m.size_vram_gb for m in server_status.running_models}
-        )
-
-        # Use Pydantic's model_dump for clean serialization
-        running_models_info = [
-            m.model_dump(
-                include={"name", "size_vram_gb", "is_warm", "context_length", "details"}
-            )
-            for m in server_status.running_models
-        ]
-        installed_models_info = [
-            m.model_dump(
-                include={
-                    "name",
-                    "size_gb",
-                    "details",
-                    # What `ollama list` prints and the table could not show:
-                    # the digest tells two pulls of one tag apart, and the
-                    # timestamp is how you spot a model that has gone stale.
-                    "digest",
-                    "modified_at",
-                    "capabilities",
-                },
-                mode="json",
-            )
-            for m in server_status.installed_models
-        ]
-
-        # Determine status based on server state
-        if server_status.running_models:
-            status = ComponentStatusType.HEALTHY
-            primary_model = server_status.running_models[0]
-            message = (
-                f"{primary_model.name} • {primary_model.size_vram_gb:.1f}GB VRAM • warm"
-            )
-        elif server_status.installed_models_count > 0:
-            status = ComponentStatusType.INFO
-            message = f"Ollama ready • {server_status.installed_models_count} models installed • none loaded"
-        else:
-            status = ComponentStatusType.WARNING
-            message = "Ollama running but no models installed"
-
-        return ComponentStatus(
-            name="ollama",
-            status=status,
-            message=message,
-            response_time_ms=None,
-            metadata={
-                "available": True,
-                "base_url": ollama_url,
-                "version": server_status.version,
-                "running_models": running_models_info,
-                "running_models_count": len(server_status.running_models),
-                "installed_models": installed_models_info,
-                "installed_models_count": server_status.installed_models_count,
-                "total_vram_gb": round(server_status.total_vram_gb, 2),
-            },
-        )
+        return ollama_status(await client.get_server_status(), ollama_url)
 
     except ImportError:
         return ComponentStatus(
-            name="ollama",
+            name=ComponentName.OLLAMA,
             status=ComponentStatusType.UNHEALTHY,
             message="Ollama client not available",
             response_time_ms=None,
@@ -118,9 +46,82 @@ async def check_ollama_health() -> ComponentStatus:
     except Exception as e:
         logger.error(f"Ollama health check failed: {e}")
         return ComponentStatus(
-            name="ollama",
+            name=ComponentName.OLLAMA,
             status=ComponentStatusType.UNHEALTHY,
             message=f"Ollama health check failed: {str(e)}",
             response_time_ms=None,
             metadata={"error": str(e)},
         )
+
+
+def ollama_status(
+    server_status: OllamaServerStatus, ollama_url: str
+) -> ComponentStatus:
+    """A server reading as a health status: the check's, and the Flet
+    modal's from the inference sampler's last reading."""
+    if not server_status.available:
+        return ComponentStatus(
+            name=ComponentName.OLLAMA,
+            status=ComponentStatusType.UNHEALTHY,
+            message="Ollama server not reachable",
+            response_time_ms=None,
+            metadata={
+                "available": False,
+                "base_url": ollama_url,
+                "error": "Connection failed",
+            },
+        )
+
+    running_models_info = [
+        m.model_dump(
+            include={"name", "size_vram_gb", "is_warm", "context_length", "details"}
+        )
+        for m in server_status.running_models
+    ]
+    installed_models_info = [
+        m.model_dump(
+            include={
+                "name",
+                "size_gb",
+                "details",
+                # What `ollama list` prints and the table could not show:
+                # the digest tells two pulls of one tag apart, and the
+                # timestamp is how you spot a model that has gone stale.
+                "digest",
+                "modified_at",
+                "capabilities",
+            },
+            mode="json",
+        )
+        for m in server_status.installed_models
+    ]
+
+    if server_status.running_models:
+        status = ComponentStatusType.HEALTHY
+        primary_model = server_status.running_models[0]
+        message = (
+            f"{primary_model.name} • {primary_model.size_vram_gb:.1f}GB VRAM • warm"
+        )
+    elif server_status.installed_models_count > 0:
+        status = ComponentStatusType.INFO
+        message = f"Ollama ready • {server_status.installed_models_count} models installed • none loaded"
+    else:
+        status = ComponentStatusType.WARNING
+        message = "Ollama running but no models installed"
+
+    return ComponentStatus(
+        name=ComponentName.OLLAMA,
+        status=status,
+        message=message,
+        response_time_ms=None,
+        metadata={
+            "available": True,
+            "base_url": ollama_url,
+            "version": server_status.version,
+            "running_models": running_models_info,
+            "running_models_count": len(server_status.running_models),
+            "installed_models": installed_models_info,
+            "installed_models_count": server_status.installed_models_count,
+            "total_vram_gb": round(server_status.total_vram_gb, 2),
+        },
+    )

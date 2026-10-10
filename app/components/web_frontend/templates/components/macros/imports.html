@@ -58,7 +58,7 @@
    mail import's frame both end here, and a second copy is how one of
    them stops closing the dialog. #}
 {% macro job_done(url, label="Done") %}
-<button type="button" hx-get="{{ url }}" hx-target="#app-content" hx-push-url="true" @click="$el.closest('dialog').close()"
+<button type="button" hx-get="{{ url }}" hx-target="#app-content" hx-push-url="true" data-dialog-close
         class="{{ button_classes() }}">{{ label }}</button>
 {% endmacro %}
 

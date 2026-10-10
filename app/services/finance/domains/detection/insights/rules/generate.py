@@ -29,7 +29,8 @@ from app.services.finance.domains.detection.insights.rules.spending import (
     _price_hikes,
     _subscription_creep,
 )
-from app.services.finance.utils import current_date, stored_owner
+from app.services.finance.utils import current_date
+from app.services.shared.queries import stored_owner
 
 
 async def generate_insights(

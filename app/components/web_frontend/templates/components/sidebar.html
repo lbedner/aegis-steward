@@ -2,7 +2,7 @@
    ``mobileOpen`` Alpine scope: off-canvas on mobile, a fixed column on
    desktop. Links come from ``nav`` (the NAV list, a template global);
    ``current_path`` is set by ``render()`` on full loads. #}
-{% from "components/macros/layout.html" import brand, nav_item %}
+{% from "components/macros/layout.html" import appearance_fields, brand, nav_item, sidebar_icon %}
 <aside id="sidebar"
        aria-label="Primary"
        :class="mobileOpen ? 'translate-x-0' : '-translate-x-full'"
@@ -36,25 +36,18 @@
     {% endfor %}
   </nav>
 
-  {# Appearance: theme (voice and shape) and mode (palette). Alpine holds
-     the choice; theme.js applies and persists it. Both rows are the
-     ``chip`` class, marked by aria-pressed. The panel sits above its
-     button so it opens upward from the sidebar's foot. #}
   <div class="shrink-0 border-t border-aegis-border p-2" x-data="{ open: false, ...appearance() }">
+    {# Overseer: the stack's own admin pages, in their own layout, so a
+       full load rather than a section swap (routes/overseer.py). #}
+    <a href="/overseer" data-overseer-link
+       class="rail-row flex items-center gap-3 px-3 py-2 mb-1 text-sm rounded text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20 transition-colors">
+      {{ sidebar_icon("observability") }}<span class="rail-hide">Overseer</span>
+    </a>
+
+    {# Appearance: theme (voice and shape) and mode (palette). The panel
+       sits above its button so it opens upward from the sidebar's foot. #}
     <div x-show="open" x-cloak x-collapse class="rail-none px-3 pt-1 pb-2 space-y-2">
-      {% for key, (legend, choices) in appearance.items() if legend %}
-      <fieldset>
-        <legend class="micro-label text-aegis-muted mb-1">{{ legend }}</legend>
-        <div class="flex gap-1">
-          {% for value, label in choices %}
-          <button type="button" data-set-{{ key }}="{{ value }}"
-                  :aria-pressed="{{ key }} === '{{ value }}'"
-                  @click="{{ key }} = '{{ value }}'; setAppearance('{{ key }}', '{{ value }}')"
-                  class="chip flex-1">{{ label }}</button>
-          {% endfor %}
-        </div>
-      </fieldset>
-      {% endfor %}
+      {{ appearance_fields() }}
     </div>
     <button type="button" data-appearance aria-label="Appearance" :aria-expanded="open" @click="open = !open"
             class="rail-row w-full flex items-center gap-3 px-3 py-2 text-sm rounded text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20 transition-colors">

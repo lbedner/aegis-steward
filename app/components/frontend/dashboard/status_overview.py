@@ -8,6 +8,7 @@ Uses DataTable for consistent styling with other tables in the app.
 import flet as ft
 
 from app.components.frontend.controls import DataTable, DataTableColumn
+from app.core.constants import ComponentName
 from app.services.documents.health import DOCUMENTS_MODAL_ID
 from app.services.finance.constants import FINANCE_COMPONENT_NAME
 from app.services.system.models import ComponentStatus
@@ -31,24 +32,24 @@ def get_component_display_info(
     metadata = component_data.metadata or {}
 
     # Map component names to their display info
-    if component_name == "backend":
+    if component_name == ComponentName.BACKEND:
         return ("Server", "FastAPI + Flet")
 
-    elif component_name == "database":
+    elif component_name == ComponentName.DATABASE:
         return ("Database", get_database_subtitle(metadata))
 
-    elif component_name == "worker":
-        return ("Worker", get_component_subtitle("worker", metadata))
+    elif component_name == ComponentName.WORKER:
+        return ("Worker", get_component_subtitle(ComponentName.WORKER, metadata))
 
-    elif component_name == "cache":
+    elif component_name == ComponentName.CACHE:
         return ("Cache", "Redis")
 
-    elif component_name == "ollama":
+    elif component_name == ComponentName.OLLAMA:
         version = metadata.get("version", "")
         subtitle = f"Ollama v{version}" if version else "Ollama"
         return ("Inference", subtitle)
 
-    elif component_name == "scheduler":
+    elif component_name == ComponentName.SCHEDULER:
         return ("Scheduler", "APScheduler")
 
     elif component_name == "service_auth":
@@ -77,7 +78,7 @@ def get_component_display_info(
             get_component_subtitle(f"service_{FINANCE_COMPONENT_NAME}", metadata),
         )
 
-    elif component_name == "frontend":
+    elif component_name == ComponentName.FRONTEND:
         return ("Frontend", "Flet")
 
     else:
@@ -175,12 +176,12 @@ class StatusOverviewPanel(ft.Container):
 
         # Define display order (most important first)
         display_order = [
-            "backend",
-            "database",
-            "ollama",
-            "cache",
-            "worker",
-            "scheduler",
+            ComponentName.BACKEND,
+            ComponentName.DATABASE,
+            ComponentName.OLLAMA,
+            ComponentName.CACHE,
+            ComponentName.WORKER,
+            ComponentName.SCHEDULER,
             "service_ai",
             "service_comms",
             DOCUMENTS_MODAL_ID,
@@ -197,7 +198,7 @@ class StatusOverviewPanel(ft.Container):
 
         # Add any remaining components not in the display order
         for comp_name, comp_data in components.items():
-            if comp_name not in added and comp_name != "frontend":
+            if comp_name not in added and comp_name != ComponentName.FRONTEND:
                 rows.append([create_status_cell(comp_name, comp_data)])
 
         # Rebuild table with new rows

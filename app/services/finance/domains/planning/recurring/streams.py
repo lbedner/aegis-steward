@@ -25,9 +25,9 @@ from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     FREQUENCY_STEPS,
     current_date,
-    stored_owner,
     utcnow,
 )
+from app.services.shared.queries import stored_owner
 
 _STREAM_DIRECTIONS = frozenset({"inflow", "outflow"})
 

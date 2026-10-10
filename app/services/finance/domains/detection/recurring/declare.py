@@ -43,7 +43,8 @@ from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import (
     FinanceTransaction,
 )
-from app.services.finance.utils import current_date, stored_owner
+from app.services.finance.utils import current_date
+from app.services.shared.queries import stored_owner
 
 
 class RecurringPlanGroup(BaseModel):
@@ -207,7 +208,7 @@ async def plan_recurring(
         # where the write would in fact fork a second bill.
         resolved_key, target = await _resolve_payee_key(
             db,
-            owner_user_id=(stored_owner(owner_user_id)),
+            owner_user_id=stored_owner(owner_user_id),
             account_id=account_id,
             direction=direction,
             base=payee,
@@ -220,7 +221,7 @@ async def plan_recurring(
                     s
                     for s in await _sibling_streams(
                         db,
-                        owner_user_id=(stored_owner(owner_user_id)),
+                        owner_user_id=stored_owner(owner_user_id),
                         account_id=account_id,
                         direction=direction,
                         base=payee,

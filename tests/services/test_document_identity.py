@@ -220,7 +220,7 @@ class TestEveryAccountIsKnown:
 
     @pytest.mark.asyncio
     async def test_a_deleted_account_is_not(self, async_db_session) -> None:
-        from app.core.clock import utcnow
+        from app.core.time import utcnow
         from app.services.finance.service import FinanceService
         from tests.services._finance_factories import seed_account
 

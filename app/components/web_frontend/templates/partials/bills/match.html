@@ -25,5 +25,5 @@
   {% if next_url %}
   {{ action("Skip", hx_dialog(next_url)) }}
   {% endif %}
-  <button type="button" @click="$el.closest('dialog').close()" class="text-xs text-aegis-muted hover:text-aegis-text">{{ "Stop reviewing" if position else "Cancel" }}</button>
+  <button type="button" data-dialog-close class="text-xs text-aegis-muted hover:text-aegis-text">{{ "Stop reviewing" if position else "Cancel" }}</button>
 </div>

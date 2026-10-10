@@ -503,7 +503,7 @@ class TestItCanBeChangedAfterwards:
         assert james in [
             el.get("value") for el in select(form, 'select[name="whose"] option')
         ]
-        assert self._selected(form) == []
+        assert self._selected(form) == [""], "Ours, until somebody is named"
 
         client.post(
             f"/accounts/{ledger.checking}/rename",
@@ -531,6 +531,6 @@ class TestItCanBeChangedAfterwards:
             data={"name": "Savings", "whose": ""},
         )
 
-        assert (
-            self._selected(client.get(f"/accounts/{ledger.savings}/rename").text) == []
-        )
+        assert self._selected(
+            client.get(f"/accounts/{ledger.savings}/rename").text
+        ) == [""]

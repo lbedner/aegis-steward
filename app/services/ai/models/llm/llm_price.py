@@ -19,6 +19,13 @@ VOICE_PRICE_FIELDS = (
     "output_cost_per_second",
     "input_cost_per_character",
 )
+# Every rate a cost reads, by column name: what a price lookup hands back.
+RATE_FIELDS = (
+    "input_cost_per_token",
+    "output_cost_per_token",
+    "cache_input_cost_per_token",
+    *VOICE_PRICE_FIELDS,
+)
 
 
 class LLMPrice(SQLModel, table=True):

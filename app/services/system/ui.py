@@ -5,7 +5,10 @@ Provides a single source of truth for mapping ComponentStatusType to
 icons and semantic colors, so CLI and dashboard remain consistent.
 """
 
+from app.core.constants import ComponentName
+
 from .models import ComponentStatusType
+from .topology import QUEUE
 
 
 def get_status_icon(status: ComponentStatusType) -> str:
@@ -42,35 +45,55 @@ def get_status_color_name(status: ComponentStatusType) -> str:
     return "white"
 
 
+def registry_key(group: str, name: str) -> str:
+    """An entry's key in the one name registry: a component's own name, a
+    service's ``service_<name>`` (``get_component_title``)."""
+    return name if group == "components" else f"service_{name}"
+
+
 def get_component_title(component_name: str) -> str:
-    """Map component keys to category/title names for modal headers."""
+    """The one name for a component or service, on every surface.
+
+    Components are keyed by name, services as ``service_<name>``. Anything
+    unlisted (a plugin) is title-cased from its key.
+    """
     mapping = {
-        "backend": "Server",
-        "frontend": "Frontend",
-        "web_frontend": "Web Frontend",
-        "database": "Database",
-        "cache": "Cache",
-        "worker": "Worker",
-        "scheduler": "Scheduler",
-        "service_ai": "AI Service",
+        ComponentName.BACKEND: "Server",
+        ComponentName.FRONTEND: "Flet Frontend",
+        ComponentName.WEB_FRONTEND: "Web Frontend",
+        ComponentName.DATABASE: "Database",
+        ComponentName.CACHE: "Cache",
+        ComponentName.WORKER: "Worker",
+        # Not a component: the worker's queue, on Overseer's map.
+        QUEUE: "Queue",
+        ComponentName.SCHEDULER: "Scheduler",
+        ComponentName.OLLAMA: "Inference",
+        "service_ai": "AI",
         "service_comms": "Communications",
         "service_documents": "Documents",
+        "service_rag": "RAG",
+        # The job history the scheduler keeps, not the scheduler itself.
+        "service_scheduler": "Scheduler history",
         "service_finance": "Finance",
     }
-    return mapping.get(component_name, component_name.replace("_", " ").title())
+    fallback = (
+        component_name.removeprefix("service_").replace("_", " ").replace("-", " ")
+    )
+    return mapping.get(component_name, fallback.title())
 
 
 def get_component_label(component_name: str) -> str:
     """Map component keys to user-facing labels (brand or friendly name)."""
     mapping = {
-        "backend": "FastAPI + Flet",
+        ComponentName.BACKEND: "FastAPI + Flet",
         # Both frontends ship: Flet at /dashboard, htmx pages at /.
-        "frontend": "Flet + htmx",
-        "web_frontend": "Jinja2 + htmx",
-        "database": "PostgreSQL",
-        "cache": "Redis",
-        "worker": "arq",
-        "scheduler": "APScheduler",
+        ComponentName.FRONTEND: "Flet + htmx",
+        ComponentName.WEB_FRONTEND: "Jinja2 + htmx",
+        ComponentName.DATABASE: "PostgreSQL",
+        ComponentName.CACHE: "Redis",
+        ComponentName.WORKER: "arq",
+        ComponentName.SCHEDULER: "APScheduler",
+        ComponentName.OLLAMA: "Ollama",
         "service_ai": "LLM Provider",
         "service_comms": "Resend + Twilio",
         "service_documents": "Document store",
@@ -90,7 +113,7 @@ def get_component_subtitle(
     appended when known. Every dashboard surface routes through here, so
     the stack view, the cards and the diagram cannot disagree.
     """
-    if component_name == "database":
+    if component_name == ComponentName.DATABASE:
         return get_database_subtitle(metadata)
 
     # A plugin is in no label registry, so it names itself in its health

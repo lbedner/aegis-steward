@@ -8,7 +8,6 @@ card would come to disagree about what "leave the rule alone" means.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -21,6 +20,7 @@ from app.services.finance.domains.planning.goals import (
     set_goal_metadata,
 )
 from app.services.finance.models import FinanceAccount
+from app.services.finance.utils import current_date
 
 
 async def update_goal(
@@ -49,7 +49,7 @@ async def update_goal(
     stored_target = given("target_amount", meta.target_amount)
     if rule != "fixed":
         figures = await allocation.month_figures(
-            db, owner_user_id=owner_user_id, today=datetime.now(UTC).date()
+            db, owner_user_id=owner_user_id, today=current_date()
         )
         stored_target = (
             allocation.target_for_rule(

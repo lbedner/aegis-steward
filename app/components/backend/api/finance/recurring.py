@@ -13,10 +13,7 @@ from fastapi import (
 from pydantic import BaseModel
 
 from app.components.backend.api.finance.base import _NOT_FOUND
-from app.services.finance.deps import (
-    get_finance_service,
-    get_owner_user_id,
-)
+from app.services.finance.deps import get_finance_service
 from app.services.finance.domains.detection.insights.commitments import (
     commitment_rollup,
 )
@@ -41,6 +38,7 @@ from app.services.finance.schemas import (
 )
 from app.services.finance.service import FinanceService
 from app.services.finance.service.accounts import HOUSEHOLD
+from app.services.shared.deps import get_owner_user_id
 
 router = APIRouter()
 

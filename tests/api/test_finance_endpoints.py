@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.models import FinanceCategory
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 
@@ -415,11 +416,11 @@ async def test_net_worth_series_after_recompute(
     acting_owner_user_id: int | None,
 ) -> None:
     """FIN-13 acceptance: House ($505k) + Mortgage ($300k) → net worth $205k."""
-    from datetime import UTC, datetime, timedelta
+    from datetime import timedelta
 
     from app.services.finance.domains.ledger import networth
 
-    today = datetime.now(UTC).date()
+    today = current_date()
     # House with two valuations; Mortgage as a liability.
     house = authenticated_client.post(
         "/api/v1/finance/accounts",
@@ -2198,6 +2199,34 @@ async def test_creating_a_category_returns_it_for_immediate_use(
 
     options = authenticated_client.get("/api/v1/finance/categories/options").json()
     assert "Kids:Activities" in {c["name"] for c in options["items"]}
+
+
+@pytest.mark.asyncio
+async def test_the_picker_never_shows_another_users_category(
+    authenticated_client: TestClient,
+    async_db_session: AsyncSession,
+    acting_owner_user_id: int | None,
+) -> None:
+    """The routes resolved no owner at all, so in an auth stack one user's
+    categories were every user's picker options and create targets."""
+    if acting_owner_user_id is None:
+        pytest.skip("no auth service: one user, so there is no one else")
+    stranger = 999 if acting_owner_user_id != 999 else 998
+    await FinanceService(async_db_session).get_or_create_category_from_hint(
+        "Someone Else:Private", owner_user_id=stranger
+    )
+    await async_db_session.commit()
+
+    created = authenticated_client.post(
+        "/api/v1/finance/categories", json={"name": "Mine:Private"}
+    ).json()
+    options = authenticated_client.get("/api/v1/finance/categories/options").json()
+
+    names = {c["name"] for c in options["items"]}
+    assert "Mine:Private" in names
+    assert "Someone Else:Private" not in names
+    row = await async_db_session.get(FinanceCategory, created["id"])
+    assert row is not None and row.owner_user_id == acting_owner_user_id
 
 
 @pytest.mark.asyncio

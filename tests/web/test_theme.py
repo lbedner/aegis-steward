@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
@@ -70,24 +71,38 @@ FORM_MACROS = WEB / "templates/components/macros/form.html"
 BUILT_FROM_PARTS = re.compile(r'class="[^"]*[\w-]-{{')
 
 
-@pytest.fixture(scope="module")
-def daisy_themes() -> dict[str, dict[str, str]]:
+# An ``aegis-*`` color as a utility names it: text-aegis-teal, bg-aegis-card/60.
+AEGIS_COLOR = re.compile(
+    r"\b(?:text|bg|border|ring|divide|fill|stroke|outline|from|via|to)-aegis-([a-z]+)\b"
+)
+
+
+def tailwind(path: str) -> Any:
+    """``path`` of the Tailwind config (``.daisyui.themes``), read with node
+    alone. The config requires the DaisyUI plugin, which only exists after
+    an npm install and is never called here, so that one module is stubbed."""
     node = shutil.which("node")
     if node is None:
         pytest.skip("node not installed")
-    # The config requires the DaisyUI plugin, which only exists after an
-    # npm install; the theme table does not need it, so stub that one
-    # module and read the table with node alone.
     script = (
         "const M = require('module'); const load = M.prototype.require;"
         " M.prototype.require = function (id) {"
         "   return id === 'daisyui' ? {} : load.apply(this, arguments); };"
-        " console.log(JSON.stringify(require('./tailwind.config.js').daisyui.themes))"
+        f" console.log(JSON.stringify(require('./tailwind.config.js'){path}))"
     )
     out = subprocess.run(
         [node, "-e", script], capture_output=True, text=True, check=True
     ).stdout
-    return {name: body for entry in json.loads(out) for name, body in entry.items()}
+    return json.loads(out)
+
+
+@pytest.fixture(scope="module")
+def daisy_themes() -> dict[str, dict[str, str]]:
+    return {
+        name: body
+        for entry in tailwind(".daisyui.themes")
+        for name, body in entry.items()
+    }
 
 
 class TestMatrix:
@@ -153,8 +168,9 @@ class TestMatrix:
                 rest = set(matte) - set(FINISH)
                 assert {k: lustre[k] for k in rest} == {k: matte[k] for k in rest}
         # a white edge vanishes on a white card: light gets its own values
-        assert daisy_themes["aegis-light-lustre"]["--aegis-edge"] != (
-            daisy_themes["aegis-dark-lustre"]["--aegis-edge"]
+        assert (
+            daisy_themes["aegis-light-lustre"]["--aegis-edge"]
+            != (daisy_themes["aegis-dark-lustre"]["--aegis-edge"])
         )
 
     def test_surfaces_read_the_finish(self) -> None:
@@ -177,6 +193,16 @@ class TestMatrix:
         for name in ("bg", "card", "border", "text", "muted", "teal", "amber", "error"):
             assert re.search(rf'{name}: daisy\("[\w-]+"\)', config), name
         assert "[data-theme" not in INPUT_CSS.read_text()
+
+    def test_every_aegis_color_in_use_is_defined(self) -> None:
+        """An undefined one renders nothing in a template and fails the CSS
+        build in an ``@apply``: ``aegis-accent`` did both, unnoticed until a
+        page used the scheduler clock."""
+        sources = [INPUT_CSS, *WEB.joinpath("templates").rglob("*.html")]
+        used = {
+            name for path in sources for name in AEGIS_COLOR.findall(path.read_text())
+        }
+        assert used - set(tailwind(".theme.extend.colors.aegis")) == set()
 
     def test_radius_and_voice_come_from_tokens(self) -> None:
         config = TAILWIND.read_text()

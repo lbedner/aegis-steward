@@ -9,36 +9,32 @@ evening when the two dates differ. ``current_date`` is the only source.
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.components import web_frontend
-from app.components.backend.api import finance as api_finance
-from app.services import finance
+import pytest
+
 from app.services.finance.utils import current_date
+from tests.core.test_time import CLOCK_READS
 
 
+@pytest.mark.real_clock
 def test_current_date_is_the_utc_date() -> None:
     assert current_date() == datetime.now(UTC).date()
 
 
-ROOTS = (
-    Path(finance.__file__).parent,
-    Path(api_finance.__file__).parent,
-    Path(web_frontend.__file__).parent,
-)
-
-# Tests too: a test dated on the local clock passes all day and fails for
-# the hours each evening when local and UTC disagree (three did, 2026-09-08).
-TESTS = Path(__file__).resolve().parents[1]
-
-
-def test_no_local_clock_in_finance_code() -> None:
-    """The service, its API, and the web routes that render it."""
+def test_finance_tests_date_things_by_the_finance_calendar() -> None:
+    """A test that drives finance code seeds and checks dates by
+    ``current_date`` (pinned by the conftest), never the real clock: the
+    real one drifts away from whatever the service was told today is."""
+    tests_root = Path(__file__).resolve().parents[1]
     offenders = [
-        str(p)
-        for root in (*ROOTS, TESTS)
-        for p in root.rglob("*.py")
-        if p != Path(__file__)
-        and (
-            "date.today()" in p.read_text() or "datetime.now().date()" in p.read_text()
+        str(p.relative_to(tests_root))
+        for p in tests_root.rglob("test_*.py")
+        if p.resolve() != Path(__file__).resolve()
+        and "app.services.finance" in (text := p.read_text())
+        and any(
+            read in line
+            for line in text.splitlines()
+            if not line.lstrip().startswith("#")
+            for read in CLOCK_READS
         )
     ]
-    assert offenders == [], f"local-clock reads (use utils.current_date): {offenders}"
+    assert offenders == [], f"real-clock dates in finance tests: {offenders}"

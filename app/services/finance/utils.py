@@ -11,7 +11,7 @@ import re
 from typing import Any
 import unicodedata
 
-from app.core.clock import utcnow as clockutcnow
+from app.core.time import utcnow as clockutcnow
 from app.services.finance.constants import (
     CADENCE_KEYS,
     step_cadence,
@@ -88,12 +88,6 @@ def monthly_income(streams: list[Any], today: date | None = None) -> tuple[int, 
 FREQUENCY_STEPS: dict[str, Callable[[date], date]] = {
     key: partial(step_cadence, key) for key in CADENCE_KEYS
 }
-
-
-def stored_owner(owner_user_id: int | None) -> int:
-    """The owner a NOT NULL owner column stores: a standalone install's
-    NULL owner as the ``0`` sentinel."""
-    return 0 if owner_user_id is None else owner_user_id
 
 
 def utcnow() -> datetime:

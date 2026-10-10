@@ -9,8 +9,8 @@ from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.clock import utcnow
 from app.core.schema import require_one_of
+from app.core.time import utcnow
 from app.services.insurance.models import (
     CLAIM_STATUSES,
     POLICY_KINDS,

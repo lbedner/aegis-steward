@@ -1,0 +1,221 @@
+"""How charts.js formats axis ticks and tooltips, run in node.
+
+A chart's numbers are plain unless its data says ``"format": "money"``:
+a generic macro must not read jobs per hour as dollars.
+"""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from tests.test_formatting import CHART_FORMATS
+from tests.web.node import call, run
+
+CHARTS_JS = Path("app/components/web_frontend/static/js/charts.js")
+
+
+def _format(value: float, fmt: str | None) -> object:
+    return call(CHARTS_JS, f"c.formatValue({value}, {json.dumps(fmt)})")
+
+
+@pytest.mark.parametrize(("value", "fmt", "expected"), CHART_FORMATS)
+def test_a_value_reads_the_same_in_the_browser(
+    value: float, fmt: str | None, expected: str
+) -> None:
+    """Chart.js formats its own ticks, so the browser keeps a twin of
+    ``format_value``; both are held to one table (``CHART_FORMATS``)."""
+    assert _format(value, fmt) == expected
+
+
+REFRESH = """
+const c = require(CHARTS_JS);
+const canvas = {};
+let mode = null;
+const chart = { data: { labels: [1], datasets: [{ label: 'a', data: [1] }] },
+                update: (m) => { mode = m; } };
+global.document = { querySelector: (sel) =>
+  (sel === 'canvas[data-chart-data="chart-x-data"]' ? canvas : null) };
+const Chart = { getChart: (el) => (el === canvas ? chart : undefined) };
+const script = { id: 'chart-x-data',
+  textContent: JSON.stringify({ labels: [1, 2], series: [{ label: 'a', values: [3, 4] }] }) };
+const refreshed = c.refresh(Chart, script);
+console.log(JSON.stringify({ refreshed, labels: chart.data.labels,
+  values: chart.data.datasets[0].data, mode }));
+"""
+
+
+def test_a_chart_whose_data_arrives_again_updates_in_place() -> None:
+    """A live chart (``chart_panel(live=...)``): its data script swaps in
+    over the page's stream and the drawn chart takes it without a redraw."""
+    assert run(REFRESH, CHARTS_JS=CHARTS_JS) == {
+        "refreshed": True,
+        "labels": [1, 2],
+        "values": [3, 4],
+        "mode": "none",
+    }
+
+
+TIME_REFRESH = """
+const c = require(CHARTS_JS);
+const empty = { hidden: false };
+const canvas = { dataset: { chart: 'line' }, parentElement: { querySelector: () => (
+  { classList: { toggle: (c, on) => { empty.hidden = on; } } }) } };
+let mode = 'unset';
+const kept = { x: 2000, y: 2 };
+const points = [{ x: 1000, y: 1 }, kept];
+// The newest bucket fills as the tick goes on: its point moves, not a new one.
+const chart = { data: { datasets: [{ label: 'a', data: points }] },
+                options: { scales: { x: {} } },
+                update: (m) => { mode = m ?? null; } };
+global.document = { querySelector: () => canvas };
+const Chart = { getChart: () => chart };
+const script = { id: 'chart-x-data', textContent: JSON.stringify(
+  { labels: [2000, 3000], series: [{ label: 'a', values: [2.5, 5] }], x: 'time',
+    window: [1500, 3500], points: 2 }) };
+c.refresh(Chart, script);
+const data = chart.data.datasets[0].data;
+console.log(JSON.stringify({ same_array: data === points, kept: data[0] === kept,
+  data, window: [chart.options.scales.x.min, chart.options.scales.x.max], mode,
+  empty_hidden: empty.hidden }));
+"""
+
+
+def test_a_time_chart_slides_on_to_its_new_points() -> None:
+    """Real time: the oldest point leaves and the new one joins the same
+    array, so every other point (and a hovered tooltip) stays put. Drawn
+    without animation: a tick moves the line under a pixel, and an animated
+    new point swoops in from the axis, so the line's end redraws itself."""
+    assert run(TIME_REFRESH, CHARTS_JS=CHARTS_JS) == {
+        "same_array": True,
+        "kept": True,
+        "data": [{"x": 2000, "y": 2.5}, {"x": 3000, "y": 5}],
+        "window": [1500, 3500],
+        "mode": "none",
+        "empty_hidden": True,
+    }
+
+
+def test_time_ticks_land_on_the_clock() -> None:
+    """Every three minutes over 15, five over 30, ten over an hour, on the
+    minute, not wherever the window happens to start."""
+    start = 1_790_996_327_000  # 11:38:47
+    ticks = call(CHARTS_JS, f"c.timeTicks({start}, {start + 15 * 60_000})")
+    assert ticks == [
+        t for t in range(start, start + 15 * 60_000 + 1) if t % 180_000 == 0
+    ]
+    assert len(call(CHARTS_JS, f"c.timeTicks({start}, {start + 3_600_000})")) == 6
+
+
+def test_byte_axes_step_in_round_units() -> None:
+    """18.6 GB tops out on 5 GB steps, not 0.2 GB ones."""
+    gb = 1024**3
+    assert call(CHARTS_JS, f"c.byteStep({18.6 * gb})") == 5 * gb
+    assert call(CHARTS_JS, f"c.byteStep({300 * 1024**2})") == 50 * 1024**2
+
+
+def test_a_byte_axis_under_one_byte_steps_by_one() -> None:
+    """A quiet disk (0.3 B/s): ticks at 0 and 1 B/s, not ten that all read
+    "0 B/s"."""
+    assert call(CHARTS_JS, "c.byteStep(0.3)") == 1
+
+
+GUIDE_REFRESH = (
+    TIME_REFRESH.replace(
+        "data: { datasets: [{ label: 'a', data: points }] }",
+        "data: { datasets: [{ label: 'a', data: points },"
+        " { guide: true, data: [{ x: 1000, y: 9 }, { x: 3000, y: 9 }] }] }",
+    )
+    .replace(
+        "window: [1500, 3500], points: 2 }",
+        "window: [1500, 3500], points: 2, thresholds: [{ value: 9, tone: 'warn' }] }",
+    )
+    .replace(
+        "console.log(JSON.stringify({ same_array",
+        "console.log(JSON.stringify({ guide: chart.data.datasets[1].data, same_array",
+    )
+)
+
+
+def test_a_threshold_spans_the_window_as_it_moves() -> None:
+    """A threshold is a level across the whole window: when the window
+    moves on, the guide follows, and the series still slide."""
+    found = run(GUIDE_REFRESH, CHARTS_JS=CHARTS_JS)
+    assert found["guide"] == [{"x": 1500, "y": 9}, {"x": 3500, "y": 9}]
+    assert found["same_array"] is True
+
+
+DELTA_REFRESH = (
+    TIME_REFRESH.replace(
+        "const points = [{ x: 1000, y: 1 }, kept];",
+        "const points = [{ x: 500, y: 1 }, { x: 1000, y: 8 }, kept];",
+    )
+    .replace(
+        "data: { datasets: [{ label: 'a', data: points }] }",
+        "data: { datasets: [{ label: 'a', data: points },"
+        " { guide: true, data: [{ x: 500, y: 12 }, { x: 2000, y: 12 }] }] }",
+    )
+    .replace(
+        "window: [1500, 3500], points: 2 }",
+        "window: [900, 3000], points: 3, thresholds: [{ value: 12, tone: 'warn' }] }",
+    )
+    .replace(
+        "console.log(JSON.stringify({ same_array",
+        "console.log(JSON.stringify({ guide: chart.data.datasets[1].data, same_array",
+    )
+)
+
+
+def test_a_frame_of_new_points_keeps_the_rest_of_the_window() -> None:
+    """A tick sends only the newest points: the chart keeps what it has back
+    to the window's start, and its guides go by everything it shows (the
+    alert at 12 stays in reach of the 8 earlier on)."""
+    found = run(DELTA_REFRESH, CHARTS_JS=CHARTS_JS)
+    assert found["data"] == [
+        {"x": 1000, "y": 8},
+        {"x": 2000, "y": 2.5},
+        {"x": 3000, "y": 5},
+    ]
+    assert found["guide"] == [{"x": 900, "y": 12}, {"x": 3000, "y": 12}]
+
+
+RENAMED_REFRESH = (
+    "global.getComputedStyle = () => ({ getPropertyValue: () => '0 0 0' });\n"
+    + TIME_REFRESH.replace(
+        "series: [{ label: 'a', values: [2.5, 5] }]",
+        "series: [{ label: 'b', values: [2.5, 5] }]",
+    ).replace(
+        "console.log(JSON.stringify({ same_array",
+        "console.log(JSON.stringify({ label: chart.data.datasets[0].label, same_array",
+    )
+)
+
+
+def test_a_chart_whose_lines_are_renamed_is_drawn_again() -> None:
+    """The server sends a chart whole when its lines change (a container
+    replaced by one of another name), and the page redraws it by the same
+    rule: the names, not only how many."""
+    assert run(RENAMED_REFRESH, CHARTS_JS=CHARTS_JS)["label"] == "b"
+
+
+STACKED = """
+const c = require(CHARTS_JS);
+global.getComputedStyle = () => ({ getPropertyValue: (name) => name });
+global.document = { documentElement: {} };
+const sets = c.datasets('line', { x: 'time', labels: [1], style: 'stacked', series: [
+  { label: 'Server', values: [2], color: 2 },
+  { label: 'Cache', values: [1], color: 5 },
+  { label: 'Host in use', values: [9], dashed: true }] });
+console.log(JSON.stringify(sets.map((s) => ({ label: s.label, color: s.borderColor,
+  fill: s.fill, stack: s.stack ?? null, dash: s.borderDash ?? null }))));
+"""
+
+
+def test_a_stacked_chart_fills_each_line_on_the_one_below() -> None:
+    """Resources' charts: each part in its own colour (``color``, the
+    palette's), stacked so the top edge is the total; a ``dashed`` line
+    stands apart, unstacked and unfilled (the host's in use)."""
+    server, cache, host = run(STACKED, CHARTS_JS=CHARTS_JS)
+    assert (server["color"], server["fill"]) == ("--aegis-chart-3", "origin")
+    assert (cache["color"], cache["fill"]) == ("--aegis-chart-6", "-1")
+    assert host["fill"] is False and host["dash"] and host["stack"] == "dashed"

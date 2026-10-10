@@ -192,13 +192,13 @@ async def comms_health() -> dict[str, Any]:
 
     Returns comprehensive health status for all communication channels.
     """
-    email_status = get_email_status()
-    sms_status = get_sms_status()
-    call_status = get_call_status()
+    email_status = await get_email_status()
+    sms_status = await get_sms_status()
+    call_status = await get_call_status()
 
-    email_errors = validate_email_config()
-    sms_errors = validate_sms_config()
-    call_errors = validate_call_config()
+    email_errors = await validate_email_config()
+    sms_errors = await validate_sms_config()
+    call_errors = await validate_call_config()
 
     all_errors = email_errors + sms_errors + call_errors
     any_configured = (
@@ -236,9 +236,9 @@ async def comms_status() -> dict[str, Any]:
     """
     Get current communications service status and configuration.
     """
-    email_status = get_email_status()
-    sms_status = get_sms_status()
-    call_status = get_call_status()
+    email_status = await get_email_status()
+    sms_status = await get_sms_status()
+    call_status = await get_call_status()
 
     return {
         "email": email_status,
@@ -272,3 +272,86 @@ async def comms_version() -> dict[str, Any]:
             "GET /comms/status",
         ],
     }
+
+
+# Resend sending domains: Overseer's Flet Email tab reads and adds them
+# here (its htmx page calls the adapter directly).
+
+
+class DomainResponse(BaseModel):
+    name: str
+    status: str
+    verified: bool
+
+
+class NewDomain(BaseModel):
+    domain: str
+
+
+class DomainRecordResponse(BaseModel):
+    type: str
+    host: str
+    value: str
+    priority: int | None = None
+
+
+class DomainAdded(BaseModel):
+    domain: str
+    records: list[DomainRecordResponse]
+
+
+def _resend_failed(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=502, detail=f"Resend: {exc}")
+
+
+@router.get("/domains", response_model=list[DomainResponse])
+async def list_domains() -> list[DomainResponse]:
+    """The Resend account's domains and their verification status."""
+    from app.services.ops.adapters.resend import ResendAdapter
+
+    try:
+        found = await ResendAdapter().list_domains()
+    except Exception as exc:  # noqa: BLE001 - surfaced as the 502 detail
+        raise _resend_failed(exc) from None
+    return [
+        DomainResponse(name=d.domain, status=d.status, verified=d.verified)
+        for d in found
+    ]
+
+
+@router.post("/domains", response_model=DomainAdded)
+async def add_domain(
+    body: NewDomain,
+) -> DomainAdded:
+    """Add a sending domain (or find it) and return the DNS records it needs."""
+    from app.services.ops.adapters.resend import ResendAdapter
+
+    try:
+        added = await ResendAdapter().add_domain(body.domain)
+    except Exception as exc:  # noqa: BLE001 - surfaced as the 502 detail
+        raise _resend_failed(exc) from None
+    return DomainAdded(
+        domain=added.domain,
+        records=[
+            DomainRecordResponse(
+                type=r.type, host=r.host, value=r.value, priority=r.priority
+            )
+            for r in added.required_records
+        ],
+    )
+
+
+@router.post("/domains/{domain}/check", response_model=DomainResponse)
+async def check_domain(
+    domain: str,
+) -> DomainResponse:
+    """Ask Resend to check the domain's DNS now and return its status."""
+    from app.services.ops.adapters.resend import ResendAdapter
+
+    try:
+        status = await ResendAdapter().check_domain(domain)
+    except Exception as exc:  # noqa: BLE001 - surfaced as the 502 detail
+        raise _resend_failed(exc) from None
+    return DomainResponse(
+        name=status.domain, status=status.status, verified=status.verified
+    )

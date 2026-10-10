@@ -200,7 +200,9 @@ async def _categorize_dialog(
     errors: list[str] | None = None,
     status_code: int = 200,
 ) -> Response:
-    categories = (await list_category_options(service=service)).items
+    categories = (
+        await list_category_options(service=service, owner_user_id=owner_user_id)
+    ).items
     return templates.TemplateResponse(
         request=request,
         name="partials/transactions/categorize.html",
@@ -505,7 +507,11 @@ async def payee(
             # overwrote it - and on the post that settles the payee the
             # offer has no list, so every row came back with an empty
             # select and could not show the category just written to it.
-            "offer_categories": (await list_category_options(service=service)).items
+            "offer_categories": (
+                await list_category_options(
+                    service=service, owner_user_id=owner_user_id
+                )
+            ).items
             if suggested
             else [],
             "named_ids": touched,
@@ -587,12 +593,15 @@ async def _delete(
 async def _split_dialog(
     request: Request,
     service: FinanceService,
+    owner_user_id: int | None,
     txn: FinanceTransaction,
     errors: list[str],
     status_code: int = 200,
     parts: list[dict[str, Any]] | None = None,
 ) -> Response:
-    categories = (await list_category_options(service=service)).items
+    categories = (
+        await list_category_options(service=service, owner_user_id=owner_user_id)
+    ).items
     blank = {"amount": "", "category_id": None, "memo": ""}
     rows = parts or [blank, blank]  # the page adds more; the last is the rest
     return templates.TemplateResponse(
@@ -623,7 +632,9 @@ async def split_form(
         }
         for line in lines
     ]
-    return await _split_dialog(request, service, txn, [], parts=parts or None)
+    return await _split_dialog(
+        request, service, owner_user_id, txn, [], parts=parts or None
+    )
 
 
 @router.post("/{transaction_id}/split", include_in_schema=False)
@@ -680,7 +691,9 @@ async def split(
         except ValueError as exc:
             errors.append(str(exc))
     if errors:
-        return await _split_dialog(request, service, txn, errors, 422, parts=stated)
+        return await _split_dialog(
+            request, service, owner_user_id, txn, errors, 422, parts=stated
+        )
     await service.db.commit()
     fresh = await _txns(service, [transaction_id], owner_user_id)
     response = await rows_response(request, service, fresh, owner_user_id, show_account)

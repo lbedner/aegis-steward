@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.time import utcnow
 from app.services.documents.models import Document, DocumentPage, DocumentTag
+from app.services.shared.queries import owner_filters
 
 
 async def document_by_content(
@@ -22,8 +23,7 @@ async def document_by_content(
     query = select(Document).where(
         Document.content_hash == digest, Document.deleted_at.is_(None)
     )
-    if owner_user_id is not None:
-        query = query.where(Document.owner_user_id == owner_user_id)
+    query = query.where(*owner_filters(Document.owner_user_id, owner_user_id))
     return (await db.exec(query)).first()
 
 
@@ -53,8 +53,7 @@ async def document_by_id(
     query = select(Document).where(
         Document.id == document_id, Document.deleted_at.is_(None)
     )
-    if owner_user_id is not None:
-        query = query.where(Document.owner_user_id == owner_user_id)
+    query = query.where(*owner_filters(Document.owner_user_id, owner_user_id))
     return (await db.exec(query)).first()
 
 
@@ -171,8 +170,7 @@ async def tag_counts(
         .join(Document, Document.id == DocumentTag.document_id)
         .where(Document.deleted_at.is_(None))
     )
-    if owner_user_id is not None:
-        query = query.where(Document.owner_user_id == owner_user_id)
+    query = query.where(*owner_filters(Document.owner_user_id, owner_user_id))
     rows = (
         await db.exec(
             query.group_by(DocumentTag.label).order_by(
@@ -226,6 +224,19 @@ async def tags_for_many(
     for row in rows:
         grouped.setdefault(row.document_id, []).append(row.label)
     return grouped
+
+
+async def titles(db: AsyncSession, document_ids: set[int]) -> dict[int, str]:
+    """Titles for a set of documents in ONE query, retired ones included
+    (a finished run still names what it read)."""
+    if not document_ids:
+        return {}
+    rows = (
+        await db.exec(
+            select(Document.id, Document.title).where(Document.id.in_(document_ids))  # type: ignore[union-attr]
+        )
+    ).all()
+    return {doc_id: title for doc_id, title in rows if doc_id is not None}
 
 
 async def tags_for(db: AsyncSession, document_id: int) -> list[str]:

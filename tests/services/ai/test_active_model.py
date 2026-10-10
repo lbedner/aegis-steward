@@ -299,7 +299,7 @@ class TestHeadlessResolution:
 
         seen: dict[str, str] = {}
 
-        def _model_for(config: object, _settings: object) -> tuple[str, str]:
+        async def _model_for(config: object, _settings: object) -> tuple[str, str]:
             seen["model"] = config.model  # type: ignore[attr-defined]
             return "model-instance", config.model  # type: ignore[attr-defined]
 
@@ -310,3 +310,31 @@ class TestHeadlessResolution:
 
         assert seen["model"] == "chosen-model"
         assert (model, model_name) == ("model-instance", "chosen-model")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("pinned", "expected"), [(None, "chosen-model"), ("qwen3:4b", "qwen3:4b")]
+    )
+    async def test_an_agent_runs_on_the_stored_selection_unless_it_pins_one(
+        self, monkeypatch: pytest.MonkeyPatch, pinned: str | None, expected: str
+    ) -> None:
+        """A background runner's agent (the analyst, the sentiment scorer):
+        the selection in force, then the agent's own sampling and model."""
+        from types import SimpleNamespace
+
+        settings = _Settings()
+        active_model.apply_to_settings(
+            settings, model_id="chosen-model", provider="ollama"
+        )
+
+        async def _no_read(_target: object) -> bool:
+            raise AssertionError("re-read the selection per call")
+
+        monkeypatch.setattr(active_model, "sync_from_db", _no_read)
+        agent = SimpleNamespace(temperature=0.0, max_tokens=400, model_id=pinned)
+        config = await active_model.config_for_active(settings, agent)
+        assert (config.model, config.temperature, config.max_tokens) == (
+            expected,
+            0.0,
+            400,
+        )

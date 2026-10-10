@@ -10,7 +10,7 @@ from tests.web.dom import none, one, select, text
 
 IMPORT = (
     '{% from "components/macros/layout.html" '
-    "import card, stat_tile, chart_panel, dialog, tab_bar, tab_item, chip, dropdown, page_header, figures, stats_strip, ranked_rows %}"
+    "import card, stat_tile, chart_panel, dialog, tab_bar, tab_item, chip, dropdown, page_header, figures, stats_strip, ranked_rows, facts, stat_row %}"
 )
 
 
@@ -106,6 +106,27 @@ class TestDialog:
         assert "overflow-y-auto" in (body.get("class") or "")
         chrome = one(dialog, "button[aria-label='Close']").getparent()
         assert "shrink-0" in (chrome.get("class") or "")
+
+    def test_its_way_out_needs_no_alpine_component(self) -> None:
+        """The Overseer mounts the modal outside any Alpine component, where
+        an ``@click`` close never ran and the X did nothing. Closing is
+        app.js's, by attribute, wherever the modal sits."""
+        dialog = one(render("{{ dialog() }}"), "dialog#dialog")
+        assert one(dialog, "button[aria-label='Close']").get("data-dialog-close") == ""
+        assert not [k for el in dialog.iter() for k in el.attrib if k.startswith("@")]
+
+    def test_every_close_is_the_one_attribute(self) -> None:
+        """One way to close a dialog from inside it, so a change to how
+        closing works (clearing, unsaved work) cannot miss a copy."""
+        from pathlib import Path
+
+        root = Path("app/components/web_frontend/templates")
+        copies = [
+            str(p)
+            for p in root.rglob("*.html")
+            if "closest('dialog').close()" in p.read_text()
+        ]
+        assert copies == []
 
     def test_mounted_once_by_the_app_shell(self) -> None:
         page = templates.env.from_string(
@@ -277,3 +298,27 @@ class TestTheAccountFilterIsSectioned:
 
         assert panel.get("role") is None, "checkboxes, not a menu of actions"
         assert "Banking" in [text(p) for p in select(panel, "p")]
+
+
+class TestFacts:
+    def test_label_value_pairs_skip_blank_values(self) -> None:
+        html = render(
+            '{{ facts([("State", "Healthy"), ("Note", none), ("Tags", ["a", "b"])]) }}'
+        )
+        assert [text(dt) for dt in select(html, "dt")] == ["State", "Tags"]
+        assert [text(dd) for dd in select(html, "dd")] == ["Healthy", "a, b"]
+
+
+class TestStatRow:
+    def test_label_over_value_figures(self) -> None:
+        html = render('{{ stat_row([("p95 ms", "4.2"), ("Clients", 3)]) }}')
+        assert [text(dt) for dt in select(html, "dt")] == ["p95 ms", "Clients"]
+        assert [text(dd) for dd in select(html, "dd")] == ["4.2", "3"]
+
+
+def test_a_toggle_action_shows_when_it_is_on() -> None:
+    """Wrap, Pause: a pressed action reads as on, as a pressed chip does."""
+    html = render(
+        '{% from "components/macros/form.html" import action %}{{ action("Wrap", \'aria-pressed="true"\') }}'
+    )
+    assert "action" in one(html, "button").get("class").split()  # input.css

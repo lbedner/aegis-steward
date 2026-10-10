@@ -28,7 +28,8 @@ from app.services.finance.domains.detection.analyst.shared import (
 )
 from app.services.finance.domains.detection.insights import create_insight_if_new
 from app.services.finance.models import FinanceInsight
-from app.services.finance.utils import current_date, stored_owner
+from app.services.finance.utils import current_date
+from app.services.shared.queries import stored_owner
 
 
 async def existing_note(
@@ -137,7 +138,7 @@ async def run_analyst_note(
     service_config = service_config.model_copy(update=update)
 
     try:
-        model, model_name = model_for(service_config, settings)
+        model, model_name = await model_for(service_config, settings)
         # The model returns typed commentary, nothing else; the report's
         # layout and every figure in it come from ``facts``. Structured
         # output rides pydantic-ai's output tool, which local models handle

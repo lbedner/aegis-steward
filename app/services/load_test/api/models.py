@@ -8,7 +8,7 @@ status-code distribution, and sampled error details.
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from app.services.load_test.common.models import (
     BaseLoadTestConfiguration,
@@ -107,6 +107,14 @@ class APILoadTestMetrics(BaseLoadTestMetrics):
         default_factory=list,
         description="Sampled failures (capped by the service)",
     )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def only_redirects(self) -> bool:
+        """Every response a 3xx: the run measured a redirect (``/health``
+        answers ``/health/``), not the route it points to."""
+        codes = self.status_codes
+        return bool(codes) and all(300 <= int(c) < 400 for c in codes)
 
 
 class APILoadTestResult(BaseLoadTestResult):

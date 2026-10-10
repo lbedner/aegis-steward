@@ -10,9 +10,24 @@ from typing import Any, cast
 from uuid import uuid4
 
 from app.core.config import settings
+from app.core.constants import ComponentName
 from app.core.log import logger
 
 from .models import ComponentStatus, ComponentStatusType
+from .redis_keys import KeyFamily
+from .redis_keys import redis_url as redis_url_effective
+
+# The probe keys each check writes and deletes (``redis_keys``' map).
+REDIS_KEYS = (
+    KeyFamily(
+        "health_check:*",
+        "string",
+        "Health probes",
+        "A set/get probe per health check, deleted at once, 10s TTL",
+        "System health",
+        columns=("Key", "Value"),
+    ),
+)
 
 
 def _decode_slowlog_arg(arg: Any) -> str:
@@ -51,11 +66,7 @@ async def check_cache_health() -> ComponentStatus:
         import redis.asyncio as aioredis
 
         # Create Redis connection with timeout
-        redis_url = (
-            settings.redis_url_effective
-            if hasattr(settings, "redis_url_effective")
-            else settings.REDIS_URL
-        )
+        redis_url = redis_url_effective()
         redis_connection = aioredis.from_url(  # type: ignore[no-untyped-call]
             redis_url,
             db=settings.REDIS_DB,
@@ -163,7 +174,7 @@ async def check_cache_health() -> ComponentStatus:
         mem_fragmentation_ratio = memory_info.get("mem_fragmentation_ratio", 1.0)
 
         return ComponentStatus(
-            name="cache",
+            name=ComponentName.CACHE,
             status=ComponentStatusType.HEALTHY,
             message="Redis cache connection and operations successful",
             response_time_ms=None,  # Will be set by caller
@@ -218,7 +229,7 @@ async def check_cache_health() -> ComponentStatus:
 
     except ImportError:
         return ComponentStatus(
-            name="cache",
+            name=ComponentName.CACHE,
             status=ComponentStatusType.UNHEALTHY,
             message="Cache library not installed",
             response_time_ms=None,
@@ -229,17 +240,13 @@ async def check_cache_health() -> ComponentStatus:
         )
     except Exception as e:
         return ComponentStatus(
-            name="cache",
+            name=ComponentName.CACHE,
             status=ComponentStatusType.UNHEALTHY,
             message=f"Cache health check failed: {str(e)}",
             response_time_ms=None,
             metadata={
                 "implementation": "redis",
-                "url": (
-                    settings.redis_url_effective
-                    if hasattr(settings, "redis_url_effective")
-                    else settings.REDIS_URL
-                ),
+                "url": redis_url_effective(),
                 "db": settings.REDIS_DB,
                 "error": str(e),
                 # Provide fallback values for card display

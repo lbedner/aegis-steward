@@ -19,8 +19,13 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core import db_activity
 from app.core.config import settings
+from app.core.constants import ComponentName
 from app.core.log import logger
+
+# The component this client fronts (``service_links``).
+FRONTS = ComponentName.DATABASE
 
 
 # Extract database file path from URL for backup operations
@@ -210,6 +215,11 @@ def _async_sqlite_emit_begin(conn: Any) -> None:
     conn.exec_driver_sql("BEGIN IMMEDIATE")
 
 
+# Long-held transactions and lock failures, for the Database pages.
+db_activity.watch(engine)
+db_activity.watch(async_engine.sync_engine)
+
+
 # Configure session factory with SQLModel Session (sync)
 SessionLocal = sessionmaker(
     class_=Session, bind=engine, autoflush=False, autocommit=False
@@ -279,6 +289,18 @@ async def get_async_session() -> AsyncGenerator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def release_lock(session: AsyncSession) -> None:
+    """Commit, ending ``session``'s transaction before slow work that needs
+    no database (a model call, a fetch over the network) or before code
+    that opens a connection of its own; its next query begins a new one.
+    On SQLite a transaction holds the one write lock from its first query
+    (the async engine begins IMMEDIATE): one left open across a model that
+    takes minutes stalls every process, and a second connection the same
+    request opens waits out the busy timeout behind it. On Postgres it is
+    a connection idle in a transaction."""
+    await session.commit()
 
 
 def init_database() -> Path:

@@ -33,6 +33,7 @@ from app.services.finance.models import (
     FinanceTransactionSplit,
 )
 from app.services.finance.utils import period_start
+from app.services.shared.queries import owner_filters
 
 
 def month_bounds(period_month: int) -> tuple[date, date]:
@@ -49,8 +50,7 @@ async def monthly_budget(
         FinanceBudget.name == "Monthly",
         FinanceBudget.deleted_at.is_(None),
     )
-    if owner_user_id is not None:
-        query = query.where(FinanceBudget.owner_user_id == owner_user_id)
+    query = query.where(*owner_filters(FinanceBudget.owner_user_id, owner_user_id))
     return (await db.exec(query.order_by(FinanceBudget.id))).first()
 
 
@@ -155,9 +155,8 @@ async def budget_line_by_id(
     filters = [
         FinanceBudgetCategory.id == line_id,
         FinanceBudgetCategory.deleted_at.is_(None),
+        *owner_filters(FinanceBudgetCategory.owner_user_id, owner_user_id),
     ]
-    if owner_user_id is not None:
-        filters.append(FinanceBudgetCategory.owner_user_id == owner_user_id)
     return (await db.exec(select(FinanceBudgetCategory).where(*filters))).first()
 
 

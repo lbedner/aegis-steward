@@ -70,6 +70,9 @@ def _bind_session(async_db_session: AsyncSession) -> Generator[None]:
     _SESSION.pop("current", None)
 
 
+HX = {"HX-Request": "true"}
+
+
 @pytest.fixture
 def client(app: FastAPI) -> TestClient:
     """Plain client, no lifespan: routes render without startup hooks."""
@@ -88,13 +91,21 @@ def live_client(app: FastAPI) -> Generator[TestClient]:
 @pytest.fixture
 def hx(app: FastAPI) -> TestClient:
     """A client whose every request carries ``HX-Request: true``."""
-    return TestClient(app, headers={"HX-Request": "true"})
+    return TestClient(app, headers=HX)
 
 
 @pytest.fixture
 def finance(async_db_session: AsyncSession) -> FinanceService:
     """Seed ledger rows for a page test; commit before requesting the page."""
     return FinanceService(async_db_session)
+
+
+@pytest.fixture
+def hx_user(authenticated_client: TestClient) -> TestClient:
+    """``authenticated_client`` asking as htmx does: the signed-in user's
+    fragments."""
+    authenticated_client.headers.update(HX)
+    return authenticated_client
 
 
 @pytest.fixture

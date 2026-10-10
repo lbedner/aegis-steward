@@ -7,11 +7,14 @@ filters), ``rendering.py`` (the environment, ``render``, ``with_toast``),
 ``nav.py`` (the section list). Routes live under ``routes/``.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, FastAPI
+from fastapi.routing import APIRoute
 
 
 def create_web_frontend_app() -> APIRouter:
-    """Create the web frontend router: the root redirect plus every section."""
+    """Create the web frontend router: the root redirect, every section,
+    and Overseer. Each route is tagged ``overseer`` or ``web``, so route
+    lists group them apart from the API."""
     router = APIRouter()
 
     from app.components.web_frontend.routes.chat import router as chat_router
@@ -59,7 +62,7 @@ def create_web_frontend_app() -> APIRouter:
     from app.components.web_frontend.routes.requests import router as requests_router
     from app.components.web_frontend.routes.signins import router as signins_router
 
-    router.include_router(pages_router)
+    router.include_router(pages_router, include_in_schema=False)
     router.include_router(finance_router)
     router.include_router(jobs_router)
     router.include_router(matters_router)
@@ -83,5 +86,16 @@ def create_web_frontend_app() -> APIRouter:
     router.include_router(chat_cards_router)
     router.include_router(chat_changes_router)
     router.include_router(chat_voices_router)
+    for route in router.routes:
+        if isinstance(route, APIRoute):
+            route.tags = ["overseer" if "/overseer" in route.path else "web"]
 
     return router
+
+
+def add_error_pages(app: FastAPI) -> None:
+    """The pages an exception renders instead of JSON: Overseer's "admins
+    only" refusal, where the stack has auth (``overseer_access``)."""
+    from app.components.web_frontend.overseer_access import add_refusal_page
+
+    add_refusal_page(app)

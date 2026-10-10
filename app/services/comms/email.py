@@ -5,15 +5,91 @@ Provides email sending functionality with direct Resend SDK usage.
 No abstraction layers - just clean async functions.
 """
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 import resend
 
+from app.core import secrets
 from app.core.config import settings
 from app.core.log import logger
+from app.core.secrets import Secret, SecretRejectedError, SecretUncheckedError, probe
 
 from .models import EmailResponse, MessageStatus, SendEmailRequest
+
+
+async def _verify_resend(key: str) -> None:
+    """Listing domains needs a full-access key; a send-only key is refused
+    as ``restricted_api_key``, which still proves it is a real key."""
+    await probe(
+        "https://api.resend.com/domains",
+        headers={"Authorization": f"Bearer {key}"},
+        passes=lambda r: r.is_success or "restricted_api_key" in r.text,
+    )
+
+
+async def _resend_domains() -> list[Any]:
+    """The account's domains, or why Resend could not list them (a
+    send-only key cannot)."""
+    from app.services.ops.adapters.resend import ResendAdapter
+
+    try:
+        return await ResendAdapter().list_domains()
+    except Exception as exc:  # noqa: BLE001 - the reason is the answer
+        raise SecretUncheckedError(f"Resend did not list domains ({exc}).") from None
+
+
+async def _from_address_choices() -> list[tuple[str, str]]:
+    """An address on each verified domain, to pick and then edit."""
+    return [
+        (f"hello@{d.domain}", f"{d.domain} (verified in Resend)")
+        for d in await _resend_domains()
+        if d.verified
+    ]
+
+
+async def _verify_from_address(address: str) -> None:
+    """Resend only sends from a verified domain: check this one is."""
+    from email.utils import parseaddr
+
+    domain = parseaddr(address)[1].rpartition("@")[2].lower()
+    if not domain:
+        raise SecretRejectedError("that is not an email address.")
+    match = next(
+        (d for d in await _resend_domains() if d.domain.lower() == domain), None
+    )
+    if match is None:
+        raise SecretRejectedError(f"{domain} is not a domain in your Resend account.")
+    if not match.verified:
+        raise SecretRejectedError(
+            f"{domain} is not verified in Resend yet ({match.status})."
+        )
+
+
+# What this module reads (``app.core.secrets``).
+SECRETS = (
+    Secret(
+        "RESEND_API_KEY", owner="Email (Resend)", needed=True, verify=_verify_resend
+    ),
+    Secret(
+        "RESEND_FROM_EMAIL",
+        owner="Email (Resend)",
+        label="From address",
+        secret=False,
+        needed=True,
+        choices=_from_address_choices,
+        verify=_verify_from_address,
+    ),
+)
+
+
+RESEND_KEYS = ("RESEND_API_KEY", "RESEND_FROM_EMAIL")
+
+
+async def _resend() -> dict[str, str | None]:
+    """The key and the sender, read now (``.env``, then the secrets store)."""
+    return await secrets.get_many(*RESEND_KEYS)
 
 
 class EmailError(Exception):
@@ -42,18 +118,17 @@ async def send_email(request: SendEmailRequest) -> EmailResponse:
         EmailConfigurationError: If Resend is not configured
         EmailError: If sending fails
     """
-    # Validate configuration
-    if not settings.RESEND_API_KEY:
+    config = await _resend()
+    if not config["RESEND_API_KEY"]:
         raise EmailConfigurationError(
             "RESEND_API_KEY is not set. "
             "Sign up at https://resend.com and set your API key."
         )
 
-    # Set API key
-    resend.api_key = settings.RESEND_API_KEY
+    resend.api_key = config["RESEND_API_KEY"]
 
     # Determine sender email
-    from_email = request.from_email or settings.RESEND_FROM_EMAIL
+    from_email = request.from_email or config["RESEND_FROM_EMAIL"]
     if not from_email:
         raise EmailConfigurationError(
             "No sender email specified. "
@@ -88,7 +163,8 @@ async def send_email(request: SendEmailRequest) -> EmailResponse:
             params["tags"] = [{"name": tag} for tag in request.tags]
 
         # Send email via Resend
-        response = resend.Emails.send(params)
+        # The SDK blocks on the network; keep the event loop free.
+        response = await asyncio.to_thread(resend.Emails.send, params)
 
         logger.info(f"Email sent successfully: {response['id']} to {request.to}")
 
@@ -161,15 +237,16 @@ async def send_email_simple(
     return await send_email(request)
 
 
-def get_email_status() -> dict[str, Any]:
+async def get_email_status() -> dict[str, Any]:
     """
     Get email service configuration status.
 
     Returns:
         dict: Status information including configuration state
     """
-    api_key_set = bool(settings.RESEND_API_KEY)
-    from_email_set = bool(settings.RESEND_FROM_EMAIL)
+    config = await _resend()
+    api_key_set = bool(config["RESEND_API_KEY"])
+    from_email_set = bool(config["RESEND_FROM_EMAIL"])
 
     return {
         "service": "email",
@@ -177,26 +254,27 @@ def get_email_status() -> dict[str, Any]:
         "configured": api_key_set and from_email_set,
         "api_key_set": api_key_set,
         "from_email_set": from_email_set,
-        "from_email": settings.RESEND_FROM_EMAIL if from_email_set else None,
+        "from_email": config["RESEND_FROM_EMAIL"] if from_email_set else None,
     }
 
 
-def validate_email_config() -> list[str]:
+async def validate_email_config() -> list[str]:
     """
     Validate email service configuration.
 
     Returns:
         list[str]: List of configuration errors (empty if valid)
     """
+    config = await _resend()
     errors = []
 
-    if not settings.RESEND_API_KEY:
+    if not config["RESEND_API_KEY"]:
         errors.append(
             "RESEND_API_KEY is not set. "
             "Sign up at https://resend.com to get your API key."
         )
 
-    if not settings.RESEND_FROM_EMAIL:
+    if not config["RESEND_FROM_EMAIL"]:
         errors.append(
             "RESEND_FROM_EMAIL is not set. "
             "This should be a verified sender email in your Resend account."

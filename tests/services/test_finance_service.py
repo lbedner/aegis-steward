@@ -446,9 +446,9 @@ class TestFinanceValuations:
 class TestFinanceNetWorth:
     @staticmethod
     def _days_ago(n: int) -> date:
-        from datetime import UTC, datetime, timedelta
+        from datetime import timedelta
 
-        return datetime.now(UTC).date() - timedelta(days=n)
+        return current_date() - timedelta(days=n)
 
     @pytest.mark.asyncio
     async def test_recompute_series_liability_sign(

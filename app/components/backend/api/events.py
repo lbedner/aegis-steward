@@ -33,11 +33,7 @@ async def worker_event_stream(request: Request) -> StreamingResponse:
     """
 
     async def event_generator() -> AsyncGenerator[str]:
-        redis_url = (
-            settings.redis_url_effective
-            if hasattr(settings, "redis_url_effective")
-            else settings.REDIS_URL
-        )
+        redis_url = settings.redis_url_effective
         redis_client: aioredis.Redis = aioredis.from_url(
             redis_url, decode_responses=True
         )

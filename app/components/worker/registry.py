@@ -9,7 +9,44 @@ is not one of those answers lives in ``queue_discovery``.
 from typing import Any
 
 from app.components.worker import queue_discovery as discovery
+from app.core.key_family import KeyFamily
 from app.core.log import logger
+
+# What arq keeps in Redis, for the keyspace map (``redis_keys``).
+REDIS_KEYS = (
+    KeyFamily(
+        "arq:queue*",
+        "zset",
+        "Job queues",
+        "Each queue's waiting job ids by run time, and its health-check key",
+        "arq",
+        columns=("Job id", "Run at"),
+    ),
+    KeyFamily(
+        "arq:job:*",
+        "string",
+        "Queued jobs",
+        "A waiting job's pickled call, until a worker takes it",
+        "arq",
+        columns=("Key", "Value"),
+    ),
+    KeyFamily(
+        "arq:result:*",
+        "string",
+        "Job results",
+        "A finished job's result, kept WORKER_KEEP_RESULT_SECONDS",
+        "arq",
+        columns=("Key", "Value"),
+    ),
+    KeyFamily(
+        "arq:*",
+        "string",
+        "Job bookkeeping",
+        "In-progress and retry markers and the abort set",
+        "arq",
+        columns=("Key", "Value"),
+    ),
+)
 
 
 def get_worker_settings(queue_name: str) -> Any:
@@ -41,10 +78,10 @@ def discover_worker_queues() -> list[str]:
 
 
 def task_name(entry: Any) -> str:
-    """The name a ``WorkerSettings.functions`` entry is enqueued by.
+    """The name a ``functions`` entry runs under.
 
-    An entry is a coroutine function, or an arq ``Function`` from
-    ``func(...)``, which carries its own name (and timeout).
+    A plain function goes by ``__name__``; an arq ``Function`` (from
+    ``func(...)``, how a task gets its own name or timeout) by ``name``.
     """
     return getattr(entry, "name", None) or entry.__name__
 
@@ -87,7 +124,7 @@ def get_queue_metadata(queue_name: str) -> dict[str, Any]:
     return discovery.build_metadata(
         getattr(settings_class, "queue_name", f"arq:queue:{queue_name}"),
         list(queue_tasks(queue_name)),
-        max_jobs=getattr(settings_class, "max_jobs", discovery.DEFAULT_MAX_JOBS),
+        max_jobs=getattr(settings_class, "max_jobs", None),
         timeout=getattr(
             settings_class, "job_timeout", discovery.DEFAULT_TIMEOUT_SECONDS
         ),
@@ -104,7 +141,7 @@ def get_queue_lifecycle(queue_name: str) -> dict[str, dict[str, str]]:
     """The hooks arq calls around a worker's life, as the queue defines them."""
     try:
         settings_class = get_worker_settings(queue_name)
-    except (ImportError, AttributeError):
+    except ImportError, AttributeError:
         return {}
 
     return discovery.describe_hooks(
@@ -136,7 +173,6 @@ __all__ = [
     "get_task_docstrings",
     "get_worker_settings",
     "queue_tasks",
+    "task_name",
     "validate_queue_name",
 ]
-
-logger.debug("arq queue registry ready")

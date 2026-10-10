@@ -1,0 +1,102 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import sidebar_icon, theme_toggle %}
+{% from "components/macros/icons.html" import icon %}
+{# The viewer's menu: the appearance, the sidebar's grouping and, for a
+   signed-in viewer (without auth nobody signs in, and there is no
+   /logout), Sign out. The sidebar's foot and the phone header draw it. #}
+{% macro viewer_menu(placement="down", rail=False) -%}
+{% call theme_toggle(placement, rail=rail, label=user.email if user else "Appearance", more=[grouping_choice(request)]) %}
+{% if user %}<div class="border-t border-aegis-border pt-3"><a href="/logout" class="text-xs text-aegis-muted hover:text-aegis-text">Sign out</a></div>{% endif %}
+{% endcall %}
+{%- endmacro %}
+{# One sidebar link, in either grouping: a component's or service's with its
+   live status dot, current when the page's ``item`` is its page; one of
+   Overseer's own pages by its group alone. #}
+{% macro nav_link(entry) -%}
+{% set health = entry.group in ("components", "services") %}
+<a href="{{ entry.url }}" title="{{ entry.title }}" {{ hx_replace(entry.url, "#overseer-main") }}
+   {% if item is defined and item.group == entry.group and (not health or item.name == entry.name) %}aria-current="page"{% endif %}
+   class="overseer-rail-row nav-link relative py-2">
+  {{ sidebar_icon(entry.name) }}
+  <span class="overseer-rail-hide truncate flex-1">{{ entry.title }}</span>
+  {% if health %}
+  <span class="overseer-rail-status inline-flex items-center gap-0.5 shrink-0" sse-swap="{{ entry.event }}" hx-target="this">
+    {% set health_status = entry.status %}{% include "pages/overseer/_status_dot.html" %}
+  </span>
+  {% endif %}
+</a>
+{%- endmacro %}
+{% block app_content %}
+<div x-data="{ mobileNav: false, sidebar: appearance().sidebar }" class="min-h-screen md:flex">
+  <aside id="overseer-sidebar" aria-label="Overseer navigation"
+         class="w-full md:w-64 lg:w-72 md:shrink-0 md:h-screen md:sticky md:top-0 md:z-30 md:transition-[width] border-b md:border-b-0 md:border-r border-aegis-border bg-aegis-bg flex flex-col">
+    <div data-sidebar-head class="overseer-rail-row px-5 py-5 border-b border-aegis-border flex items-center justify-between gap-3">
+      <a href="/overseer" {{ hx_replace("/overseer", "#overseer-main") }}
+         title="Overseer" class="min-w-0 text-sm font-semibold text-aegis-text truncate">
+        <span class="text-aegis-teal" aria-hidden="true">●</span>
+        <span class="overseer-rail-hide">Overseer</span>
+        <span class="overseer-rail-none block ml-4 text-xxs font-normal text-aegis-muted truncate">{{ project_name }}</span>
+      </a>
+      <button type="button" aria-controls="overseer-sidebar"
+              :aria-expanded="sidebar === 'wide'"
+              :aria-label="sidebar === 'rail' ? 'Expand sidebar' : 'Collapse sidebar'"
+              :title="sidebar === 'rail' ? 'Expand sidebar' : 'Collapse sidebar'"
+              @click="sidebar = sidebar === 'rail' ? 'wide' : 'rail'; setAppearance('sidebar', sidebar)"
+              class="hidden md:inline-flex shrink-0 rounded p-1 text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20 transition-colors">
+        {{ icon("chevron-double-left", "h-4 w-4 transition-transform", 1.75, ":class=\"sidebar === 'rail' ? 'rotate-180' : ''\"") }}
+      </button>
+      <button type="button" class="md:hidden rounded border border-aegis-border px-2 py-1 text-xs text-aegis-muted"
+              @click="mobileNav = !mobileNav" :aria-expanded="mobileNav" aria-controls="overseer-nav">Menu</button>
+    </div>
+    <nav id="overseer-nav" aria-label="Components and services"
+         class="px-3 py-4 space-y-5 md:block md:flex-1 md:min-h-0 md:overflow-y-auto"
+         :class="mobileNav ? 'block' : 'hidden'"
+         @click="if ($event.target.closest('a')) mobileNav = false">
+      {# By kind, or by concern when the viewer chose it (overseer_sections.sidebar_sections). #}
+      {% for heading, entries in sidebar_sections(request, navigation) %}
+      {% set id = "overseer-" ~ heading|lower ~ "-heading" if heading %}
+      <{{ "section" if heading else "div" }}{% if heading %} aria-labelledby="{{ id }}"{% endif %}>
+        {% if heading %}<h2 id="{{ id }}" class="overseer-rail-none micro-label text-aegis-muted px-3 mb-2">{{ heading }}</h2>{% endif %}
+        <ul class="space-y-0.5">
+          {% if loop.first %}
+          <li><a href="/overseer" title="Overview" {{ hx_replace("/overseer", "#overseer-main") }}
+                 {% if item is not defined %}aria-current="page"{% endif %}
+                 class="overseer-rail-row nav-link py-2">
+            {{ sidebar_icon("overview") }}<span class="overseer-rail-hide truncate">Overview</span>
+          </a></li>
+          {% endif %}
+          {% for entry in entries %}<li>{{ nav_link(entry) }}</li>{% endfor %}
+        </ul>
+      </{{ "section" if heading else "div" }}>
+      {% endfor %}
+    </nav>
+    {# One row: the viewer's menu. #}
+    <div data-sidebar-foot class="hidden md:block shrink-0 border-t border-aegis-border px-3 py-3">
+      {{ viewer_menu("up", rail=True) }}
+    </div>
+  </aside>
+  {# Everything right of the main sidebar. A page's sub-menu and content
+     swap together as this one element, so the sidebar never re-renders
+     (and keeps its scroll); app.js moves its current mark. #}
+  <div id="overseer-main" class="min-w-0 flex-1 md:flex">
+    {% block overseer_subnav %}{% endblock %}
+    <div class="min-w-0 flex-1">
+      <div class="md:hidden flex items-center justify-between gap-3 px-5 py-3 border-b border-aegis-border">
+        {{ viewer_menu() }}
+      </div>
+      {# A document (Overview, Settings) keeps a reading column; a workspace
+         (Logs, Deployments, the Map), where the data is the page, runs to
+         the gutters. A page says which in ``overseer_width``. #}
+      <div data-width="{%- block overseer_width -%}document{%- endblock -%}" class="overseer-page px-5 sm:px-8 lg:px-10 py-7 lg:py-10">
+        {% block overseer_content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+</div>
+{# Steward's Illiana drawer, on its ``shell`` state (app.js) as the app shell
+   mounts it. On the AI page's Chat section the page IS the surface, so the
+   drawer empties and steps aside, as it does on the Chat page. #}
+<div x-data="shell('{{ chat_path }}', false, '{{ chat_path }}/drawer?surface=overseer')" x-init="$nextTick(() => settled())" @htmx:after-settle.window="settled()">
+  {% include "components/illiana_drawer.html" %}
+</div>
+{% endblock %}

@@ -243,7 +243,7 @@ class StreamingMixin(ChatMixin):
             )
 
             # Prepare agent and conversation context
-            agent, conversation_context = self._prepare_agent_and_context(
+            agent, conversation_context = await self._prepare_agent_and_context(
                 conversation,
                 health_context=health_context,
                 health_warning=health_warning,

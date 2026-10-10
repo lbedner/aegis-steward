@@ -9,9 +9,12 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from fastapi import FastAPI
 import pytest
 
 from app.components.web_frontend.rendering import templates
+from app.services.system.models import ComponentStatus
+from tests.web.dom import select, text
 
 
 @pytest.fixture
@@ -128,3 +131,84 @@ class TestWindows:
         assert ranges.horizon(ranges.ALL, 730) == 730
         assert ranges.horizon(90, 730) == 90
         assert ranges.horizon(3650, 730) == 730
+
+
+class TestHealthTone:
+    @pytest.mark.parametrize(
+        ("state", "tone"),
+        [
+            ("healthy", "ok"),
+            ("warning", "warn"),
+            ("unhealthy", "error"),
+            ("info", "muted"),
+        ],
+    )
+    def test_maps_every_status(self, state: str, tone: str) -> None:
+        tone_of: Callable[[str], str] = templates.env.filters["health_tone"]
+        assert tone_of(state) == tone
+
+
+class TestDocstringFacts:
+    """Detail rows show docstrings (middleware, hooks, tasks); their RST
+    ``literals`` read as code, not as doubled backticks."""
+
+    def _render(self, value: object) -> str:
+        macro = templates.env.from_string(
+            '{% from "components/macros/layout.html" import facts %}'
+            "{{ facts([('Description', value)]) }}"
+        )
+        return macro.render(value=value)
+
+    def test_double_backticks_become_code(self) -> None:
+        html = self._render("Pure ASGI (not ``BaseHTTPMiddleware``): fast.")
+        assert "``" not in html
+        assert [text(c) for c in select(html, "dd code")] == ["BaseHTTPMiddleware"]
+
+    def test_markup_values_render_as_given(self) -> None:
+        from markupsafe import Markup
+
+        html = self._render(Markup('<code id="url">sqlite:///x</code>'))
+        assert text(select(html, "dd #url")[0]) == "sqlite:///x"
+
+    def test_the_rest_is_still_escaped(self) -> None:
+        html = self._render("<b>``x``</b>")
+        assert not select(html, "dd b") and "&lt;b&gt;" in html
+
+
+def test_a_message_sets_the_settings_and_secrets_it_names_as_code() -> None:
+    """A health message naming a setting or secret (``BUILD_ID``, ships
+    with every stack) shows it as a docstring shows a literal; an upper-case
+    word nothing declares is left alone, and the rest is escaped."""
+    from app.components.web_frontend.filters import message
+
+    html = f"<p>{message('BUILD_ID not set, OK <now>')}</p>"
+    assert [text(code) for code in select(html, "code")] == ["BUILD_ID"]  # not OK
+    assert "&lt;now&gt;" in html
+
+
+def test_a_message_keeps_its_own_lines() -> None:
+    """A driver's error is several lines (the statement it ran apart): each
+    stays one, wherever the message shows."""
+    from app.components.web_frontend.filters import message
+
+    found = message("database is locked\n[SQL: BEGIN]")
+    html = f"<p>{found}</p>"
+    assert len(select(html, "br")) == 1
+
+
+def test_every_health_message_on_overseer_shows_the_names_it_mentions(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cards, the map and a page's heading go through the one filter."""
+    from fastapi.testclient import TestClient
+
+    from tests.web.overseer import page_html, sign_in, status_with
+
+    named = ComponentStatus(name="observability", message="BUILD_ID is not set")
+    sign_in(app, monkeypatch, status_with(named))
+    for path in (
+        "/overseer?view=cards",
+        "/overseer/components/observability",
+    ):
+        html = page_html(TestClient(app), path)
+        assert "BUILD_ID" in [text(code) for code in select(html, "code")], path

@@ -60,6 +60,19 @@ class TestPendingChangeCard:
         assert "Approve" in text
         assert "Reject" in text
 
+    def test_a_card_names_who_proposed_it(self) -> None:
+        from app.components.frontend.controls.chat.components import (
+            render_component,
+        )
+
+        card = render_component(
+            "pending_change",
+            {**_CHANGE, "proposed_by_agent": "mcp:claude-code"},
+            on_action=_noop_action,
+        )
+
+        assert "mcp:claude-code" in rendered(card)
+
     def test_a_resolved_card_drops_the_actions(self) -> None:
         from app.components.frontend.controls.chat.components import (
             render_component,
@@ -302,13 +315,11 @@ class TestWithdrawnOutcomeSummary:
         )
 
         items = [
-            {"id": 1, "status": "rejected", "result": {"note": "Withdrawn by x."}},
-            {"id": 2, "status": "rejected", "result": {"note": "Withdrawn by x."}},
+            {"id": 1, "status": "rejected", "note": "Withdrawn by x."},
+            {"id": 2, "status": "rejected", "note": "Withdrawn by x."},
             {"id": 3, "status": "rejected"},
         ]
-        assert (
-            PendingChangeBatchCard._outcome_summary(items) == "1 rejected, 2 withdrawn"
-        )
+        assert PendingChangeBatchCard._outcome_summary(items) == "1 rejected, 2 withdrawn"
 
 
 class TestResolvedCardsCollapse:
@@ -645,7 +656,7 @@ class TestMarkerTraceExtraction:
         assert cards[0]._change_id == 7
 
     def test_a_pending_listing_redraws_every_card(self) -> None:
-        """ "Show the card again" is a pending() call: its marker is a list,
+        """"Show the card again" is a pending() call: its marker is a list,
         one entry per card the assistant still has open."""
         from app.components.frontend.controls.chat.components import (
             components_from_trace,

@@ -19,22 +19,25 @@ dependencies = [
     # Zig event loop for uvicorn, opt-in via WEBSERVER_LOOP=zuvloop. The
     # marker is the gate: wheels start at 3.14, so older environments
     # resolve without it rather than failing to install.
-    "zuvloop>=0.0.17; python_version >= '3.14'",
+    "zuvloop>=0.0.17,<0.1; python_version >= '3.14'",
     "structlog==25.4.0",
-    "pydantic-settings>=2.12.0",
+    "pydantic-settings>=2.12.0,<3",
     "typer==0.16.0",
     # Pin click to avoid yanked versions (typer dependency)
     "click==8.2.1",
     # Rich CLI formatting
     "rich==14.1.0",
     # Interactive prompts with status line support
-    "prompt_toolkit>=3.0.0",
+    "prompt_toolkit>=3.0.0,<4",
     # HTTP client for CLI API calls
     "httpx==0.28.1",
     # Security fix for GHSA-38jv-5279-wg99
-    "urllib3>=2.6.3",
+    "urllib3>=2.6.3,<3",
     # System monitoring
     "psutil==7.0.0",
+    # Reads .aegis/deploy.yml (where this project deploys to) and Hetzner's
+    # server metadata, both YAML.
+    "pyyaml>=6.0,<7",
     # The pastebox upload endpoint (pasted images) is multipart.
     "python-multipart==0.0.9",
     "apscheduler==3.10.4",
@@ -43,25 +46,25 @@ dependencies = [
     # <0.0.45: that release rejects naive datetimes, and every timestamp
     # this app writes is naive UTC (see app/core/clock.py).
     "sqlmodel>=0.0.14,<0.0.45",
-    "sqlalchemy>=2.0.0",
-    "aiosqlite>=0.19.0",
-    "greenlet>=1.1.0",
-    "jinja2>=3.1.0",
+    "sqlalchemy>=2.0.0,<3",
+    "aiosqlite>=0.19.0,<0.23",
+    "greenlet>=1.1.0,<4",
+    "jinja2>=3.1.0,<4",
     "alembic==1.16.5",
     "pypdfium2>=5.0,<6",
     # Tesseract's wrapper and the image decoder it reads through; the
     # binary is a system package (see the Dockerfile).
-    "pytesseract>=0.3.13",
-    "pillow>=11",
+    "pytesseract>=0.3.13,<0.4",
+    "pillow>=11,<13",
 
-    "pydantic-ai-slim[openai,openai-realtime,google,google-realtime]>=2.51.0",
-    "pydantic-ai-harness[codemode]>=0.24.0",
-    "httpx>=0.27.0",
+    "pydantic-ai-slim[openai,openai-realtime,google,google-realtime]>=2.51,<3",
+    "pydantic-ai-harness[codemode]>=0.24.0,<0.37",
+    "httpx>=0.27.0,<0.29",
     "marko==2.1.3",
-    "resend>=2.4.0",
-    "twilio>=9.3.7",
-    "ofxtools>=0.9.5",
-    "cryptography>=42.0.0",  # AES-GCM at-rest encryption for provider credentials
+    "resend>=2.4.0,<3",
+    "twilio>=9.3.7,<10",
+    "ofxtools>=0.9.5,<2",
+    "cryptography>=42.0.0,<51",  # AES-GCM at-rest encryption (app.core.encryption)
     # Official client (signs every request with the partner HMAC). Ceiling is
     # deliberate: 13.x renamed the positions call the finance sync depends on
     # (get_user_account_positions -> get_all_account_positions, a new response
@@ -438,9 +441,9 @@ script = "scripts.dev_tasks:status"
 # test dependency used to uninstall pytest.
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
-    "pytest>=9.0.3",
-    "pytest-asyncio>=1.1.0",
+    "httpx>=0.28.1,<0.29",
+    "pytest>=9.0.3,<10",
+    "pytest-asyncio>=1.1.0,<2",
     "pytest-xdist>=3.6.1",
     "ruff==0.12.7",
     "ty==0.0.79",
@@ -451,11 +454,11 @@ dev = [
     # for Windows, where `make` isn't a native binary.
     "poethepoet==0.48.0",
     # DOM assertions for the web test kit (tests/web/dom.py)
-    "lxml>=6.1.3",
-    "cssselect>=1.5.0",
+    "lxml>=6.1.3,<7",
+    "cssselect>=1.5.0,<2",
     # N+1 and query-budget detection for the test suite (make check-queries).
     # Built on SQLAlchemy 2.0's do_orm_execute, so it needs a database stack.
-    "queryspy>=0.4.1",
+    "queryspy>=0.4.1,<0.5",
     # Auto-reload for workers; asset rebuilds for the web frontend watcher
     "watchdog==4.0.2",
 ]

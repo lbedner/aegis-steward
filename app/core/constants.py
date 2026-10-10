@@ -9,8 +9,62 @@ Following 12-Factor App principles:
 - Configuration = environment (varies between dev/staging/production)
 """
 
+from enum import StrEnum
 from pathlib import Path
 import tempfile
+
+
+class AppEnv(StrEnum):
+    """Where the app runs (``settings.APP_ENV``)."""
+
+    DEV = "dev"
+    PROD = "prod"
+
+
+# What ``APP_ENV`` reads as development, in the spellings people use.
+DEV_ENVS = frozenset({AppEnv.DEV, "development", "local"})
+
+
+class ComponentName(StrEnum):
+    """Each infrastructure component's health check name: its key in the
+    name registry (``ui.get_component_title``), in status and on the map."""
+
+    BACKEND = "backend"
+    FRONTEND = "frontend"
+    WEB_FRONTEND = "web_frontend"
+    DATABASE = "database"
+    CACHE = "cache"
+    WORKER = "worker"
+    SCHEDULER = "scheduler"
+    INGRESS = "ingress"
+    STORAGE = "storage"
+    SECRETS = "secrets"
+    OBSERVABILITY = "observability"
+    MCP = "mcp"
+    OLLAMA = "ollama"
+
+
+class ServiceName(StrEnum):
+    """Application service names, kept in sync with the generator's ServiceSpecs."""
+
+    AUTH = "auth"
+    AI = "ai"
+    COMMS = "comms"
+    INSIGHTS = "insights"
+    PAYMENT = "payment"
+    BLOG = "blog"
+    FINANCE = "finance"
+    DOCUMENTS = "documents"
+    RESEARCH = "research"
+
+
+class QueueName(StrEnum):
+    """The worker queues the stack ships with (``MEDIA`` is arq's); a
+    plugin's own are discovered alongside them, by name."""
+
+    SYSTEM = "system"
+    LOAD_TEST = "load_test"
+    MEDIA = "media"
 
 
 class APIEndpoints:

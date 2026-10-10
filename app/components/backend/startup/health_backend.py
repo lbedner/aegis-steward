@@ -10,10 +10,12 @@ and the metadata is the point.
 import os
 from typing import Any
 
+from app.core.constants import ComponentName
 from app.core.log import logger
 from app.services.backend.middleware_inspector import MiddlewareMetadata
 from app.services.backend.route_inspector import RouteMetadata
 from app.services.system.models import ComponentStatus, ComponentStatusType
+from app.services.system.ui_backend import endpoints_apart
 
 from .health_metadata import lifecycle, route_and_middleware
 
@@ -26,7 +28,7 @@ def _in_test_environment() -> bool:
 
 def _healthy(message: str, metadata: dict[str, Any]) -> ComponentStatus:
     return ComponentStatus(
-        name="backend",
+        name=ComponentName.BACKEND,
         status=ComponentStatusType.HEALTHY,
         message=message,
         response_time_ms=None,
@@ -94,8 +96,11 @@ def _active_message(
     )
 
     message_parts = [f"{route_metadata.total_routes} routes"]
-    if route_metadata.total_endpoints != route_metadata.total_routes:
-        message_parts.append(f"{route_metadata.total_endpoints} endpoints")
+    endpoints = endpoints_apart(
+        route_metadata.total_routes, route_metadata.total_endpoints
+    )
+    if endpoints is not None:
+        message_parts.append(f"{endpoints} endpoints")
     if middleware_metadata.security_count > 0:
         message_parts.append(f"{middleware_metadata.security_count} security layers")
     if method_summary:
@@ -165,7 +170,7 @@ async def backend_component_health() -> ComponentStatus:
         return _production_status(*route_and_middleware(warn_when_cold=True))
     except Exception as e:
         return ComponentStatus(
-            name="backend",
+            name=ComponentName.BACKEND,
             status=ComponentStatusType.UNHEALTHY,
             message=f"Backend component check failed: {str(e)}",
             response_time_ms=None,

@@ -7,9 +7,13 @@ renamed over this file at generation, the way pools and registry work.
 from typing import cast
 
 from app.core.config import settings
+from app.core.constants import ComponentName
 from app.core.log import logger
 from app.services.system.health import propagate_status
-from app.services.system.health_worker_rules import queue_status
+from app.services.system.health_worker_rules import (
+    broken_queue_status,
+    queue_status,
+)
 from app.services.system.models import ComponentStatus, ComponentStatusType
 
 
@@ -21,6 +25,11 @@ async def check_worker_health() -> ComponentStatus:
         ComponentStatus indicating worker infrastructure health with queue
         sub-components
     """
+    # A queue file that exists but cannot import (a missing broker library)
+    # is an outage, not a worker with no queues.
+    if (broken := broken_queue_status()) is not None:
+        return broken
+
     try:
         import re
 
@@ -305,7 +314,7 @@ async def check_worker_health() -> ComponentStatus:
             arq_version = ""
 
         return ComponentStatus(
-            name="worker",
+            name=ComponentName.WORKER,
             status=worker_status,
             message=main_message,
             response_time_ms=None,
@@ -322,7 +331,7 @@ async def check_worker_health() -> ComponentStatus:
                     if total_completed + total_failed > 0
                     else 0
                 ),
-                "redis_url": settings.REDIS_URL,
+                "redis_url": settings.redis_url_effective,
                 "version": arq_version,
                 "queue_configuration": {
                     queue_type: {
@@ -338,7 +347,7 @@ async def check_worker_health() -> ComponentStatus:
 
     except ImportError:
         return ComponentStatus(
-            name="worker",
+            name=ComponentName.WORKER,
             status=ComponentStatusType.UNHEALTHY,
             message="Redis library not available for worker health check",
             response_time_ms=None,
@@ -347,13 +356,13 @@ async def check_worker_health() -> ComponentStatus:
     except Exception as e:
         logger.error(f"Worker health check failed: {e}")
         return ComponentStatus(
-            name="worker",
+            name=ComponentName.WORKER,
             status=ComponentStatusType.UNHEALTHY,
             message=f"Worker health check failed: {str(e)}",
             response_time_ms=None,
             metadata={
                 "error": str(e),
-                "redis_url": settings.REDIS_URL,
+                "redis_url": settings.redis_url_effective,
             },
             sub_components={},
         )

@@ -3,7 +3,6 @@
 from collections.abc import AsyncIterator, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 import importlib
-import os
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -12,11 +11,12 @@ from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.wrapper import WrapperModel
+from pydantic_ai.providers import infer_provider_class
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import RunContext
 
-from app.services.ai.config import AIServiceConfig, api_key_env
+from app.services.ai.config import AIServiceConfig
 from app.services.ai.domains.llm.base import (
     ProviderError,
     require_api_key,
@@ -225,7 +225,7 @@ def _grant_kwargs(
     return kwargs
 
 
-def model_for(config: AIServiceConfig, settings: Any) -> tuple[Any, str]:
+async def model_for(config: AIServiceConfig, settings: Any) -> tuple[Any, str]:
     """A bare model instance for ``config``, plus the model name it resolved to.
 
     ``get_agent`` wraps a whole ``Agent`` around this one. Callers that bring
@@ -244,8 +244,9 @@ def model_for(config: AIServiceConfig, settings: Any) -> tuple[Any, str]:
             "it builds its own client. Use get_agent() instead."
         )
 
-    # PydanticAI 1.0+ reads credentials from the environment, not kwargs.
-    os.environ[api_key_env(config.provider)] = require_api_key(config, settings)
+    # The key goes to the client, never into the environment: a key
+    # stamped there outlives the call and answers for every later model.
+    key = await require_api_key(config, settings)
 
     # An OpenAI-compatible provider is a base URL and a key, and the URL
     # is the only thing distinguishing Mistral, Cohere and OpenRouter
@@ -256,13 +257,15 @@ def model_for(config: AIServiceConfig, settings: Any) -> tuple[Any, str]:
     # branches did the moment anybody selected them.
     spec = PROVIDERS.get(config.provider)
     if spec is not None and spec.base_url:
-        key = config.get_provider_config(settings).api_key
         return tolerant(
             _openai_compatible(config.model, spec.base_url, key)
         ), config.model
-    return tolerant(
-        _get_model_class(config.provider)(model_name=config.model)
-    ), config.model
+    # Our provider names are pydantic-ai's, so it names the provider class
+    # (typed as the bare base; every concrete one takes the key).
+    provider_class: Any = infer_provider_class(config.provider.value)
+    provider = provider_class(api_key=key)
+    model_class = _get_model_class(config.provider)
+    return tolerant(model_class(config.model, provider=provider)), config.model
 
 
 def validate_provider_support(provider: AIProvider) -> bool:
@@ -277,7 +280,7 @@ def validate_provider_support(provider: AIProvider) -> bool:
     try:
         _get_model_class(provider)
         return True
-    except (ProviderError, ImportError):
+    except ProviderError, ImportError:
         return False
 
 

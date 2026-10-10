@@ -223,3 +223,34 @@ def footer_line(meta: dict[str, Any], *, local: bool = False) -> str:
     elif local:
         parts.append(FREE)
     return "  ·  ".join(parts)
+
+
+# What an approval card's status (``card_outcome``) reads as, and its tone,
+# in every chat UI (the Flet chat and the htmx one); each UI maps a tone to
+# its colours.
+CARD_STATUS: dict[str, tuple[str, str]] = {
+    "pending": ("Awaiting your approval", "warn"),
+    "approved": ("Approved", "ok"),
+    "rejected": ("Rejected", "error"),
+    "withdrawn": ("Withdrawn", "muted"),
+    "expired": ("Expired", "muted"),
+}
+
+
+# How a withdrawal's note starts (``change_queue.withdraw`` writes it).
+WITHDRAWN = "Withdrawn"
+
+
+def proposer_line(proposed_by_agent: str | None) -> str | None:
+    """Who filed a card, as every card UI shows it: a card from an
+    outside assistant (``mcp:<client>``) must never read as the app's own
+    assistant's."""
+    return f"Proposed by {proposed_by_agent}" if proposed_by_agent else None
+
+
+def card_outcome(status: str, note: Any) -> str:
+    """A card's status as a person reads it: a rejection the proposing
+    agent filed against itself is "withdrawn", not the user saying no."""
+    if status == "rejected" and str(note or "").startswith(WITHDRAWN):
+        return "withdrawn"
+    return status

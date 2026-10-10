@@ -214,7 +214,7 @@ def _callable(model: Any, kind: str) -> bool:
     return model.vendor in live_engines.CALL_TRANSPORTS and "/" not in model.model_id
 
 
-async def _catalog(kind: str) -> list[dict[str, Any]]:
+async def catalog(kind: str) -> list[dict[str, Any]]:
     # Every argument spelled out: called in-process, the handler's Query
     # defaults are not values.
     return [
@@ -268,7 +268,7 @@ async def picker(
         row
         for kind, modality in ROLES
         if show in ("all", modality)
-        for model in await _catalog(kind)
+        for model in await catalog(kind)
         for row in _rows_of(model, kind, engines)
     ]
     sections = _flat(models, query, icons) if query else _grouped(models, icons)

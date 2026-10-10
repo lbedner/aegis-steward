@@ -43,6 +43,12 @@ class ChartColors:
     # the htmx side; reused here as the palette's "neutral" slot)
     MUTED = "#7E8A9A"
 
+    EMERALD = "#10B981"
+    ORANGE = "#F97316"
+    # One colour per series on a multi-series chart, in the htmx charts'
+    # order (--aegis-chart-1..8), so a series reads the same in both UIs.
+    RAMP = (TEAL, VIOLET, AMBER, BLUE, PINK, EMERALD, ORANGE, CYAN)
+
 
 def chart_tooltip_kwargs() -> dict[str, Any]:
     """Shared tooltip styling for any chart control (LineChart, BarChart).
@@ -142,6 +148,9 @@ class LineSeries:
     highlight_color: str = (
         "#F59E0B"  # ChartColors.AMBER - keep dataclass self-contained
     )
+    # A guide (where a warning begins, say): a dashed level, out of the
+    # legend and the tooltips, that the y-axis still takes in.
+    guide: bool = False
 
 
 @dataclass

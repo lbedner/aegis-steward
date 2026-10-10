@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from app.components.backend.middleware.traffic import traffic_monitor
+from app.components.backend.middleware import traffic
 from app.core.config import settings
 
 router = APIRouter(
@@ -32,7 +32,7 @@ async def get_traffic_sources(
     ("redis" or "memory") so the panel can note when counts are per-process
     and reset on restart.
     """
-    return await traffic_monitor.snapshot(
+    return await traffic.traffic_monitor.snapshot(
         window_hours=window_hours or settings.TRAFFIC_WINDOW_HOURS,
         limit=limit,
         dominance_share=settings.TRAFFIC_DOMINANCE_SHARE,

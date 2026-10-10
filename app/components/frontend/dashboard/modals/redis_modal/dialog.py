@@ -10,6 +10,7 @@ from app.components.frontend.dashboard.modals.redis_modal.overview import Overvi
 from app.components.frontend.dashboard.modals.redis_modal.slow_queries import (
     SlowQueriesTab,
 )
+from app.core.constants import ComponentName
 from app.services.system.models import ComponentStatus
 from app.services.system.ui import get_component_subtitle, get_component_title
 
@@ -53,8 +54,8 @@ class RedisDetailDialog(BaseDetailPopup):
         super().__init__(
             page=page,
             component_data=component_data,
-            title_text=get_component_title("cache"),
-            subtitle_text=get_component_subtitle("cache", metadata),
+            title_text=get_component_title(ComponentName.CACHE),
+            subtitle_text=get_component_subtitle(ComponentName.CACHE, metadata),
             sections=[tabs],
             scrollable=False,
             width=900,

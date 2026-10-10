@@ -26,7 +26,15 @@ from app.components.frontend.controls.chat.display_rows import (
     _display_rows,
 )
 from app.components.frontend.controls.text import LabelText, SecondaryText
+from app.components.frontend.theme import TONE_COLORS
 from app.components.frontend.theme import AegisTheme as Theme
+from app.core.chat_transcript import (
+    CARD_STATUS,
+    card_outcome,
+    proposer_line,
+)
+from app.services.ai.domains.chat.cards import markers_of
+from app.services.ai.service.trace import CARD_TOOLS
 
 # on_action(change_id, "approve" | "reject") -> the updated change dict
 # (the API response), or None when the call failed and the card should
@@ -38,11 +46,7 @@ ChangeAction = Callable[[int, str], Awaitable[dict[str, Any] | None]]
 CARD_WIDTH = 420
 
 _STATUS_COPY = {
-    "pending": ("Awaiting your approval", Theme.Colors.WARNING),
-    "approved": ("Approved", Theme.Colors.SUCCESS),
-    "rejected": ("Rejected", Theme.Colors.ERROR),
-    "withdrawn": ("Withdrawn", ft.Colors.OUTLINE),
-    "expired": ("Expired", ft.Colors.OUTLINE),
+    status: (label, TONE_COLORS[tone]) for status, (label, tone) in CARD_STATUS.items()
 }
 
 
@@ -54,11 +58,9 @@ def _status_of(item: dict[str, Any]) -> tuple[str, str | None]:
     "no", it is the assistant taking its own proposal back, and the
     reason it gave is the one line worth reading.
     """
-    status = str(item.get("status", "pending"))
-    note = item.get("note") or (item.get("result") or {}).get("note")
-    if status == "rejected" and note and str(note).startswith("Withdrawn"):
-        return "withdrawn", str(note)
-    return status, None
+    note = item.get("note")
+    status = card_outcome(str(item.get("status", "pending")), note)
+    return status, str(note) if status == "withdrawn" else None
 
 
 BatchAction = Callable[[str, str, list[int]], Awaitable[dict[str, Any] | None]]
@@ -158,6 +160,8 @@ class PendingChangeBatchCard(ft.Container):
         rows: list[ft.Control] = [
             ft.Row(header, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         ]
+        if by := proposer_line(items[0].get("proposed_by_agent") if items else None):
+            rows.append(SecondaryText(by))
         if not pending and not self._expanded:
             rows.append(SecondaryText(self._outcome_summary(items)))
             self.content = ft.Column(rows, spacing=Theme.Spacing.SM, tight=True)
@@ -305,6 +309,8 @@ class PendingChangeCard(ft.Container):
         rows: list[ft.Control] = [
             ft.Row(header, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         ]
+        if by := proposer_line(data.get("proposed_by_agent")):
+            rows.append(SecondaryText(by))
         if note:
             # Shown folded or not: the reason is the point of the card now.
             rows.append(SecondaryText(note))
@@ -401,7 +407,7 @@ def components_from_trace(
     """
     cards: list[ft.Control] = []
     for entry in trace:
-        if entry.get("tool") not in ("propose", "propose_many", "pending"):
+        if entry.get("tool") not in CARD_TOOLS:
             continue
         for data in _card_data(entry):
             card = _card_for(
@@ -426,11 +432,7 @@ def _card_data(entry: dict[str, Any]) -> list[dict[str, Any]]:
     JSON - the identity fields lead the blob, so they survive the clip
     and are salvaged; the card fetches its rows like any marker card.
     """
-    marker = entry.get("component")
-    markers = marker if isinstance(marker, list) else [marker]
-    found = [
-        {**m, "items": []} for m in markers if isinstance(m, dict) and m.get("kind")
-    ]
+    found = [{**m, "items": []} for m in markers_of(entry) if m.get("kind")]
     if found or entry.get("tool") == "pending":
         return found
     result = entry.get("result")

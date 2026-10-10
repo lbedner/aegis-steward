@@ -4,7 +4,7 @@ Pytest configuration and fixtures for test suite.
 Provides common fixtures and configuration for all tests.
 """
 
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Callable, Generator
 import os
 from pathlib import Path
 import shutil
@@ -27,6 +27,12 @@ os.environ["LOGFIRE_TOKEN"] = ""
 os.environ["DATABASE_URL"] = (
     f"sqlite:///{tempfile.mkdtemp(prefix='aegis-test-db-')}/app.db"
 )
+# And every setting the app prefers over it: ``.env``'s
+# ``DATABASE_URL_LOCAL`` on the host, ``DATABASE_URL_UNPOOLED`` (alembic's,
+# on Neon). Left set, each test entering the app's lifespan runs startup
+# migrations - stamp, upgrade - against the developer's real database.
+os.environ["DATABASE_URL_LOCAL"] = ""
+os.environ["DATABASE_URL_UNPOOLED"] = ""
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -149,14 +155,154 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 # (uvicorn keeps one loop for the server's lifetime); only the
 # test suite needs this swap. Dict-mode keeps the same async API,
 # so call sites don't change.
-@pytest.fixture(autouse=True, scope="session")
-def _use_dict_backed_cache():
-    import app.core.cache as cache_module
+@pytest.fixture
+def fake_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Callable[..., Path]]:
+    """Make a service package on ``app.services``' path, as a plugin would:
+    ``fake_service("demo_x", scheduled_jobs="JOBS = ()")`` writes
+    ``demo_x/scheduled_jobs.py``. For the conventions found on disk
+    (``app.core.discovery``); the modules it imported are forgotten after."""
+    import app.services as services
 
-    original = cache_module.cache
-    cache_module.cache = cache_module.CacheService()
+    monkeypatch.setattr(services, "__path__", [*services.__path__, str(tmp_path)])
+    made: list[str] = []
+
+    def make(name: str, **modules: str) -> Path:
+        package = tmp_path / name
+        package.mkdir()
+        (package / "__init__.py").write_text("")
+        for module, source in modules.items():
+            (package / f"{module}.py").write_text(source)
+        made.append(f"app.services.{name}")
+        return package
+
+    yield make
+    for name in list(sys.modules):
+        if any(name == m or name.startswith(f"{m}.") for m in made):
+            del sys.modules[name]
+
+
+@pytest.fixture
+def clean_registry() -> Generator[None]:
+    """Unregister the tools a test registered, so cases stay independent.
+
+    Opt-in, never autouse: a module first imported during a test registers
+    its tools then, and unregistering them would leave the cached module's
+    tools missing for every later test."""
+    from app.services.ai.domains.chat.tools import (
+        registered_tool_names,
+        unregister_tool,
+    )
+
+    before = set(registered_tool_names())
     yield
-    cache_module.cache = original
+    for name in set(registered_tool_names()) - before:
+        unregister_tool(name)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_system_status_cache():
+    """No test sees another test's cached system-status walk."""
+    from app.services.system.health import invalidate_status_cache
+
+    invalidate_status_cache()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _no_background_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The live charts' samplers (``app.core.series``) poll Docker and
+    Ollama: an app started in a test samples nothing, and each test's
+    sampled history starts empty."""
+    from app.core import series
+    from app.core.cache import CacheService
+
+    async def idle(samplers: Any) -> None:
+        return None
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "ERROR_TRACKING_ENABLED", False)
+    history = CacheService()
+    monkeypatch.setattr(series, "run", idle)
+    monkeypatch.setattr(series, "get_cache", lambda: history)
+
+
+@pytest.fixture(autouse=True)
+def _no_load_cost_measuring(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A page asking what each part costs to load (``load_cost``) starts
+    measuring in the background, a Python per part: no test starts one."""
+    from app.services.system import load_cost
+
+    monkeypatch.setattr(load_cost, "_start", lambda: None)
+
+
+@pytest.fixture
+async def store() -> AsyncGenerator[Any]:
+    """The error store's Lua against a real Redis, only when one is named:
+    the suite never writes to the developer's running Redis. Point
+    ``AEGIS_ERROR_TRACKING_REDIS_URL`` at a throwaway one
+    (``docker run --rm -p 6390:6379 redis``); each test gets a namespace."""
+    from uuid import uuid4
+
+    from app.services.system.errors.store import ErrorStore
+
+    url = os.environ.get("AEGIS_ERROR_TRACKING_REDIS_URL")
+    if not url:
+        pytest.skip("Set AEGIS_ERROR_TRACKING_REDIS_URL to a throwaway Redis to run")
+    redis = pytest.importorskip("redis.asyncio")
+    client = redis.from_url(url, socket_connect_timeout=1)
+    repository = ErrorStore(
+        client, "test-" + uuid4().hex, max_occurrences=3, retention_seconds=7 * 86400
+    )
+    yield repository
+    keys = [key async for key in client.scan_iter(repository.prefix + "*")]
+    await client.delete(repository.notifications, *keys)
+    await client.aclose()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _no_real_redis():
+    """Every Redis the app builds at import or startup, held in memory for
+    the session. Each is at ``redis_url_effective``, which on the host is
+    the running dev stack's Redis: tests would count into its traffic
+    panel and attach the job API to its store. The cache also binds to an
+    event loop at import, and each test gets a fresh one. The job store's
+    stand-in is one in-memory Redis, as one server would be."""
+    from app.components.backend.middleware import traffic
+    from app.components.worker import pools
+    import app.core.cache as cache_module
+    from app.services.system.job_store import RedisJobStore
+    from tests._fake_redis import FakeRedis
+
+    async def no_worker(*_args: Any, **_kwargs: Any) -> Any:
+        # A job handed to a queue no test worker reads never finishes, and
+        # the queue would be a running stack's: the enqueuer takes its
+        # no-worker lane instead. A test of the enqueue itself patches this.
+        raise ConnectionError("no worker in tests")
+
+    memory = FakeRedis()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(pools, "get_queue_pool", no_worker)
+        patch.setattr(cache_module, "cache", cache_module.CacheService())
+        patch.setattr(traffic, "traffic_monitor", traffic.TrafficMonitor())
+        patch.setattr(
+            RedisJobStore, "from_url", classmethod(lambda cls, _url: cls(memory))
+        )
+        yield
+
+
+@pytest.fixture(autouse=True)
+async def _forget_memoized_prices() -> None:
+    """Model prices are memoized in the shared cache, cleared in production
+    by the catalog sync that changes them. A test suite has no sync: one
+    test's seeded price would still be cached when the next expects none,
+    and the failure lands in whichever test happens to run second.
+    """
+    from app.services.ai.domains.llm.queries import invalidate_price_cache
+
+    await invalidate_price_cache()
 
 
 @pytest.fixture

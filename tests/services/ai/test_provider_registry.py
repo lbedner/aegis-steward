@@ -90,7 +90,9 @@ class TestOneClientForEveryOpenAICompatibleProvider:
     @pytest.mark.parametrize(
         "provider", [AIProvider.MISTRAL, AIProvider.COHERE, AIProvider.OPENROUTER]
     )
-    def test_each_one_actually_builds(self, provider: AIProvider) -> None:
+    async def test_each_one_actually_builds(
+        self, provider: AIProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The regression guard: construction, not just configuration."""
         from app.core.config import settings
         from app.services.ai.config import get_ai_config
@@ -99,14 +101,20 @@ class TestOneClientForEveryOpenAICompatibleProvider:
         config = get_ai_config(settings)
         config.provider = provider
         config.model = "a-model"
-        object.__setattr__(settings, PROVIDERS[provider].env_var, "test-key-not-used")
+        # Undone after the test: the settings object is shared, and a key
+        # left on it makes the provider "usable" for every test after.
+        monkeypatch.setitem(
+            settings.__dict__, PROVIDERS[provider].env_var, "test-key-not-used"
+        )
 
-        model, name = model_for(config, settings)
+        model, name = await model_for(config, settings)
 
         assert name == "a-model"
         assert type(model.wrapped).__name__ == "OpenAIChatModel"
 
-    def test_the_key_rides_the_client_not_the_environment(self) -> None:
+    async def test_the_key_rides_the_client_not_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A stack can hold a real OpenAI key AND an OpenRouter one;
         stamping OPENAI_API_KEY would let the last one built answer for
         both."""
@@ -116,12 +124,38 @@ class TestOneClientForEveryOpenAICompatibleProvider:
         from app.services.ai.config import get_ai_config
         from app.services.ai.domains.llm.providers import model_for
 
-        os.environ["OPENAI_API_KEY"] = "the-real-openai-key"
+        monkeypatch.setenv("OPENAI_API_KEY", "the-real-openai-key")
         config = get_ai_config(settings)
         config.provider = AIProvider.OPENROUTER
         config.model = "deepseek/deepseek-chat"
-        object.__setattr__(settings, "OPEN_ROUTER_API_KEY", "sk-or-v1-test")
+        monkeypatch.setitem(settings.__dict__, "OPEN_ROUTER_API_KEY", "sk-or-v1-test")
 
-        model_for(config, settings)
+        await model_for(config, settings)
 
         assert os.environ["OPENAI_API_KEY"] == "the-real-openai-key"
+
+    @pytest.mark.parametrize("provider", [AIProvider.OPENAI, AIProvider.OPENROUTER])
+    async def test_no_key_is_written_to_the_environment(
+        self, provider: AIProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The key goes to the model's client, never into ``os.environ``:
+        a key stamped there outlives the call, answers for every model
+        built after it, and leaks from one test into the next."""
+        import os
+
+        from app.core.config import settings
+        from app.services.ai.config import get_ai_config
+        from app.services.ai.domains.llm.providers import model_for
+
+        env_var = PROVIDERS[provider].env_var
+        monkeypatch.delenv(env_var, raising=False)
+        monkeypatch.setitem(settings.__dict__, env_var, "sk-test-0123456789")
+        config = get_ai_config(settings)
+        config.provider = provider
+        config.model = "a-model"
+
+        model, _ = await model_for(config, settings)
+
+        leaked = os.environ.pop(env_var, None)
+        assert leaked is None
+        assert model.client.api_key == "sk-test-0123456789"

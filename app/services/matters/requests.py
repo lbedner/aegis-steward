@@ -9,14 +9,15 @@ after somebody writes it.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any
 
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.clock import utcnow
 from app.core.schema import require_one_of
+from app.core.time import today as today_utc
+from app.core.time import utcnow
 from app.services.matters.models import (
     ITEM_KINDS,
     ITEM_STATUSES,
@@ -209,7 +210,7 @@ class RequestService:
                 await self.db.exec(
                     select(Request)
                     .where(Request.status == "open")
-                    .where(col(Request.due_on) < (today or datetime.now(UTC).date()))
+                    .where(col(Request.due_on) < (today or today_utc()))
                     .where(col(Request.deleted_at).is_(None))
                     .order_by(col(Request.due_on))
                 )
@@ -401,7 +402,7 @@ def overdue(request: Request, today: date | None = None) -> bool:
     """
     if request.status in ("satisfied", "waived") or request.due_on is None:
         return False
-    return request.due_on < (today or datetime.now(UTC).date())
+    return request.due_on < (today or today_utc())
 
 
 def standing(items: list[RequestItem]) -> tuple[int, int]:

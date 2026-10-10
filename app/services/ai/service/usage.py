@@ -49,12 +49,13 @@ class UsageMixin(AIServiceBase):
         user_id: str,
         success: bool = True,
         error_message: str | None = None,
+        duration_ms: float | None = None,
         conversation_id: str | None = None,
         model: str | None = None,
     ) -> float:
         """
         Record LLM usage with cost calculation; returns the cost, so a
-        caller showing it needs no second price lookup.
+        caller showing it needs no second price lookup. Never raises.
 
         Args:
             action: The action type (e.g., "chat:<agent>")
@@ -71,6 +72,7 @@ class UsageMixin(AIServiceBase):
             user_id,
             success=success,
             error_message=error_message,
+            duration_ms=duration_ms,
             conversation_id=conversation_id,
         )
 
