@@ -31,8 +31,8 @@ MESSAGES: dict[str, str] = {
     "bench.auth.one_only": "Pass only one of --as-admin / --as-user / --anon.",
     "bench.driver.fallback": "Falling back to the {driver} driver: {reason}.",
     "bench.driver.method": "ab cannot issue {method}",
-    "bench.driver.missing": "ab is not installed",    "bench.driver.docker": "no local ab, using the httpd image instead",
-
+    "bench.driver.missing": "ab is not installed",
+    "bench.driver.docker": "no local ab, using the httpd image instead",
     "bench.driver.warning": (
         "This driver tops out below what either engine can serve, so the two "
         "look equal no matter what. Install ab (apache2-utils) for a "
@@ -493,11 +493,6 @@ MESSAGES: dict[str, str] = {
     "tasks.help": "Comandos de gestión de tareas programadas",
     "tasks.help_list": "Listar todos los trabajos programados con su estado y detalles.",
     # ── Migrate ──────────────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  ADVERTENCIA: Tabla '{table}' no existe. "
-        "Crea una migración manual con: "
-        "alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "Sin migraciones existentes. Ejecuta 'make migrate' primero.",
     "migrate.checking_schema": "Verificando schema contra modelos...",
     "migrate.applying_pending": "Aplicando migraciones pendientes primero...",
@@ -589,7 +584,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "Actual (Local)",
     "ai.prov_need_key": "Falta clave API",
     "ai.prov_not_installed": "No instalado",
-    "ai.prov_error": "Error",
     "ai.providers_tip": "Tip: Ejecuta '{app} ai add-provider <nombre>' para instalar proveedores faltantes.",
     # Panel de uso
     "ai.usage_title": "Resumen de uso AI",
@@ -861,7 +855,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "Esperando finalización de prueba de carga...",
     "loadtest.waiting_elapsed": "Esperando finalización... ({elapsed}s)",
     "loadtest.timeout_progress": "Timeout alcanzado",
-    "loadtest.completed_progress": "Prueba de carga completada.",
     # Salida de prueba rápida
     "loadtest.quick_cpu_title": "Prueba rápida de carga CPU",
     "loadtest.quick_cpu_tasks": "{count} tareas intensivas en CPU",
@@ -930,16 +923,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "Verifica que el ID de tarea sea correcto y la prueba haya terminado",
     "loadtest.results_failed": "Fallo al obtener resultados:",
     # Visualización de error/timeout
-    "loadtest.timed_out_title": "Prueba de carga expiró",
     "loadtest.failed_title": "Prueba de carga falló",
     "loadtest.error_label": "Error:",
     "loadtest.test_id_label": "ID de prueba:",
-    "loadtest.what_this_means": "Qué significa esto:",
-    "loadtest.timeout_explanation": "La tarea orquestadora expiró, pero las tareas individuales de los workers pueden haberse completado. Esto ocurre frecuentemente con pruebas de carga grandes que exceden el timeout de la cola.",
-    "loadtest.to_investigate": "Para investigar:",
-    "loadtest.tip_check_logs": "Revisa logs de workers para verificar tareas individuales completadas",
-    "loadtest.tip_smaller_batch": "Considera usar lotes más pequeños para pruebas grandes",
-    "loadtest.tip_check_metrics": "Revisa métricas de cola para conteos reales de tareas completadas",
     "loadtest.analysis_panel": "Análisis de prueba de carga",
     "loadtest.next_steps": "Próximos pasos:",
     "loadtest.tip_check_worker_logs": "Revisa logs de workers para información detallada de errores",

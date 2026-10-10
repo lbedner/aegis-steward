@@ -15,9 +15,9 @@ import hashlib
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.clock import utcnow
 from app.core.db import OpenSession
 from app.core.log import logger
+from app.core.time import utcnow
 from app.services.documents.domains.extraction.dispatch import read_quietly
 from app.services.documents.domains.reading.identity import parties_by_email
 from app.services.documents.models import DocumentPage

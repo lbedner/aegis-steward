@@ -187,7 +187,9 @@ async def parse_budget_goal(
 
     casefold_text = text.casefold()
 
-    percent_match = re.search(r"(\d+)\s*%", text)
+    # Only from the start of a run of digits, at most three: user text, and
+    # a search restarting inside a long run is quadratic.
+    percent_match = re.search(r"(?<!\d)(\d{1,3})\s*%", text)
     fraction = int(percent_match.group(1)) / 100 if percent_match else 0.5
 
     cutoff = current_date() - timedelta(days=_BASELINE_DAYS)
@@ -236,7 +238,7 @@ async def parse_budget_goal(
             fraction=fraction,
         )
 
-    category_rows = await categories.list_categories(db)
+    category_rows = await categories.list_categories(db, owner_user_id=owner_user_id)
     matched_category = None
     for category in category_rows:
         leaf = category.name.rsplit(":", 1)[-1].strip()

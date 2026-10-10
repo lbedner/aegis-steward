@@ -16,11 +16,27 @@ import uvicorn
 from app.core.config import settings
 from app.core.log import logger, setup_logging
 from app.core.loops import check_engine_loop, resolve_loop
-from app.integrations.main import create_integrated_app
 
 # Import string rather than the app object: both engines need one to
 # respawn reload workers in a fresh process.
 APP_TARGET = "app.integrations.main:create_integrated_app"
+
+
+def create_integrated_app() -> Any:
+    """The app, for a path that serves it in this process.
+
+    Imported here, not at module scope. With reload on, this process is
+    only the supervisor - it watches files and respawns a worker that
+    imports the app from ``APP_TARGET`` itself - and a module-level import
+    held every service, router and SDK in it for nothing: 201 MB against
+    the 46 MB it needs (#1444). An OOM then killed the worker, the
+    supervisor lived on holding the port, and every request hung.
+    """
+    from app.integrations.main import create_integrated_app as create
+
+    return create()
+
+
 # Every interface: the container publishes the port, nothing else reaches it.
 HOST = "0.0.0.0"
 # Seconds a reload waits for the old worker before killing it. A clean
@@ -44,8 +60,7 @@ def uvicorn_settings(loop: str) -> dict[str, Any]:
 
     One place on purpose: a server-level setting has to land on the reload
     path AND the production path, and a setting added to only one of them
-    means dev and prod quietly serve differently. Proxy-header handling
-    lands here when it arrives.
+    means dev and prod quietly serve differently.
     """
     check_engine_loop("uvicorn", loop)
     return {
@@ -57,6 +72,9 @@ def uvicorn_settings(loop: str) -> dict[str, Any]:
         # behind Traefik. Granian needs no equivalent; it sends no ping.
         "ws_ping_interval": None,
         "ws_ping_timeout": None,
+        # Uvicorn would believe X-Forwarded-For from loopback on its own, and
+        # granian never does: TrustedProxyMiddleware decides for both.
+        "proxy_headers": False,
     }
 
 

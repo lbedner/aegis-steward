@@ -15,12 +15,12 @@ try:
 except ImportError:  # observability component not installed
     pass
 else:
-    install_auto_tracing()
+    install_auto_tracing("app.components.frontend")
 
 from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html  # noqa: E402
 from fastapi.openapi.utils import get_openapi  # noqa: E402
-from fastapi.responses import HTMLResponse, RedirectResponse  # noqa: E402
+from fastapi.responses import HTMLResponse  # noqa: E402
 from fastapi.security import HTTPBasic, HTTPBasicCredentials  # noqa: E402
 
 from app.components.backend.hooks import backend_hooks  # noqa: E402
@@ -28,9 +28,15 @@ from app.components.backend.main import create_backend_app  # noqa: E402
 from app.components.backend.middleware.paste_capture import (  # noqa: E402
     PasteCaptureMiddleware,
 )
+from app.components.backend.security.trusted_proxies import (  # noqa: E402
+    TrustedProxyMiddleware,
+)
 from app.components.frontend.main import create_frontend_app  # noqa: E402
 from app.components.web_frontend.assets import CachedStaticFiles  # noqa: E402
-from app.components.web_frontend.main import create_web_frontend_app  # noqa: E402
+from app.components.web_frontend.main import (  # noqa: E402
+    add_error_pages,
+    create_web_frontend_app,
+)
 from app.core.config import settings  # noqa: E402
 from app.core.constants import dashboard_upload_dir  # noqa: E402
 from app.core.log import logger, setup_logging  # noqa: E402
@@ -91,7 +97,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await backend_hooks.execute_startup_hooks()
 
     logger.info("--- Application startup complete ---")
-
     yield
 
     # --- SHUTDOWN ---
@@ -140,6 +145,7 @@ def create_integrated_app() -> FastAPI:
     # Server-rendered pages at /. Registered as routes rather than a mount so
     # API paths (/health, /docs) keep resolving; Flet still owns /dashboard.
     app.include_router(create_web_frontend_app())
+    add_error_pages(app)
     # CachedStaticFiles applies the fingerprint-aware cache policy: hashed
     # build output is immutable for a year, plain sources get an hour.
     web_static = Path(__file__).resolve().parents[2] / settings.WEB_STATIC_DIR
@@ -169,11 +175,7 @@ def create_integrated_app() -> FastAPI:
         max_upload_size=10 * 1024 * 1024,  # matches the finance import cap
         secret_key=settings.SECRET_KEY,
     )
-
     # Mount Flet at /dashboard to avoid intercepting FastAPI routes like /health
-    @app.get("/", include_in_schema=False)
-    async def root_redirect() -> RedirectResponse:
-        return RedirectResponse(url="/dashboard/")
 
     app.mount("/dashboard", flet_app)
     # Splice the paste-capture script into the dashboard page: pasted
@@ -181,4 +183,7 @@ def create_integrated_app() -> FastAPI:
     # attachment bar) drain them. Flet has no clipboard-image API of its
     # own, so this is caught in the browser.
     app.add_middleware(PasteCaptureMiddleware)
+    # Last added, so outermost: every middleware and route below it reads the
+    # client the trusted proxy named.
+    app.add_middleware(TrustedProxyMiddleware)
     return app

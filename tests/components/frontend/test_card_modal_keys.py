@@ -65,3 +65,16 @@ def test_every_registered_component_opens_a_modal() -> None:
         if name not in registry and f"service_{name}" not in registry
     ]
     assert not missing, f"registered components with no modal: {missing}"
+
+
+def test_components_without_a_card_are_skipped_quietly() -> None:
+    """Both frontends are shown through the Server card. Neither may fall
+    through to the "Unknown component" placeholder, which logged a warning
+    on every dashboard refresh for web_frontend."""
+    from app.components.frontend.overseer.cards import create_component_card
+
+    for name in ("frontend", "web_frontend"):
+        status = ComponentStatus(
+            name=name, status=ComponentStatusType.HEALTHY, message="ok", metadata={}
+        )
+        assert create_component_card(name, status).content is None, name

@@ -24,6 +24,7 @@ from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import account_params, dollars, money
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import hx_dialog, render, templates
+from app.components.web_frontend.rendering import ranked as bar_ratios
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.accounts import effective_balance
 from app.services.finance.domains.ledger.merchant_icon import Icon, payee_icons_by_name
@@ -219,30 +220,29 @@ def ranked(
     tone: str = "teal",
     icons: dict[str, Icon] | None = None,
 ) -> list[dict[str, Any]]:
-    """Rows for ``ranked_rows``: the bar is each amount over the largest;
-    ``icons`` maps a label to its brand mark URL."""
-    amounts = [
-        abs(getattr(r, value) if not isinstance(r, dict) else r[value]) for r in rows
-    ]
-    top = max(amounts, default=0) or 1
+    """Rows for ``ranked_rows`` (bars by ``rendering.ranked``); ``icons``
+    maps a label to its brand mark URL."""
 
     def get(row: Any, key: str) -> Any:
         return row[key] if isinstance(row, dict) else getattr(row, key, None)
 
-    return [
-        {
-            "label": get(r, label),
-            "icon_url": icon.url
-            if (icon := (icons or {}).get(get(r, label)))
-            else None,
-            "category": get(r, "category"),
-            "count": f"{get(r, count)}x" if count else "",
-            "value": money(get(r, value)),
-            "ratio": abs(get(r, value)) / top,
-            "tone": tone,
-        }
-        for r in rows
-    ]
+    return bar_ratios(
+        [
+            {
+                "label": get(r, label),
+                "icon_url": icon.url
+                if (icon := (icons or {}).get(get(r, label)))
+                else None,
+                "category": get(r, "category"),
+                "count": f"{get(r, count)}x" if count else "",
+                "amount": get(r, value),
+                "value": money(get(r, value)),
+                "tone": tone,
+            }
+            for r in rows
+        ],
+        by="amount",
+    )
 
 
 # What this month's line is drawn against (#305): the field, its chip, and

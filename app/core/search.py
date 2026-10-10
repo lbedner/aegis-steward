@@ -188,9 +188,9 @@ async def status() -> dict[str, Any]:
 
 
 def _day_key() -> str:
-    from app.core.clock import utcnow
+    from app.core.time import today
 
-    return f"search:day:{PROVIDER}:{utcnow().date().isoformat()}"
+    return f"search:day:{PROVIDER}:{today().isoformat()}"
 
 
 async def _spent_today() -> int:

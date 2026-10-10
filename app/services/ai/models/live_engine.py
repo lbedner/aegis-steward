@@ -14,7 +14,7 @@ from datetime import datetime
 
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 from app.services.ai.models.llm import LargeLanguageModel
 
 # An engine's key, and a voice profile's pick of one.

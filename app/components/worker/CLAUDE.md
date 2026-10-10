@@ -54,9 +54,9 @@ class WorkerSettings:
     ]
     
     # Standard arq configuration
-    redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+    redis_settings = RedisSettings.from_dsn(settings.redis_url_effective)
     queue_name = "arq:queue:system"
-    max_jobs = 15
+    max_jobs = concurrency_for(QueueName.SYSTEM)  # Settings.WORKER_QUEUES
     job_timeout = 300
 ```
 
@@ -79,29 +79,29 @@ uv run python -m arq app.components.worker.queues.system.WorkerSettings --watch 
 uv run python -m arq app.components.worker.queues.system.WorkerSettings --burst
 ```
 
-### Worker Configuration in Health Checks
+### Worker Concurrency (all backends)
 
-The health system reads worker configuration from `app/core/config.py` but workers themselves use their own `WorkerSettings` classes:
+How many jobs one worker process runs at once is a per-queue setting in
+`app/core/config.py`, validated by the `QueueWorker` model in
+`app/core/queue_workers.py`:
 
 ```python
-# Health system reads this for monitoring
-WORKER_QUEUES: dict[str, dict[str, Any]] = {
-    "system": {
-        "description": "System maintenance and monitoring tasks",
-        "max_jobs": 15,
-        "timeout_seconds": 300,
-        "queue_name": "arq:queue:system",
-    },
-    "load_test": {
-        "description": "Load testing and performance testing",
-        "max_jobs": 50,
-        "timeout_seconds": 60,
-        "queue_name": "arq:queue:load_test",
-    }
-}
-
-# But workers use their own WorkerSettings classes for actual configuration
+WORKER_QUEUES: dict[str, QueueWorker]   # {"load_test": QueueWorker(concurrency=50), ...}
+WORKER_QUEUE_DEFAULT: QueueWorker       # any queue not listed
 ```
+
+Override from the environment as JSON:
+
+```bash
+WORKER_QUEUES='{"load_test": {"concurrency": 100}}'
+```
+
+Every backend reads it: taskiq as `--max-async-tasks`, dramatiq as
+`--threads` (both passed by `scripts/entrypoint.sh`), arq as
+`WorkerSettings.max_jobs`. A name in `WORKER_QUEUES` that matches no
+queue stops the worker at startup. Each worker reports what it actually
+runs with to Redis, and the Overseer's Worker > Runtime section shows it,
+flagging any worker running off its setting.
 
 ## Key Differences from Custom Worker Systems
 
@@ -197,10 +197,11 @@ docker compose logs redis
 3. **Return Values** - Return structured data for monitoring and debugging
 4. **Timeouts** - Set appropriate timeouts for different task types
 5. **Retry Logic** - Use arq's built-in retry mechanisms
+6. **CPU Work Off The Loop** - Run CPU-bound work through `cpu_bound` (`app.core.concurrency`): a task that computes without awaiting holds the worker's event loop, and its claim keep-alive and heartbeat with it. A queue that is mostly CPU work wants concurrency near its process count
 
 ### Queue Management
 1. **Separate Concerns** - Use different queues for different types of work
-2. **Concurrency Limits** - Set appropriate max_jobs for each queue type
+2. **Concurrency Limits** - Set each queue's concurrency in `WORKER_QUEUES`
 3. **Priority Queues** - Use different queues for different priorities
 4. **Dead Letter Queues** - Monitor failed jobs and implement recovery
 

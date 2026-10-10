@@ -3,6 +3,8 @@
    Blocks: title, favicon, head_extra, navbar, page_body, content, footer,
    scripts. Override ``content`` for an ordinary page; reach for
    ``page_body`` only when a page needs to replace the whole main wrapper.
+   ``#app-content`` is the element htmx swaps fragments into (see
+   ``render()`` in rendering.py and the layouts under layouts/).
 #}
 {% from "components/macros/feedback.html" import toast_region %}
 <!DOCTYPE html>
@@ -55,6 +57,8 @@
   {% block head_extra %}{% endblock %}
 </head>
 <body class="min-h-dvh bg-aegis-bg text-aegis-text {% block body_class %}{% endblock %}">
+  {# The bar along the top while a page or an htmx request loads (app.js). #}
+  <div id="page-progress" class="aegis-page-progress" aria-hidden="true"></div>
 {% from "components/macros/icons.html" import sprite %}{{ sprite() }}
 
   {% block navbar %}
@@ -65,7 +69,7 @@
   {% endblock %}
 
   {% block page_body %}
-  <main class="max-w-screen-xl mx-auto px-6 lg:px-16 py-6">
+  <main id="app-content" class="max-w-screen-xl mx-auto px-6 lg:px-16 py-6">
     {% block content %}{% endblock %}
   </main>
   {% endblock %}

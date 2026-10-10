@@ -5,18 +5,21 @@ Command-line interface for aegis-steward management tasks.
 """
 
 import asyncio
+from collections.abc import Coroutine
 import importlib
 import inspect
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import click
 import typer
 
-from app.cli import dns, docs, health, theme
+from app.cli import dns, docs, health, patterns, settings_cli, theme
 import app.cli._i18n_click  # noqa: F401 — translate Click's built-in --help text
 from app.i18n import detect_locale, lazy_t, set_locale, t
 from app.i18n.locales import AVAILABLE_LOCALES
+
+T = TypeVar("T")
 
 if TYPE_CHECKING:
     pass
@@ -62,6 +65,8 @@ def main_callback(
 app.add_typer(health.app, name="health")
 app.add_typer(docs.app, name="docs")
 app.add_typer(dns.app, name="dns")
+app.add_typer(patterns.app, name="patterns")
+app.add_typer(settings_cli.app, name="settings")
 
 # API load testing — no component dependencies, ships in every project
 from app.cli import api_load_test as _api_load_test  # noqa: E402
@@ -85,7 +90,7 @@ except ImportError:
 try:
     tasks_module = importlib.import_module("app.cli.tasks")
     app.add_typer(tasks_module.app, name="tasks")
-except (ImportError, AttributeError):
+except ImportError, AttributeError:
     # Scheduler components not available or tasks module incomplete, skip tasks commands
     pass
 
@@ -103,6 +108,38 @@ try:
     app.add_typer(ai_module.app, name="ai")
 except ImportError:
     # AI service not available, skip ai commands
+    pass
+
+# Conditionally register secrets command if the secrets component is available
+try:
+    secrets_module = importlib.import_module("app.cli.secrets_cli")
+    app.add_typer(secrets_module.app, name="secrets")
+except ImportError:
+    # Secrets component not available, skip secrets commands
+    pass
+
+# Conditionally register mcp command if the mcp component is available
+try:
+    mcp_module = importlib.import_module("app.cli.mcp_cli")
+    app.command("mcp", help=lazy_t("mcp.help"))(mcp_module.serve)
+except ImportError:
+    # MCP component not available, skip mcp command
+    pass
+
+# Conditionally register mcp-tokens if the mcp component has auth to own them
+try:
+    mcp_tokens_module = importlib.import_module("app.cli.mcp_tokens_cli")
+    app.add_typer(mcp_tokens_module.app, name="mcp-tokens")
+except ImportError:
+    # No auth, so no tokens: skip mcp-tokens
+    pass
+
+# Conditionally register deploy command if deploy history is available
+try:
+    deploy_module = importlib.import_module("app.cli.deploy_cli")
+    app.add_typer(deploy_module.app, name="deploy")
+except ImportError:
+    # Deploy history not available (no deploy component or no database)
     pass
 
 # Conditionally register comms command if comms service is available
@@ -149,6 +186,14 @@ except ImportError:
     # Blog service not available, skip blog commands
     pass
 
+# Conditionally register research command if research service is available
+try:
+    research_module = importlib.import_module("app.cli.research")
+    app.add_typer(research_module.app, name="research")
+except ImportError:
+    # Research service not available, skip research commands
+    pass
+
 # Conditionally register rag command if ai_rag is enabled
 try:
     rag_module = importlib.import_module("app.cli.rag")
@@ -175,13 +220,25 @@ except ImportError:
     pass
 
 
+async def run_command(command: Coroutine[Any, Any, T]) -> T:
+    """Run an async command, then close the process-shared cache on the same
+    loop: closed after the loop is gone, its Redis pool is torn down by the
+    garbage collector and prints "Event loop is closed" at exit."""
+    from app.core.cache import get_cache
+
+    try:
+        return await command
+    finally:
+        await get_cache().aclose()
+
+
 def main() -> None:
     """Entry point for the CLI application."""
     try:
         result = app(standalone_mode=False)
         # Handle async commands - standalone_mode=False returns coroutines unawaited
         if inspect.iscoroutine(result):
-            asyncio.run(result)
+            asyncio.run(run_command(result))
     except click.exceptions.UsageError as e:
         # Show help automatically on usage errors instead of just "try --help"
         if e.ctx is not None:

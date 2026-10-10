@@ -14,9 +14,9 @@ from datetime import UTC, datetime
 
 from sqlmodel import col, delete, select
 
-from app.core.clock import utcnow
 from app.core.db import db_session
 from app.core.log import logger
+from app.core.time import utcnow
 
 from .models import JobExecution
 

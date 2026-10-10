@@ -9,7 +9,6 @@ contexts + the agent row into something the framework can run.
 from typing import Any
 
 from app.core.log import logger
-from app.services.ai.config import AIServiceConfig
 from app.services.ai.domains.chat.agent_loader import AgentConfig, agent_capabilities
 from app.services.ai.domains.chat.health_context import HealthContext
 from app.services.ai.domains.chat.prompts import (
@@ -57,25 +56,6 @@ def history_char_budget(context_window_tokens: int | None) -> int:
 class PromptMixin(ContextsMixin):
     """Agent-config overlay and per-request prompt/runtime construction."""
 
-    def _apply_agent_config(
-        self, config: AIServiceConfig, agent_config: AgentConfig | None
-    ) -> AIServiceConfig:
-        """Overlay the resolved agent's sampling (and optional model pin).
-
-        The default agent carries the same values as settings, so this is
-        an identity transform until an agent row is edited. A ``model_id``
-        pin assumes the current provider serves that model.
-        """
-        if agent_config is None:
-            return config
-        update: dict[str, Any] = {
-            "temperature": agent_config.temperature,
-            "max_tokens": agent_config.max_tokens,
-        }
-        if agent_config.model_id:
-            update["model"] = agent_config.model_id
-        return config.model_copy(update=update)
-
     def _agent_persona(self, agent_config: AgentConfig | None) -> str | None:
         """The persona override for this request, or None for the built-in.
 
@@ -89,7 +69,7 @@ class PromptMixin(ContextsMixin):
             return None
         return agent_config.system_prompt
 
-    def _prepare_agent_and_context(
+    async def _prepare_agent_and_context(
         self,
         conversation: Conversation,
         health_context: HealthContext | None = None,
@@ -130,7 +110,7 @@ class PromptMixin(ContextsMixin):
 
         # Build system prompt with project context and optional contexts
         # Get fresh config for current model/provider
-        config = self._apply_agent_config(self.config, agent_config)
+        config = self.config.for_agent(agent_config)
 
         # Use compact mode for Ollama (smaller context for better instruction following)
         is_compact = config.provider.value == "ollama"
@@ -180,7 +160,7 @@ class PromptMixin(ContextsMixin):
             tools = resolve_tools(agent_config.tool_names)
             capabilities = agent_capabilities(agent_config)
 
-        agent = get_agent(
+        agent = await get_agent(
             config,
             self.settings,
             system_prompt_override,

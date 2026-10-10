@@ -145,11 +145,10 @@ class ModelActionButton(ft.Container):
         self._page.update()
 
         try:
-            from app.services.ai.domains.llm.ollama import OllamaClient
+            from app.components.inference.ollama import OllamaClient
 
             client = OllamaClient(base_url=self._ollama_url)
-            run = getattr(client, f"{self._action}_model")
-            if await run(self._model_name):
+            if await client.move(self._action, self._model_name):
                 if self._dialog:
                     await self._dialog.refresh_data()
             else:

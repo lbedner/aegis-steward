@@ -17,7 +17,7 @@ Conventions (see docs/plans/finance-service/finance-schema-canonical.md):
 - enums are ``String`` + ``CheckConstraint`` (portable across SQLite/Postgres),
   never native enums; provider taxonomies that grow are plain ``str`` columns;
 - partial-unique indexes declare BOTH ``sqlite_where`` and ``postgresql_where``;
-- timestamps are naive UTC via ``app.core.clock.utcnow``;
+- timestamps are naive UTC via ``app.core.time.utcnow``;
 - on Postgres every finance table lives in a dedicated ``finance`` schema
   (``_SCHEMA``); SQLite has no schemas so ``_SCHEMA`` is None (default DB).
   Tests run on SQLite and attach an in-memory ``finance`` database per the

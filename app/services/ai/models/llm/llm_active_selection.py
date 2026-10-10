@@ -13,7 +13,7 @@ from datetime import datetime
 
 from sqlmodel import Field, SQLModel
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 
 
 class LLMActiveSelection(SQLModel, table=True):

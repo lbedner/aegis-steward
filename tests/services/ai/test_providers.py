@@ -186,7 +186,7 @@ class TestGetAgentOllama:
     @patch("app.services.ai.domains.llm.model_factory.OpenAIProvider")
     @patch("app.services.ai.domains.llm.model_factory.OpenAIChatModel")
     @patch("app.services.ai.domains.llm.agents.Agent")
-    def test_get_agent_ollama_creates_agent(
+    async def test_get_agent_ollama_creates_agent(
         self,
         mock_agent_class: MagicMock,
         mock_model_class: MagicMock,
@@ -209,7 +209,7 @@ class TestGetAgentOllama:
         mock_agent_class.return_value = mock_agent_instance
 
         # Call get_agent
-        result = get_agent(mock_config, mock_settings)
+        result = await get_agent(mock_config, mock_settings)
 
         # Verify OpenAI client was created with Ollama base URL
         mock_openai_class.assert_called_once()
@@ -224,7 +224,7 @@ class TestGetAgentOllama:
     @patch("app.services.ai.domains.llm.model_factory.OpenAIProvider")
     @patch("app.services.ai.domains.llm.model_factory.OpenAIChatModel")
     @patch("app.services.ai.domains.llm.agents.Agent")
-    def test_get_agent_ollama_uses_model_name(
+    async def test_get_agent_ollama_uses_model_name(
         self,
         mock_agent_class: MagicMock,
         mock_model_class: MagicMock,
@@ -242,7 +242,7 @@ class TestGetAgentOllama:
         mock_config.max_tokens = 4096
         mock_config.timeout_seconds = 120.0
 
-        get_agent(mock_config, mock_settings)
+        await get_agent(mock_config, mock_settings)
 
         # Verify model was created with correct model name
         mock_model_class.assert_called_once()
@@ -250,7 +250,7 @@ class TestGetAgentOllama:
         assert call_kwargs["model_name"] == "mistral:7b"
 
     @patch("app.services.ai.domains.llm.model_factory.AsyncOpenAI")
-    def test_get_agent_ollama_connection_error(
+    async def test_get_agent_ollama_connection_error(
         self,
         mock_openai_class: MagicMock,
     ) -> None:
@@ -268,7 +268,7 @@ class TestGetAgentOllama:
         mock_config.timeout_seconds = 120.0
 
         with pytest.raises(ProviderError) as exc_info:
-            get_agent(mock_config, mock_settings)
+            await get_agent(mock_config, mock_settings)
 
         error_msg = str(exc_info.value)
         # Should include helpful instructions
@@ -320,7 +320,7 @@ class TestOllamaBaseUrlConfiguration:
     @patch("app.services.ai.domains.llm.model_factory.OpenAIProvider")
     @patch("app.services.ai.domains.llm.model_factory.OpenAIChatModel")
     @patch("app.services.ai.domains.llm.agents.Agent")
-    def test_ollama_uses_effective_base_url(
+    async def test_ollama_uses_effective_base_url(
         self,
         mock_agent_class: MagicMock,
         mock_model_class: MagicMock,
@@ -339,7 +339,7 @@ class TestOllamaBaseUrlConfiguration:
         mock_config.max_tokens = 4096
         mock_config.timeout_seconds = 120.0
 
-        get_agent(mock_config, mock_settings)
+        await get_agent(mock_config, mock_settings)
 
         # Verify custom base URL was used with /v1 suffix
         mock_openai_class.assert_called_once()

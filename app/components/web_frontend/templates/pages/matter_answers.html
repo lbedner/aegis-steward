@@ -31,7 +31,7 @@
   </p>
   <p class="text-xs" data-outstanding>
     {% if outstanding %}
-    <span class="text-aegis-rose">{{ outstanding }} still to find</span>
+    <span class="text-aegis-amber">{{ outstanding }} still to find</span>
     {% else %}<span class="text-aegis-muted">Nothing outstanding</span>{% endif %}
   </p>
 
@@ -78,7 +78,7 @@
       {% endfor %}
 
       {% if answer.state == "missing" %}
-      <p class="mt-1 ml-6 text-xs text-aegis-rose" data-todo>
+      <p class="mt-1 ml-6 text-xs text-aegis-amber" data-todo>
         {% if answer.unproven %}No statement on file proves this yet.
         {% else %}Nothing filed against this yet.{% endif %}
       </p>

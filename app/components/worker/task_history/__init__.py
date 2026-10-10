@@ -13,6 +13,8 @@ from app.components.worker.task_history.prune import (
 from app.components.worker.task_history.read import (
     get_queue_stats,
     get_task_record,
+    get_task_records,
+    get_task_statuses,
     list_tasks_by_queue,
 )
 from app.components.worker.task_history.record import (
@@ -33,6 +35,8 @@ __all__ = [
     "clear_queue_history",
     "get_queue_stats",
     "get_task_record",
+    "get_task_records",
+    "get_task_statuses",
     "list_tasks_by_queue",
     "record_task_enqueued",
     "record_task_enqueued_sync",

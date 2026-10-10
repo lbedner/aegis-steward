@@ -22,7 +22,7 @@ provider that cannot say returns None and the wait goes out unexplained.
 
 from __future__ import annotations
 
-from app.services.ai.domains.llm.ollama import OllamaClient
+from app.components.inference.ollama import OllamaClient
 from app.services.ai.models import AIProvider
 
 

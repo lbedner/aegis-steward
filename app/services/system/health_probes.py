@@ -11,9 +11,11 @@ from datetime import UTC, datetime
 import os
 import sys
 from typing import Any
+import weakref
 
 import psutil
 
+from app.core import thresholds
 from app.core.config import settings
 from app.core.log import logger
 
@@ -33,10 +35,34 @@ SYSTEM_METRICS = {"cpu", "memory", "disk"}
 _system_metrics_cache: dict[str, tuple[ComponentStatus, datetime]] = {}
 
 
+# Per event loop: asyncio primitives bind to the loop that first awaits
+# them, and test runs create a fresh loop per test.
+_metrics_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def loop_lock(
+    locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock],
+) -> asyncio.Lock:
+    """``locks``' lock for the running event loop, made on first use."""
+    loop = asyncio.get_running_loop()
+    if (lock := locks.get(loop)) is None:
+        lock = locks[loop] = asyncio.Lock()
+    return lock
+
+
 async def _get_cached_system_metrics(
     current_time: datetime,
 ) -> dict[str, ComponentStatus]:
-    """Get system metrics with caching for better performance."""
+    """Get system metrics with caching for better performance. Callers at
+    once share one reading: psutil's CPU share is since its previous read
+    in this process, so a second read moments later would read idle."""
+    async with loop_lock(_metrics_locks):
+        return await _read_system_metrics(current_time)
+
+
+async def _read_system_metrics(current_time: datetime) -> dict[str, ComponentStatus]:
     cache_duration = settings.SYSTEM_METRICS_CACHE_SECONDS
     system_metric_checks = {
         "memory": _check_memory,
@@ -78,6 +104,13 @@ async def _get_cached_system_metrics(
             )
 
     return system_metrics
+
+
+async def host_metrics() -> dict[str, ComponentStatus]:
+    """The host's memory, disk and CPU checks as the health check reads them
+    (cached ``SYSTEM_METRICS_CACHE_SECONDS``): what Overseer > Resources
+    splits between this stack and the rest of the host."""
+    return await _get_cached_system_metrics(datetime.now(UTC))
 
 
 async def _run_health_check_with_cache(
@@ -196,12 +229,7 @@ async def _check_memory() -> ComponentStatus:
         memory_percent = memory.percent
 
         # Determine status based on memory usage thresholds
-        if memory_percent >= settings.MEMORY_THRESHOLD_PERCENT:
-            status = ComponentStatusType.UNHEALTHY
-        elif memory_percent >= settings.MEMORY_THRESHOLD_PERCENT * 0.8:
-            status = ComponentStatusType.WARNING
-        else:
-            status = ComponentStatusType.HEALTHY
+        status = thresholds.status(memory_percent, settings.MEMORY_THRESHOLD_PERCENT)
 
         return ComponentStatus(
             name="memory",
@@ -232,12 +260,7 @@ async def _check_disk_space() -> ComponentStatus:
         disk_percent = (disk.used / disk.total) * 100
 
         # Determine status based on disk usage thresholds
-        if disk_percent >= settings.DISK_THRESHOLD_PERCENT:
-            status = ComponentStatusType.UNHEALTHY
-        elif disk_percent >= settings.DISK_THRESHOLD_PERCENT * 0.8:
-            status = ComponentStatusType.WARNING
-        else:
-            status = ComponentStatusType.HEALTHY
+        status = thresholds.status(disk_percent, settings.DISK_THRESHOLD_PERCENT)
 
         return ComponentStatus(
             name="disk",
@@ -267,12 +290,7 @@ async def _check_cpu_usage() -> ComponentStatus:
         cpu_percent = await asyncio.to_thread(psutil.cpu_percent, None)
 
         # Determine status based on CPU usage thresholds
-        if cpu_percent >= settings.CPU_THRESHOLD_PERCENT:
-            status = ComponentStatusType.UNHEALTHY
-        elif cpu_percent >= settings.CPU_THRESHOLD_PERCENT * 0.8:
-            status = ComponentStatusType.WARNING
-        else:
-            status = ComponentStatusType.HEALTHY
+        status = thresholds.status(cpu_percent, settings.CPU_THRESHOLD_PERCENT)
 
         return ComponentStatus(
             name="cpu",

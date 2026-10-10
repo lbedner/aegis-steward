@@ -8,15 +8,17 @@ Alembic in worker processes). ``AIService`` delegates here; the price
 lookup lives in exactly one place.
 """
 
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlmodel import select
 
+from app.core import series
 from app.core.db import get_async_session
 from app.core.log import logger
+from app.core.time import utcnow
+from app.services.ai.domains.llm import queries as llm_queries
 
-from .models.llm import LargeLanguageModel, LLMPrice, LLMUsage
+from .models.llm import LLMUsage
 
 
 def _bare_model_name(model_name: str) -> str:
@@ -66,22 +68,22 @@ def extract_usage(result: Any) -> dict[str, int]:
     }
 
 
-async def _latest_price(session: Any, model_name: str) -> LLMPrice | None:
-    """Current price row for a bare model name, or None if uncataloged."""
-    llm = (
-        await session.exec(
-            select(LargeLanguageModel).where(LargeLanguageModel.model_id == model_name)
-        )
-    ).first()
-    if not llm:
+async def _rates(model: str) -> llm_queries.Rates | None:
+    """A model's catalog rates (memoized, ``price_for_model``), or None
+    when it is not priced or the read fails: a cost is never worth failing
+    the call it describes."""
+    bare = _bare_model_name(model)
+    try:
+        async with get_async_session() as session:
+            return await llm_queries.price_for_model(session, bare)
+    except Exception as e:
+        logger.warning("Failed to read a model's price", error=str(e), model=bare)
         return None
-    return (
-        await session.exec(
-            select(LLMPrice)
-            .where(LLMPrice.llm_id == llm.id)
-            .order_by(LLMPrice.effective_date.desc())
-        )
-    ).first()
+
+
+def _rate(rates: llm_queries.Rates, name: str) -> float:
+    """One rate; a measure the model does not bill by costs nothing."""
+    return rates.get(name) or 0.0
 
 
 async def calculate_cost(
@@ -95,45 +97,75 @@ async def calculate_cost(
     cache-aware path that writes the ledger, so for cached runs the ledgered
     cost is lower than this estimate.
     """
-    bare = _bare_model_name(model_name)
-    try:
-        async with get_async_session() as session:
-            price = await _latest_price(session, bare)
-            if not price:
-                return 0.0
-            return (
-                input_tokens * price.input_cost_per_token
-                + output_tokens * price.output_cost_per_token
-            )
-    except Exception as e:
-        logger.warning("Failed to calculate cost", error=str(e), model=bare)
+    rates = await _rates(model_name)
+    if not rates:
         return 0.0
+    return input_tokens * _rate(rates, "input_cost_per_token") + (
+        output_tokens * _rate(rates, "output_cost_per_token")
+    )
 
 
 # Anthropic's cache multipliers on the input price: reads bill at ~0.1x,
-# writes (5m TTL) at 1.25x. Other providers differ, but cache token counts
-# only flow for runs where pydantic-ai reports them; zero = old pricing.
+# writes (5m TTL) at 1.25x. A model the catalog gives its own cached-read
+# rate is priced at that; the multipliers cover the rest. Cache token
+# counts only flow for runs where the provider reports them.
 _CACHE_READ_MULT = 0.1
 _CACHE_WRITE_MULT = 1.25
 
 
-def _priced_input_cost(usage: dict[str, int], input_price: float) -> float:
+def _cached_read_rate(rates: llm_queries.Rates) -> float:
+    """What a cached input token costs: the catalog's rate, else the
+    multiplier on the input rate."""
+    input_rate = _rate(rates, "input_cost_per_token")
+    return rates.get("cache_input_cost_per_token") or input_rate * _CACHE_READ_MULT
+
+
+def _priced_input_cost(usage: dict[str, int], rates: llm_queries.Rates) -> float:
     """Input-side cost with cache-aware pricing.
 
     ``input_tokens`` arrives as pydantic-ai's AGGREGATE (uncached + cache
     reads + cache writes), so the cached share is re-priced at its own
-    multiplier instead of full rate. Without cache counts this reduces to
+    rate instead of full rate. Without cache counts this reduces to
     ``input_tokens * price`` exactly as before.
     """
+    input_rate = _rate(rates, "input_cost_per_token")
     total = usage.get("input_tokens", 0)
     reads = usage.get("cache_read_tokens", 0)
     writes = usage.get("cache_write_tokens", 0)
     uncached = max(0, total - reads - writes)
     return (
-        uncached * input_price
-        + reads * input_price * _CACHE_READ_MULT
-        + writes * input_price * _CACHE_WRITE_MULT
+        uncached * input_rate
+        + reads * _cached_read_rate(rates)
+        + writes * input_rate * _CACHE_WRITE_MULT
     )
+
+
+async def _write(row: LLMUsage, what: str) -> None:
+    """One ledger row, its model named bare like every other; a failed
+    write is logged and swallowed - usage tracking must never fail the
+    calling request."""
+    row.model_id = _bare_model_name(row.model_id)
+    # Naive UTC: asyncpg rejects an aware value for a ``timestamp without
+    # time zone`` column, and the except below would swallow that as a
+    # lost row.
+    row.timestamp = utcnow()
+    try:
+        async with get_async_session() as session:
+            session.add(row)
+    except Exception as e:
+        logger.error(f"Failed to record {what}", error=str(e))
+
+
+async def _chart(model: str, usage: dict[str, int], duration_ms: float | None) -> None:
+    """The call as points on the live charts (``app.core.series``), pushed as
+    it happens: seconds taken, and output tokens a second."""
+    if not duration_ms:
+        return
+    seconds = duration_ms / 1000
+    points = {f"{series.LLM}:{model}:{series.LATENCY}": seconds}
+    if output := usage.get("output_tokens", 0):
+        points[f"{series.LLM}:{model}:{series.TOKENS_PER_SECOND}"] = output / seconds
+    await series.record(points)
 
 
 async def record_usage(
@@ -143,76 +175,77 @@ async def record_usage(
     user_id: str | None,
     success: bool = True,
     error_message: str | None = None,
-    duration_ms: int | None = None,
+    duration_ms: float | None = None,
     tool_calls: int | None = None,
     conversation_id: str | None = None,
 ) -> float:
     """Write one ``llm_usage`` ledger row; returns the calculated cost.
 
     Unknown models are still recorded (at zero cost) so the ledger stays
-    complete; a failed write is logged and swallowed — usage tracking must
-    never fail the calling request. The returned cost lets callers
-    denormalize it onto their own artifacts without a second price lookup.
+    complete. The returned cost lets callers denormalize it onto their own
+    artifacts without a second price lookup.
     """
     bare = _bare_model_name(model_name)
+    rates = await _rates(bare)
     total_cost = 0.0
-
-    async def write() -> float:
-        # Read the price, then write the row: an upgrade that can fail
-        # at once under another writer, so it is retried where it happens.
-        async with get_async_session() as session:
-            price = await _latest_price(session, bare)
-            cost = 0.0
-            if price:
-                cost = (
-                    _priced_input_cost(usage, price.input_cost_per_token)
-                    + usage.get("output_tokens", 0) * price.output_cost_per_token
-                )
-            else:
-                logger.warning(
-                    "LLM not priced in catalog - usage recorded without cost",
-                    model_id=bare,
-                )
-            session.add(
-                LLMUsage(
-                    action=action,
-                    model_id=bare,
-                    user_id=user_id,
-                    timestamp=datetime.now(UTC),
-                    input_tokens=usage.get("input_tokens", 0),
-                    output_tokens=usage.get("output_tokens", 0),
-                    total_cost=cost,
-                    success=success,
-                    error_message=error_message,
-                    duration_ms=duration_ms,
-                    tool_calls=tool_calls,
-                    conversation_id=conversation_id,
-                )
-            )
-            return cost
-
-    try:
-        total_cost = await write()
-        logger.info(
-            "Usage committed to database",
-            model=bare,
-            tokens=usage,
-            cost=total_cost,
+    if rates:
+        total_cost = _priced_input_cost(usage, rates) + usage.get(
+            "output_tokens", 0
+        ) * _rate(rates, "output_cost_per_token")
+    else:
+        logger.warning(
+            "LLM not priced in catalog - usage recorded without cost", model_id=bare
         )
-    except Exception as e:
-        logger.error("Failed to record LLM usage", error=str(e))
+    await _write(
+        LLMUsage(
+            action=action,
+            model_id=bare,
+            user_id=user_id,
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            total_cost=total_cost,
+            success=success,
+            error_message=error_message,
+            duration_ms=duration_ms,
+            # ``.get`` with no default, so a provider that reports no cache
+            # records None rather than claiming it offered one and missed
+            # every time.
+            cache_read_tokens=usage.get("cache_read_tokens"),
+            cache_write_tokens=usage.get("cache_write_tokens"),
+            tool_calls=tool_calls,
+            conversation_id=conversation_id,
+        ),
+        "LLM usage",
+    )
+    logger.info("Usage recorded", model=bare, tokens=usage, cost=total_cost)
+    await _chart(bare, usage, duration_ms)
     return total_cost
 
 
-# --- voice (#270) ------------------------------------------------------------
+# --- voice -------------------------------------------------------------------
 # Voice bills by the second (a live call, a transcription), by the
 # character or second of speech, or by audio tokens (a realtime call).
 # Every rate is the catalog's (``llm_price``, synced with the model), so
-# a voice cost is priced exactly where a chat turn's is.
+# a voice cost is priced exactly where a chat turn's is, and lands in the
+# same ledger.
+
+STT_ACTION = "stt"
+TTS_ACTION = "tts"
+REALTIME_ACTION = "realtime"
+# GPT-Live's metered call (``open_live_call``).
+LIVE_ACTION = "live"
+# The ledger's voice actions, as the spend report names them: both kinds
+# of call are live calls.
+VOICE_ACTIONS: dict[str, str] = {
+    STT_ACTION: "Transcription",
+    TTS_ACTION: "Speech",
+    REALTIME_ACTION: "Live calls",
+    LIVE_ACTION: "Live calls",
+}
 
 
 def _measured_cost(
-    price: LLMPrice | None,
+    rates: llm_queries.Rates | None,
     *,
     input_seconds: float | None = None,
     output_seconds: float | None = None,
@@ -220,12 +253,12 @@ def _measured_cost(
 ) -> float:
     """Each measure times the rate the model lists for it. A model lists
     only the measures it bills by, so the others add nothing."""
-    if price is None:
+    if not rates:
         return 0.0
     return (
-        (input_seconds or 0) * (price.input_cost_per_second or 0)
-        + (output_seconds or 0) * (price.output_cost_per_second or 0)
-        + (characters or 0) * (price.input_cost_per_character or 0)
+        (input_seconds or 0) * _rate(rates, "input_cost_per_second")
+        + (output_seconds or 0) * _rate(rates, "output_cost_per_second")
+        + (characters or 0) * _rate(rates, "input_cost_per_character")
     )
 
 
@@ -238,43 +271,11 @@ async def speech_cost(
 ) -> float:
     """What a transcription or a spoken reply cost; 0 for a model the
     catalog does not price."""
-    try:
-        async with get_async_session() as session:
-            price = await _latest_price(session, _bare_model_name(model))
-    except Exception as e:
-        logger.warning("Failed to price speech", error=str(e), model=model)
-        return 0.0
     return _measured_cost(
-        price,
+        await _rates(model),
         input_seconds=input_seconds,
         output_seconds=output_seconds,
         characters=characters,
-    )
-
-
-def _realtime_cost(price: LLMPrice | None, usage: Any) -> float:
-    """A realtime call's tokens at the catalog's text, audio and cached
-    rates. The totals include the audio and the cached share, so each is
-    taken out and priced at its own rate."""
-    if price is None:
-        return 0.0
-
-    def count(name: str) -> int:
-        value = getattr(usage, name, 0)
-        return value if isinstance(value, int) else 0
-
-    audio_in, audio_out = count("input_audio_tokens"), count("output_audio_tokens")
-    cached, cached_audio = count("cache_read_tokens"), count("cache_audio_read_tokens")
-    text_in = max(0, count("input_tokens") - audio_in - (cached - cached_audio))
-    text_out = max(0, count("output_tokens") - audio_out)
-    input_rate = price.input_cost_per_token
-    return (
-        text_in * input_rate
-        + max(0, audio_in - cached_audio)
-        * (price.input_cost_per_audio_token or input_rate)
-        + cached * (price.cache_input_cost_per_token or input_rate)
-        + text_out * price.output_cost_per_token
-        + audio_out * (price.output_cost_per_audio_token or price.output_cost_per_token)
     )
 
 
@@ -284,33 +285,30 @@ async def record_speech(
     *,
     cost: float,
     seconds: float | None = None,
+    duration_ms: float | None = None,
     user_id: str | None = None,
     success: bool = True,
     error_message: str | None = None,
 ) -> None:
     """One ledger row for a transcription (``stt``) or spoken reply
     (``tts``), beside the model calls. Tokens are 0: speech reports none."""
-    try:
-        async with get_async_session() as session:
-            session.add(
-                LLMUsage(
-                    action=action,
-                    model_id=model,
-                    user_id=user_id,
-                    timestamp=datetime.now(UTC),
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_cost=cost,
-                    audio_seconds=seconds,
-                    success=success,
-                    error_message=error_message,
-                )
-            )
-    except Exception as e:
-        logger.error("Failed to record speech usage", error=str(e))
+    await _write(
+        LLMUsage(
+            action=action,
+            model_id=model,
+            user_id=user_id,
+            input_tokens=0,
+            output_tokens=0,
+            total_cost=cost,
+            audio_seconds=seconds,
+            duration_ms=duration_ms,
+            success=success,
+            error_message=error_message,
+        ),
+        "speech usage",
+    )
 
 
-LIVE_ACTION = "live"
 # How a call may end without anything having gone wrong.
 _CLEAN_ENDINGS = frozenset({"close_requested", "remote_hangup"})
 
@@ -323,24 +321,20 @@ async def open_live_call(
     user_id: str | None = None,
 ) -> None:
     """The call's ledger row, opened with the call and updated as it runs."""
-    try:
-        async with get_async_session() as session:
-            session.add(
-                LLMUsage(
-                    action=LIVE_ACTION,
-                    model_id=model,
-                    user_id=user_id,
-                    timestamp=datetime.now(UTC),
-                    input_tokens=0,
-                    output_tokens=0,
-                    total_cost=0.0,
-                    audio_seconds=0.0,
-                    session_id=session_id,
-                    conversation_id=conversation_id,
-                )
-            )
-    except Exception as e:
-        logger.error("Failed to open a live call's usage", error=str(e))
+    await _write(
+        LLMUsage(
+            action=LIVE_ACTION,
+            model_id=model,
+            user_id=user_id,
+            input_tokens=0,
+            output_tokens=0,
+            total_cost=0.0,
+            audio_seconds=0.0,
+            session_id=session_id,
+            conversation_id=conversation_id,
+        ),
+        "a live call's usage",
+    )
 
 
 async def live_call_seconds(
@@ -363,7 +357,8 @@ async def live_call_seconds(
         billed = max(row.audio_seconds or 0.0, seconds)
         row.audio_seconds = billed
         row.total_cost = _measured_cost(
-            await _latest_price(session, row.model_id), input_seconds=billed
+            await llm_queries.price_for_model(session, row.model_id),
+            input_seconds=billed,
         )
         row.duration_ms = billed * 1000
         if reason is not None:
@@ -373,23 +368,36 @@ async def live_call_seconds(
     return True
 
 
-REALTIME_ACTION = "realtime"
+async def realtime_price(model: str) -> llm_queries.Rates | None:
+    """A realtime model's rates, read once when its call opens; None when it
+    cannot be priced (the call goes on either way)."""
+    return await _rates(model)
 
 
-async def realtime_price(model: str) -> LLMPrice | None:
-    """A realtime model's catalog rates, read once when its call opens; None
-    when it cannot be priced (the call goes on either way)."""
-    try:
-        async with get_async_session() as session:
-            return await _latest_price(session, _bare_model_name(model))
-    except Exception as e:
-        logger.error("Failed to price a realtime call", error=str(e))
-        return None
-
-
-def realtime_cost(price: LLMPrice | None, usage: Any) -> float:
-    """A realtime call's cost so far, at ``price`` (``realtime_price``)."""
-    return _realtime_cost(price, usage)
+def realtime_cost(rates: llm_queries.Rates | None, usage: Any) -> float:
+    """A realtime call's tokens at the catalog's text, audio and cached
+    rates. The totals include the audio and the cached share, so each is
+    taken out and priced at its own rate."""
+    if not rates:
+        return 0.0
+    audio_in = _token_count(usage, "input_audio_tokens")
+    audio_out = _token_count(usage, "output_audio_tokens")
+    cached = _token_count(usage, "cache_read_tokens")
+    cached_audio = _token_count(usage, "cache_audio_read_tokens")
+    text_in = max(
+        0, _token_count(usage, "input_tokens") - audio_in - (cached - cached_audio)
+    )
+    text_out = max(0, _token_count(usage, "output_tokens") - audio_out)
+    input_rate = _rate(rates, "input_cost_per_token")
+    output_rate = _rate(rates, "output_cost_per_token")
+    return (
+        text_in * input_rate
+        + max(0, audio_in - cached_audio)
+        * (rates.get("input_cost_per_audio_token") or input_rate)
+        + cached * _cached_read_rate(rates)
+        + text_out * output_rate
+        + audio_out * (rates.get("output_cost_per_audio_token") or output_rate)
+    )
 
 
 async def record_realtime(
@@ -398,28 +406,24 @@ async def record_realtime(
     *,
     seconds: float,
     conversation_id: str | None,
-    price: LLMPrice | None,
+    price: llm_queries.Rates | None,
     user_id: str | None = None,
 ) -> None:
-    """A Pydantic AI realtime call's row (#273): its tokens, priced at the
-    catalog's rates like every other model call (``price``, read once when
-    the call opened - ``realtime_price``)."""
-    try:
-        async with get_async_session() as session:
-            session.add(
-                LLMUsage(
-                    action=REALTIME_ACTION,
-                    model_id=model,
-                    user_id=user_id,
-                    timestamp=datetime.now(UTC),
-                    input_tokens=usage.input_tokens or 0,
-                    output_tokens=usage.output_tokens or 0,
-                    total_cost=_realtime_cost(price, usage),
-                    audio_seconds=seconds,
-                    duration_ms=seconds * 1000,
-                    tool_calls=getattr(usage, "tool_calls", None),
-                    conversation_id=conversation_id,
-                )
-            )
-    except Exception as e:
-        logger.error("Failed to record a realtime call's usage", error=str(e))
+    """A realtime call's row: its tokens, priced at the catalog's rates like
+    every other model call (``price``, read once when the call opened -
+    ``realtime_price``)."""
+    await _write(
+        LLMUsage(
+            action=REALTIME_ACTION,
+            model_id=model,
+            user_id=user_id,
+            input_tokens=_token_count(usage, "input_tokens"),
+            output_tokens=_token_count(usage, "output_tokens"),
+            total_cost=realtime_cost(price, usage),
+            audio_seconds=seconds,
+            duration_ms=seconds * 1000,
+            tool_calls=getattr(usage, "tool_calls", None),
+            conversation_id=conversation_id,
+        ),
+        "a realtime call's usage",
+    )

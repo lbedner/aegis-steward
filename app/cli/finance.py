@@ -138,15 +138,16 @@ def recompute_snapshots(
 
 
 async def _recompute_snapshots(days: int) -> None:
-    from datetime import UTC, datetime, timedelta
+    from datetime import timedelta
 
     from sqlmodel import select
 
     from app.core.db import get_async_session
     from app.services.finance.domains.ledger import networth
     from app.services.finance.models import FinanceAccount
+    from app.services.finance.utils import current_date
 
-    start = datetime.now(UTC).date() - timedelta(days=max(days, 1) - 1)
+    start = current_date() - timedelta(days=max(days, 1) - 1)
     async with get_async_session() as session:
         owners = (
             await session.exec(

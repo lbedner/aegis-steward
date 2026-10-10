@@ -31,66 +31,14 @@ from alembic import command
 from alembic.config import Config
 from alembic.operations import ops
 from alembic.script import ScriptDirectory
+from app.cli.migrate_owners import claimed_by, includes_object, own_tables
+from app.cli.plugin_data import SCRATCH
 from app.core.model_registry import import_all_models
 
 import_all_models()
 
 ALEMBIC_INI = Path("alembic/alembic.ini")
 VERSIONS = Path("alembic/versions")
-
-
-# ---------------------------------------------------------------------------
-# Ownership: which service a table belongs to, from where its model lives
-# ---------------------------------------------------------------------------
-
-
-def _owners() -> dict[str, list[str]]:
-    """Map each table key to the service names that may claim it.
-
-    ``app.services.ai.models.agents.tool`` offers ``ai_agents`` then ``ai``;
-    ``app.models.org`` offers ``auth_org`` then ``auth``. The first name in
-    the requested service list wins, so a stack adding ``ai[agents]`` later
-    gets its own ``NNN_ai_agents.py`` while a fresh init folds it into ``ai``.
-    """
-    owners: dict[str, list[str]] = {}
-    for mapper in SQLModel._sa_registry.mappers:
-        parts = mapper.class_.__module__.split(".")
-        if parts[:2] == ["app", "models"]:
-            base, sub = "auth", parts[2:3]
-        elif parts[:2] == ["app", "services"] and "models" in parts:
-            base = parts[2]
-            sub = parts[parts.index("models") + 1 : parts.index("models") + 2]
-        else:
-            continue
-        names = [f"{base}_{sub[0]}", base] if sub else [base]
-        owners[mapper.persist_selectable.key] = names
-    return owners
-
-
-def _sweep_target(all_services: list[str]) -> str:
-    """Which revision of the run takes the tables nobody claims.
-
-    Core tables under ``app/models/`` (``conversation.py``, shipped with
-    ai) belong to no service package. Unclaimed must never mean uncreated,
-    or a foreign key to them fails, so one revision sweeps them up: the
-    first service that has no revision yet, which on ``aegis add`` is the
-    service being added rather than one that shipped long ago.
-    """
-    return next(
-        (s for s in all_services if not any(VERSIONS.glob(f"*_{s}.py"))),
-        all_services[0],
-    )
-
-
-def _claimed_by(service: str, all_services: list[str]) -> set[str]:
-    """Tables ``service`` writes when the run covers ``all_services``."""
-    sweep = _sweep_target(all_services)
-    claimed = set()
-    for table, names in _owners().items():
-        winner = next((n for n in names if n in all_services), sweep)
-        if winner == service:
-            claimed.add(table)
-    return claimed
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +85,9 @@ def _connection(url: str | None, scratch_dir: Path | None) -> Iterator[Connectio
             return clause, multiparams, params
 
         with engine.connect() as conn:
+            # Revisions that export or restore a removed plugin's rows skip
+            # a scratch replay (``app.cli.plugin_data``).
+            conn.info[SCRATCH] = True
             yield conn
 
 
@@ -162,18 +113,27 @@ def _next_rev_id() -> str:
 
 
 def _reflected_column_sets(
-    conn: Connection, table: str, schema: str | None
+    conn: Connection, table: str, schema: str | None, *, foreign_keys: bool = False
 ) -> set[frozenset[str]]:
+    """Column sets the database already covers, for ONE kind of object.
+
+    Foreign keys are compared with foreign keys, and indexes with indexes
+    and unique constraints. Pooled, an index on ``owner_user_id`` read as
+    the foreign key auth adds on that column, and the key was dropped.
+    """
     insp = inspect(conn)
     if not insp.has_table(table, schema=schema):
         return set()
+    if foreign_keys:
+        return {
+            frozenset(fk["constrained_columns"])
+            for fk in insp.get_foreign_keys(table, schema=schema)
+        }
     sets: set[frozenset[str]] = set()
     for ix in insp.get_indexes(table, schema=schema):
         sets.add(frozenset(c for c in ix["column_names"] if c))
     for uq in insp.get_unique_constraints(table, schema=schema):
         sets.add(frozenset(uq["column_names"]))
-    for fk in insp.get_foreign_keys(table, schema=schema):
-        sets.add(frozenset(fk["constrained_columns"]))
     return sets
 
 
@@ -233,7 +193,11 @@ def _backfill_not_null(op: ops.AddColumnOp) -> None:
             "fill it with. Give the field a default, make it optional, or clear "
             "the table in the service's pre_data_sql."
         )
-    column.server_default = default
+    # A DefaultClause, as ``Column(server_default=...)`` would make: a bare
+    # text() here breaks the copy autogenerate takes of every column.
+    from sqlalchemy.schema import DefaultClause
+
+    DefaultClause(default)._set_parent_with_dispatch(column)
 
 
 def _additive(op: ops.MigrateOperation, conn: Connection) -> bool:
@@ -272,7 +236,10 @@ def _additive(op: ops.MigrateOperation, conn: Connection) -> bool:
         # would, rather than losing the constraint on every SQLite project.
         if getattr(op, "constraint_name", None) is None:
             op.constraint_name = _conventional_name(op, table.name, cols)
-        return cols not in _reflected_column_sets(conn, table.name, table.schema)
+        is_fk = isinstance(op, ops.CreateForeignKeyOp)
+        return cols not in _reflected_column_sets(
+            conn, table.name, table.schema, foreign_keys=is_fk
+        )
     return False
 
 
@@ -300,17 +267,26 @@ def _qualified(table: str, schema: str | None) -> str:
     return f"{schema}.{table}" if schema else table
 
 
-def _signature(kept: list[Any]) -> tuple[str, ...] | None:
+def _signature(
+    kept: list[Any], own_tables: set[str] | frozenset[str] = frozenset()
+) -> tuple[str, ...] | None:
     """The object whose existence proves this revision ran.
 
     The startup hook stamps instead of replaying DDL when it finds this,
     which is how a database that outlived its ``alembic_version`` row is
     re-adopted. Created table first, then an added column, then a new
     foreign key - the three shapes a revision can take.
+
+    The service's own tables (``own_tables``) come first. A project older
+    than a component's own migration sweeps that component's tables into
+    the next service added; signed by one of them, the revision would be
+    stamped as done on boot, because the table already exists, and the
+    service's own tables never created.
     """
     flat: list[Any] = []
     for op in kept:
         flat.extend(op.ops if isinstance(op, ops.ModifyTableOps) else [op])
+    flat.sort(key=lambda op: getattr(op, "table_name", None) not in own_tables)
     for op in flat:
         if isinstance(op, ops.CreateTableOp):
             return ("table", _qualified(op.table_name, op.schema))
@@ -335,7 +311,9 @@ def _signature(kept: list[Any]) -> tuple[str, ...] | None:
 
 
 def _prune(
-    conn: Connection, signature: dict[str, tuple[str, ...] | None]
+    conn: Connection,
+    signature: dict[str, Any],
+    own: set[str] | frozenset[str] = frozenset(),
 ) -> Callable[..., None]:
     def process(_ctx: Any, _rev: Any, directives: list[Any]) -> None:
         script = directives[0]
@@ -366,7 +344,12 @@ def _prune(
             for op in reversed(script.upgrade_ops.ops)
             if not isinstance(op, ops.ExecuteSQLOp)
         ]
-        signature["value"] = _signature(kept)
+        signature["value"] = _signature(kept, own)
+        signature["created"] = [
+            (op.table_name, op.schema)
+            for op in kept
+            if isinstance(op, ops.CreateTableOp)
+        ]
         if not kept:
             directives[:] = []
 
@@ -378,8 +361,8 @@ def generate(services: list[str], scratch_dir: Path | None = None) -> list[Path]
     written: list[Path] = []
     with _connection(None, scratch_dir) as conn:
         for service in services:
-            claimed = _claimed_by(service, services)
-            signature: dict[str, tuple[str, ...] | None] = {}
+            claimed = claimed_by(service, services, VERSIONS)
+            signature: dict[str, Any] = {}
             cfg = _config(
                 conn,
                 include_object=lambda obj,
@@ -387,23 +370,26 @@ def generate(services: list[str], scratch_dir: Path | None = None) -> list[Path]
                 type_,
                 reflected,
                 _cmp,
+                service=service,
                 claimed=claimed: (
-                    not reflected
-                    and (obj if type_ == "table" else obj.table).key in claimed
+                    includes_object(obj, type_, reflected, service, services, claimed)
                 ),
-                process_revision_directives=_prune(conn, signature),
+                process_revision_directives=_prune(
+                    conn, signature, own_tables(service)
+                ),
                 compare_type=False,
                 compare_server_default=False,
                 render_as_batch=True,
             )
             command.upgrade(cfg, "head")
-            before = set(VERSIONS.glob("*.py"))
-            command.revision(
-                cfg, message=service, autogenerate=True, rev_id=_next_rev_id()
-            )
-            new_files = sorted(set(VERSIONS.glob("*.py")) - before)
+            new_files = write_revision(cfg, service)
             for path in new_files:
                 _stamp_signature(path, signature.get("value"))
+                if os.environ.get("AEGIS_RESTORE_DATA"):
+                    # A re-added plugin gets back what its removal exported.
+                    insert_calls(
+                        path, "restore_table", signature.get("created", []), at_end=True
+                    )
             written.extend(new_files)
         command.upgrade(_config(conn), "head")
     return written
@@ -419,6 +405,33 @@ def _stamp_signature(path: Path, signature: tuple[str, ...] | None) -> None:
         return
     head, _, tail = body.partition(anchor)
     path.write_text(f"{head}{anchor}aegis_stamp_signature = {signature!r}\n{tail}")
+
+
+def write_revision(cfg: Config, message: str) -> list[Path]:
+    """Autogenerate one revision; return the files it wrote (none if empty)."""
+    before = set(VERSIONS.glob("*.py"))
+    command.revision(cfg, message=message, autogenerate=True, rev_id=_next_rev_id())
+    return sorted(set(VERSIONS.glob("*.py")) - before)
+
+
+def insert_calls(
+    path: Path, func: str, tables: list[tuple[str, str | None]], *, at_end: bool = False
+) -> None:
+    """Call ``app.cli.plugin_data.<func>`` on each table in ``upgrade()``.
+
+    First (``export_table``, before a drop) or last (``restore_table``, after
+    a create).
+    """
+    if not tables:
+        return
+    calls = [f"{func}(op.get_bind(), {name!r}, {schema!r})" for name, schema in tables]
+    lines = [f"from app.cli.plugin_data import {func}", "", *calls]
+    body = path.read_text()
+    head, sep, rest = body.partition("def upgrade() -> None:\n")
+    code, sep2, tail = rest.partition("\n\ndef downgrade")
+    block = "".join(f"    {line}\n" if line else "\n" for line in lines)
+    code = f"{code.rstrip()}\n\n{block}" if at_end else f"{block}\n{code}"
+    path.write_text(f"{head}{sep}{code}{sep2}{tail}")
 
 
 def main(argv: list[str] | None = None) -> int:

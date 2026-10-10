@@ -23,7 +23,7 @@ import sys
 import time
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
 from app.components.web_frontend.build import (
     SOURCE_TREES,
@@ -33,6 +33,12 @@ from app.components.web_frontend.build import (
 )
 
 logger = logging.getLogger("build_watch")
+
+# Poll rather than wait on filesystem events: on a Docker Desktop bind
+# mount, edits made on the host do not reliably raise inotify events in the
+# container, and an event-driven watcher then serves stale JS without a
+# word. A handful of small source trees costs nothing to stat each second.
+OBSERVER = PollingObserver
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [build-watch] %(message)s",
@@ -131,7 +137,7 @@ def main() -> int:
         logger.warning("initial pass failed: %s", exc)
 
     handler = _DebouncedRebuild()
-    observer = Observer()
+    observer = OBSERVER(timeout=1)
     for directory, recursive in _watched_dirs():
         observer.schedule(handler, str(directory), recursive=recursive)
     observer.start()

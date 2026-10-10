@@ -31,8 +31,8 @@ MESSAGES: dict[str, str] = {
     "bench.auth.one_only": "Pass only one of --as-admin / --as-user / --anon.",
     "bench.driver.fallback": "Falling back to the {driver} driver: {reason}.",
     "bench.driver.method": "ab cannot issue {method}",
-    "bench.driver.missing": "ab is not installed",    "bench.driver.docker": "no local ab, using the httpd image instead",
-
+    "bench.driver.missing": "ab is not installed",
+    "bench.driver.docker": "no local ab, using the httpd image instead",
     "bench.driver.warning": (
         "This driver tops out below what either engine can serve, so the two "
         "look equal no matter what. Install ab (apache2-utils) for a "
@@ -493,11 +493,6 @@ MESSAGES: dict[str, str] = {
     "tasks.help": "スケジュールタスク管理コマンド",
     "tasks.help_list": "全スケジュールジョブの現在のステータスと詳細を一覧表示します。",
     # ── マイグレーション ──────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  警告：テーブル '{table}' が存在しません。"
-        "手動マイグレーションを作成してください："
-        "alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "既存のマイグレーションがありません。先に 'make migrate' を実行してください。",
     "migrate.checking_schema": "スキーマをモデルと照合中...",
     "migrate.applying_pending": "保留中のマイグレーションを適用中...",
@@ -589,7 +584,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "使用中（ローカル）",
     "ai.prov_need_key": "APIキー必要",
     "ai.prov_not_installed": "未インストール",
-    "ai.prov_error": "エラー",
     "ai.providers_tip": "ヒント：'{app} ai add-provider <名前>' で未インストールのプロバイダを追加できます。",
     # 使用状況パネル
     "ai.usage_title": "AI使用状況サマリー",
@@ -861,7 +855,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "負荷テスト完了を待機中...",
     "loadtest.waiting_elapsed": "完了を待機中...（{elapsed}秒経過）",
     "loadtest.timeout_progress": "タイムアウト",
-    "loadtest.completed_progress": "負荷テスト完了！",
     # クイックテスト出力
     "loadtest.quick_cpu_title": "クイックCPU負荷テスト",
     "loadtest.quick_cpu_tasks": "{count} CPUインテンシブタスク",
@@ -930,16 +923,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "タスクIDが正しく、テストが完了していることを確認してください",
     "loadtest.results_failed": "結果の取得に失敗：",
     # エラー/タイムアウト表示
-    "loadtest.timed_out_title": "負荷テストタイムアウト",
     "loadtest.failed_title": "負荷テスト失敗",
     "loadtest.error_label": "エラー：",
     "loadtest.test_id_label": "テストID：",
-    "loadtest.what_this_means": "原因：",
-    "loadtest.timeout_explanation": "オーケストレータタスクがタイムアウトしましたが、個別のワーカータスクは完了している可能性があります。大規模な負荷テストでキュータイムアウトを超過した場合に発生します。",
-    "loadtest.to_investigate": "調査方法：",
-    "loadtest.tip_check_logs": "ワーカーログで個別タスクの完了状況を確認",
-    "loadtest.tip_smaller_batch": "大規模テストではバッチサイズを小さくすることを検討",
-    "loadtest.tip_check_metrics": "キューメトリクスで実際のタスク完了数を確認",
     "loadtest.analysis_panel": "負荷テスト分析",
     "loadtest.next_steps": "次のステップ：",
     "loadtest.tip_check_worker_logs": "ワーカーログで詳細なエラー情報を確認",

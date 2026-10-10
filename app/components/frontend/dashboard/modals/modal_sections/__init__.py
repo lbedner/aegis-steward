@@ -12,6 +12,7 @@ from app.components.frontend.dashboard.modals.modal_sections.cards import (
     MetricCard,
     MilestoneCard,
     headline_stat,
+    metric_row,
 )
 from app.components.frontend.dashboard.modals.modal_sections.chart_bar import (
     BarChartCard,
@@ -38,11 +39,8 @@ from app.components.frontend.dashboard.modals.modal_sections.chart_primitives im
 )
 from app.components.frontend.dashboard.modals.modal_sections.formatting import (
     date_cell,
-    format_duration_ms,
-    format_timestamp,
     headline_stat_color,
     ledger_amount_color,
-    row_matches,
     status_dot,
 )
 from app.components.frontend.dashboard.modals.modal_sections.lifecycle import (
@@ -58,6 +56,7 @@ from app.components.frontend.dashboard.modals.modal_sections.sections import (
     SectionHeader,
     StatRowsSection,
 )
+from app.core.formatting import format_duration_ms, format_timestamp, row_matches
 
 __all__ = [
     "BarChartCard",
@@ -75,6 +74,7 @@ __all__ = [
     "LineSeries",
     "MetricCard",
     "MetricCardSection",
+    "metric_row",
     "MilestoneCard",
     "PIE_CHART_COLORS",
     "PIE_CHART_TAIL_COLOR",

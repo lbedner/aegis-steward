@@ -506,6 +506,7 @@ MESSAGES: dict[str, str] = {
     "tasks.job_not_runnable": "无法解析任务函数：",
     "tasks.triggering": "正在运行任务：",
     "tasks.trigger_success": "任务执行成功：",
+    "tasks.trigger_queued": "任务已交给 Worker 执行（运行结果在 Worker 页面查看）：",
     "tasks.trigger_failed": "任务执行失败（详情请查看日志或历史记录）：",
     "tasks.no_executions": "该任务尚无执行记录：",
     "tasks.stats_failed": "获取任务统计失败：",
@@ -535,10 +536,6 @@ MESSAGES: dict[str, str] = {
     "tasks.help_statistics": "显示调度器的整体统计（任务总数、运行中和已暂停的任务）。",
     "tasks.help_history": "显示最近的任务执行历史。",
     # ── 迁移 ─────────────────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  警告：表 '{table}' 完全缺失。"
-        "请手动创建迁移：alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "未找到现有迁移记录，请先运行 'make migrate'。",
     "migrate.checking_schema": "正在检查数据库结构与模型的一致性...",
     "migrate.applying_pending": "正在先执行待处理的迁移...",
@@ -630,7 +627,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "当前（本地）",
     "ai.prov_need_key": "需要 API 密钥",
     "ai.prov_not_installed": "未安装",
-    "ai.prov_error": "错误",
     "ai.providers_tip": "提示：运行 '{app} ai add-provider <名称>' 安装缺少的服务商。",
     # 用量面板
     "ai.usage_title": "AI 用量概览",
@@ -880,6 +876,9 @@ MESSAGES: dict[str, str] = {
     # 帮助文本
     "docs.help": "查看已安装组件和服务的文档链接",
     "docs.help_show": "查看已安装组件和服务的文档链接",
+    "patterns.help": "查看应用的构建方式：模式与宏",
+    "patterns.help_show": "输出从代码中检测到的模式和宏目录，动手开发前先读一读",
+    "patterns.opt_format": "输出格式：markdown 或 json",
     # ── 压力测试 ──────────────────────────────────────────────────────
     # 帮助文本
     "loadtest.help": "Worker 性能压力测试相关命令",
@@ -918,7 +917,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "等待测试完成...",
     "loadtest.waiting_elapsed": "等待中... ({elapsed} 秒)",
     "loadtest.timeout_progress": "等待超时",
-    "loadtest.completed_progress": "测试完成！",
     # 快速测试输出
     "loadtest.quick_cpu_title": "CPU 快速压力测试",
     "loadtest.quick_cpu_tasks": "{count} 个 CPU 密集型任务",
@@ -987,16 +985,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "请确认任务 ID 正确且测试已完成",
     "loadtest.results_failed": "获取结果失败：",
     # 错误/超时显示
-    "loadtest.timed_out_title": "压力测试超时",
     "loadtest.failed_title": "压力测试失败",
     "loadtest.error_label": "错误：",
     "loadtest.test_id_label": "测试 ID：",
-    "loadtest.what_this_means": "说明：",
-    "loadtest.timeout_explanation": "调度任务超时，但各 Worker 子任务可能已完成。大规模测试超出队列超时限制时常见此情况。",
-    "loadtest.to_investigate": "排查方式：",
-    "loadtest.tip_check_logs": "查看 Worker 日志确认子任务完成情况",
-    "loadtest.tip_smaller_batch": "大规模测试建议使用更小的批次",
-    "loadtest.tip_check_metrics": "查看队列指标确认实际完成数",
     "loadtest.analysis_panel": "压力测试分析",
     "loadtest.next_steps": "后续操作：",
     "loadtest.tip_check_worker_logs": "查看 Worker 日志获取详细错误信息",
@@ -1313,4 +1304,6 @@ MESSAGES: dict[str, str] = {
     "blog.col_failed": "Failed",
     "blog.col_kind": "Kind",
     "blog.col_count": "Count",
+    # ── MCP ──────────────────────────────────────────────────────────
+    "mcp.help": "通过 stdio 为 MCP 客户端提供本应用已授权的工具（MCP_TOOLS）。",
 }

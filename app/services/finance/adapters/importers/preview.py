@@ -21,7 +21,7 @@ from app.services.finance.adapters.importers.imports import (
 )
 from app.services.finance.adapters.importers.plan import ImportPlan, plan_transactions
 from app.services.finance.models import FinanceAccount
-from app.services.finance.utils import stored_owner
+from app.services.shared.queries import stored_owner
 
 
 def _asks_for_account(

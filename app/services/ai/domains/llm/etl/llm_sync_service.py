@@ -25,6 +25,7 @@ from app.services.ai.domains.llm.etl.mappers.llm_mapper import (
     is_cloud_syncable,
     merge_model_data,
 )
+from app.services.ai.domains.llm.etl.provider_marks import attach_provider_marks
 from app.services.ai.domains.llm.etl.queries import (  # noqa: F401
     CatalogStats,
     catalog_is_populated,
@@ -36,6 +37,7 @@ from app.services.ai.domains.llm.etl.upserts import UpsertMixin
 from app.services.ai.domains.llm.etl.vendor_metadata import (
     VENDOR_METADATA as VENDOR_METADATA,
 )
+from app.services.ai.domains.llm.queries import invalidate_price_cache
 from app.services.ai.models.llm import (
     Direction,
     LargeLanguageModel,
@@ -47,8 +49,8 @@ from app.services.ai.models.llm import (
 )
 
 try:
-    from app.services.ai.domains.llm.ollama import OllamaClient, OllamaModel
-except (ModuleNotFoundError, ImportError):
+    from app.components.inference.ollama import OllamaClient, OllamaModel
+except ModuleNotFoundError, ImportError:
     # Ollama module not generated or empty (ollama_mode is "none"),
     # or missing dependency — either way, gracefully degrade
     OllamaClient = None  # type: ignore[assignment, misc]
@@ -86,8 +88,8 @@ class LLMSyncService(UpsertMixin):
         """Sync LLM catalog from public APIs or local sources.
 
         Args:
-            mode_filter: One mode ("chat", "realtime", "embedding", ...),
-                        "all", or None: the kinds the app uses (CATALOG_MODES).
+            mode_filter: One mode ("chat", "realtime", ...), "all", or None
+                for the kinds the app uses (CATALOG_MODES).
             source: Data source - "cloud" (OpenRouter/LiteLLM), "ollama", or "all".
             dry_run: If True, don't commit changes to database.
 
@@ -127,6 +129,8 @@ class LLMSyncService(UpsertMixin):
             SyncResult with counts and any errors.
         """
         result = SyncResult()
+        # None keeps the kinds the app uses (chat and the voice kinds);
+        # "all" keeps everything the source lists.
         modes = (mode_filter,) if mode_filter else CATALOG_MODES
 
         logger.info(f"Starting LLM catalog sync (modes={modes}, dry_run={dry_run})")
@@ -180,6 +184,10 @@ class LLMSyncService(UpsertMixin):
 
         if not dry_run:
             self.session.commit()
+            # Prices are memoized in the shared cache for the recording
+            # path; a sync is the only thing that changes them.
+            await invalidate_price_cache()
+            await attach_provider_marks(self.session)
 
         logger.info(
             f"Sync complete: {result.vendors_added} vendors added, "
@@ -197,7 +205,9 @@ class LLMSyncService(UpsertMixin):
         (observed live before deployments/prices/modalities were cached).
         """
         vendors = queries.all_rows(self.session, LLMOrg)
-        self._vendor_cache = {v.name: v for v in vendors}
+        # By slug: it is what the sync looks up and what is unique. A maker
+        # lookup names a row for display ("OpenAI") under the same slug.
+        self._vendor_cache = {v.slug: v for v in vendors}
 
         models = queries.all_rows(self.session, LargeLanguageModel)
         self._model_cache = {m.model_id: m for m in models}
@@ -307,6 +317,7 @@ class LLMSyncService(UpsertMixin):
 
         if not dry_run:
             self.session.commit()
+            await invalidate_price_cache()
             await attach_labs(self.session, [m.model_id for m in ollama_models])
 
         logger.info(
@@ -399,7 +410,8 @@ async def sync_llm_catalog(
 
     Args:
         session: Database session.
-        mode: One mode, "all", or None for the kinds the app uses.
+        mode: One mode ("chat", "realtime", ...), "all", or None for the
+            kinds the app uses (chat and the voice kinds).
         source: Data source - "cloud", "ollama", or "all".
         dry_run: If True, don't commit changes.
 

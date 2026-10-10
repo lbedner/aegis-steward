@@ -7,8 +7,8 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, Index
 from sqlmodel import Field, SQLModel
 
-from app.core.clock import utcnow
 from app.core.schema import one_of
+from app.core.time import utcnow
 
 BATCH_STATUSES = ("processing", "done", "failed")
 

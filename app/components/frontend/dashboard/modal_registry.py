@@ -8,6 +8,7 @@ test_card_modal_keys.py`` walks every card to make sure none is.
 
 import flet as ft
 
+from app.core.constants import ComponentName
 from app.services.documents.health import DOCUMENTS_MODAL_ID
 
 
@@ -49,17 +50,17 @@ def modal_registry() -> dict[str, type[ft.Container]]:
         "service_comms": CommsDetailDialog,
         DOCUMENTS_MODAL_ID: DocumentsDetailDialog,
         "service_finance": FinanceDetailDialog,
-        "backend": BackendDetailDialog,
-        "frontend": FrontendDetailDialog,
+        ComponentName.BACKEND: BackendDetailDialog,
+        ComponentName.FRONTEND: FrontendDetailDialog,
         # The htmx pages are a component in their own right: they report
         # their own health and the status row and the diagram node both
         # open a modal by this key. Without it those clicks were dead.
-        "web_frontend": FrontendDetailDialog,
-        "database": DatabaseDetailDialog,
-        "ollama": OllamaDetailDialog,
-        "cache": RedisDetailDialog,
-        "scheduler": SchedulerDetailDialog,
-        "worker": WorkerDetailDialog,
+        ComponentName.WEB_FRONTEND: FrontendDetailDialog,
+        ComponentName.DATABASE: DatabaseDetailDialog,
+        ComponentName.OLLAMA: OllamaDetailDialog,
+        ComponentName.CACHE: RedisDetailDialog,
+        ComponentName.SCHEDULER: SchedulerDetailDialog,
+        ComponentName.WORKER: WorkerDetailDialog,
     }
 
     return modal_map

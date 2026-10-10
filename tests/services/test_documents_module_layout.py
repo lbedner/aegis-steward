@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 
 SPINE = {"service.py", "models.py", "queries.py", "health.py", "deps.py"}
+# Found by name (``app.core.discovery``), so they live at the root too.
+DISCOVERED = {"scheduled_jobs.py"}
 
 # Public callable -> the module that must DEFINE it.
 OWNERS = {
@@ -50,8 +52,9 @@ def test_the_root_is_the_spine_and_nothing_else() -> None:
     modules = {f.name for f in root.glob("*.py") if f.name not in {"__init__.py"}}
 
     assert SPINE <= modules, f"the spine is incomplete: {sorted(SPINE - modules)}"
-    assert not modules - SPINE, (
-        f"these belong in a domain package, not at the root: {sorted(modules - SPINE)}"
+    assert not modules - SPINE - DISCOVERED, (
+        "these belong in a domain package, not at the root: "
+        f"{sorted(modules - SPINE - DISCOVERED)}"
     )
 
 

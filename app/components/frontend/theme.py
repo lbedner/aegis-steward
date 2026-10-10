@@ -17,7 +17,7 @@ class DarkColorPalette:
     """Dark mode color palette - official design system colors."""
 
     # Core colors
-    BG_PRIMARY: str = "#090B0D"  # Main page background
+    BG_PRIMARY: str = "#000000"  # Main page background (black, as htmx's)
     BG_SECONDARY: str = "#111418"  # Card backgrounds
     BG_SELECTED: str = "#212530"  # Secondary/selected states
     BG_HOVER: str = "#1A1D24"  # Muted/hover backgrounds
@@ -123,6 +123,18 @@ class AegisTheme:
         BADGE_TEXT = ft.Colors.WHITE
         PRIMARY_DARK = DarkColorPalette.ACCENT
         PRIMARY_LIGHT = DarkColorPalette.ACCENT
+
+        @classmethod
+        def semantic(cls, name: str) -> str:
+            """A shared semantic colour name (green, blue, yellow, red, grey, as
+            ``get_status_color_name`` and ``ui_auth`` return) in this theme."""
+            return {
+                "green": cls.SUCCESS,
+                "blue": cls.INFO,
+                "yellow": cls.WARNING,
+                "red": cls.ERROR,
+                "grey": ft.Colors.ON_SURFACE_VARIANT,
+            }.get(name, cls.WARNING)
 
     class Typography:
         """Typography scale and weights."""
@@ -396,3 +408,13 @@ class AegisTheme:
         )
 
         return theme
+
+
+# A tone's colour (ok, warn, error, muted): what htmx's ``data-tone`` CSS
+# reads, for Flet's badges, log lines and chart guides alike.
+TONE_COLORS = {
+    "ok": AegisTheme.Colors.SUCCESS,
+    "warn": AegisTheme.Colors.WARNING,
+    "error": AegisTheme.Colors.ERROR,
+    "muted": ft.Colors.OUTLINE,
+}

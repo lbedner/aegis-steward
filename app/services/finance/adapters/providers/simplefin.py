@@ -33,6 +33,8 @@ _TIMEOUT_SECONDS = 30.0
 DEMO_PAGE = "https://beta-bridge.simplefin.org/info/developers"
 # The demo token's access signs in as this (``demo:demo``).
 _DEMO_USER = "demo"
+# A setup token is a URL steward POSTs to, so it may name only the Bridge.
+_BRIDGE_HOSTS = ("bridge.simplefin.org", "beta-bridge.simplefin.org")
 
 
 class SimpleFINError(ProviderError):
@@ -64,6 +66,19 @@ def is_demo(access_url: str) -> bool:
     return urlsplit(access_url).username == _DEMO_USER
 
 
+def _claim_url(setup_token: str) -> str | None:
+    """The token's claim URL, rebuilt on the Bridge host it names; None for
+    anything else."""
+    try:
+        url = urlsplit(base64.b64decode(setup_token, validate=True).decode())
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    host = next((h for h in _BRIDGE_HOSTS if h == url.netloc), None)
+    if url.scheme != "https" or host is None:
+        return None
+    return urlunsplit(("https", host, url.path, url.query, ""))
+
+
 def _raise_for(response: httpx.Response, forbidden: str) -> None:
     if response.status_code == 403:
         raise SimpleFINError("403", forbidden)
@@ -91,11 +106,8 @@ class SimpleFINClient:
 
     async def claim(self, setup_token: str) -> str:
         """Trade a setup token for the access URL. A token works once."""
-        try:
-            claim_url = base64.b64decode(setup_token, validate=True).decode()
-        except (binascii.Error, UnicodeDecodeError, ValueError):
-            claim_url = ""
-        if not claim_url.startswith("https://"):
+        claim_url = _claim_url(setup_token)
+        if claim_url is None:
             raise SimpleFINError(
                 "invalid_token", "That is not a SimpleFIN setup token."
             )

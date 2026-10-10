@@ -19,7 +19,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.adapters.providers.connections import placing
 from app.services.finance.constants import NEW_ACCOUNT_INSIGHT_TYPE
 from app.services.finance.models import FinanceAccount, FinanceConnection
-from app.services.finance.utils import stored_owner
+from app.services.shared.queries import stored_owner
 
 # The connection's ``metadata_`` key, and what the banner says for it.
 NEW_ACCOUNTS = "new_accounts"

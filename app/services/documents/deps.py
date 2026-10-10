@@ -1,11 +1,8 @@
 """FastAPI dependency providers for the document service.
 
-Mirrors ``finance/deps.py``. ``get_owner_user_id`` centralizes owner
-scoping in one place: it resolves to the authenticated user's id when the
-auth service is present, else ``None`` (single-user / standalone) - so
-route handlers stay auth-agnostic and never repeat the guard per
-endpoint. Documents dedupe PER OWNER, so getting this wrong would make
-one person's scan collide with another's.
+Mirrors ``finance/deps.py``. Owner scoping is ``get_owner_user_id`` in
+``app.services.shared.deps``. Documents dedupe PER OWNER, so getting it
+wrong would make one person's scan collide with another's.
 """
 
 from fastapi import Depends
@@ -26,8 +23,3 @@ async def get_document_service(
     background jobs that own their own scope. Both commit on success.
     """
     return DocumentService(db)
-
-
-async def get_owner_user_id() -> int | None:
-    """No auth service - the store is single-user, so rows are unscoped."""
-    return None

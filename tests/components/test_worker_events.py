@@ -5,11 +5,16 @@ Tests publish_event, EventPublishMiddleware (TaskIQ only), and
 pure helper functions _format_eta and _compute_queue_values.
 """
 
-from unittest.mock import AsyncMock
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.components.worker.events import WORKER_EVENT_STREAM, publish_event
+from app.components.worker.events import (
+    WORKER_EVENT_STREAM,
+    WORKER_EVENT_STREAM_MAXLEN,
+    publish_event,
+)
 
 # ---------------------------------------------------------------------------
 # Group 1: publish_event()
@@ -29,6 +34,18 @@ async def test_publish_event_calls_xadd() -> None:
     assert fields["type"] == "job.started"
     assert fields["queue"] == "system"
     assert "timestamp" in fields
+
+
+@pytest.mark.asyncio
+async def test_publish_event_caps_the_stream() -> None:
+    """The stream is trimmed as it grows, so it cannot fill Redis: the SSE
+    feed tails new entries only, and nothing reads history past the cap."""
+    redis = AsyncMock()
+    await publish_event(redis, "job.started", "system")
+
+    kwargs = redis.xadd.call_args.kwargs
+    assert kwargs["maxlen"] == WORKER_EVENT_STREAM_MAXLEN
+    assert kwargs["approximate"] is True
 
 
 @pytest.mark.asyncio
@@ -53,6 +70,154 @@ async def test_publish_event_swallows_redis_errors() -> None:
 
     # Should NOT raise
     await publish_event(redis, "job.started", "system")
+
+
+@pytest.mark.asyncio
+async def test_the_worker_reports_what_it_runs_with(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup reports arq's max_jobs, which comes from the settings."""
+    from app.components.worker import arq_hooks, runtime
+    from app.components.worker.queues import system
+
+    started: dict[str, Any] = {}
+    monkeypatch.setattr(arq_hooks.aioredis, "from_url", lambda *_a, **_k: AsyncMock())
+    monkeypatch.setattr(
+        runtime, "start_reporting", lambda _redis, fields: started.update(fields)
+    )
+    await system.WorkerSettings.on_startup({})
+
+    assert started["engine"] == "arq" and started["queue"] == "system"
+    assert started["concurrency"] == system.WorkerSettings.max_jobs
+
+
+ARQ_HOOKS = ("on_startup", "on_shutdown", "on_job_start", "after_job_end")
+
+
+def _arq_queues() -> list[str]:
+    from app.components.worker.registry import discover_worker_queues
+
+    return discover_worker_queues()
+
+
+@pytest.mark.parametrize("queue", _arq_queues())
+def test_every_queue_carries_the_shared_hooks(queue: str) -> None:
+    """arq reads a queue's hooks from its settings class's own ``__dict__``
+    (an inherited hook never runs), so each queue assigns the shared ones."""
+    from app.components.worker.registry import get_worker_settings
+
+    own = vars(get_worker_settings(queue))
+    assert all(hook in own for hook in ARQ_HOOKS)
+    assert all(own[hook].__module__.endswith("arq_hooks") for hook in ARQ_HOOKS)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("queue", _arq_queues())
+async def test_every_queue_records_its_jobs_in_task_history(
+    queue: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.components.worker import arq_hooks
+    from app.components.worker.registry import get_worker_settings
+
+    started, finished = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(arq_hooks, "publish_event", AsyncMock())
+    monkeypatch.setattr(arq_hooks, "resolve_arq_task_name", AsyncMock(return_value="t"))
+    monkeypatch.setattr(arq_hooks, "record_task_started", started)
+    monkeypatch.setattr(arq_hooks, "record_task_finished", finished)
+    redis = AsyncMock()
+    redis.get.return_value = None
+    ctx = {"events_redis": redis, "job_id": "job-1"}
+    settings_class = get_worker_settings(queue)
+
+    await settings_class.on_job_start(ctx)
+    await settings_class.after_job_end(ctx)
+
+    assert started.call_args.kwargs["queue_name"] == queue
+    assert finished.call_args.kwargs["queue_name"] == queue
+
+
+@pytest.mark.asyncio
+async def test_a_job_marks_its_process_busy_until_it_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The busy key is how a rolling deploy waits for jobs to drain, and how
+    Overseer counts each process's running jobs; arq sets it like the others."""
+    from app.components.worker import arq_hooks
+    from app.components.worker.queues import system
+
+    busy, idle = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(arq_hooks, "publish_event", AsyncMock())
+    monkeypatch.setattr(arq_hooks, "resolve_arq_task_name", AsyncMock(return_value="t"))
+    monkeypatch.setattr(arq_hooks, "record_task_started", AsyncMock())
+    monkeypatch.setattr(arq_hooks, "record_task_finished", AsyncMock())
+    monkeypatch.setattr(arq_hooks, "mark_busy", busy)
+    monkeypatch.setattr(arq_hooks, "mark_idle", idle)
+    redis = AsyncMock()
+    redis.get.return_value = None
+    ctx = {"events_redis": redis, "job_id": "job-1"}
+
+    await system.WorkerSettings.on_job_start(ctx)
+    busy.assert_awaited_once_with(redis)
+    idle.assert_not_awaited()
+    await system.WorkerSettings.after_job_end(ctx)
+    idle.assert_awaited_once_with(redis)
+
+
+@pytest.mark.asyncio
+async def test_a_paused_queue_stops_arq_taking_jobs_until_resumed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rolling deploy pauses the queues and waits for busy keys to clear;
+    arq stops picking jobs while paused, and resumes only what it paused
+    (its own graceful shutdown also turns picking off)."""
+    import asyncio
+
+    from app.components.worker import arq_hooks
+    from app.components.worker.heartbeat import PAUSE_KEY
+    from tests._fake_redis import FakeRedis
+
+    monkeypatch.setattr(arq_hooks, "PAUSE_POLL_SECONDS", 0)
+    redis = FakeRedis()
+
+    class Worker:
+        allow_pick_jobs = True
+
+    worker = Worker()
+    watcher = asyncio.create_task(arq_hooks.follow_pause(worker, redis))
+
+    async def ticks() -> None:
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+    await redis.set(PAUSE_KEY, "1")
+    await ticks()
+    assert worker.allow_pick_jobs is False
+    await redis.delete(PAUSE_KEY)
+    await ticks()
+    assert worker.allow_pick_jobs is True
+
+    worker.allow_pick_jobs = False  # arq shutting down, not paused by us
+    await ticks()
+    assert worker.allow_pick_jobs is False
+    watcher.cancel()
+
+
+def test_max_jobs_comes_from_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Read when the queue module loads, so reload it under a known value."""
+    import importlib
+
+    from app.components.worker.queues import system
+    from app.core.config import settings
+    from app.core.queue_workers import QueueWorker
+
+    monkeypatch.setattr(
+        settings, "WORKER_QUEUES", {"system": QueueWorker(concurrency=4)}
+    )
+    try:
+        assert importlib.reload(system).WorkerSettings.max_jobs == 4
+    finally:
+        monkeypatch.undo()
+        importlib.reload(system)
 
 
 # ---------------------------------------------------------------------------
@@ -129,10 +294,10 @@ def test_queue_values_online() -> None:
 
 
 def test_queue_values_active() -> None:
-    """Alive worker with ongoing jobs should show Active / blue."""
+    """Alive worker with ongoing jobs should show Active / amber."""
     vals = _compute_queue_values(_make_queue_status(worker_alive=True, jobs_ongoing=3))
     assert vals["status_text"] == "Active"
-    assert vals["status_color"] == Theme.Colors.INFO
+    assert vals["status_color"] == Theme.Colors.WARNING
 
 
 def test_queue_values_offline() -> None:
@@ -147,9 +312,9 @@ def test_queue_values_degraded() -> None:
     vals = _compute_queue_values(
         _make_queue_status(
             worker_alive=True,
-            jobs_completed=90,
-            jobs_failed=10,
-            failure_rate_percent=10.0,
+            jobs_completed=85,
+            jobs_failed=15,
+            failure_rate_percent=15.0,
         )
     )
     assert vals["status_text"] == "Degraded"
@@ -160,9 +325,116 @@ def test_queue_values_failing() -> None:
     vals = _compute_queue_values(
         _make_queue_status(
             worker_alive=True,
-            jobs_completed=75,
-            jobs_failed=25,
-            failure_rate_percent=25.0,
+            jobs_completed=70,
+            jobs_failed=30,
+            failure_rate_percent=30.0,
         )
     )
     assert vals["status_text"] == "Failing"
+
+
+# ---------------------------------------------------------------------------
+# Group 5: the worker modal's live feed runs only while the modal is open
+# ---------------------------------------------------------------------------
+#
+# The SSE listener and its 10 Hz flush loop only ever serve the worker
+# modal, yet every tab started both at page load and discarded every event
+# until someone opened the modal. The stream sends an absolute baseline on
+# each connect, so connecting on open loses nothing.
+
+import asyncio  # noqa: E402
+
+from app.components.frontend.overseer import loops as overseer_loops  # noqa: E402
+
+
+@pytest.fixture
+def feed(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """Stand-ins for the two loops: count starts and cancellations."""
+    calls = {"listen": 0, "flush": 0, "cancelled": 0}
+
+    def _loop(name: str) -> Any:
+        async def run(*_args: Any) -> None:
+            calls[name] += 1
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                calls["cancelled"] += 1
+                raise
+
+        return run
+
+    monkeypatch.setattr(overseer_loops, "listen_for_worker_events", _loop("listen"))
+    monkeypatch.setattr(overseer_loops, "flush_worker_modal", _loop("flush"))
+    return calls
+
+
+def _stream() -> Any:
+    page = MagicMock()
+    page.session_id = "tab-1"
+    return overseer_loops.WorkerStream(MagicMock(), page, MagicMock())
+
+
+async def test_the_feed_does_not_run_until_the_modal_opens(
+    feed: dict[str, int],
+) -> None:
+    stream = _stream()
+    await asyncio.sleep(0)
+
+    assert not stream.running
+    assert feed["listen"] == feed["flush"] == 0
+
+
+async def test_opening_starts_one_listener_and_one_flush(
+    feed: dict[str, int],
+) -> None:
+    stream = _stream()
+    stream.start()
+    stream.start()
+    await asyncio.sleep(0)
+
+    assert stream.running
+    assert feed["listen"] == feed["flush"] == 1
+    stream.stop()
+
+
+async def test_closing_ends_both_and_reopening_starts_again(
+    feed: dict[str, int],
+) -> None:
+    stream = _stream()
+    stream.start()
+    await asyncio.sleep(0)
+    stream.stop()
+    await asyncio.sleep(0)
+
+    assert not stream.running
+    assert feed["cancelled"] == 2
+
+    stream.start()
+    await asyncio.sleep(0)
+    assert feed["listen"] == feed["flush"] == 2
+    stream.stop()
+
+
+def test_the_dialog_drives_the_feed() -> None:
+    """``show`` opens it, and every way of closing goes through ``hide``."""
+    import flet as ft
+
+    from app.components.frontend.dashboard.modals.worker_modal.dialog import (
+        WorkerDetailDialog,
+    )
+
+    calls: list[str] = []
+    page = MagicMock(spec=ft.Page)
+    page.data = {
+        "worker_stream": MagicMock(
+            start=lambda: calls.append("start"), stop=lambda: calls.append("stop")
+        )
+    }
+    dialog = WorkerDetailDialog(
+        ComponentStatus(name="worker", status="healthy", message="ok"), page
+    )
+
+    dialog.show()
+    dialog.hide()
+
+    assert calls == ["start", "stop"]

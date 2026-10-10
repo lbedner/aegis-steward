@@ -14,7 +14,11 @@ but it may not quietly shrink. Counts rather than exact copy, so
 rewording a label is not a test failure; losing the label is.
 
 The cards are discovered, not listed, so a stack tests the cards it
-actually has and a new card cannot join without recording its number.
+actually has. A card with no recorded number belongs to a plugin - plugins
+install cards into this package, and cannot edit a file the framework
+regenerates - so its count check is skipped; every other check still runs
+on it. The framework's own cards are held to the table by its repository
+test suite, so a first-party card can never slip through as a plugin's.
 """
 
 from __future__ import annotations
@@ -45,11 +49,13 @@ MINIMUM_FIELDS: dict[str, int] = {
     "FinanceCard": 9,
     "InsightsCard": 9,
     "IngressCard": 6,
+    "McpCard": 9,
     "ObservabilityCard": 6,
     "OllamaCard": 9,
     "PaymentCard": 9,
     "RedisCard": 9,
     "SchedulerCard": 10,
+    "SecretsCard": 7,
     "ServerCard": 9,
     "ServicesCard": 14,
     "StorageCard": 7,
@@ -110,11 +116,8 @@ class TestEveryCardRenders:
 
     @pytest.mark.parametrize("name,card_cls", CARDS, ids=CARD_IDS)
     def test_it_did_not_lose_fields(self, name: str, card_cls: type) -> None:
-        assert name in MINIMUM_FIELDS, (
-            f"{name} is not recorded in MINIMUM_FIELDS. Add it with the "
-            f"number of fields it renders, so a later refactor cannot drop "
-            f"one unnoticed."
-        )
+        if name not in MINIMUM_FIELDS:
+            pytest.skip(f"{name} is a plugin's card; its count is not recorded here")
         count = len(rendered(card_cls, status(name.replace("Card", "").lower())))
         assert count >= MINIMUM_FIELDS[name], (
             f"{name} renders {count} fields, down from {MINIMUM_FIELDS[name]}. "

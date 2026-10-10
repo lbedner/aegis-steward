@@ -46,8 +46,8 @@ from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
 )
-from app.services.finance.utils import current_date, stored_owner
-from app.services.shared.queries import owner_clause
+from app.services.finance.utils import current_date
+from app.services.shared.queries import owner_clause, stored_owner
 
 
 async def detect_recurring(

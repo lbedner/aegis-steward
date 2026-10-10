@@ -9,11 +9,14 @@ live next door, in ``health_backend``.
 
 from pathlib import Path
 
+from app.core.constants import ComponentName
 from app.core.log import logger
 from app.services.system.models import ComponentStatus, ComponentStatusType
 
 
-def _unhealthy(name: str, message: str, error: str, details: str) -> ComponentStatus:
+def _unhealthy(
+    name: ComponentName, message: str, error: str, details: str
+) -> ComponentStatus:
     return ComponentStatus(
         name=name,
         status=ComponentStatusType.UNHEALTHY,
@@ -50,7 +53,7 @@ async def frontend_component_health() -> ComponentStatus:
             flet_version = "unknown"
 
         return ComponentStatus(
-            name="frontend",
+            name=ComponentName.FRONTEND,
             status=ComponentStatusType.HEALTHY,
             message="Flet frontend component available",
             response_time_ms=None,
@@ -64,11 +67,14 @@ async def frontend_component_health() -> ComponentStatus:
 
     except ImportError as e:
         return _unhealthy(
-            "frontend", "Frontend component not found", "import_error", str(e)
+            ComponentName.FRONTEND,
+            "Frontend component not found",
+            "import_error",
+            str(e),
         )
     except Exception as e:
         return _unhealthy(
-            "frontend",
+            ComponentName.FRONTEND,
             f"Frontend component error: {str(e)}",
             "unexpected_error",
             str(e),
@@ -95,7 +101,7 @@ async def web_frontend_component_health() -> ComponentStatus:
         manifest = project_root / settings.WEB_STATIC_DIR / "dist" / "manifest.json"
 
         return ComponentStatus(
-            name="web_frontend",
+            name=ComponentName.WEB_FRONTEND,
             status=ComponentStatusType.HEALTHY,
             message="htmx web frontend component available",
             response_time_ms=None,
@@ -111,14 +117,14 @@ async def web_frontend_component_health() -> ComponentStatus:
 
     except ImportError as e:
         return _unhealthy(
-            "web_frontend",
+            ComponentName.WEB_FRONTEND,
             "Web frontend component not found",
             "import_error",
             str(e),
         )
     except Exception as e:
         return _unhealthy(
-            "web_frontend",
+            ComponentName.WEB_FRONTEND,
             f"Web frontend component error: {str(e)}",
             "unexpected_error",
             str(e),
@@ -147,7 +153,7 @@ async def scheduler_component_health() -> ComponentStatus:
             message = "Scheduler running (no tasks)"
 
         return ComponentStatus(
-            name="scheduler",
+            name=ComponentName.SCHEDULER,
             status=ComponentStatusType.HEALTHY,
             message=message,
             response_time_ms=None,
@@ -157,7 +163,7 @@ async def scheduler_component_health() -> ComponentStatus:
         logger.error("Failed to get scheduler health data", error=str(e))
         # Fallback to basic status
         return ComponentStatus(
-            name="scheduler",
+            name=ComponentName.SCHEDULER,
             status=ComponentStatusType.WARNING,
             message="Scheduler enabled, health data unavailable",
             response_time_ms=None,

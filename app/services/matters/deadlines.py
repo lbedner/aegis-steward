@@ -157,9 +157,10 @@ async def nag(
         create_insight_if_new,
     )
     from app.services.finance.models import FinanceInsight
-    from app.services.finance.utils import current_date, stored_owner
+    from app.services.finance.utils import current_date
     from app.services.matters.matters import MatterService
     from app.services.matters.requests import overdue as is_overdue
+    from app.services.shared.queries import stored_owner
 
     today = today or current_date()
     store_owner = stored_owner(owner_user_id)

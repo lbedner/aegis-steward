@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlmodel import delete
 
-from app.core.clock import utcnow
 from app.core.db import get_async_session
+from app.core.time import utcnow
 from app.services.mail import ingest
 from app.services.mail.arrivals import arrivals
 from app.services.mail.models import MailAttachment, MailBatch, MailMessage

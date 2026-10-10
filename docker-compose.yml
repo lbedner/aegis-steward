@@ -7,11 +7,13 @@ x-app: &app
   # aegis-stack fixed this upstream by defaulting to the project slug;
   # steward was generated before that.
   image: ${AEGIS_STACK_TAG:-aegis-steward:latest}
+  init: true
   build:
     context: .
     args:
       - AEGIS_STACK_VERSION=${AEGIS_STACK_VERSION:-dev}
       - PORT=${PORT:-8000}
+      - BUILD_ID=${BUILD_ID:-dev}
   env_file:
     - ${AEGIS_STACK_ENV_FILE:-.env}
   environment:
@@ -93,7 +95,7 @@ services:
           # Overseer and Illiana's streamed replies, so each freeze stops
           # all of it at once. 16 cores on the host; this costs nothing
           # until it is needed.
-          cpus: '2.0'
+          cpus: '${WEBSERVER_CPUS:-2.0}'
     profiles:
       - dev
       - prod
@@ -217,7 +219,7 @@ services:
   redis:
     image: redis:7-alpine
     hostname: redis
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 64mb --maxmemory-policy volatile-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

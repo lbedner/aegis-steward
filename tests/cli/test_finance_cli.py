@@ -1,3 +1,4 @@
+
 """Tests for the finance CLI commands.
 
 Offline: the services and DB session are patched, so these tests cover command
@@ -5,7 +6,7 @@ registration, argument plumbing, and console output only - the behavior itself
 is covered by the service-layer tests.
 """
 
-from contextlib import asynccontextmanager
+
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -13,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 from typer.testing import CliRunner
 
 from app.cli.finance import app
+from tests._session import opens
 
 runner = CliRunner()
 
@@ -20,12 +22,7 @@ runner = CliRunner()
 def _fake_session_cm() -> tuple[AsyncMock, Any]:
     """A stand-in for ``get_async_session`` yielding a mock session."""
     session = AsyncMock()
-
-    @asynccontextmanager
-    async def cm() -> Any:
-        yield session
-
-    return session, cm
+    return session, opens(session)
 
 
 def _seed_result(**overrides: Any) -> SimpleNamespace:
@@ -262,7 +259,9 @@ class TestFireWebhook:
         assert result.exit_code == 0
         assert "connection #7" in result.output
         assert mock_fire.await_args.kwargs["owner_user_id"] == 1
-        assert mock_fire.await_args.kwargs["webhook_code"] == ("SYNC_UPDATES_AVAILABLE")
+        assert mock_fire.await_args.kwargs["webhook_code"] == (
+            "SYNC_UPDATES_AVAILABLE"
+        )
 
     def test_no_connections_is_a_noop(self) -> None:
         _session, cm = _fake_session_cm()
@@ -285,7 +284,9 @@ class TestFireWebhook:
             patch("app.core.db.get_async_session", new=cm),
             patch(
                 "app.services.finance.adapters.providers.connections.fire_sandbox_webhook",
-                new=AsyncMock(side_effect=PlaidError("sandbox_only", "not in sandbox")),
+                new=AsyncMock(
+                    side_effect=PlaidError("sandbox_only", "not in sandbox")
+                ),
             ),
         ):
             result = runner.invoke(app, ["fire-webhook"])
@@ -353,7 +354,6 @@ class TestSnapTradeConnect:
             result = runner.invoke(app, ["snaptrade", "connect"])
         assert result.exit_code == 1
         assert "missing_credentials" in result.output
-
 
 class TestRecomputePayeeAliases:
     def test_reports_what_it_learned(self) -> None:

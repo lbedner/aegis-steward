@@ -24,6 +24,8 @@ from flet import PageDisconnectedException
 from app.core.log import logger
 
 from ..dashboard.cards.card_utils import create_health_status_indicator
+from ..dashboard.modals.deployments_section import DeploymentsPopup
+from ..dashboard.modals.logs_popup import LogsPopup
 from ..theme import AegisTheme as Theme
 from ..theme_manager import ThemeManager
 from .cards import _format_uptime
@@ -70,6 +72,22 @@ def build_chrome(
         tooltip="Switch to Cards View",
         icon_size=24,
         icon_color=Theme.Colors.TEXT_SECONDARY,
+    )
+
+    # Overseer > Logs and Overseer > Deployments, as popups.
+    logs_button = ft.IconButton(
+        icon=ft.Icons.RECEIPT_LONG,
+        tooltip="Logs",
+        icon_size=24,
+        icon_color=Theme.Colors.TEXT_SECONDARY,
+        on_click=lambda _: LogsPopup.open_on(page),
+    )
+    deployment_button = ft.IconButton(
+        icon=ft.Icons.ROCKET_LAUNCH_OUTLINED,
+        tooltip="Deployments",
+        icon_size=24,
+        icon_color=Theme.Colors.TEXT_SECONDARY,
+        on_click=lambda _: DeploymentsPopup.open_on(page),
     )
 
     # Health status indicator with circular progress - create before header
@@ -122,6 +140,8 @@ def build_chrome(
                         ft.Container(content=view_toggle_button, padding=10),
                         # Theme toggle
                         ft.Container(content=theme_button, padding=10),
+                        ft.Container(content=logs_button, padding=10),
+                        ft.Container(content=deployment_button, padding=10),
                     ],
                     alignment=ft.MainAxisAlignment.END,
                 ),

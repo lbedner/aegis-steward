@@ -86,7 +86,7 @@ def _get_vendors_help() -> str:
 
 
 @app.command(help=lazy_t("llm.help_sync"))
-def sync(
+async def sync(
     mode: Annotated[
         str | None,
         typer.Option(
@@ -127,14 +127,19 @@ def sync(
         console.print(f"[{theme.WARNING}]{t('llm.refresh_dry_run')}[/]\n")
 
     start_time = time.time()
+    shown_mode = mode or "chat + voice"
 
     # Build status message based on source
     if source == "ollama":
         status_msg = f"[bold {theme.ACCENT}]{t('llm.syncing_ollama')}..."
     elif source == "all":
-        status_msg = f"[bold {theme.ACCENT}]{t('llm.syncing_catalog_all', mode=mode or 'chat+voice')}..."
+        status_msg = (
+            f"[bold {theme.ACCENT}]{t('llm.syncing_catalog_all', mode=shown_mode)}..."
+        )
     else:
-        status_msg = f"[bold {theme.ACCENT}]{t('llm.syncing_catalog', mode=mode or 'chat+voice')}..."
+        status_msg = (
+            f"[bold {theme.ACCENT}]{t('llm.syncing_catalog', mode=shown_mode)}..."
+        )
 
     with (
         suppress_logs(),
@@ -151,8 +156,8 @@ def sync(
             session.exec(delete(LLMOrg))
             session.commit()
 
-        result: SyncResult = asyncio.run(
-            sync_llm_catalog(session, mode=mode, source=source, dry_run=dry_run)
+        result: SyncResult = await sync_llm_catalog(
+            session, mode=mode, source=source, dry_run=dry_run
         )
 
     duration = time.time() - start_time
@@ -168,8 +173,8 @@ def status() -> None:
 
 
 @app.command(help=lazy_t("llm.help_vendors"))
-def vendors() -> None:
-    results = list_vendors()
+async def vendors() -> None:
+    results = await list_vendors()
 
     if not results:
         console.print(f"[dim]{t('llm.no_vendors')}[/dim]")
@@ -186,8 +191,8 @@ def vendors() -> None:
 
 
 @app.command(help=lazy_t("llm.help_modalities"))
-def modalities() -> None:
-    results = list_modalities()
+async def modalities() -> None:
+    results = await list_modalities()
 
     if not results:
         console.print(f"[dim]{t('llm.no_modalities')}[/dim]")

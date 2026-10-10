@@ -10,7 +10,7 @@ update comes through the API.
 
 from datetime import datetime
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 
 
 def utcnow_naive() -> datetime:

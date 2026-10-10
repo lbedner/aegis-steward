@@ -13,7 +13,7 @@ from sqlalchemy import (
 )
 from sqlmodel import Field, SQLModel
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 from app.services.finance.models.base import (
     _FK,
     _SCHEMA,

@@ -94,7 +94,7 @@
 
   {{ footnote("Nothing has been written yet.") }}
   <div class="flex items-center justify-end gap-3">
-    <button type="button" @click="$el.closest('dialog').close()" class="{{ button_classes('default') }}">Cancel</button>
+    <button type="button" data-dialog-close class="{{ button_classes('default') }}">Cancel</button>
     {# Outside the form, so it inherits nothing from it: the encoding has
        to be stated here or htmx posts the file urlencoded. #}
     <button type="button" hx-post="{{ run_path }}" hx-target="#import-result" hx-include="#import-form"

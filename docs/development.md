@@ -235,21 +235,23 @@ class WorkerSettings:
 ```
 
 ### 4. Add Scheduled Tasks
-Add jobs to the scheduler component:
+List it in the service's own `app/services/my_service/scheduled_jobs.py`:
 
 ```python
-# In app/components/scheduler/main.py
-from app.services.my_service import process_data
+from app.core.schedule import ServiceJob
+from app.services.my_service.jobs import process_data_job
 
-# Add to create_scheduler function
-scheduler.add_job(
-    lambda: process_data("scheduled"),
-    trigger="cron",
-    hour=2,  # Run at 2 AM daily
-    id="daily_processing",
-    name="Daily Data Processing"
+JOBS: tuple[ServiceJob, ...] = (
+    ServiceJob(
+        process_data_job,  # an async function taking no arguments
+        "daily_processing",
+        "Daily Data Processing",
+        {"trigger": "cron", "hour": 2},  # 2 AM daily
+    ),
 )
 ```
+
+The scheduler enqueues it and the worker runs it.
 
 ## Testing
 

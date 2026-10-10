@@ -12,6 +12,8 @@ from app.cli.ai.shared import (
 )
 from app.i18n import lazy_t, t
 
+from ...core import secrets
+from ...core.audit import cli_actor
 from ...core.config import settings
 from ...services.ai.config import get_ai_config
 from ...services.ai.models import (
@@ -22,7 +24,7 @@ from ...services.ai.models import (
 
 
 @app.command(help=lazy_t("ai.help_status"))
-def status() -> None:
+async def status() -> None:
     ai_config = get_ai_config(settings)
 
     theme.title(t("ai.status_title"))
@@ -50,7 +52,7 @@ def status() -> None:
 
     # API key: present is a good state (teal); absent is just a fact (neutral),
     # not an error — the validation verdict below carries the real judgment.
-    provider_config = ai_config.get_provider_config(settings)
+    provider_config = await ai_config.get_provider_config(settings)
     api_key_value = (
         theme.good_text(t("shared.yes")) if provider_config.api_key else t("shared.no")
     )
@@ -58,7 +60,7 @@ def status() -> None:
 
     # Validation — the one verdict the eye is hunting for.
     typer.echo("")
-    errors = ai_config.validate_configuration(settings)
+    errors = await ai_config.validate_configuration(settings)
     if not errors:
         theme.good(f"✓ {t('ai.config_valid')}")
         capabilities = get_provider_capabilities(ai_config.provider)
@@ -82,7 +84,7 @@ def status() -> None:
                 )
 
     # Available providers count
-    available = ai_config.get_available_providers(settings)
+    available = await ai_config.get_available_providers(settings)
     typer.echo("")
     typer.echo(
         theme.label_text(t("ai.available_providers") + " ") + f"{len(available)}"
@@ -90,14 +92,8 @@ def status() -> None:
 
 
 @app.command(help=lazy_t("ai.help_providers"))
-def providers() -> None:
-    from ..services.ai.domains.llm.provider_management import (
-        check_provider_dependency_installed,
-    )
-
-    ai_config = get_ai_config(settings)
-    available = ai_config.get_available_providers(settings)
-    free_providers = get_free_providers()
+async def providers() -> None:
+    from app.services.ai.domains.llm.provider_management import provider_readiness
 
     _yes = f"[{theme.ACCENT}]{t('ai.prov_yes')}[/{theme.ACCENT}]"
     _no = f"[{theme.ERROR}]{t('ai.prov_no')}[/{theme.ERROR}]"
@@ -113,59 +109,41 @@ def providers() -> None:
     table.add_column(t("ai.col_functions"), width=9, justify="center")
     table.add_column(t("ai.col_vision"), width=6, justify="center")
 
-    for provider in AIProvider:
-        capabilities = get_provider_capabilities(provider)
-        is_installed = check_provider_dependency_installed(provider.value)
-        is_available = provider in available
-        is_current = provider == ai_config.provider
-
-        # Determine API key status
-        # LOCAL providers (PUBLIC, OLLAMA) don't require API keys
-        local_providers = {AIProvider.PUBLIC, AIProvider.OLLAMA}
-        if provider in local_providers:
-            has_api_key = True  # Local providers don't need API keys
-            api_key_display = f"[dim]{t('ai.prov_na')}[/dim]"
-        else:
-            env_var = f"{provider.value.upper()}_API_KEY"
-            has_api_key = bool(getattr(settings, env_var, None))
-            api_key_display = _yes if has_api_key else _no
-
-        # Determine status
-        if is_current:
-            if not is_installed:
+    # One readiness answer, shared with the Overseer's Providers page.
+    for row in await provider_readiness(settings):
+        capabilities = row.capabilities
+        local = row.provider == AIProvider.OLLAMA
+        api_key_display = (
+            f"[dim]{t('ai.prov_na')}[/dim]"
+            if row.keyless
+            else _yes
+            if row.has_key
+            else _no
+        )
+        if row.current:
+            if row.status == "not_installed":
                 status = f"[bold {theme.ERROR}]{t('ai.prov_current_not_installed')}[/bold {theme.ERROR}]"
-            elif not has_api_key and provider not in local_providers:
+            elif row.status == "needs_key":
                 status = f"[bold {theme.WARNING}]{t('ai.prov_current_need_key')}[/bold {theme.WARNING}]"
-            elif provider == AIProvider.OLLAMA:
+            elif local:
                 status = f"[bold {theme.ACCENT}]{t('ai.prov_current_local')}[/bold {theme.ACCENT}]"
             else:
                 status = (
                     f"[bold {theme.ACCENT}]{t('ai.prov_current')}[/bold {theme.ACCENT}]"
                 )
-        elif is_available:
-            status = (
-                t("ai.prov_ready")
-                if provider not in local_providers
-                else t("ai.prov_local")
-            )
-        elif is_installed and not has_api_key:
+        elif row.status == "ready":
+            status = t("ai.prov_local") if local else t("ai.prov_ready")
+        elif row.status == "needs_key":
             status = f"[{theme.WARNING}]{t('ai.prov_need_key')}[/{theme.WARNING}]"
-        elif is_installed and provider == AIProvider.OLLAMA:
-            status = f"[{theme.ACCENT}]{t('ai.prov_local')}[/{theme.ACCENT}]"
-        elif not is_installed:
-            status = f"[{theme.ERROR}]{t('ai.prov_not_installed')}[/{theme.ERROR}]"
         else:
-            status = f"[{theme.ERROR}]{t('ai.prov_error')}[/{theme.ERROR}]"
-
-        installed_display = _yes if is_installed else _no
-        free_tier = t("ai.prov_yes") if provider in free_providers else t("ai.prov_no")
+            status = f"[{theme.ERROR}]{t('ai.prov_not_installed')}[/{theme.ERROR}]"
 
         table.add_row(
-            get_provider_display_name(provider),
-            installed_display,
+            row.label,
+            _yes if row.installed else _no,
             api_key_display,
             status,
-            free_tier,
+            t("ai.prov_yes") if capabilities.free_tier_available else t("ai.prov_no"),
             _yes if capabilities.supports_streaming else _no_dim,
             _yes if capabilities.supports_function_calling else _no_dim,
             _yes if capabilities.supports_vision else _no_dim,
@@ -176,8 +154,21 @@ def providers() -> None:
     console.print(f"[dim]{t('ai.providers_tip', app='aidb')}[/dim]")
 
 
+async def _save_to_store(name: str, value: str) -> None:
+    """Save a provider key in the secrets store: checked with the provider
+    first, audited, and live without a restart. A refused key stops here."""
+    try:
+        verdict = await secrets.put(name, value, actor=cli_actor())
+    except (secrets.SecretRejectedError, secrets.SecretsReadOnlyError) as exc:
+        console.print(f"  [{theme.ERROR}]✗[/{theme.ERROR}] {exc}")
+        raise typer.Exit(1) from None
+    console.print(f"  [{theme.ACCENT}]✓[/{theme.ACCENT}] {name} → secrets store")
+    if verdict is not None:
+        console.print(f"    [dim]{verdict.message}[/dim]")
+
+
 @app.command("add-provider", help=lazy_t("ai.help_add_provider"))
-def add_provider(
+async def add_provider(
     provider: str = typer.Argument(
         ...,
         help=lazy_t("ai.arg_provider"),
@@ -201,7 +192,7 @@ def add_provider(
 ) -> None:
     from rich.progress import Progress, SpinnerColumn, TextColumn
 
-    from ..services.ai.domains.llm.provider_management import (
+    from app.services.ai.domains.llm.provider_management import (
         PROVIDER_API_KEY_URLS,
         get_env_var_name,
         get_existing_api_key,
@@ -274,7 +265,8 @@ def add_provider(
     # Handle API key configuration
     if provider_enum != AIProvider.PUBLIC and not skip_api_key:
         env_var_name = get_env_var_name(provider)
-        existing_key = get_existing_api_key(provider)
+        # .env, then the secrets store when the stack has one.
+        existing_key = get_existing_api_key(provider) or await secrets.get(env_var_name)
 
         console.print()
         if existing_key:
@@ -307,7 +299,9 @@ def add_provider(
                 )
                 api_key = ""
 
-            if api_key:
+            if api_key and secrets.writable():
+                await _save_to_store(env_var_name, api_key)
+            elif api_key:
                 update_env_file({env_var_name: api_key})
                 console.print(
                     f"  [{theme.ACCENT}]✓[/{theme.ACCENT}] {env_var_name} → .env"
@@ -335,13 +329,13 @@ def add_provider(
 
 
 @app.command("use-provider", help=lazy_t("ai.help_use_provider"))
-def use_provider(
+async def use_provider(
     provider: str = typer.Argument(
         ...,
         help=lazy_t("ai.arg_provider_switch"),
     ),
 ) -> None:
-    from ..services.ai.domains.llm.provider_management import (
+    from app.services.ai.domains.llm.provider_management import (
         check_provider_dependency_installed,
         get_env_var_name,
         get_existing_api_key,
@@ -381,7 +375,8 @@ def use_provider(
     # Check API key (except for PUBLIC)
     if provider_enum != AIProvider.PUBLIC:
         env_var_name = get_env_var_name(provider)
-        existing_key = get_existing_api_key(provider)
+        # .env, then the secrets store when the stack has one.
+        existing_key = get_existing_api_key(provider) or await secrets.get(env_var_name)
 
         if not existing_key:
             warning = t("ai.no_api_key_configured", var=env_var_name)

@@ -199,11 +199,11 @@
 {% endmacro %}
 
 {# The chat's two verbs, wherever the surface shows: a fresh thread, and
-   the history dialog. #}
-{% macro chat_toolbar(path) %}
+   the history dialog - of ``surface`` when it is not the Chat page's. #}
+{% macro chat_toolbar(path, surface=None) %}
 <div class="flex items-center gap-2">
   {{ action("New conversation", hx_thread(chat_urls.conversations ~ "/new")) }}
-  {{ action("History", hx_dialog(chat_urls.conversations)) }}
+  {{ action("History", hx_dialog(chat_urls.conversations ~ ("?surface=" ~ surface if surface else ""))) }}
 </div>
 {% endmacro %}
 

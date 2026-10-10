@@ -116,7 +116,7 @@ def _running_model(name: str):
     """A row exactly as ``/api/ps`` hands it back."""
     from datetime import datetime
 
-    from app.services.ai.domains.llm.ollama import OllamaRunningModel
+    from app.components.inference.ollama import OllamaRunningModel
 
     return OllamaRunningModel(
         name=name,

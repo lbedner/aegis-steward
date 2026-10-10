@@ -154,12 +154,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM conversation",
-      "file": "app/services/ai/domains/chat/conversation.py",
-      "function": "get_stats"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM conversation LEFT OUTER JOIN sentiment_analysis ON sentiment_analysis.conversation_id = conversation.id WHERE sentiment_analysis.id IS NULL ORDER BY conversation.updated_at LIMIT :param_1",
       "file": "app/services/ai/domains/chat/queries.py",
       "function": "unscored_conversations"
@@ -190,12 +184,6 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM conversation_message",
-      "file": "app/services/ai/domains/chat/conversation.py",
-      "function": "get_stats"
-    },
-    {
-      "kind": "repeated_statement",
       "label": "SELECT ... FROM conversation_message WHERE conversation_message.conversation_id = :conversation_id_1",
       "file": "app/services/ai/domains/chat/queries.py",
       "function": "latest_message_timestamp"
@@ -214,9 +202,9 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM conversation_message WHERE conversation_message.id = :pk_1",
-      "file": "app/services/ai/domains/chat/conversation.py",
-      "function": "_write"
+      "label": "SELECT ... FROM conversation_message WHERE conversation_message.id IN (__[POSTCOMPILE_id_1])",
+      "file": "app/services/ai/domains/chat/queries.py",
+      "function": "existing_message_ids"
     },
     {
       "kind": "repeated_statement",
@@ -259,18 +247,6 @@
       "label": "SELECT ... FROM document WHERE document.deleted_at IS NULL AND document.id IN (SELECT document_tag.document_id FROM document_tag WHERE document_tag.label = :label_1) AND (document.id NOT IN (SELECT document.supersedes_id FROM document WHERE document.supersedes_id IS NOT NULL AND document.deleted_at IS NULL)) ORDER BY document.created_at DESC, document.id DESC LIMIT :param_1 OFFSET :param_2",
       "file": "app/services/documents/queries.py",
       "function": "documents_page"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM document WHERE document.deleted_at IS NULL AND document.received_at >= :received_at_1",
-      "file": "app/services/documents/queries.py",
-      "function": "store_summary"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM document WHERE document.deleted_at IS NULL GROUP BY document.kind",
-      "file": "app/services/documents/queries.py",
-      "function": "store_summary"
     },
     {
       "kind": "repeated_statement",
@@ -706,19 +682,43 @@
     },
     {
       "kind": "repeated_statement",
+      "label": "SELECT ... FROM finance_category WHERE finance_category.owner_user_id IS NULL OR finance_category.owner_user_id = :owner_user_id_1 ORDER BY finance_category.name",
+      "file": "app/services/finance/domains/ledger/queries/categories.py",
+      "function": "all_categories"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM finance_category WHERE finance_category.slug = :slug_1 AND finance_category.owner_user_id = :owner_user_id_1",
+      "file": "app/services/finance/domains/ledger/queries/categories.py",
+      "function": "category_by_slug"
+    },
+    {
+      "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_category WHERE finance_category.slug = :slug_1 AND finance_category.owner_user_id IS NULL",
       "file": "app/services/finance/domains/ledger/queries/categories.py",
-      "function": "category_by_slug_global"
+      "function": "category_by_slug"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM finance_category_alias WHERE finance_category_alias.normalized_alias = :normalized_alias_1 AND finance_category_alias.owner_user_id = :owner_user_id_1",
+      "file": "app/services/finance/domains/ledger/queries/categories.py",
+      "function": "alias_by_normalized"
     },
     {
       "kind": "repeated_statement",
       "label": "SELECT ... FROM finance_category_alias WHERE finance_category_alias.normalized_alias = :normalized_alias_1 AND finance_category_alias.owner_user_id IS NULL",
       "file": "app/services/finance/domains/ledger/queries/categories.py",
-      "function": "alias_by_normalized_global"
+      "function": "alias_by_normalized"
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM finance_category_alias WHERE finance_category_alias.normalized_alias IN (__[POSTCOMPILE_normalized_alias_1]) ORDER BY finance_category_alias.owner_user_id DESC",
+      "label": "SELECT ... FROM finance_category_alias WHERE finance_category_alias.normalized_alias IN (__[POSTCOMPILE_normalized_alias_1]) AND (finance_category_alias.owner_user_id IS NULL OR finance_category_alias.owner_user_id = :owner_user_id_1) ORDER BY finance_category_alias.owner_user_id DESC NULLS LAST",
+      "file": "app/services/finance/domains/ledger/queries/categories.py",
+      "function": "category_alias_ids"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM finance_category_alias WHERE finance_category_alias.normalized_alias IN (__[POSTCOMPILE_normalized_alias_1]) ORDER BY finance_category_alias.owner_user_id DESC NULLS LAST",
       "file": "app/services/finance/domains/ledger/queries/categories.py",
       "function": "category_alias_ids"
     },
@@ -2098,9 +2098,9 @@
     },
     {
       "kind": "repeated_statement",
-      "label": "SELECT ... FROM large_language_model WHERE large_language_model.model_id = :model_id_1",
+      "label": "SELECT ... FROM large_language_model WHERE large_language_model.model_id = :model_id_1 OR (large_language_model.model_id LIKE '%' || :model_id_2) ORDER BY CASE WHEN (large_language_model.model_id = :model_id_3) THEN :param_1 ELSE :param_2 END, large_language_model.model_id",
       "file": "app/services/ai/domains/llm/queries.py",
-      "function": "llm_by_model_id"
+      "function": "latest_price_for_model"
     },
     {
       "kind": "repeated_statement",
@@ -2134,6 +2134,12 @@
     },
     {
       "kind": "repeated_statement",
+      "label": "SELECT ... FROM llm_org WHERE (llm_org.slug IN (__[POSTCOMPILE_slug_1]) OR llm_org.name IN (__[POSTCOMPILE_name_1])) AND llm_org.icon_b64 IS NOT NULL",
+      "file": "app/services/ai/domains/llm/queries.py",
+      "function": "org_icons"
+    },
+    {
+      "kind": "repeated_statement",
       "label": "SELECT ... FROM llm_org WHERE llm_org.id IN (__[POSTCOMPILE_primary_keys])",
       "file": "tests/services/ai/test_llm_service.py",
       "function": "all"
@@ -2146,27 +2152,15 @@
     },
     {
       "kind": "repeated_statement",
+      "label": "SELECT ... FROM llm_price WHERE llm_price.llm_id = :llm_id_1 ORDER BY llm_price.effective_date DESC LIMIT :param_1",
+      "file": "app/services/ai/domains/llm/queries.py",
+      "function": "latest_price_for"
+    },
+    {
+      "kind": "repeated_statement",
       "label": "SELECT ... FROM llm_price WHERE llm_price.llm_id IN (__[POSTCOMPILE_llm_id_1]) ORDER BY llm_price.llm_id, llm_price.effective_date DESC",
       "file": "tests/services/ai/test_llm_service.py",
       "function": "exec"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM llm_usage",
-      "file": "app/services/ai/service/usage.py",
-      "function": "_get_usage_totals"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM llm_usage LEFT OUTER JOIN large_language_model ON llm_usage.model_id = large_language_model.model_id LEFT OUTER JOIN llm_org ON large_language_model.served_by_org_id = llm_org.id GROUP BY llm_usage.model_id, large_language_model.title, llm_org.name, llm_org.color ORDER BY count(llm_usage.id) DESC",
-      "file": "app/services/ai/service/usage.py",
-      "function": "_get_model_breakdown"
-    },
-    {
-      "kind": "repeated_statement",
-      "label": "SELECT ... FROM llm_usage ORDER BY llm_usage.timestamp DESC LIMIT :param_1",
-      "file": "app/services/ai/service/usage.py",
-      "function": "_get_recent_activity"
     },
     {
       "kind": "repeated_statement",

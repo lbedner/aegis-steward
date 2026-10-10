@@ -1,9 +1,8 @@
 """
 SQLite database health check for aegis-steward.
 
-Provides comprehensive health checking for SQLite databases including
-file existence, version info, PRAGMA settings, table information, and
-migration history.
+Checks a SQLite database: the file, its version, PRAGMA settings, its
+tables and migration history.
 """
 
 import os
@@ -13,6 +12,7 @@ import sqlite3
 from typing import Any
 
 from app.core.config import settings
+from app.core.constants import ComponentName
 from app.core.formatting import format_bytes
 from app.core.log import logger
 from app.services.system.models import (
@@ -53,7 +53,7 @@ async def check_database_health() -> ComponentStatus:
 
             if not Path(db_path).exists():
                 return ComponentStatus(
-                    name="database",
+                    name=ComponentName.DATABASE,
                     status=ComponentStatusType.WARNING,
                     message="Database not initialized - file does not exist",
                     response_time_ms=None,
@@ -503,7 +503,7 @@ async def check_database_health() -> ComponentStatus:
                     enhanced_metadata["migration_count"] = 0
 
         return ComponentStatus(
-            name="database",
+            name=ComponentName.DATABASE,
             status=ComponentStatusType.HEALTHY,
             message="Database connection successful",
             response_time_ms=None,
@@ -512,7 +512,7 @@ async def check_database_health() -> ComponentStatus:
 
     except ImportError:
         return ComponentStatus(
-            name="database",
+            name=ComponentName.DATABASE,
             status=ComponentStatusType.UNHEALTHY,
             message="Database module not available",
             response_time_ms=None,
@@ -525,7 +525,7 @@ async def check_database_health() -> ComponentStatus:
         error_str = str(e).lower()
         if "unable to open database file" in error_str or "no such file" in error_str:
             return ComponentStatus(
-                name="database",
+                name=ComponentName.DATABASE,
                 status=ComponentStatusType.WARNING,
                 message="Database file not accessible",
                 response_time_ms=None,
@@ -538,7 +538,7 @@ async def check_database_health() -> ComponentStatus:
             )
 
         return ComponentStatus(
-            name="database",
+            name=ComponentName.DATABASE,
             status=ComponentStatusType.UNHEALTHY,
             message=f"Database connection failed: {str(e)}",
             response_time_ms=None,

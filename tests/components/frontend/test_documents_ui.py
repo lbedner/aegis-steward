@@ -6,9 +6,6 @@ matches, and that the card renders the counts the health check hands it.
 
 from app.components.frontend.controls.buttons import PulseButton
 from app.components.frontend.dashboard.cards.documents_card import DocumentsCard
-from app.components.frontend.dashboard.modals.documents_activity import (
-    activity_rows,
-)
 from app.components.frontend.dashboard.modals.documents_detail_pane import (
     replaces_options,
 )
@@ -16,10 +13,11 @@ from app.components.frontend.dashboard.modals.documents_modal import (
     display_date,
     matching_documents,
 )
-from app.components.frontend.dashboard.modals.documents_pages import (
+from app.components.frontend.theme import AegisTheme as Theme
+from app.services.documents.domains.extraction.activity import (
+    activity_rows,
     extraction_summary,
 )
-from app.components.frontend.theme import AegisTheme as Theme
 from app.services.documents.health import DOCUMENTS_MODAL_ID
 from app.services.system.models import ComponentStatus, ComponentStatusType
 from tests.components.frontend._tree import texts
@@ -250,7 +248,7 @@ def test_a_row_says_when_it_ran() -> None:
     """Two runs of the same document are only tellable apart by time."""
     from datetime import UTC, datetime, timedelta
 
-    from app.components.frontend.dashboard.modals.documents_activity import age_label
+    from app.services.documents.domains.extraction.activity import age_label
 
     now = datetime(2026, 9, 2, 20, 0, tzinfo=UTC)
     ago = lambda **kw: (now - timedelta(**kw)).isoformat()  # noqa: E731

@@ -5,9 +5,11 @@ Configuration management for AI service providers, models, and settings.
 Integrates with main application settings through app.core.config.
 """
 
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, Self
 
 from pydantic import BaseModel, Field
+
+from app.core import secrets
 
 from .models import (
     PROVIDERS,
@@ -15,11 +17,7 @@ from .models import (
     ProviderConfig,
     get_provider_capabilities,
 )
-
-
-def api_key_env(provider: AIProvider) -> str:
-    """Return the registry's API key setting for a provider."""
-    return PROVIDERS[provider].env_var
+from .models.provider_names import KEYLESS_PROVIDERS
 
 
 def _resolve_provider(value: object) -> AIProvider:
@@ -67,6 +65,28 @@ def _resolve_effort(value: object) -> str | None:
     return None
 
 
+# The settings field / environment variable each keyed provider reads its
+# API key from. Providers absent here need no key from settings.
+# Where each provider's key lives, from the one place a provider is
+# described. It was a map of its own; a provider named here and nowhere
+# else would have gone unnoticed until somebody selected it.
+API_KEY_ENV: dict[AIProvider, str] = {p: spec.env_var for p, spec in PROVIDERS.items()}
+
+
+def api_key_env(provider: AIProvider) -> str:
+    """The environment variable named in "set X to use this provider" copy."""
+    return API_KEY_ENV.get(provider, f"{provider.value.upper()}_API_KEY")
+
+
+class AgentSampling(Protocol):
+    """What an agent sets on the model it runs (``AgentConfig``): its
+    sampling, and a model it pins (``None`` follows the active model)."""
+
+    temperature: float
+    max_tokens: int
+    model_id: str | None
+
+
 class AIServiceConfig(BaseModel):
     """
     AI service configuration that integrates with main app settings.
@@ -80,20 +100,20 @@ class AIServiceConfig(BaseModel):
         AIProvider.PUBLIC
     )  # Default to public endpoints (LLM7.io free anonymous tier)
     model: str = "gpt-3.5-turbo"  # Default to widely supported model
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    temperature: float = 0.7
     # Anthropic-only: thinking depth / output-token spend. None = the API
     # default. Ignored by non-Anthropic providers.
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
-    max_tokens: int = Field(default=1000, gt=0, le=8000)
-    timeout_seconds: float = Field(default=120.0, gt=0)
+    max_tokens: int = 1000
+    timeout_seconds: float = 120.0
 
     # RAG-Chat integration settings (used when RAG is enabled)
     rag_default_collection: str = "default"
-    rag_top_k: int = Field(default=10, gt=0, le=50)
+    rag_top_k: int = 10
     rag_min_score: float = Field(default=0.1, ge=0.0, le=1.0)
 
     @classmethod
-    def from_settings(cls, settings: Any) -> AIServiceConfig:
+    def from_settings(cls, settings: Any) -> Self:
         """Create configuration from main application settings."""
         return cls(
             enabled=getattr(settings, "AI_ENABLED", True),
@@ -111,21 +131,32 @@ class AIServiceConfig(BaseModel):
             rag_min_score=getattr(settings, "RAG_CHAT_MIN_SCORE", 0.1),
         )
 
-    def get_provider_config(self, settings: Any) -> ProviderConfig:
-        """Get provider-specific configuration."""
-        # Where each provider's key lives is a fact about the provider,
-        # so it is read from the registry rather than restated here. A
-        # keyless endpoint or a local server has no key to find, and
-        # getattr returns None for a variable the settings never declared.
-        from app.services.ai.models import PROVIDERS
+    def for_agent(self, agent: AgentSampling | None) -> Self:
+        """This config with ``agent``'s sampling overlaid, and its model when
+        it pins one (assumed served by the current provider). The default
+        agent carries the settings' own values: the identity until its row
+        is edited."""
+        if agent is None:
+            return self
+        update: dict[str, Any] = {
+            "temperature": agent.temperature,
+            "max_tokens": agent.max_tokens,
+        }
+        if agent.model_id:
+            update["model"] = agent.model_id
+        return self.model_copy(update=update)
 
-        spec = PROVIDERS.get(self.provider)
-        api_key = (
-            getattr(settings, spec.env_var, None)
-            if spec and not spec.builds_own_client
-            else None
-        )
+    async def get_provider_config(self, settings: Any) -> ProviderConfig:
+        """Get provider-specific configuration. The key is read now through
+        ``app.core.secrets`` (``.env``, then the secrets store), so one
+        saved while the app runs is used by the next agent built."""
+        # The local and keyless providers (ollama, public, pollinations)
+        # read theirs in their own provider path.
+        env_var = API_KEY_ENV.get(self.provider)
+        api_key = await secrets.get(env_var, source=settings) if env_var else None
+        return self._provider_config(api_key)
 
+    def _provider_config(self, api_key: str | None) -> ProviderConfig:
         return ProviderConfig(
             name=self.provider,
             api_key=api_key,
@@ -134,14 +165,20 @@ class AIServiceConfig(BaseModel):
             timeout_seconds=self.timeout_seconds,
         )
 
-    def validate_configuration(self, settings: Any) -> list[str]:
+    async def validate_configuration(self, settings: Any) -> list[str]:
         """
         Validate AI service configuration and return list of issues.
 
         Returns:
             List of validation error messages (empty if valid)
         """
-        errors = []
+        if not self.enabled:
+            return []
+        return self._issues((await self.get_provider_config(settings)).api_key)
+
+    def _issues(self, api_key: str | None) -> list[str]:
+        """What is wrong with this configuration, given its provider's key."""
+        errors: list[str] = []
 
         if not self.enabled:
             return errors  # Skip validation if disabled
@@ -152,14 +189,7 @@ class AIServiceConfig(BaseModel):
             errors.append(f"Unsupported provider: {self.provider}")
 
         # Check API key requirement (keyless providers don't need API keys)
-        local_providers = {
-            AIProvider.PUBLIC,
-            AIProvider.OLLAMA,
-            AIProvider.POLLINATIONS,
-        }
-        provider_config = self.get_provider_config(settings)
-
-        if self.provider not in local_providers and not provider_config.api_key:
+        if self.provider not in KEYLESS_PROVIDERS and not api_key:
             errors.append(
                 f"Missing API key for {self.provider} provider. "
                 f"Set {self.provider.upper()}_API_KEY environment variable."
@@ -170,13 +200,15 @@ class AIServiceConfig(BaseModel):
 
         return errors
 
-    def is_provider_available(self, settings: Any) -> bool:
+    async def is_provider_available(self, settings: Any) -> bool:
         """Check if the configured provider is available and properly configured."""
-        errors = self.validate_configuration(settings)
+        errors = await self.validate_configuration(settings)
         return len(errors) == 0
 
-    def get_available_providers(self, settings: Any) -> list[AIProvider]:
-        """Get list of providers that are properly configured."""
+    async def get_available_providers(self, settings: Any) -> list[AIProvider]:
+        """Get list of providers that are properly configured. Every key is
+        read in one go (``secrets.get_many``), not one lookup per provider."""
+        keys = await secrets.get_many(*API_KEY_ENV.values(), source=settings)
         available = []
 
         for provider in AIProvider:
@@ -189,7 +221,8 @@ class AIServiceConfig(BaseModel):
                 max_tokens=self.max_tokens,
             )
 
-            if len(temp_config.validate_configuration(settings)) == 0:
+            env_var = API_KEY_ENV.get(provider)
+            if not temp_config._issues(keys.get(env_var) if env_var else None):
                 available.append(provider)
 
         return available

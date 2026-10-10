@@ -1,15 +1,17 @@
 """Tests for LLM catalog CLI commands."""
 
 import re
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
 from app.cli.main import app
 from app.services.ai.domains.llm.etl.llm_sync_service import SyncResult
 from app.services.ai.domains.llm.llm_service import ModalityListResult, VendorListResult
+from tests._cli import invoke
 
 runner = CliRunner()
+
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -35,18 +37,18 @@ class TestLLMOrgsCommand:
         assert result.exit_code == 0
         assert "List all LLM vendors" in result.output
 
-    @patch("app.cli.llm.list_vendors")
+    @patch("app.cli.llm.list_vendors", new_callable=AsyncMock)
     def test_vendors_empty_catalog(self, mock_list_vendors) -> None:
         """Test vendors command with empty catalog."""
         mock_list_vendors.return_value = []
 
-        result = runner.invoke(app, ["llm", "vendors"])
+        result = invoke(["llm", "vendors"])
 
         assert result.exit_code == 0
         assert "No vendors found" in result.output
         assert "llm sync" in result.output
 
-    @patch("app.cli.llm.list_vendors")
+    @patch("app.cli.llm.list_vendors", new_callable=AsyncMock)
     def test_vendors_with_data(self, mock_list_vendors) -> None:
         """Test vendors command with vendor data."""
         mock_list_vendors.return_value = [
@@ -54,7 +56,7 @@ class TestLLMOrgsCommand:
             VendorListResult(name="openai", model_count=15),
         ]
 
-        result = runner.invoke(app, ["llm", "vendors"])
+        result = invoke(["llm", "vendors"])
 
         assert result.exit_code == 0
         assert "anthropic" in result.output
@@ -73,18 +75,18 @@ class TestLLMModalitiesCommand:
         assert result.exit_code == 0
         assert "List all modalities" in result.output
 
-    @patch("app.cli.llm.list_modalities")
+    @patch("app.cli.llm.list_modalities", new_callable=AsyncMock)
     def test_modalities_empty_catalog(self, mock_list_modalities) -> None:
         """Test modalities command with empty catalog."""
         mock_list_modalities.return_value = []
 
-        result = runner.invoke(app, ["llm", "modalities"])
+        result = invoke(["llm", "modalities"])
 
         assert result.exit_code == 0
         assert "No modalities found" in result.output
         assert "llm sync" in result.output
 
-    @patch("app.cli.llm.list_modalities")
+    @patch("app.cli.llm.list_modalities", new_callable=AsyncMock)
     def test_modalities_with_data(self, mock_list_modalities) -> None:
         """Test modalities command with modality data."""
         mock_list_modalities.return_value = [
@@ -94,7 +96,7 @@ class TestLLMModalitiesCommand:
             ModalityListResult(modality="video", model_count=10),
         ]
 
-        result = runner.invoke(app, ["llm", "modalities"])
+        result = invoke(["llm", "modalities"])
 
         assert result.exit_code == 0
         assert "audio" in result.output
@@ -137,7 +139,7 @@ class TestLLMSyncCommand:
         assert "cloud" in plain
         assert "ollama" in plain
 
-    @patch("app.cli.llm.sync_llm_catalog")
+    @patch("app.cli.llm.sync_llm_catalog", new_callable=AsyncMock)
     @patch("app.cli.llm.Session")
     @patch("app.cli.llm.engine")
     def test_sync_source_ollama(
@@ -158,16 +160,15 @@ class TestLLMSyncCommand:
             models_added=2,
         )
 
-        result = runner.invoke(app, ["llm", "sync", "--source=ollama"])
+        result = invoke(["llm", "sync", "--source=ollama"])
 
         assert result.exit_code == 0
         # Verify sync was called with source="ollama"
         mock_sync.assert_called_once()
         call_kwargs = mock_sync.call_args
-        # asyncio.run wraps the coroutine, so check the positional/keyword args
         assert call_kwargs[1].get("source") == "ollama"
 
-    @patch("app.cli.llm.sync_llm_catalog")
+    @patch("app.cli.llm.sync_llm_catalog", new_callable=AsyncMock)
     @patch("app.cli.llm.Session")
     @patch("app.cli.llm.engine")
     def test_sync_source_cloud(
@@ -188,14 +189,14 @@ class TestLLMSyncCommand:
             models_added=100,
         )
 
-        result = runner.invoke(app, ["llm", "sync", "--source=cloud"])
+        result = invoke(["llm", "sync", "--source=cloud"])
 
         assert result.exit_code == 0
         mock_sync.assert_called_once()
         call_kwargs = mock_sync.call_args
         assert call_kwargs[1].get("source") == "cloud"
 
-    @patch("app.cli.llm.sync_llm_catalog")
+    @patch("app.cli.llm.sync_llm_catalog", new_callable=AsyncMock)
     @patch("app.cli.llm.Session")
     @patch("app.cli.llm.engine")
     def test_sync_source_all(
@@ -216,14 +217,14 @@ class TestLLMSyncCommand:
             models_added=102,
         )
 
-        result = runner.invoke(app, ["llm", "sync", "--source=all"])
+        result = invoke(["llm", "sync", "--source=all"])
 
         assert result.exit_code == 0
         mock_sync.assert_called_once()
         call_kwargs = mock_sync.call_args
         assert call_kwargs[1].get("source") == "all"
 
-    @patch("app.cli.llm.sync_llm_catalog")
+    @patch("app.cli.llm.sync_llm_catalog", new_callable=AsyncMock)
     @patch("app.cli.llm.Session")
     @patch("app.cli.llm.engine")
     def test_sync_default_source_is_cloud(
@@ -241,7 +242,7 @@ class TestLLMSyncCommand:
 
         mock_sync.return_value = SyncResult()
 
-        result = runner.invoke(app, ["llm", "sync"])
+        result = invoke(["llm", "sync"])
 
         assert result.exit_code == 0
         mock_sync.assert_called_once()
@@ -249,7 +250,7 @@ class TestLLMSyncCommand:
         # Default should be "cloud"
         assert call_kwargs[1].get("source") == "cloud"
 
-    @patch("app.cli.llm.sync_llm_catalog")
+    @patch("app.cli.llm.sync_llm_catalog", new_callable=AsyncMock)
     @patch("app.cli.llm.Session")
     @patch("app.cli.llm.engine")
     def test_sync_source_short_flag(
@@ -270,7 +271,7 @@ class TestLLMSyncCommand:
             models_added=2,
         )
 
-        result = runner.invoke(app, ["llm", "sync", "-s", "ollama"])
+        result = invoke(["llm", "sync", "-s", "ollama"])
 
         assert result.exit_code == 0
         mock_sync.assert_called_once()
