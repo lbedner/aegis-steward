@@ -13,10 +13,26 @@ from typing import Any
 import redis.asyncio as aioredis
 
 from app.core.config import settings
+from app.core.key_family import KeyFamily
 from app.core.log import logger
 
 # Redis Stream name for worker events
 WORKER_EVENT_STREAM = "aegis:events:worker"
+# Entries kept, roughly (trimmed with MAXLEN ~, which Redis does cheaply
+# in whole blocks). The dashboard's feed tails new entries only.
+WORKER_EVENT_STREAM_MAXLEN = 10_000
+
+# What the worker keeps in Redis, for the keyspace map (``redis_keys``).
+REDIS_KEYS = (
+    KeyFamily(
+        WORKER_EVENT_STREAM,
+        "stream",
+        "Worker events",
+        "Job and worker lifecycle events, fanned out to the browser over SSE",
+        "Worker events",
+        columns=("Entry", "Event"),
+    ),
+)
 
 
 _events_redis: aioredis.Redis | None = None
@@ -30,11 +46,7 @@ async def events_redis() -> aioredis.Redis:
     """
     global _events_redis
     if _events_redis is None:
-        redis_url = (
-            settings.redis_url_effective
-            if hasattr(settings, "redis_url_effective")
-            else settings.REDIS_URL
-        )
+        redis_url = settings.redis_url_effective
         _events_redis = aioredis.from_url(redis_url)
     return _events_redis
 
@@ -74,7 +86,12 @@ async def publish_event(
             fields[str(k)] = str(v)
 
     try:
-        await redis_client.xadd(WORKER_EVENT_STREAM, fields)
+        await redis_client.xadd(
+            WORKER_EVENT_STREAM,
+            fields,
+            maxlen=WORKER_EVENT_STREAM_MAXLEN,
+            approximate=True,
+        )
     except Exception as e:
         # Never let event publishing failures break worker functionality
         logger.debug(f"Failed to publish worker event: {e}")

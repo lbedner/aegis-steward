@@ -31,8 +31,8 @@ MESSAGES: dict[str, str] = {
     "bench.auth.one_only": "Pass only one of --as-admin / --as-user / --anon.",
     "bench.driver.fallback": "Falling back to the {driver} driver: {reason}.",
     "bench.driver.method": "ab cannot issue {method}",
-    "bench.driver.missing": "ab is not installed",    "bench.driver.docker": "no local ab, using the httpd image instead",
-
+    "bench.driver.missing": "ab is not installed",
+    "bench.driver.docker": "no local ab, using the httpd image instead",
     "bench.driver.warning": (
         "This driver tops out below what either engine can serve, so the two "
         "look equal no matter what. Install ab (apache2-utils) for a "
@@ -493,11 +493,6 @@ MESSAGES: dict[str, str] = {
     "tasks.help": "Команды управления запланированными задачами",
     "tasks.help_list": "Показать все запланированные задачи с текущим статусом.",
     # ── Миграции ─────────────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  ВНИМАНИЕ: Таблица '{table}' отсутствует. "
-        "Создайте миграцию вручную: "
-        "alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "Миграции не найдены. Сначала выполните 'make migrate'.",
     "migrate.checking_schema": "Проверка схемы на соответствие моделям...",
     "migrate.applying_pending": "Применение ожидающих миграций...",
@@ -589,7 +584,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "Текущий (локальный)",
     "ai.prov_need_key": "Нужен API-ключ",
     "ai.prov_not_installed": "Не установлен",
-    "ai.prov_error": "Ошибка",
     "ai.providers_tip": "Совет: выполните '{app} ai add-provider <имя>' для установки провайдеров.",
     # Панель использования
     "ai.usage_title": "Сводка использования AI",
@@ -861,7 +855,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "Ожидание завершения нагрузочного теста...",
     "loadtest.waiting_elapsed": "Ожидание завершения... ({elapsed}с)",
     "loadtest.timeout_progress": "Таймаут",
-    "loadtest.completed_progress": "Нагрузочный тест завершён!",
     # Быстрый тест
     "loadtest.quick_cpu_title": "Быстрый CPU нагрузочный тест",
     "loadtest.quick_cpu_tasks": "{count} CPU-интенсивных задач",
@@ -930,16 +923,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "Проверьте ID задачи и что тест завершён",
     "loadtest.results_failed": "Не удалось получить результаты:",
     # Ошибки/таймауты
-    "loadtest.timed_out_title": "Таймаут нагрузочного теста",
     "loadtest.failed_title": "Нагрузочный тест провален",
     "loadtest.error_label": "Ошибка:",
     "loadtest.test_id_label": "ID теста:",
-    "loadtest.what_this_means": "Что это значит:",
-    "loadtest.timeout_explanation": "Задача-оркестратор завершилась по таймауту, но отдельные задачи worker могли завершиться. Это часто бывает при больших тестах, превышающих таймаут очереди.",
-    "loadtest.to_investigate": "Для диагностики:",
-    "loadtest.tip_check_logs": "Проверьте логи worker для завершения отдельных задач",
-    "loadtest.tip_smaller_batch": "Используйте меньший размер пакета для больших тестов",
-    "loadtest.tip_check_metrics": "Проверьте метрики очереди для фактического числа завершённых задач",
     "loadtest.analysis_panel": "Анализ нагрузочного теста",
     "loadtest.next_steps": "Дальнейшие шаги:",
     "loadtest.tip_check_worker_logs": "Проверьте логи worker для подробной информации об ошибках",

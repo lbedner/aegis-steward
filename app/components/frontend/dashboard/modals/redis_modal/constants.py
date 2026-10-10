@@ -1,7 +1,5 @@
 """Column widths and thresholds the tabs share."""
 
-SLOWLOG_CRITICAL_MS = 1000  # 1 second - Critical (red)
-SLOWLOG_WARNING_MS = 100  # 100ms - Warning (yellow)
 COL_WIDTH_CLIENT_ID = 100
 COL_WIDTH_ADDRESS = 150
 COL_WIDTH_AGE = 80

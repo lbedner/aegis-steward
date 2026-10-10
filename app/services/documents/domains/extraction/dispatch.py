@@ -36,12 +36,11 @@ async def start_extraction(
     or return the job already reading this document."""
     import uuid
 
-    from app.core.config import settings
     from app.core.log import logger
     from app.services.system.job_store import RedisJobStore
 
     name = f"documents-extract:{document_id}"
-    store = RedisJobStore.from_url(settings.REDIS_URL)
+    store = RedisJobStore.shared()
     try:
         # One reading at a time per document. A second ask while the
         # first is still on the worker (an agent calling twice in three
@@ -70,8 +69,9 @@ async def _enqueue(
     job_id: str, document_id: int, owner_user_id: int | None, force: bool
 ) -> None:
     from app.components.worker.pools import get_queue_pool
+    from app.core.constants import QueueName
 
-    pool, queue_name = await get_queue_pool("system")
+    pool, queue_name = await get_queue_pool(QueueName.SYSTEM)
     await pool.enqueue_job(
         "extract_document_task",
         job_id,

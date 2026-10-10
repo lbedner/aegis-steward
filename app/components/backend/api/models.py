@@ -6,11 +6,12 @@ task management, status tracking, and response formatting.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from app.components.worker.constants import LoadTestTypes
+from app.core.constants import QueueName
 from app.services.scheduler.models import ScheduledTask, TaskStatistics
 
 
@@ -19,7 +20,7 @@ class TaskRequest(BaseModel):
 
     task_name: str = Field(..., description="Name of the task function to execute")
     queue_type: str = Field(
-        "system", description="Functional queue type: media or system"
+        QueueName.SYSTEM, description="Functional queue type: media or system"
     )
     args: list[Any] = Field(
         default_factory=list, description="Positional arguments for the task"
@@ -106,9 +107,9 @@ class LoadTestRequest(BaseModel):
         0, description="Delay between batches in milliseconds", ge=0, le=5000
     )
     target_queue: str = Field(
-        "load_test",
+        QueueName.LOAD_TEST,
         description="Which queue to test (system, media, or load_test)",
-        pattern="^(system|media|load_test)$",
+        pattern=f"^({'|'.join(QueueName)})$",
     )
 
     class Config:
@@ -122,7 +123,7 @@ class LoadTestRequest(BaseModel):
                     "task_type": "cpu_intensive",
                     "batch_size": 10,
                     "delay_ms": 0,
-                    "target_queue": "system",
+                    "target_queue": QueueName.SYSTEM,
                     "expected_work": (
                         "Computational: fibonacci, prime checking, math operations"
                     ),
@@ -140,7 +141,7 @@ class LoadTestRequest(BaseModel):
                     "task_type": "io_simulation",
                     "batch_size": 20,
                     "delay_ms": 50,
-                    "target_queue": "system",
+                    "target_queue": QueueName.SYSTEM,
                     "expected_work": (
                         "Async I/O: network delays, concurrent operations, files"
                     ),
@@ -158,7 +159,7 @@ class LoadTestRequest(BaseModel):
                     "task_type": "memory_operations",
                     "batch_size": 25,
                     "delay_ms": 0,
-                    "target_queue": "media",
+                    "target_queue": QueueName.MEDIA,
                     "expected_work": (
                         "Memory: allocation patterns, data manipulation, cleanup"
                     ),
@@ -176,7 +177,7 @@ class LoadTestRequest(BaseModel):
                     "task_type": "test_task_failure",
                     "batch_size": 15,
                     "delay_ms": 0,
-                    "target_queue": "system",
+                    "target_queue": QueueName.SYSTEM,
                     "expected_work": (
                         "Failure testing: random errors, recovery patterns, resilience"
                     ),
@@ -344,3 +345,6 @@ class TriggerJobResponse(BaseModel):
     job_id: str = Field(..., description="The triggered job id")
     status: str = Field("triggered", description="Trigger outcome")
     message: str = Field(..., description="Human-readable status")
+    ran_in: Literal["worker", "webserver"] = Field(
+        ..., description="Where the job itself runs"
+    )

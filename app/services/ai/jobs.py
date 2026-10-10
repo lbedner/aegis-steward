@@ -16,7 +16,9 @@ async def sync_llm_catalog_job() -> None:
 
     try:
         with Session(engine) as session:
-            result = await sync_llm_catalog(session)
+            # Hosted and local: a model pulled since the last run joins the
+            # catalog without anyone running ``llm sync --source ollama``.
+            result = await sync_llm_catalog(session, source="all")
             logger.info(
                 f"LLM catalog sync complete: "
                 f"{result.models_added} added, {result.models_updated} updated"

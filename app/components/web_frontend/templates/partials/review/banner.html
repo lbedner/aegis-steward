@@ -17,8 +17,7 @@
     out-of-band element with no target lands as stray content. -#}
 {% if not banner_oob %}
 {{ notice("matter-deadlines", deadlines_count, "/matters",
-          deadlines_count ~ " request" ~ ("s" if deadlines_count != 1 else "") ~ " due soon or already late",
-          tone="rose") }}
+          deadlines_count ~ " request" ~ ("s" if deadlines_count != 1 else "") ~ " due soon or already late") }}
 {#- The next letter, before it comes (ST-11): what a renewal will ask for
     is worth gathering while there is still time to. -#}
 {{ notice("matter-expected", expected_count, "/matters",

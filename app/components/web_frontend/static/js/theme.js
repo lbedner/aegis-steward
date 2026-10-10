@@ -37,7 +37,14 @@
 
   /* The sidebar menu's Alpine state; what the user chose, not what resolved. */
   window.appearance = () => Object.fromEntries(Object.keys(CHOICES).map((key) => [key, read(key)]));
-  window.setAppearance = (key, value) => {
+  // A choice the server draws the page by (a MenuChoice, Overseer's) names
+  // its cookie: kept there, and the page redrawn.
+  window.setAppearance = (key, value, cookie) => {
+    if (cookie) {
+      document.cookie = `${cookie}=${encodeURIComponent(value)}; path=/; max-age=31536000; samesite=lax`;
+      location.reload();
+      return;
+    }
     try {
       localStorage.setItem(key, value);
     } catch (_) {

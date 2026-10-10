@@ -12,8 +12,8 @@ from typing import Any
 from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.clock import utcnow
 from app.core.schema import require_one_of
+from app.core.time import utcnow
 from app.services.matters.models import PARTY_KINDS, Party, sort_name_for
 
 

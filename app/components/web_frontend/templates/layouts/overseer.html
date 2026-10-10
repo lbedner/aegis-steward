@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block navbar %}{% endblock %}
+{% from "components/macros/layout.html" import dialog, drawer %}
+{% block page_body %}
+<main id="app-content" class="min-h-screen" hx-ext="sse" sse-connect="/overseer/events">
+  {% block app_content %}{% endblock %}
+</main>
+{# The one modal and the side drawer: steward's shell mounts its own
+   modal (layouts/app_shell.html), so base.html mounts neither. #}
+{{ dialog() }}
+{{ drawer() }}
+{% endblock %}
+{# The scheduler clock's scrubbing (Alpine component). Plain script at the end
+   of the body: it registers before the deferred Alpine starts, and one full
+   load covers every page htmx then swaps in. #}
+{% block scripts %}<script src="{{ static('js/clock.js') }}"></script>{% endblock %}

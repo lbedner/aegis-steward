@@ -46,6 +46,7 @@ from app.core.chat_transcript import (
     trace_output,
 )
 from app.core.storage import get_storage, validate_key
+from app.services.ai.domains.chat.agent_loader import DEFAULT_AGENT_SLUG
 from app.services.ai.domains.chat.attachments import lift_pastes
 from app.services.ai.domains.chat.cards import MARKER
 from app.services.ai.domains.chat.pastes import PASTE_THRESHOLD
@@ -66,14 +67,22 @@ SURFACE = "finance"
 ASSISTANT_NAME = assistant(AGENT_SLUG)
 STREAM_URL = "/api/v1/ai/chat/stream"
 
-# What the client posts to start a turn, ready for the stream endpoint.
-# The finance owner id, not the generic one: the snapshot-memory module
-# cannot parse "api-user" and would silently skip the briefing.
-TURN_DEFAULTS: dict[str, Any] = {
-    "user_id": STANDALONE_USER_ID,
-    "agent_slug": AGENT_SLUG,
-    "surface": SURFACE,
-}
+# Where the chat is mounted -> the agent she runs as there, each with its
+# own history. Illiana on every one; in the Overseer, the default agent,
+# whom the stream gives the system's context (health, usage, catalog).
+SURFACES: dict[str, str] = {SURFACE: AGENT_SLUG, "overseer": DEFAULT_AGENT_SLUG}
+
+
+def turn_defaults(surface: str = SURFACE) -> dict[str, Any]:
+    """What the client posts to start a turn. The finance owner id, not
+    "api-user", which the snapshot-memory module cannot parse."""
+    user = STANDALONE_USER_ID
+    return {"user_id": user, "agent_slug": SURFACES[surface], "surface": surface}
+
+
+def known(surface: str) -> str:
+    """A surface named in a request, or a 404."""
+    return or_404(surface if surface in SURFACES else None)
 
 
 def run(entry: dict[str, Any]) -> dict[str, Any]:
@@ -236,9 +245,9 @@ async def stored_message(conversation_id: str, message_id: str) -> Any:
 HISTORY_LIMIT = 25
 
 
-async def _conversations() -> list[Any]:
+async def _conversations(surface: str = SURFACE) -> list[Any]:
     """This surface's conversations, newest first."""
-    return await ai_service.list_conversations(STANDALONE_USER_ID, surface=SURFACE)
+    return await ai_service.list_conversations(STANDALONE_USER_ID, surface=surface)
 
 
 # A thread opens on its latest messages, and earlier ones come a page at a
@@ -290,16 +299,17 @@ async def _transcript(
     }
 
 
-async def surface_context() -> dict[str, Any]:
+async def surface_context(surface: str = SURFACE) -> dict[str, Any]:
     """Everything the chat surface renders from, for the page and the
     drawer alike: it opens onto the most recent conversation, never
     blank unless there is none."""
-    latest = next(iter(await _conversations()), None)
+    latest = next(iter(await _conversations(surface)), None)
     return {
         "assistant": ASSISTANT_NAME,
         "path": SECTION.path,
+        "surface": surface,
         "stream_url": STREAM_URL,
-        "turn_defaults": TURN_DEFAULTS,
+        "turn_defaults": turn_defaults(surface),
         **await _transcript(latest),
     }
 
@@ -312,22 +322,24 @@ async def page(request: Request, _: None = Depends(sync_active_model)) -> Respon
 
 
 @router.get(SECTION.path + "/drawer", include_in_schema=False)
-async def drawer(request: Request, _: None = Depends(sync_active_model)) -> Response:
+async def drawer(
+    request: Request, surface: str = SURFACE, _: None = Depends(sync_active_model)
+) -> Response:
     """The surface for the Illiana drawer: the same partial the page
     includes, from the same context."""
     return templates.TemplateResponse(
         request=request,
         name="partials/chat/surface.html",
-        context=await surface_context(),
+        context=await surface_context(known(surface)),
     )
 
 
 @router.get(CONVERSATIONS, include_in_schema=False)
-async def history(request: Request) -> Response:
+async def history(request: Request, surface: str = SURFACE) -> Response:
     return dialog(
         request,
         "partials/chat/history.html",
-        conversations=(await _conversations())[:HISTORY_LIMIT],
+        conversations=(await _conversations(known(surface)))[:HISTORY_LIMIT],
         path=SECTION.path,
     )
 

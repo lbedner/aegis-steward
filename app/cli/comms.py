@@ -4,8 +4,6 @@ Communications service CLI commands.
 Command-line interface for email, SMS, and voice call functionality.
 """
 
-import asyncio
-
 from rich.table import Table
 import typer
 
@@ -60,7 +58,7 @@ app.add_typer(call_app, name="call")
 
 
 @app.command(help=lazy_t("comms.help_status"))
-def status() -> None:
+async def status() -> None:
     from app.services.comms.calls import get_call_status, validate_call_config
     from app.services.comms.email import get_email_status, validate_email_config
     from app.services.comms.sms import get_sms_status, validate_sms_config
@@ -68,8 +66,8 @@ def status() -> None:
     theme.title(t("comms.service_status_title"))
 
     # Email status
-    email_status = get_email_status()
-    email_errors = validate_email_config()
+    email_status = await get_email_status()
+    email_errors = await validate_email_config()
 
     theme.title(f"\n{t('comms.email_resend_header')}")
     status_label = t("comms.status_label")
@@ -103,8 +101,8 @@ def status() -> None:
             )
 
     # SMS status
-    sms_status = get_sms_status()
-    sms_errors = validate_sms_config()
+    sms_status = await get_sms_status()
+    sms_errors = await validate_sms_config()
 
     theme.title(f"\n{t('comms.sms_twilio_header')}")
     status_label = t("comms.status_label")
@@ -149,8 +147,8 @@ def status() -> None:
             )
 
     # Voice status
-    call_status = get_call_status()
-    call_errors = validate_call_config()
+    call_status = await get_call_status()
+    call_errors = await validate_call_config()
 
     theme.title(f"\n{t('comms.voice_twilio_header')}")
     status_label = t("comms.status_label")
@@ -215,7 +213,7 @@ def status() -> None:
 
 
 @email_app.command("send", help=lazy_t("comms.help_email_send"))
-def email_send(
+async def email_send(
     to: str = typer.Argument(..., help=lazy_t("comms.arg_to_email")),
     subject: str = typer.Option(
         ..., "--subject", "-s", help=lazy_t("comms.opt_subject")
@@ -225,7 +223,7 @@ def email_send(
     ),
     html: str | None = typer.Option(None, "--html", help=lazy_t("comms.opt_html")),
 ) -> None:
-    asyncio.run(_email_send(to, subject, text, html))
+    await _email_send(to, subject, text, html)
 
 
 async def _email_send(
@@ -272,11 +270,11 @@ async def _email_send(
 
 
 @sms_app.command("send", help=lazy_t("comms.help_sms_send"))
-def sms_send(
+async def sms_send(
     to: str = typer.Argument(..., help=lazy_t("comms.arg_to_phone")),
     body: str = typer.Argument(..., help=lazy_t("comms.arg_body")),
 ) -> None:
-    asyncio.run(_sms_send(to, body))
+    await _sms_send(to, body)
 
 
 async def _sms_send(to: str, body: str) -> None:
@@ -305,7 +303,7 @@ async def _sms_send(to: str, body: str) -> None:
 
 
 @call_app.command("make", help=lazy_t("comms.help_call_make"))
-def call_make(
+async def call_make(
     to: str = typer.Argument(..., help=lazy_t("comms.arg_to_phone")),
     twiml_url: str = typer.Argument(
         TWILIO_DEMO_TWIML_URL, help=lazy_t("comms.arg_twiml_url")
@@ -314,7 +312,7 @@ def call_make(
         30, "--timeout", "-t", help=lazy_t("comms.opt_timeout")
     ),
 ) -> None:
-    asyncio.run(_call_make(to, twiml_url, timeout))
+    await _call_make(to, twiml_url, timeout)
 
 
 async def _call_make(to: str, twiml_url: str, timeout: int) -> None:

@@ -11,6 +11,7 @@ from typing import Any
 
 import flet as ft
 
+from app.core.constants import ComponentName
 from app.core.log import logger
 from app.services.documents.health import DOCUMENTS_MODAL_ID
 from app.services.finance.constants import FINANCE_COMPONENT_NAME
@@ -105,25 +106,25 @@ def create_component_card(component_name: str, component_data: Any) -> ft.Contai
             return ft.Container()
 
         # Map component names to their stunning card classes
-        if component_name == "backend":
+        if component_name == ComponentName.BACKEND:
             return ServerCard(component_data).build()
-        elif component_name == "frontend":
-            # Frontend is merged into ServerCard, return empty
+        elif component_name in (ComponentName.FRONTEND, ComponentName.WEB_FRONTEND):
+            # Both frontends are shown through the ServerCard, return empty
             return ft.Container()
 
-        elif component_name == "worker":
+        elif component_name == ComponentName.WORKER:
             return WorkerCard(component_data).build()
 
-        elif component_name == "cache":
+        elif component_name == ComponentName.CACHE:
             return RedisCard(component_data).build()
 
-        elif component_name == "database":
+        elif component_name == ComponentName.DATABASE:
             return DatabaseCard(component_data).build()
 
-        elif component_name == "ollama":
+        elif component_name == ComponentName.OLLAMA:
             return OllamaCard(component_data).build()
 
-        elif component_name == "scheduler":
+        elif component_name == ComponentName.SCHEDULER:
             return SchedulerCard(component_data).build()
 
         elif component_name == "services":

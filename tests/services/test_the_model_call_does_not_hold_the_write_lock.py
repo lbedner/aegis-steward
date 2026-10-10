@@ -141,7 +141,7 @@ async def test_another_writer_can_work_while_the_model_is_thinking(
         tool = info.output_tools[0]
         return ModelResponse(parts=[ToolCallPart(tool.name, {"headline": HEADLINE})])
 
-    def _model_for(config: Any, settings: Any) -> tuple[Any, str]:
+    async def _model_for(config: Any, settings: Any) -> tuple[Any, str]:
         return FunctionModel(_respond), "test-model"
 
     monkeypatch.setattr("app.services.ai.domains.llm.providers.model_for", _model_for)
@@ -191,7 +191,7 @@ async def test_another_writer_can_work_while_the_deep_dive_is_thinking(
         tool = info.output_tools[0]
         return ModelResponse(parts=[ToolCallPart(tool.name, {"situation": SITUATION})])
 
-    def _model_for(config: Any, settings: Any) -> tuple[Any, str]:
+    async def _model_for(config: Any, settings: Any) -> tuple[Any, str]:
         return FunctionModel(_respond), "test-model"
 
     monkeypatch.setattr("app.services.ai.domains.llm.providers.model_for", _model_for)

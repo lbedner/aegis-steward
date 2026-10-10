@@ -78,7 +78,7 @@ def _fake_model(monkeypatch, headline: str = NOTE_TEXT) -> list[str]:
     """
     calls: list[str] = []
 
-    def _model_for(config, settings):
+    async def _model_for(config, settings):
         calls.append(config.model)
         return TestModel(custom_output_args={"headline": headline}), "test-model"
 
@@ -108,7 +108,7 @@ async def _notes(session: AsyncSession) -> list[FinanceInsight]:
 class TestModelFor:
     """The helper that hands a bare model to callers who bring their own agent."""
 
-    def test_ollama_model_points_at_the_local_openai_endpoint(self) -> None:
+    async def test_ollama_model_points_at_the_local_openai_endpoint(self) -> None:
         config = AIServiceConfig(
             provider=AIProvider.OLLAMA, model="qwen2.5:7b", temperature=0.2
         )
@@ -124,7 +124,7 @@ class TestModelFor:
         ):
             # a stand-in that passes as a model, since model_for wraps it
             chat_model.return_value = MagicMock(spec=Model)
-            model, model_name = model_for(config, settings)
+            model, model_name = await model_for(config, settings)
 
         assert model_name == "qwen2.5:7b"
         # wrapped so a refused temperature is retried (model_factory.tolerant)
@@ -134,23 +134,23 @@ class TestModelFor:
         assert client.call_args.kwargs["api_key"] == "ollama"
         assert chat_model.call_args.kwargs["model_name"] == "qwen2.5:7b"
 
-    def test_keyless_public_provider_is_refused_with_a_pointer(self) -> None:
+    async def test_keyless_public_provider_is_refused_with_a_pointer(self) -> None:
         """The public endpoints build their own clients; there is no bare model
         to hand back, and saying so beats returning a broken one."""
         config = AIServiceConfig(provider=AIProvider.PUBLIC, model="auto")
 
         with pytest.raises(ProviderError) as excinfo:
-            model_for(config, MagicMock())
+            await model_for(config, MagicMock())
 
         assert "get_agent" in str(excinfo.value)
 
-    def test_a_keyed_provider_without_its_key_is_refused(self) -> None:
+    async def test_a_keyed_provider_without_its_key_is_refused(self) -> None:
         settings = MagicMock()
         settings.OPENAI_API_KEY = None
         config = AIServiceConfig(provider=AIProvider.OPENAI, model="gpt-4o")
 
         with pytest.raises(ProviderError) as excinfo:
-            model_for(config, settings)
+            await model_for(config, settings)
 
         assert "No API key configured" in str(excinfo.value)
 
@@ -199,12 +199,11 @@ class TestRunAnalystNote:
                 parts=[ToolCallPart(tool.name, {"headline": NOTE_TEXT})]
             )
 
+        async def _model_for(config, settings):
+            return FunctionModel(_respond), "function-model"
+
         monkeypatch.setattr(
-            "app.services.ai.domains.llm.providers.model_for",
-            lambda config, settings: (
-                FunctionModel(_respond),
-                "function-model",
-            ),
+            "app.services.ai.domains.llm.providers.model_for", _model_for
         )
         await demo_seed.seed_demo(async_db_session, owner_user_id=OWNER)
         await _seed_agent(async_db_session)
@@ -287,7 +286,7 @@ class TestRunAnalystNote:
         must cost a log line, never a note containing an error message."""
         use_test_session(async_db_session)
 
-        def _explode(config, settings):
+        async def _explode(config, settings):
             raise ProviderError("Ollama connection failed")
 
         monkeypatch.setattr("app.services.ai.domains.llm.providers.model_for", _explode)
@@ -416,12 +415,9 @@ class TestSchedulerRegistration:
     still written on request; nothing writes one on a schedule."""
 
     def test_the_nightly_note_is_not_scheduled(self) -> None:
-        from app.components.scheduler import main as scheduler_main
+        from app.services.finance.scheduled_jobs import JOBS
 
-        source = scheduler_main.__file__
-        with open(source) as handle:
-            text = handle.read()
-        assert 'id="finance_analyst_note"' not in text
+        assert "finance_analyst_note" not in {job.id for job in JOBS}
 
 
 class TestFixturesReachTheRegistry:

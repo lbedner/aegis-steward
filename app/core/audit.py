@@ -1,6 +1,7 @@
 """Generic audit event emitter with pluggable backends."""
 
 from datetime import UTC, datetime
+import getpass
 import logging
 from typing import Any
 
@@ -55,6 +56,11 @@ class AuditEmitter:
 
 # Singleton instance
 audit_emitter = AuditEmitter()
+
+
+def cli_actor() -> str:
+    """Who a change made from the terminal is recorded as."""
+    return f"cli:{getpass.getuser()}"
 
 
 def get_audit() -> AuditEmitter:

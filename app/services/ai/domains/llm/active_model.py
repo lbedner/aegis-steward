@@ -13,7 +13,7 @@ keeps the resolution path untouched, and the startup hook replays the stored
 choice into each process as it boots.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -22,6 +22,9 @@ from app.core.log import logger
 from app.core.time import utcnow
 from app.services.ai.domains.llm import queries
 from app.services.ai.models.llm import LLMActiveSelection
+
+if TYPE_CHECKING:
+    from app.services.ai.config import AgentSampling, AIServiceConfig
 
 # The .env-sourced model/provider, captured before the first override mutates
 # the live settings object. Without this, "back to .env" is impossible inside
@@ -178,8 +181,11 @@ async def sync_from_db(settings: Any) -> bool:
         return False
 
 
-async def model_for_active(settings: Any) -> tuple[Any, str]:
-    """A model instance for the selection in force, and its name.
+async def config_for_active(
+    settings: Any, agent: AgentSampling | None = None
+) -> AIServiceConfig:
+    """The config for the selection in force, ``agent``'s sampling and
+    pinned model overlaid (``AIServiceConfig.for_agent``).
 
     ``settings`` already carries it wherever a model runs: the webserver
     applies a switch as it is made, and the worker reads the selection as
@@ -187,6 +193,13 @@ async def model_for_active(settings: Any) -> tuple[Any, str]:
     scheduler runs no model - it only enqueues.
     """
     from app.services.ai.config import AIServiceConfig
+
+    return AIServiceConfig.from_settings(settings).for_agent(agent)
+
+
+async def model_for_active(settings: Any) -> tuple[Any, str]:
+    """A model instance for the selection in force, and its name
+    (``config_for_active``)."""
     from app.services.ai.domains.llm import providers
 
-    return providers.model_for(AIServiceConfig.from_settings(settings), settings)
+    return await providers.model_for(await config_for_active(settings), settings)

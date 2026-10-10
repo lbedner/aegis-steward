@@ -8,8 +8,8 @@ from typing import Any
 from sqlalchemy import JSON, CheckConstraint, Column, Index
 from sqlmodel import Field, SQLModel
 
-from app.core.clock import utcnow
 from app.core.schema import one_of
+from app.core.time import utcnow
 
 POLICY_KINDS = ("dental", "health", "vision", "auto", "home", "life", "other")
 

@@ -10,12 +10,12 @@ says which. Statement builders only - no business logic, no writes.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Integer, func
-from sqlalchemy.orm import selectinload
-from sqlmodel import Session, col, or_, select
+from sqlalchemy import Integer, case, func
+from sqlalchemy.orm import contains_eager, selectinload
+from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.models.llm import (
@@ -26,7 +26,8 @@ from app.services.ai.models.llm import (
     LLMPrice,
     LLMUsage,
 )
-from app.services.shared.queries import owner_clause
+from app.services.ai.models.llm.llm_price import RATE_FIELDS
+from app.services.shared.queries import owner_clause, within
 
 # --- Catalog -----------------------------------------------------------
 
@@ -77,13 +78,85 @@ async def latest_price_for(session: AsyncSession, llm_id: int) -> LLMPrice | Non
     ).first()
 
 
+# Prices are looked up on every recorded turn and change only when the
+# catalog sync runs, so the answer is memoized and cleared by that sync.
+#
+# In the shared cache (Redis when the stack has it), not a per-process
+# dict: the sync runs in the scheduler, and a dict it cleared would be the
+# scheduler's own while the webserver kept charging the old rate.
+PRICE_CACHE_PREFIX = "llm_rates:"
+# A backstop, not the mechanism: the sync invalidates on every change, and
+# a day matches its cadence if an invalidation is ever lost.
+PRICE_CACHE_TTL = 24 * 60 * 60
+# ``CacheService.get`` returns None for a miss, so an uncatalogued model is
+# stored as this instead - a miss must not cost a query on every turn either.
+_NOT_CATALOGUED = ()
+
+
+async def invalidate_price_cache() -> None:
+    """Forget memoized prices in every process. Called after a sync writes
+    new ones."""
+    from app.core.cache import get_cache
+
+    await get_cache().invalidate_prefix(PRICE_CACHE_PREFIX)
+
+
+# A model's rates by column name (``RATE_FIELDS``); None is "not billed
+# this way".
+Rates = dict[str, float | None]
+
+
+async def price_for_model(session: AsyncSession, model_name: str) -> Rates | None:
+    """Every rate a cost reads for a model (tokens, cached input, voice),
+    memoized.
+
+    A plain dict rather than the row: it crosses processes through the
+    cache.
+    """
+    from app.core.cache import get_cache
+
+    cache = get_cache()
+    key = f"{PRICE_CACHE_PREFIX}{model_name}"
+    cached = await cache.get(key)
+    if cached is not None:
+        return None if cached == _NOT_CATALOGUED else cached
+    row = await latest_price_for_model(session, model_name)
+    price = None if row is None else {name: getattr(row, name) for name in RATE_FIELDS}
+    await cache.set(
+        key, _NOT_CATALOGUED if price is None else price, ttl=PRICE_CACHE_TTL
+    )
+    return price
+
+
 async def latest_price_for_model(
     session: AsyncSession, model_name: str
 ) -> LLMPrice | None:
-    """Current price row for a bare model name, or None if uncataloged."""
+    """Current price row for a model, or None if uncataloged.
+
+    Tried as given, then as a suffix. A provider reports the name it
+    answered under ("deepseek-v4.1-flash") while the catalog keys the
+    routed id ("openrouter/deepseek/deepseek-v4.1-flash"), so matching
+    only on equality priced every routed call at zero - and the per-user
+    daily budget, computed from that ledger, could never trip.
+
+    Suffix and not substring: "gpt-4o" must not match "not-gpt-4o", and
+    the separator is what makes it a whole segment.
+    """
+    # One statement, not a lookup and then a fallback. The ordering is
+    # what keeps the exact match winning.
     llm = (
         await session.exec(
-            select(LargeLanguageModel).where(LargeLanguageModel.model_id == model_name)
+            select(LargeLanguageModel)
+            .where(
+                or_(
+                    LargeLanguageModel.model_id == model_name,
+                    col(LargeLanguageModel.model_id).endswith(f"/{model_name}"),
+                )
+            )
+            .order_by(
+                case((LargeLanguageModel.model_id == model_name, 0), else_=1),
+                col(LargeLanguageModel.model_id),
+            )
         )
     ).first()
     if llm is None:
@@ -107,11 +180,14 @@ async def catalog_models(
     modality: str | None = None,
     include_disabled: bool = False,
     limit: int | None = None,
+    released_after: date | None = None,
     mode: str | None = "chat",
 ) -> list[LargeLanguageModel]:
     """Catalog rows newest-first with both orgs loaded.
 
     ``vendor`` is a substring match, ``vendors`` an exact whitelist.
+    ``released_after`` keeps models released on or after that day; an
+    undated model has nothing to compare, so a window leaves it out.
     ``mode`` is the kind of model (chat unless asked; None for every
     kind), so a chat picker never offers a transcription model.
     ``limit`` caps the SQL result; a caller capping per vendor leaves it
@@ -121,8 +197,8 @@ async def catalog_models(
     stmt = (
         select(LargeLanguageModel)
         .join(LLMOrg, LargeLanguageModel.served_by_org_id == LLMOrg.id)
-        .options(
-            selectinload(LargeLanguageModel.served_by),
+        .options(  # the serving org loads from the join above
+            contains_eager(LargeLanguageModel.served_by),
             selectinload(LargeLanguageModel.made_by),
         )
     )
@@ -141,6 +217,8 @@ async def catalog_models(
         stmt = stmt.join(
             LLMModality, LargeLanguageModel.id == LLMModality.llm_id
         ).where(LLMModality.modality == modality)
+    if released_after is not None:
+        stmt = stmt.where(col(LargeLanguageModel.released_on) >= released_after)
     if not include_disabled:
         stmt = stmt.where(LargeLanguageModel.enabled == True)  # noqa: E712
     if mode is not None:
@@ -174,31 +252,35 @@ async def latest_prices_by_llm_ids(
     return latest
 
 
-def vendor_model_counts(session: Session) -> Sequence[tuple[str, int]]:
+async def vendor_model_counts(session: AsyncSession) -> Sequence[tuple[str, int]]:
     """(org name, models served) for every org, name-sorted.
 
     Two keys point at ``llm_org`` (who made a model, who serves it); this
-    is the SERVING surface, so the join says so.
+    is the SERVING surface, so the join says so. Chat models only: the
+    counts sit beside chat listings, which offer no voice kind.
     """
-    return session.exec(
+    result = await session.exec(
         select(LLMOrg.name, func.count(LargeLanguageModel.id))
         .join(
             LargeLanguageModel,
-            LargeLanguageModel.served_by_org_id == LLMOrg.id,
+            (LargeLanguageModel.served_by_org_id == LLMOrg.id)
+            & (LargeLanguageModel.mode == "chat"),
             isouter=True,
         )
         .group_by(LLMOrg.id)
         .order_by(LLMOrg.name)
-    ).all()
+    )
+    return result.all()
 
 
-def modality_model_counts(session: Session) -> Sequence[tuple[str, int]]:
+async def modality_model_counts(session: AsyncSession) -> Sequence[tuple[str, int]]:
     """(modality, distinct models) for every modality, name-sorted."""
-    return session.exec(
+    result = await session.exec(
         select(LLMModality.modality, func.count(func.distinct(LLMModality.llm_id)))
         .group_by(LLMModality.modality)
         .order_by(LLMModality.modality)
-    ).all()
+    )
+    return result.all()
 
 
 async def orgs_named(session: AsyncSession, names: Iterable[str]) -> Sequence[LLMOrg]:
@@ -210,12 +292,13 @@ async def orgs_named(session: AsyncSession, names: Iterable[str]) -> Sequence[LL
 async def models_served_by(
     session: AsyncSession, org_ids: Iterable[int]
 ) -> Sequence[LargeLanguageModel]:
-    """Every model the given orgs serve, with prices, deployments and
+    """Every chat model the given orgs serve, with prices, deployments and
     modalities loaded - the catalog context's one fetch."""
     return (
         await session.exec(
             select(LargeLanguageModel)
             .where(LargeLanguageModel.served_by_org_id.in_(list(org_ids)))
+            .where(LargeLanguageModel.mode == "chat")
             .options(
                 selectinload(LargeLanguageModel.llm_prices),
                 selectinload(LargeLanguageModel.deployments),
@@ -256,11 +339,7 @@ def _usage_window(
 ) -> Any:
     if user_id:
         stmt = stmt.where(LLMUsage.user_id == user_id)
-    if start_time:
-        stmt = stmt.where(LLMUsage.timestamp >= start_time)
-    if end_time:
-        stmt = stmt.where(LLMUsage.timestamp <= end_time)
-    return stmt
+    return stmt.where(*within(LLMUsage.timestamp, start_time, end_time))
 
 
 async def usage_totals(
@@ -443,13 +522,34 @@ async def turns_in_conversations(
     return list((await session.exec(stmt)).all())
 
 
+async def org_icons(session: AsyncSession, keys: Iterable[str]) -> dict[str, str]:
+    """The stored logo of each named org that has one, in one query, keyed
+    by whichever of its slug or name was asked for: a provider is named by
+    its key (``anthropic``), a lab by its display name (``Meta Llama``)."""
+    wanted = set(keys)
+    if not wanted:
+        return {}
+    rows = await session.exec(
+        select(LLMOrg.slug, LLMOrg.name, LLMOrg.icon_b64).where(
+            or_(col(LLMOrg.slug).in_(wanted), col(LLMOrg.name).in_(wanted)),
+            col(LLMOrg.icon_b64).is_not(None),
+        )
+    )
+    found: dict[str, str] = {}
+    for slug, name, icon in rows.all():
+        for key in (slug, name):
+            if key in wanted and icon:
+                found[key] = icon
+    return found
+
+
 async def recent_model_ids(session: AsyncSession, limit: int) -> list[str]:
     """The models most recently used, newest first, each once: from the
     usage ledger, so chat turns and live calls alike."""
     last = func.max(LLMUsage.timestamp)
     rows = await session.exec(
         select(LLMUsage.model_id)
-        .group_by(LLMUsage.model_id)
+        .group_by(col(LLMUsage.model_id))
         .order_by(last.desc())
         .limit(limit)
     )

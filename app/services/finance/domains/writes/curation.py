@@ -12,7 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.services.finance.domains.ledger import categories, merchants, transactions
 from app.services.finance.domains.writes.display import txn_row
 from app.services.finance.schemas import ChangeDisplayRow
-from app.services.finance.utils import stored_owner
+from app.services.shared.queries import stored_owner
 
 
 class CategorizePayload(BaseModel):

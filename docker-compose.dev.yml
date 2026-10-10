@@ -14,6 +14,7 @@ services:
       # falls back to PORT for a raw `docker compose up`.
       - "${WEBSERVER_HOST_PORT:-${PORT:-8000}}:${PORT:-8000}"
     environment:
+      - WATCHFILES_FORCE_POLLING=true
       - PLAID_TUNNEL_METRICS_URL=http://plaid-tunnel:20241
     # Hot reload runs the app twice: the reloader keeps an imported copy
     # beside the worker it restarts (636 MiB idle of production's 768M,
@@ -66,7 +67,7 @@ services:
     entrypoint: sh
     command:
       - -c
-      - npm install --no-audit --no-fund --silent && exec npx tailwindcss -i /code/app/components/web_frontend/static/input.css -o /code/app/components/web_frontend/static/dist/app.css --watch=always --poll
+      - npm install --no-audit --no-fund --silent && exec sh /code/app/components/web_frontend/tailwind_watch.sh
     profiles:
       - dev
 

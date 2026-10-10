@@ -254,7 +254,9 @@ async def rows_context(
             }
             for item in items
         ],
-        "categories": (await list_category_options(service=service)).items,
+        "categories": (
+            await list_category_options(service=service, owner_user_id=owner_user_id)
+        ).items,
         "uncategorized_total": await uncategorized_total(service, owner_user_id),
     }
 
@@ -393,7 +395,9 @@ async def register_context(
         ),
         "total": listing.total,
         "pager": _pager(path, filters, listing.total),
-        "categories": (await list_category_options(service=service)).items,
+        "categories": (
+            await list_category_options(service=service, owner_user_id=owner_user_id)
+        ).items,
         "merchants": (
             await list_merchants(
                 account_ids=None, service=service, owner_user_id=owner_user_id

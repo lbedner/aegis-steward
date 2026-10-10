@@ -302,6 +302,8 @@ def record(
                         speech_result = await ai_service.tts.synthesize(speech_request)
 
                     # Save and play audio
+                    # Created, not just named: mktemp leaves a window for
+                    # another process to take the path first.
                     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                         f.write(speech_result.audio)
                     speech_path = Path(f.name)

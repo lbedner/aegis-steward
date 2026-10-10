@@ -397,7 +397,9 @@ async def categorize_form(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     stream = await _stream(service, stream_id, owner_user_id)
-    categories = await list_category_options(service=service)
+    categories = await list_category_options(
+        service=service, owner_user_id=owner_user_id
+    )
     return dialog(
         request,
         "partials/bills/categorize.html",

@@ -235,7 +235,10 @@ class TestTheCondenseCall:
         async def record(*args: Any, **kwargs: Any) -> None:
             billed.append((args, kwargs))
 
-        monkeypatch.setattr(providers, "get_agent", lambda *_a, **_k: agent)
+        async def get_agent(*_a: Any, **_k: Any) -> Agent:
+            return agent
+
+        monkeypatch.setattr(providers, "get_agent", get_agent)
         monkeypatch.setattr(usage_recording, "record_usage", record)
         conversation = _conversation(4)
         conversation.metadata["user_id"] = "u7"

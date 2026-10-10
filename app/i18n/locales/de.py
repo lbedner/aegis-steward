@@ -31,8 +31,8 @@ MESSAGES: dict[str, str] = {
     "bench.auth.one_only": "Pass only one of --as-admin / --as-user / --anon.",
     "bench.driver.fallback": "Falling back to the {driver} driver: {reason}.",
     "bench.driver.method": "ab cannot issue {method}",
-    "bench.driver.missing": "ab is not installed",    "bench.driver.docker": "no local ab, using the httpd image instead",
-
+    "bench.driver.missing": "ab is not installed",
+    "bench.driver.docker": "no local ab, using the httpd image instead",
     "bench.driver.warning": (
         "This driver tops out below what either engine can serve, so the two "
         "look equal no matter what. Install ab (apache2-utils) for a "
@@ -493,11 +493,6 @@ MESSAGES: dict[str, str] = {
     "tasks.help": "Befehle zur geplanten Aufgabenverwaltung",
     "tasks.help_list": "Alle geplanten Jobs mit aktuellem Status und Details auflisten.",
     # ── Migrate ──────────────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  WARNUNG: Tabelle '{table}' fehlt komplett. "
-        "Manuelle Migration erstellen mit: "
-        "alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "Keine vorhandenen Migrationen gefunden. Zuerst 'make migrate' ausführen.",
     "migrate.checking_schema": "Schema gegen Modelle prüfen...",
     "migrate.applying_pending": "Ausstehende Migrationen werden zuerst angewendet...",
@@ -589,7 +584,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "Aktuell (Lokal)",
     "ai.prov_need_key": "API Key fehlt",
     "ai.prov_not_installed": "Nicht installiert",
-    "ai.prov_error": "Fehler",
     "ai.providers_tip": "Tipp: '{app} ai add-provider <name>' zum Installieren fehlender Anbieter.",
     # Usage panel
     "ai.usage_title": "AI-Nutzungsübersicht",
@@ -861,7 +855,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "Warte auf Lasttest-Abschluss...",
     "loadtest.waiting_elapsed": "Warte auf Abschluss... ({elapsed}s)",
     "loadtest.timeout_progress": "Zeitlimit erreicht",
-    "loadtest.completed_progress": "Lasttest abgeschlossen!",
     # Quick test output
     "loadtest.quick_cpu_title": "Schneller CPU-Lasttest",
     "loadtest.quick_cpu_tasks": "{count} CPU-intensive Tasks",
@@ -930,16 +923,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "Task-ID prüfen und sicherstellen, dass der Test abgeschlossen ist",
     "loadtest.results_failed": "Ergebnisabruf fehlgeschlagen:",
     # Error/timeout display
-    "loadtest.timed_out_title": "Lasttest-Zeitüberschreitung",
     "loadtest.failed_title": "Lasttest fehlgeschlagen",
     "loadtest.error_label": "Fehler:",
     "loadtest.test_id_label": "Test-ID:",
-    "loadtest.what_this_means": "Bedeutung:",
-    "loadtest.timeout_explanation": "Der Orchestrator-Task hat das Zeitlimit überschritten, aber einzelne Worker-Tasks könnten abgeschlossen sein. Das kommt häufig bei großen Lasttests vor, die das Queue-Zeitlimit überschreiten.",
-    "loadtest.to_investigate": "Zur Untersuchung:",
-    "loadtest.tip_check_logs": "Worker-Logs auf einzelne Task-Abschlüsse prüfen",
-    "loadtest.tip_smaller_batch": "Kleinere Batch-Größen für große Tests verwenden",
-    "loadtest.tip_check_metrics": "Queue-Metriken auf tatsächliche Abschlusszahlen prüfen",
     "loadtest.analysis_panel": "Lasttest-Analyse",
     "loadtest.next_steps": "Nächste Schritte:",
     "loadtest.tip_check_worker_logs": "Worker-Logs auf detaillierte Fehlerinformationen prüfen",

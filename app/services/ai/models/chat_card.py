@@ -16,7 +16,7 @@ import uuid
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 
 
 class ChatCard(SQLModel, table=True):

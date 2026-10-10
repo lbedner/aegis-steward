@@ -1,8 +1,8 @@
 """What the LLM catalog needs on boot, in one place.
 
 Two questions, each asked only when the answer could be "nothing yet":
-is the remote catalog populated, and - on an install that runs on
-Ollama - are the locally pulled tags registered. Both are guarded so a
+is the remote catalog populated, and - on an install with the inference
+component - are the locally pulled tags registered. Both are guarded so a
 dev hot-reload never re-runs a sync against a catalog that is already
 current, and both treat an unreachable source as a warning, not a
 failed boot.
@@ -10,7 +10,6 @@ failed boot.
 
 from sqlmodel import Session
 
-from app.core.config import settings
 from app.core.db import engine
 from app.core.log import logger
 from app.services.ai.domains.llm.etl import sync_llm_catalog
@@ -27,8 +26,6 @@ async def seed_llm_catalog() -> None:
         # no API keys, Ollama alone. Without this a fresh Ollama stack
         # opened an empty picker until someone knew to run
         # ``llm sync --source ollama``.
-        if settings.AI_PROVIDER != "ollama":
-            return
         if ollama_models_present(session):
             logger.info("Ollama tags already in the catalog")
             return

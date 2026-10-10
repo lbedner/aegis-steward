@@ -11,13 +11,16 @@ from datetime import UTC, datetime
 import time
 import weakref
 
+from app.core.constants import ComponentName
 from app.core.log import logger
 from app.services.system.health_probes import (
     _get_cached_system_metrics,
     _get_system_info,
     _run_health_check,
+    loop_lock,
 )
 
+from . import container_health
 from .alerts import send_critical_alert, send_health_alert
 from .models import ComponentStatus, ComponentStatusType, SystemStatus
 
@@ -73,12 +76,7 @@ _status_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock
 
 
 def _status_lock() -> asyncio.Lock:
-    loop = asyncio.get_running_loop()
-    lock = _status_locks.get(loop)
-    if lock is None:
-        lock = asyncio.Lock()
-        _status_locks[loop] = lock
-    return lock
+    return loop_lock(_status_locks)
 
 
 def invalidate_status_cache() -> None:
@@ -86,6 +84,23 @@ def invalidate_status_cache() -> None:
     global _status_cache, _status_cache_at
     _status_cache = None
     _status_cache_at = 0.0
+
+
+def last_system_status() -> SystemStatus | None:
+    """Return the last collected snapshot without starting health checks.
+
+    Live pages use this during navigation; their SSE connection owns the
+    periodic collection and broadcasts changes to all viewers.
+    """
+    return _status_cache
+
+
+def registered_health_names() -> dict[str, tuple[str, ...]]:
+    """List installed checks without running the potentially slow probes."""
+    return {
+        "components": tuple(_health_checks),
+        "services": tuple(_service_health_checks),
+    }
 
 
 def register_health_check(
@@ -192,13 +207,17 @@ async def _collect_system_status() -> SystemStatus:
                 response_time_ms=None,
             )
 
+    # Its containers can fail a component's check: Docker's healthcheck, or
+    # memory past its alert share.
+    component_results = await container_health.overlay(component_results)
+
     # Collect system metrics (already running concurrently)
     system_metrics = await metrics_task
 
     # Group system metrics under backend component if it exists
-    if "backend" in component_results:
+    if ComponentName.BACKEND in component_results:
         # Backend exists - recreate with system metrics as sub-components
-        backend_component = component_results["backend"]
+        backend_component = component_results[ComponentName.BACKEND]
 
         # Propagate status from system metrics and original backend status
         system_metrics_statuses = [
@@ -212,7 +231,7 @@ async def _collect_system_status() -> SystemStatus:
 
         backend_status = propagate_status(all_backend_statuses)
 
-        component_results["backend"] = ComponentStatus(
+        component_results[ComponentName.BACKEND] = ComponentStatus(
             name=backend_component.name,
             status=backend_status,
             message=backend_component.message,
@@ -238,8 +257,8 @@ async def _collect_system_status() -> SystemStatus:
             else "System container has issues"
         )
 
-        component_results["backend"] = ComponentStatus(
-            name="backend",
+        component_results[ComponentName.BACKEND] = ComponentStatus(
+            name=ComponentName.BACKEND,
             status=backend_status,
             message=backend_message,
             response_time_ms=None,

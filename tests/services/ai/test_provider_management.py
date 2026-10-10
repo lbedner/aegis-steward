@@ -1,6 +1,7 @@
 """Tests for AI provider management utilities."""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,7 +21,7 @@ from app.services.ai.domains.llm.provider_management import (
     update_env_file,
     validate_provider_name,
 )
-from app.services.ai.models import AIProvider
+from app.services.ai.models import PROVIDERS, AIProvider
 
 
 class TestProviderDependencies:
@@ -319,3 +320,53 @@ class TestMaskApiKey:
         """Empty key returns empty mask."""
         result = mask_api_key("")
         assert result == ""
+
+
+class TestProviderReadiness:
+    """One answer to "can this provider be used right now", shared by the
+    CLI's ``ai providers`` table and the Overseer's AI > Providers page."""
+
+    @pytest.fixture(autouse=True)
+    def installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Every SDK present, so the key is the only variable."""
+        from app.services.ai.domains.llm import provider_management
+
+        monkeypatch.setattr(
+            provider_management, "check_provider_dependency_installed", lambda p: True
+        )
+
+    async def _rows(self, **env: str | None) -> dict[str, Any]:
+        from types import SimpleNamespace
+
+        from app.services.ai.domains.llm.provider_management import provider_readiness
+
+        keys = {spec.env_var: None for spec in PROVIDERS.values()} | env
+        settings = SimpleNamespace(AI_PROVIDER="anthropic", **keys)
+        return {r.provider.value: r for r in await provider_readiness(settings)}
+
+    async def test_a_keyed_provider_is_ready_only_with_its_key(self) -> None:
+        rows = await self._rows(ANTHROPIC_API_KEY="sk-ant-x")
+        assert rows["anthropic"].status == "ready" and rows["anthropic"].current
+        assert rows["openai"].status == "needs_key"
+
+    async def test_a_missing_sdk_is_not_installed_whatever_the_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services.ai.domains.llm import provider_management
+
+        monkeypatch.setattr(
+            provider_management, "check_provider_dependency_installed", lambda p: False
+        )
+        assert (await self._rows(ANTHROPIC_API_KEY="sk-ant-x"))["anthropic"].status == (
+            "not_installed"
+        )
+
+    async def test_keyless_endpoints_never_need_a_key(self) -> None:
+        rows = await self._rows()
+        for name in ("public", "pollinations", "ollama"):
+            assert rows[name].keyless and rows[name].status != "needs_key"
+
+    async def test_names_read_like_the_brands(self) -> None:
+        rows = await self._rows()
+        assert rows["openai"].label == "OpenAI" and rows["public"].label == "LLM7.io"
+        assert rows["anthropic"].label == "Anthropic"

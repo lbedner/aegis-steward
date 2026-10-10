@@ -21,8 +21,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import get_async_session, init_database
 from app.core.log import logger
+from app.core.time import as_stored, utcnow
 from app.models.conversation import Conversation as ConversationModel
 from app.models.conversation import ConversationMessage as MessageModel
+from app.services.ai.domains.chat import queries
 from app.services.ai.domains.chat.summary import SUMMARY_KEY, merged_summary
 from app.services.ai.models import (
     AIProvider,
@@ -262,7 +264,7 @@ class ConversationManager:
 
         from datetime import timedelta
 
-        cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+        cutoff = utcnow() - timedelta(hours=max_age_hours)
 
         async with get_async_session() as session:
             # Find IDs of old conversations
@@ -366,31 +368,38 @@ class ConversationManager:
             ):
                 meta_data[SUMMARY_KEY] = summary
             conv_db.title = conversation.title
-            conv_db.updated_at = conversation.updated_at
+            conv_db.updated_at = as_stored(conversation.updated_at)
             conv_db.meta_data = meta_data
         else:
             conv_db = ConversationModel(
                 id=conversation.id,
                 title=conversation.title,
                 user_id=conversation.user_id or "default",
-                created_at=conversation.created_at,
-                updated_at=conversation.updated_at,
+                created_at=as_stored(conversation.created_at),
+                updated_at=as_stored(conversation.updated_at),
                 meta_data=meta_data,
             )
             session.add(conv_db)
 
-        for message in conversation.messages:
-            msg_db = await session.get(MessageModel, message.id)
-            if not msg_db:
-                session.add(
-                    MessageModel(
-                        id=message.id,
-                        conversation_id=conversation.id,
-                        role=message.role.value,
-                        content=message.content,
-                        timestamp=message.timestamp,
-                        meta_data=message.metadata,
-                    )
-                )
+        # One membership query for the whole thread: ``session.get`` per
+        # message misses the identity map for every message not yet saved,
+        # so a seven-message save was seven selects before its inserts.
+        saved_ids = await queries.existing_message_ids(
+            session, (m.id for m in conversation.messages)
+        )
+        session.add_all(
+            MessageModel(
+                id=message.id,
+                conversation_id=conversation.id,
+                role=message.role.value,
+                content=message.content,
+                # Naive UTC: asyncpg rejects an aware value for a
+                # ``timestamp without time zone`` column.
+                timestamp=as_stored(message.timestamp),
+                meta_data=message.metadata,
+            )
+            for message in conversation.messages
+            if message.id not in saved_ids
+        )
 
         await session.commit()

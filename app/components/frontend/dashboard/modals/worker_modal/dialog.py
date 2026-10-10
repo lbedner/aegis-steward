@@ -10,6 +10,7 @@ import contextlib
 import flet as ft
 
 from app.components.frontend.controls.tabs import PulseTabs
+from app.core.constants import ComponentName
 from app.services.system.models import ComponentStatus
 from app.services.system.ui import get_component_subtitle, get_component_title
 
@@ -38,6 +39,9 @@ class WorkerDetailDialog(BaseDetailPopup):
         Args:
             component_data: Worker ComponentStatus from health check
         """
+        # Kept for the live feed: ``self.page`` is only set once mounted,
+        # which the first ``show`` can precede.
+        self._feed_page = page
         # Build sections (store references for live updates)
         self._overview = OverviewSection(component_data, page)
         self._queue_health = QueueHealthSection(component_data, page)
@@ -96,13 +100,29 @@ class WorkerDetailDialog(BaseDetailPopup):
         super().__init__(
             page=page,
             component_data=component_data,
-            title_text=get_component_title("worker"),
-            subtitle_text=get_component_subtitle("worker", component_data.metadata),
+            title_text=get_component_title(ComponentName.WORKER),
+            subtitle_text=get_component_subtitle(
+                ComponentName.WORKER, component_data.metadata
+            ),
             sections=[tabs],
             status_detail=status_detail,
             scrollable=False,
             height=self.WORKER_MODAL_HEIGHT,
         )
+
+    def show(self) -> None:
+        """Show, and start the live feed: it only runs while this is open."""
+        super().show()
+        stream = (self._feed_page.data or {}).get("worker_stream")
+        if stream is not None:
+            stream.start()
+
+    def hide(self) -> None:
+        """Hide, and stop the live feed. Every close path ends up here."""
+        super().hide()
+        stream = (self._feed_page.data or {}).get("worker_stream")
+        if stream is not None:
+            stream.stop()
 
     def update_data(self, component_data: ComponentStatus) -> None:
         """Update all sections with fresh data (mutates existing controls)."""

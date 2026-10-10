@@ -13,13 +13,14 @@ from starlette.responses import Response
 
 from app.components.web_frontend.rendering import (
     dialog_done,
+    go_to,
     hx_dialog,
     hx_dialog_post,
     navigate,
     templates,
     with_toast,
 )
-from tests.web.dom import none, one, select, text
+from tests.web.dom import none, one, select, text, triggers
 
 
 class TestWithToast:
@@ -166,3 +167,39 @@ class TestDialogHelpers:
         assert json.loads(response.headers["HX-Location"])["path"] == "/accounts/3"
         fired = json.loads(response.headers["HX-Trigger"])
         assert "dialog:close" in fired and fired["toast"]["text"] == "Added Ally."
+
+
+class TestGoTo:
+    def test_replaces_the_target_with_its_twin_from_the_page(self) -> None:
+        """The page answers with its whole shell; swapping that into the
+        target nests a second sidebar inside the first. Selecting the
+        target out of the answer is the ``hx_replace`` recipe."""
+        response = go_to("/overseer/services/blog/posts", "Saved", "#overseer-main")
+        assert json.loads(response.headers["HX-Location"]) == {
+            "path": "/overseer/services/blog/posts",
+            "target": "#overseer-main",
+            "select": "#overseer-main",
+            "swap": "outerHTML",
+        }
+        assert triggers(response)["toast"]["text"] == "Saved"
+
+
+def _layer(html: str, css: str) -> int:
+    """The z-index a Tailwind class gives an element (``z-50``, ``z-[60]``)."""
+    import re
+
+    classes = one(html, css).get("class")
+    return int(re.search(r"\bz-\[?(\d+)\]?", classes).group(1))
+
+
+def test_a_toast_shows_over_the_side_drawer() -> None:
+    """A save from inside the drawer says so in a toast; a toast under the
+    drawer (both sit at the right edge) reads as a save that did nothing."""
+    env = templates.env
+    toasts = env.from_string(
+        '{% from "components/macros/feedback.html" import toast_region %}{{ toast_region() }}'
+    ).render()
+    drawer = env.from_string(
+        '{% from "components/macros/layout.html" import drawer %}{{ drawer() }}'
+    ).render()
+    assert _layer(toasts, "#toasts") > _layer(drawer, "#drawer")

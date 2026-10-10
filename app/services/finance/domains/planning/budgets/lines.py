@@ -37,8 +37,8 @@ from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     current_period_month,
     shift_period,
-    stored_owner,
 )
+from app.services.shared.queries import stored_owner
 
 
 def budget_line_status(

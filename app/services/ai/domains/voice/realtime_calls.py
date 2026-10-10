@@ -252,7 +252,7 @@ async def realtime_for(
         config = replace(
             config, system_prompt=f"{instructions}\n\n{config.system_prompt}"
         )
-    agent, history = ai_service._prepare_agent_and_context(
+    agent, history = await ai_service._prepare_agent_and_context(
         conversation, agent_config=config
     )
     return agent.realtime(

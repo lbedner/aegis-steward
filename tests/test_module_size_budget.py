@@ -50,18 +50,23 @@ BUDGET: dict[str, int] = {
     "i18n/locales/ko.py": 1269,
     "i18n/locales/zh_hant.py": 1266,
     "components/frontend/controls/data_table/table.py": 746,
-    "components/frontend/main.py": 1047,
-    "components/web_frontend/routes/finance/transactions.py": 781,
-    "services/finance/adapters/importers/imports.py": 808,
-    "cli/finance.py": 651,
+    "components/web_frontend/routes/finance/transactions.py": 790,
+    "services/finance/adapters/importers/imports.py": 813,
+    "cli/finance.py": 652,
     "components/web_frontend/routes/finance/settings.py": 693,
     "components/web_frontend/routes/finance/account_manage.py": 675,
     "components/web_frontend/routes/finance/bills.py": 634,
     "services/finance/domains/ledger/queries/transactions.py": 581,
     "services/finance/domains/ledger/merchants.py": 570,
     "services/system/health_db_sqlite.py": 550,
-    "core/config.py": 586,
-    "components/backend/api/worker.py": 501,
+    # The template catch-up to aegis-stack 44a3670 (2026-10-09): the
+    # template's own growth in shared modules, recorded rather than split
+    # so the next update merges cleanly.
+    "components/web_frontend/rendering.py": 637,
+    "services/ai/domains/llm/queries.py": 556,
+    "components/web_frontend/filters.py": 531,
+    "core/formatting.py": 505,
+    "core/config.py": 752,
 }
 
 

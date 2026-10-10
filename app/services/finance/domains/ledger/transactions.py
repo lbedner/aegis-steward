@@ -28,9 +28,9 @@ from app.services.finance.utils import (
     DEFAULT_CURRENCY,
     current_date,
     month_start_before,
-    stored_owner,
     utcnow,
 )
+from app.services.shared.queries import stored_owner
 
 
 async def transaction_exists(

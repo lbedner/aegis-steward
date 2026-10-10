@@ -19,7 +19,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
 from app.services.finance.domains.detection import queries
-from app.services.finance.utils import stored_owner
+from app.services.shared.queries import stored_owner
 
 # Category-name prefixes (case-insensitive) that mark a member transaction
 # as bill-curated. Matched against the category NAME (the first two path

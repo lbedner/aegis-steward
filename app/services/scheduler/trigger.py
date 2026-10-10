@@ -37,8 +37,10 @@ async def run_triggered_job(
     job_name: str,
     args: Sequence[Any] = (),
 ) -> bool:
-    """Run a manually-triggered job and record its execution.
+    """Run a manually-triggered job with its stored ``args`` and record it.
 
+    The stored call is repeated as scheduled: in a stack with a worker that
+    is an enqueue, so the job itself runs on the worker, not in this process.
     Async jobs are awaited; sync jobs go to a threadpool. The run is written
     to the same execution history as scheduled runs, so it shows up in the
     History view. Returns ``True`` on success, ``False`` if the job raised

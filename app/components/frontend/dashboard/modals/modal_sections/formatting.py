@@ -2,45 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 import flet as ft
 
 from app.components.frontend.controls import (
     StatusDot,
 )
 from app.components.frontend.theme import AegisTheme as Theme
-
-
-def format_duration_ms(duration_ms: int | float | str | None) -> str:
-    """Format milliseconds to human-readable duration (e.g., '1.2s', '3m 45s')."""
-    if not duration_ms:
-        return "\u2014"
-    try:
-        ms = float(duration_ms)
-        if ms < 1000:
-            return f"{ms:.0f}ms"
-        s = ms / 1000
-        if s < 60:
-            return f"{s:.1f}s"
-        m = int(s // 60)
-        s = s % 60
-        return f"{m}m {s:.0f}s"
-    except (ValueError, TypeError):
-        return "\u2014"
-
-
-def format_timestamp(iso_str: str | None) -> str:
-    """Format ISO timestamp for display (HH:MM:SS)."""
-    if not iso_str:
-        return "\u2014"
-    try:
-        from datetime import datetime
-
-        dt = datetime.fromisoformat(iso_str)
-        return dt.strftime("%H:%M:%S")
-    except (ValueError, TypeError):
-        return "\u2014"
 
 
 def headline_stat_color(cents: int) -> str:
@@ -51,26 +18,6 @@ def headline_stat_color(cents: int) -> str:
     no longer stands out.
     """
     return Theme.Colors.ERROR if cents < 0 else Theme.Colors.TEXT_PRIMARY
-
-
-def row_matches(query: str, values: Iterable[object]) -> bool:
-    """Does this row match a search box, looking at EVERY column?
-
-    The tabs that hold their whole dataset (Bills & Income, Payees) filter
-    in memory, and each of them used to match its name column alone while
-    rendering five or six. Searching a category or an account then came
-    back empty, which reads as "no such row" rather than "that column is
-    not searched".
-
-    Callers pass the same values they render, so the rule stays "if you
-    can see it, you can search it" without this needing to know their
-    shapes. The register is not a caller: it pages, so it searches
-    server-side (``transaction_search_filter``).
-    """
-    needle = (query or "").strip().casefold()
-    if not needle:
-        return True
-    return any(needle in str(value).casefold() for value in values if value is not None)
 
 
 def date_cell(

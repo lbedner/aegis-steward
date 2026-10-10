@@ -1,0 +1,39 @@
+{% from "components/macros/layout.html" import card, resource_bar, stats_strip %}
+{% from "pages/overseer/_macros.html" import status_card %}
+{% set meta = component.metadata or {} %}
+{% set deprecated = meta.get("deprecated_count") or 0 %}
+{# Endpoints only apart from routes (ui_backend.endpoints_apart). #}
+<div class="space-y-4">
+  {{ stats_strip([
+    {"label": "Routes", "value": meta.get("total_routes", "-"), "caption": (deprecated ~ " deprecated") if deprecated else none},
+  ] + ([{"label": "Endpoints", "value": endpoints}] if endpoints is not none else []) + [
+    {"label": "Middleware", "value": meta.get("total_middleware", "-")},
+    {"label": "Security layers", "value": meta.get("security_count", "-")},
+  ], id="server-api") }}
+  <div class="grid gap-4 {{ 'lg:grid-cols-3' if host_figures else 'lg:grid-cols-2' }}">
+    {# The machine it runs on, only without containers to read
+       (overseer_server.overview_context). #}
+    {% if host_figures %}
+    <div class="lg:col-span-2">
+      {% call card("Resources", "Current snapshot") %}
+        <div class="space-y-6">
+          {% for key, label in [("cpu", "CPU"), ("memory", "Memory"), ("disk", "Disk")] %}
+            {% set metric = component.sub_components.get(key) %}
+            {% set data = metric.metadata if metric else {} %}
+            {% set detail = "" %}
+            {% if key == "cpu" and data.get("cpu_count") %}
+              {% set detail = data.cpu_count ~ " logical cores" %}
+            {% elif key == "memory" and data.get("total_gb") is number and data.get("available_gb") is number %}
+              {% set detail = "%.1f GB used of %.1f GB"|format(data.total_gb - data.available_gb, data.total_gb) %}
+            {% elif key == "disk" and data.get("total_gb") is number and data.get("free_gb") is number %}
+              {% set detail = "%.1f GB free of %.1f GB"|format(data.free_gb, data.total_gb) %}
+            {% endif %}
+            {{ resource_bar(label, metric, detail) }}
+          {% endfor %}
+        </div>
+      {% endcall %}
+    </div>
+    {% endif %}
+    {{ status_card(component, "backend", [("HTTP methods", methods or "-")]) }}
+  </div>
+</div>

@@ -11,7 +11,7 @@ from typing import Any, get_args
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 from app.core.voice_settings import (
     LIVE_IDLE_MAX_SECONDS,
     TTS_SPEED_MAX,

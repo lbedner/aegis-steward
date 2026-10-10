@@ -63,6 +63,10 @@ def store(monkeypatch: pytest.MonkeyPatch) -> _FakeStore:
         def from_url(_url: str) -> _FakeStore:
             return fake
 
+        @staticmethod
+        def shared() -> _FakeStore:
+            return fake
+
     monkeypatch.setattr(
         "app.services.system.job_store.RedisJobStore", _Factory, raising=True
     )

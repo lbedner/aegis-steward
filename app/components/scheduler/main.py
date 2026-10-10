@@ -1,11 +1,12 @@
 """
 Scheduler component for aegis-steward.
 
-Simple, explicit job scheduling - just import functions and schedule them.
-Add your own jobs by importing service functions and calling scheduler.add_job().
+Schedules every service's jobs (``app.core.schedule``): a service lists its
+own in ``app/services/<service>/scheduled_jobs.py``.
 """
 
 import asyncio
+from datetime import datetime
 import logging
 from typing import Any
 
@@ -18,20 +19,13 @@ from apscheduler.events import (
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app.components.worker.pools import enqueue_task
+from app.core.boot import apply_saved_overrides
 from app.core.config import settings
+from app.core.constants import ComponentName, QueueName
 from app.core.db import db_session, engine, init_database
 from app.core.log import logger
-from app.services.ai.jobs import analyze_sentiment_job, sync_llm_catalog_job
-from app.services.documents.domains.reading.filing import reread_unfiled_job
-from app.services.documents.domains.reading.joins import join_arrivals_job
-from app.services.finance.jobs import (
-    finance_bill_due_email_job,
-    finance_envelope_credit_job,
-    finance_goal_auto_contribute_job,
-    finance_recompute_snapshots_job,
-    finance_sync_connections_job,
-)
-from app.services.matters.jobs import matters_deadline_nag_job
+from app.core.schedule import service_jobs
 from app.services.scheduler.execution_log import (
     cancel_stale_running_rows,
     prune_executions,
@@ -41,11 +35,9 @@ from app.services.scheduler.execution_log import (
 )
 from app.services.scheduler.orphans import drop_unknown_persisted_jobs
 from app.services.system import activity
-from app.services.system.backup import backup_database_job
 
-from .handoff import enqueue_task
 from .heartbeat import is_heartbeat_event, register_heartbeat_job
-from .wakeup import StewardScheduler
+from .resilient import ResilientScheduler
 
 
 def _cleanup_stale_jobs() -> None:
@@ -72,7 +64,7 @@ def _cleanup_stale_jobs() -> None:
                 if ":" in func_ref:
                     module_name = func_ref.split(":")[0]
                     __import__(module_name)
-            except (ImportError, ModuleNotFoundError):
+            except ImportError, ModuleNotFoundError:
                 stale_ids.append(job_id)
             except Exception:
                 pass
@@ -92,38 +84,48 @@ def _cleanup_stale_jobs() -> None:
         logger.debug(f"Stale job cleanup skipped: {e}")
 
 
-async def _apply_active_model() -> None:
-    """Replay the stored active-model selection into this process's settings.
+# Interval jobs count from this fixed start, not from when the process
+# started. Every startup re-adds each job, and an interval with no start date
+# counts from that moment, so each restart pushed every interval job back a
+# full interval (a daily job restarted more than daily never ran). Anchored,
+# runs land on fixed boundaries: every 24h at midnight, every 6h at 00/06/12/
+# 18, hourly on the hour, in the scheduler's timezone.
+INTERVAL_ANCHOR = datetime(2000, 1, 1)
 
-    Mirrors the backend's ``llm_active_model`` startup hook. A missing table
-    (migrations not yet run) must not stop the scheduler from booting: without
-    an override the .env default is already correct.
+
+def register_service_jobs(scheduler: AsyncIOScheduler) -> None:
+    """Schedule every service job (``service_jobs``).
+
+    The scheduler only produces: each job is scheduled as an enqueue of its
+    task name onto the system queue, and a worker runs it. A manual run
+    repeats the stored call, so it lands on the worker too.
     """
-    from app.core.config import settings
-    from app.core.db import get_async_session
-    from app.services.ai.domains.llm import active_model
-
-    try:
-        async with get_async_session() as session:
-            applied = await active_model.load_into_settings(session, settings)
-    except Exception:
-        logger.exception("Could not load the active LLM selection")
-        return
-    if applied:
-        logger.info(
-            "Active LLM selection applied: %s (%s)",
-            settings.AI_MODEL,
-            settings.AI_PROVIDER,
+    for job in service_jobs():
+        trigger = dict(job.trigger)
+        if trigger.get("trigger") == "interval":
+            trigger.setdefault("start_date", INTERVAL_ANCHOR)
+        scheduler.add_job(
+            enqueue_task,
+            args=[job.task_name, QueueName.SYSTEM],
+            id=job.id,
+            name=job.name,
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+            **trigger,
         )
+
+
+def _quiet_successful_runs() -> None:
+    """APScheduler logs every run at INFO ("Running job", "executed
+    successfully"); the heartbeat alone writes two lines every 15 seconds.
+    Failures still log at ERROR."""
+    logging.getLogger("apscheduler.executors").setLevel(logging.WARNING)
 
 
 def create_scheduler() -> AsyncIOScheduler:
     """Create and configure the scheduler with all jobs."""
-
-    # APScheduler logs every run at INFO: two lines per heartbeat every 15s,
-    # and every other run is an enqueue the worker logs for real. Failures
-    # still log at ERROR.
-    logging.getLogger("apscheduler.executors").setLevel(logging.WARNING)
+    _quiet_successful_runs()
 
     # Ensure database is initialized before creating jobstore
     init_database()
@@ -139,184 +141,18 @@ def create_scheduler() -> AsyncIOScheduler:
     # (host sleep, container pause, deploy gap). Assumes jobs are idempotent.
     # coalesce=True collapses multiple missed runs into a single catch-up.
     job_defaults = {"misfire_grace_time": None, "coalesce": True}
-    scheduler = StewardScheduler(
+    scheduler = ResilientScheduler(
         jobstores=jobstores,
         job_defaults=job_defaults,
         timezone=settings.SCHEDULER_TIMEZONE,
     )
     logger.info("Scheduler using sqlite database for job persistence")
 
-    # JOB SCHEDULE CONFIGURATION - code is the source of truth. Every startup
-    # re-registers each job below via ``replace_existing=True``, so editing a
-    # trigger here and redeploying changes the schedule; runtime edits to
-    # persisted jobs do not survive a restart by design.
+    # Code is the source of truth: every startup re-registers each job via
+    # ``replace_existing=True``, so runtime edits to persisted jobs do not
+    # survive a restart by design.
     register_heartbeat_job(scheduler)
-
-    scheduler.add_job(
-        enqueue_task,
-        args=[backup_database_job.__name__],
-        trigger="cron",
-        hour=2,
-        minute=0,
-        id="database_backup",
-        name="Daily Database Backup",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Before the joins: paper that arrived before the household knew what
-    # it was about is filed once a fact it prints has landed (#409), so
-    # the joins below see it on its account.
-    scheduler.add_job(
-        enqueue_task,
-        args=[reread_unfiled_job.__name__],
-        trigger="cron",
-        hour=22,
-        minute=30,
-        id="reread_unfiled",
-        name="Read The Unfiled Pile Again",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # After the day's post has been read: what arrived is joined to the
-    # asks it answers, as cards. Late in the evening because a document
-    # read at 6pm should be joined the same night, and idempotent, so a
-    # missed run simply catches up.
-    scheduler.add_job(
-        enqueue_task,
-        args=[join_arrivals_job.__name__],
-        trigger="cron",
-        hour=23,
-        minute=0,
-        id="join_arrivals",
-        name="Join The Day's Arrivals",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    scheduler.add_job(
-        enqueue_task,
-        args=[sync_llm_catalog_job.__name__],
-        trigger="interval",
-        hours=6,
-        id="llm_sync",
-        name="LLM Catalog Sync",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    scheduler.add_job(
-        enqueue_task,
-        args=[analyze_sentiment_job.__name__],
-        trigger="interval",
-        hours=1,
-        id="sentiment_analysis",
-        name="Conversation Sentiment Analysis",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Net-worth engine: materialize per-account balance + per-user net-worth
-    # snapshots nightly so the net-worth-over-time chart is a cheap range scan.
-    scheduler.add_job(
-        enqueue_task,
-        args=[finance_recompute_snapshots_job.__name__],
-        trigger="cron",
-        hour=2,
-        id="finance_recompute_snapshots",
-        name="Finance: Recompute Net-Worth Snapshots",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-    # Goals: book toggled-on virtual goals' declared amounts on the 1st.
-    # Idempotent per month, so a missed run caught up later books nothing
-    # twice - the plan saves unless actively paused.
-    scheduler.add_job(
-        enqueue_task,
-        args=[finance_goal_auto_contribute_job.__name__],
-        trigger="cron",
-        day=1,
-        hour=2,
-        minute=45,
-        id="finance_goal_auto_contribute",
-        name="Finance: Auto-Contribute to Goals",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Envelopes: the allowance arrives on its cadence (weekly credits
-    # land Mondays), so the job checks DAILY and the per-period
-    # idempotency inside it decides whether anything books.
-    scheduler.add_job(
-        enqueue_task,
-        args=[finance_envelope_credit_job.__name__],
-        trigger="cron",
-        hour=2,
-        minute=50,
-        id="finance_envelope_credit",
-        name="Finance: Credit Envelopes",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Keep linked banks fresh: pull new transactions/balances a few times a day
-    # so the register isn't stale between logins (webhooks handle the real-time
-    # nudge when a public URL is configured).
-    scheduler.add_job(
-        enqueue_task,
-        args=[finance_sync_connections_job.__name__],
-        trigger="interval",
-        hours=6,
-        id="finance_sync_connections",
-        name="Finance: Sync Bank Connections",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Morning, after the overnight passes: what is due in the next few
-    # days, mailed once. Does nothing at all until FINANCE_BILL_EMAIL_TO
-    # is set, so an unconfigured project mails nobody.
-    scheduler.add_job(
-        enqueue_task,
-        args=[finance_bill_due_email_job.__name__],
-        trigger="cron",
-        hour=7,
-        minute=0,
-        id="finance_bill_due_email",
-        name="Finance: Email Bills Coming Due",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Early, before the day's work: a deadline you hear about in the
-    # morning is one you can still do something about, and the sidebar's
-    # dot only ever appeared once the day had passed.
-    scheduler.add_job(
-        enqueue_task,
-        args=[matters_deadline_nag_job.__name__],
-        trigger="cron",
-        hour=6,
-        minute=30,
-        id="matters_deadline_nag",
-        name="Matters: Nag Approaching Deadlines",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-
-    # Add your own scheduled jobs here by importing service functions
-    # and calling scheduler.add_job() with your custom business logic
+    register_service_jobs(scheduler)
 
     # Drop persisted jobs whose ``add_job`` call has been removed from
     # code since the last deploy. ``replace_existing=True`` covers the
@@ -333,12 +169,9 @@ async def run_scheduler() -> None:
 
     logger.info("Starting aegis-steward Scheduler")
 
-    # The active model is a database row, and startup hooks are a backend
-    # concern this process never runs. Without replaying the selection here,
-    # the scheduler would keep answering on whatever .env said while the
-    # webserver used the model you actually picked - so a nightly AI job and
-    # the dashboard would quietly disagree about which model is in use.
-    await _apply_active_model()
+    # Startup hooks are the webserver's; without this the scheduler's jobs
+    # would run on .env while the webserver used what the Overseer saved.
+    await apply_saved_overrides()
 
     scheduler = create_scheduler()
 
@@ -372,7 +205,7 @@ async def run_scheduler() -> None:
             return
         if event.code == EVENT_JOB_EXECUTED:
             activity.add_event(
-                component="scheduler",
+                component=ComponentName.SCHEDULER,
                 event_type="job_complete",
                 message=f"Job '{event.job_id}' completed",
                 status="success",
@@ -385,7 +218,7 @@ async def run_scheduler() -> None:
             prune_executions(event.job_id)
         elif event.code == EVENT_JOB_ERROR:
             activity.add_event(
-                component="scheduler",
+                component=ComponentName.SCHEDULER,
                 event_type="job_failed",
                 message=f"Job '{event.job_id}' failed",
                 status="error",
@@ -401,7 +234,7 @@ async def run_scheduler() -> None:
             prune_executions(event.job_id)
         elif event.code == EVENT_JOB_MISSED:
             activity.add_event(
-                component="scheduler",
+                component=ComponentName.SCHEDULER,
                 event_type="job_missed",
                 message=f"Job '{event.job_id}' missed its scheduled run",
                 status="warning",

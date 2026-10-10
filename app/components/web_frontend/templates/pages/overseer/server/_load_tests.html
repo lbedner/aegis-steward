@@ -1,0 +1,20 @@
+{# Start a load test against one of this app's routes, and the runs, the
+   CLI's included. The form is Routes' request form for the route picked,
+   with requests and clients; the run list streams while the page is open. #}
+{% from "components/macros/layout.html" import card %}
+{% from "components/macros/form.html" import field, select %}
+<div class="space-y-4">
+  {% call card("New run", "In this server, against the app itself") %}
+  <div class="space-y-3">
+    {% call field("Route") %}
+    <div hx-get="{{ requests_partials }}/form?mode=load" hx-trigger="change" hx-include="find select" hx-target="#load-test-form" hx-swap="innerHTML">
+      {{ select("route", targets, selected=picked, blank=None, block=True) }}
+    </div>
+    {% endcall %}
+    <div id="load-test-form">{{ form_html }}</div>
+  </div>
+  {% endcall %}
+  <div id="server-load-tests-live" hx-ext="sse" sse-connect="{{ events }}">
+    <div sse-swap="{{ event }}" hx-target="this">{% include "pages/overseer/server/_load_test_runs.html" %}</div>
+  </div>
+</div>

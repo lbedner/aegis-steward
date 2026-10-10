@@ -28,7 +28,8 @@ from app.services.finance.domains.detection.analyst.shared import (
 )
 from app.services.finance.domains.detection.insights import pace_day
 from app.services.finance.models import FinanceAnalystSnapshot, FinanceInsight
-from app.services.finance.utils import current_date, stored_owner
+from app.services.finance.utils import current_date
+from app.services.shared.queries import stored_owner
 
 
 class SectionCommentary(BaseModel):

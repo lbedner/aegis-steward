@@ -25,8 +25,8 @@ import httpx
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.clock import utcnow
 from app.core.encryption import decrypt_secret, encrypt_secret
+from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.errors import ProviderError
 from app.services.finance.constants import (
@@ -36,7 +36,8 @@ from app.services.finance.constants import (
     sync_source,
 )
 from app.services.finance.models import FinanceConnection
-from app.services.finance.utils import stored_owner, to_cents
+from app.services.finance.utils import to_cents
+from app.services.shared.queries import stored_owner
 
 logger = logging.getLogger(__name__)
 

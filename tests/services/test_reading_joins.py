@@ -229,7 +229,7 @@ class TestTheDailyPass:
     ) -> None:
         from datetime import timedelta
 
-        from app.core.clock import utcnow
+        from app.core.time import utcnow
         from app.services.documents.domains.reading.joins import join_recent_arrivals
         from app.services.documents.models import Document
 
@@ -288,11 +288,12 @@ class TestTheScheduledPass:
 
     def test_the_job_is_registered_daily(self) -> None:
         """A task nobody registered never runs."""
-        source = (
-            __import__("pathlib").Path("app/components/scheduler/main.py").read_text()
-        )
-        assert "join_arrivals_job" in source
-        assert 'id="join_arrivals"' in source
+        from app.services.documents.domains.reading import joins
+        from app.services.documents.scheduled_jobs import JOBS
+
+        (job,) = [job for job in JOBS if job.id == "join_arrivals"]
+        assert job.func is joins.join_arrivals_job
+        assert job.trigger["trigger"] == "cron"
 
 
 class TestTheGate:

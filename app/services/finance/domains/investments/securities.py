@@ -21,8 +21,8 @@ from app.services.finance.models import (
 )
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
-    stored_owner,
 )
+from app.services.shared.queries import stored_owner
 
 # Holdings store quantity as units x 1e8 (``quantity_e8``); prices are scaled
 # integers (``price / 10**price_scale`` = unit price).

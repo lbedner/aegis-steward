@@ -8,7 +8,6 @@ give it back.
 from __future__ import annotations
 
 from datetime import date, datetime
-import re
 
 from fastapi import (
     APIRouter,
@@ -23,21 +22,15 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from app.components.backend.api.documents.pages import router as pages_router
-from app.services.documents.deps import get_document_service, get_owner_user_id
+from app.core.formatting import safe_filename
+from app.services.documents.deps import get_document_service
 from app.services.documents.models import Document
 from app.services.documents.service import DocumentService, ProtectedDocumentError
+from app.services.shared.deps import get_owner_user_id
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 _NOT_FOUND = "Document not found"
-# Anything that could end a header line or a quoted filename. The title is
-# user input and lands in Content-Disposition, so a stray newline there is
-# header injection, not a formatting nuisance.
-_UNSAFE_FILENAME = re.compile(r'[\r\n"\\]+')
-
-
-def _safe_filename(title: str) -> str:
-    return _UNSAFE_FILENAME.sub("", title).strip() or "document"
 
 
 class DocumentResponse(BaseModel):
@@ -246,7 +239,7 @@ async def download_document(
         media_type=document.media_type or "application/octet-stream",
         headers={
             "Content-Disposition": (
-                f'inline; filename="{_safe_filename(document.title)}"'
+                f'inline; filename="{safe_filename(document.title)}"'
             ),
         },
     )

@@ -9,7 +9,7 @@ caller) imports them from one place.
 
 from typing import Any
 
-from app.services.ai.config import get_ai_config
+from app.services.ai.config import AIServiceConfig, get_ai_config
 from app.services.ai.domains.chat.conversation import ConversationManager
 from app.services.ai.domains.voice import STTService, TTSService
 
@@ -38,10 +38,16 @@ class AIServiceBase:
     def __init__(self, settings: Any):
         """Initialize AI service with configuration."""
         self.settings = settings
-        self.config = get_ai_config(settings)
         self.conversation_manager = ConversationManager()
         self._stt_service: STTService | None = None
         self._tts_service: TTSService | None = None
+
+    @property
+    def config(self) -> AIServiceConfig:
+        """The config from ``settings`` as they stand: the service is built
+        once at import, and a value saved in the Overseer (applied as the
+        process boots) or a model picked elsewhere applies on the next call."""
+        return get_ai_config(self.settings)
 
     @property
     def stt(self) -> STTService:
@@ -58,12 +64,8 @@ class AIServiceBase:
         return self._tts_service
 
     def refresh_config(self) -> None:
-        """Rebuild config from the live settings singleton.
-
-        The service is constructed once at import, so its config would
-        otherwise be frozen at whatever was active then. Callers that change
-        the model - the runtime override, or a slash command writing .env -
-        call this so the next request uses the new value.
+        """Point the service at the live settings singleton, so ``config``
+        reads the values a runtime override or a slash command applied.
 
         Reads the process-wide ``settings`` rather than a fresh ``Settings()``:
         re-reading .env here would discard a runtime override, which lives in
@@ -72,4 +74,3 @@ class AIServiceBase:
         from app.core.config import settings as live_settings
 
         self.settings = live_settings
-        self.config = get_ai_config(live_settings)

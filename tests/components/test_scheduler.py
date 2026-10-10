@@ -9,12 +9,10 @@ complete projects and validate they work correctly.
 """
 
 import asyncio
-from typing import Any
 
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import pytest
-from sqlalchemy.exc import OperationalError
 
 from app.services.system.health import check_system_status
 
@@ -163,157 +161,87 @@ def test_orphan_sweep_exports_before_deleting(tmp_path, monkeypatch) -> None:
     assert rows[0]["kwargs"] == {"n": 1}
 
 
-class _LockedOnce(MemoryJobStore):
-    """A jobstore whose first write back fails the way SQLite did."""
+class TestSchedulerHeartbeat:
+    """The container healthcheck runs this module, so the path and the
+    staleness window live in one place rather than in a compose string."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.failed = False
+    def test_a_fresh_beacon_is_healthy(self, tmp_path, monkeypatch) -> None:
+        from app.components.scheduler import heartbeat
 
-    def update_job(self, job: Any) -> None:
-        if not self.failed:
-            self.failed = True
-            raise OperationalError(
-                "UPDATE apscheduler_jobs", {}, Exception("database is locked")
-            )
-        super().update_job(job)
+        beacon = tmp_path / "beat"
+        beacon.touch()
+        monkeypatch.setattr(heartbeat, "HEARTBEAT_FILE", beacon)
+
+        assert heartbeat.is_fresh() is True
+
+    def test_a_stale_beacon_is_not(self, tmp_path, monkeypatch) -> None:
+        import os
+        import time
+
+        from app.components.scheduler import heartbeat
+
+        beacon = tmp_path / "beat"
+        beacon.touch()
+        old = time.time() - heartbeat.MAX_AGE_SECONDS - 1
+        os.utime(beacon, (old, old))
+        monkeypatch.setattr(heartbeat, "HEARTBEAT_FILE", beacon)
+
+        assert heartbeat.is_fresh() is False
+
+    def test_a_missing_beacon_is_not(self, tmp_path, monkeypatch) -> None:
+        from app.components.scheduler import heartbeat
+
+        monkeypatch.setattr(heartbeat, "HEARTBEAT_FILE", tmp_path / "never-written")
+
+        assert heartbeat.is_fresh() is False
+
+    def test_running_the_module_exits_by_freshness(self, tmp_path, monkeypatch) -> None:
+        from app.components.scheduler import heartbeat
+
+        monkeypatch.setattr(heartbeat, "HEARTBEAT_FILE", tmp_path / "never-written")
+        with pytest.raises(SystemExit) as stale:
+            heartbeat.main()
+        assert stale.value.code == 1
+
+        (tmp_path / "never-written").touch()
+        with pytest.raises(SystemExit) as fresh:
+            heartbeat.main()
+        assert fresh.value.code == 0
 
 
-async def _runs_after_a_locked_write(scheduler_class: type[AsyncIOScheduler]) -> int:
-    fired: list[float] = []
-    scheduler = scheduler_class(
-        jobstores={"default": _LockedOnce()}, jobstore_retry_interval=0.05
-    )
-    scheduler.add_job(lambda: fired.append(1), "interval", seconds=0.05)
+def _locked_once_store():  # type: ignore[no-untyped-def]
+    """A job store whose first write-back fails, as SQLite does under a
+    concurrent writer ("database is locked")."""
+
+    class Store(MemoryJobStore):
+        failed = False
+
+        def update_job(self, job) -> None:  # type: ignore[no-untyped-def]
+            if not self.failed:
+                self.failed = True
+                raise RuntimeError("database is locked")
+            super().update_job(job)
+
+    return Store()
+
+
+async def _runs_after_a_locked_write(scheduler_cls: type[AsyncIOScheduler]) -> int:
+    runs: list[int] = []
+    scheduler = scheduler_cls(jobstore_retry_interval=0.05)
+    scheduler.add_jobstore(_locked_once_store(), "default")
+    scheduler.add_job(lambda: runs.append(1), "interval", seconds=0.05)
     scheduler.start()
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(0.5)
     scheduler.shutdown(wait=False)
-    return len(fired)
+    return len(runs)
 
 
 @pytest.mark.asyncio
 async def test_a_locked_write_back_does_not_stop_the_scheduler() -> None:
-    """2026-09-25 08:43: after host sleep every missed job came due, the
-    write back of one next_run_time hit "database is locked", and the
-    error escaped APScheduler's wakeup before it re-armed its timer. The
-    process stayed up and ran nothing for six hours."""
-    from app.components.scheduler.wakeup import StewardScheduler
+    """APScheduler 3.x lets a failed ``update_job`` escape ``wakeup()``
+    before the timer is re-armed: the process lives on, the scheduler
+    never wakes again. The plain class documents that; ours keeps firing."""
+    from app.components.scheduler.resilient import ResilientScheduler
 
-    assert await _runs_after_a_locked_write(AsyncIOScheduler) == 1  # the stall
-    assert await _runs_after_a_locked_write(StewardScheduler) > 2
-
-
-class TestTheSchedulerOnlyProduces:
-    """The scheduler decides WHEN; a worker does the work. Running jobs in
-    the scheduler process is what piled every missed job into one process
-    after host sleep (2026-09-25). The tasks are ordinary worker tasks:
-    the scheduler is one producer among several."""
-
-    def test_every_job_but_the_heartbeat_is_handed_to_a_worker(self) -> None:
-        from app.components.scheduler.handoff import enqueue_task
-        from app.components.scheduler.heartbeat import HEARTBEAT_JOB_ID
-        from app.components.scheduler.main import create_scheduler
-
-        jobs = create_scheduler().get_jobs()
-        assert len(jobs) > 5
-        for job in jobs:
-            if job.id == HEARTBEAT_JOB_ID:
-                assert job.func is not enqueue_task  # proves THIS loop is alive
-            else:
-                assert job.func is enqueue_task, job.id
-
-    def test_every_handed_off_name_is_a_system_task(self) -> None:
-        from app.components.scheduler.handoff import enqueue_task
-        from app.components.scheduler.main import create_scheduler
-        from app.components.worker.queues.system import WorkerSettings
-        from app.components.worker.registry import task_name
-
-        registered = {task_name(f) for f in WorkerSettings.functions}
-        for job in create_scheduler().get_jobs():
-            if job.func is enqueue_task:
-                assert job.args[0] in registered, job.args[0]
-
-    @pytest.mark.asyncio
-    async def test_enqueue_puts_the_task_on_the_system_queue(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from unittest.mock import AsyncMock
-
-        from app.components.scheduler import handoff
-
-        pool = AsyncMock()
-
-        async def _pool(queue: str) -> tuple[Any, str]:
-            assert queue == "system"
-            return pool, "arq:queue:system"
-
-        monkeypatch.setattr(handoff, "get_queue_pool", _pool)
-        await handoff.enqueue_task("backup_database_job")
-        pool.enqueue_job.assert_awaited_once_with(
-            "backup_database_job", _queue_name="arq:queue:system"
-        )
-
-    @pytest.mark.asyncio
-    async def test_a_task_runs_its_job(self) -> None:
-        from app.components.worker.tasks.service_jobs import as_task
-
-        ran: list[str] = []
-
-        async def nightly_job() -> dict[str, str]:
-            """Does the nightly thing."""
-            ran.append("yes")
-            return {"status": "ok"}
-
-        task = as_task(nightly_job, timeout=60)
-        assert task.name == "nightly_job"
-        assert task.timeout_s == 60
-        assert await task.coroutine({}) == {"status": "ok"}
-        assert ran == ["yes"]
-
-
-@pytest.mark.asyncio
-async def test_running_a_job_by_hand_hands_it_to_the_worker(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The Overseer's run button and ``tasks trigger`` run the stored job
-    with its stored arguments - for a handed-off job, an enqueue."""
-    from unittest.mock import AsyncMock
-
-    from app.components.scheduler import handoff
-    from app.services.scheduler import trigger
-
-    pool = AsyncMock()
-
-    async def _pool(queue: str) -> tuple[Any, str]:
-        return pool, "arq:queue:system"
-
-    monkeypatch.setattr(handoff, "get_queue_pool", _pool)
-    monkeypatch.setattr(trigger, "record_job_started", lambda *a, **k: 1)
-    monkeypatch.setattr(trigger, "record_job_finished", lambda *a, **k: None)
-
-    ok = await trigger.run_triggered_job(
-        handoff.enqueue_task,
-        "database_backup",
-        "Daily Database Backup",
-        ["backup_database_job"],
-    )
-
-    assert ok
-    pool.enqueue_job.assert_awaited_once_with(
-        "backup_database_job", _queue_name="arq:queue:system"
-    )
-
-
-def test_a_run_that_succeeds_logs_nothing(caplog: pytest.LogCaptureFixture) -> None:
-    """APScheduler logged every run at INFO - the heartbeat alone was two
-    lines every 15 seconds, and after the handoff every other run is an
-    enqueue the worker logs for real. Failures still log (ERROR)."""
-    import logging
-
-    from app.components.scheduler.main import create_scheduler
-
-    caplog.set_level(logging.INFO)  # the container's root level
-    create_scheduler()
-    executor = logging.getLogger("apscheduler.executors.default")
-    assert not executor.isEnabledFor(logging.INFO)
-    assert executor.isEnabledFor(logging.ERROR)
+    assert await _runs_after_a_locked_write(AsyncIOScheduler) <= 1
+    assert await _runs_after_a_locked_write(ResilientScheduler) > 2

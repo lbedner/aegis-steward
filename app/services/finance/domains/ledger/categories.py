@@ -31,21 +31,24 @@ from app.services.finance.utils import (
 
 
 async def resolve_category_alias(
-    db: AsyncSession, category_hint: str | None
+    db: AsyncSession, category_hint: str | None, *, owner_user_id: int | None = None
 ) -> int | None:
     """Map a free-text category string to a category id via
     finance_category_alias (normalized lookup). None if unmatched.
 
-    Prefers a user alias over a global (owner NULL) seed when both match.
+    Looks at the shared seeds and this owner's aliases only, preferring
+    the owner's own when both match.
     """
     if not category_hint:
         return None
-    resolved = await queries.category_alias_ids(db, [category_hint])
+    resolved = await queries.category_alias_ids(
+        db, [category_hint], owner_user_id=owner_user_id
+    )
     return resolved.get(category_hint)
 
 
 async def get_or_create_category_from_hint(
-    db: AsyncSession, hint: str | None
+    db: AsyncSession, hint: str | None, *, owner_user_id: int | None = None
 ) -> FinanceCategory | None:
     """Turn a free-text import category (a Quicken path) into a category.
 
@@ -59,7 +62,9 @@ async def get_or_create_category_from_hint(
     Bracketed hints (``"[TOTAL CHECKING]"``) are Quicken transfer
     markers, not categories. Classification comes from the top segment:
     income-ish -> income, transfer-ish -> transfer, else expense.
-    Categories are global rows (owner NULL), like the PFC seeds.
+    A category the owner already has, or a shared seed with the same
+    slug, is reused; anything new is the owner's own row. A standalone
+    (``None``) owner writes shared rows, as it always has.
     """
     if not hint:
         return None
@@ -85,14 +90,21 @@ async def get_or_create_category_from_hint(
         else "expense"
     )
 
-    category = await queries.category_by_slug_global(db, slug)
+    category = await _visible_category_by_slug(db, slug, owner_user_id)
     if category is None:
-        category = FinanceCategory(name=name, slug=slug, classification=classification)
+        category = FinanceCategory(
+            name=name,
+            slug=slug,
+            classification=classification,
+            owner_user_id=owner_user_id,
+        )
         db.add(category)
         await db.flush()
 
     normalized = normalize_payee(text)
-    existing_alias = await queries.alias_by_normalized_global(db, normalized)
+    existing_alias = await queries.alias_by_normalized(
+        db, normalized, owner_user_id=owner_user_id
+    )
     if existing_alias is None:
         db.add(
             FinanceCategoryAlias(
@@ -100,10 +112,22 @@ async def get_or_create_category_from_hint(
                 alias_text=text,
                 normalized_alias=normalized,
                 source="import",
+                owner_user_id=owner_user_id,
             )
         )
         await db.flush()
     return category
+
+
+async def _visible_category_by_slug(
+    db: AsyncSession, slug: str, owner_user_id: int | None
+) -> FinanceCategory | None:
+    """The owner's own category with this slug, else the shared seed."""
+    if owner_user_id is not None:
+        own = await queries.category_by_slug(db, slug, owner_user_id=owner_user_id)
+        if own is not None:
+            return own
+    return await queries.category_by_slug(db, slug, owner_user_id=None)
 
 
 async def get_or_create_pfc_category(
@@ -116,7 +140,7 @@ async def get_or_create_pfc_category(
     slug = pfc_primary.strip().lower()
 
     async def load() -> FinanceCategory:
-        existing = await queries.category_by_slug_global(db, slug)
+        existing = await queries.category_by_slug(db, slug, owner_user_id=None)
         if existing is not None:
             return existing
         upper = pfc_primary.strip().upper()
@@ -150,8 +174,10 @@ async def category_names(db: AsyncSession, ids: set[int] | list[int]) -> dict[in
     return await queries.category_names_by_id(db, ids)
 
 
-async def list_categories(db: AsyncSession) -> list[FinanceCategory]:
-    """The full taxonomy, name-sorted, nothing joined.
+async def list_categories(
+    db: AsyncSession, *, owner_user_id: int | None = None
+) -> list[FinanceCategory]:
+    """The taxonomy this owner sees, name-sorted, nothing joined.
 
     For pickers that only need id + name (the uncategorized-transactions
     dropdown). ``category_usage`` also lists every category but LEFT
@@ -160,7 +186,7 @@ async def list_categories(db: AsyncSession) -> list[FinanceCategory]:
     real amount of transaction data. This is a plain, single-table
     select instead.
     """
-    return await queries.all_categories(db)
+    return await queries.all_categories(db, owner_user_id=owner_user_id)
 
 
 async def category_usage(
