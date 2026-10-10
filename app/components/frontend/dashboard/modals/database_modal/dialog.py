@@ -3,12 +3,14 @@
 import flet as ft
 
 from app.components.frontend.controls.tabs import PulseTabs
+from app.components.frontend.dashboard.modals.database_modal.activity import ActivityTab
 from app.components.frontend.dashboard.modals.database_modal.migrations import (
     MigrationsTab,
 )
 from app.components.frontend.dashboard.modals.database_modal.overview import OverviewTab
 from app.components.frontend.dashboard.modals.database_modal.schema import SchemaTab
 from app.components.frontend.dashboard.modals.database_modal.settings import SettingsTab
+from app.core.constants import ComponentName
 from app.services.system.models import ComponentStatus
 from app.services.system.ui import get_component_title, get_database_subtitle
 
@@ -37,6 +39,7 @@ class DatabaseDetailDialog(BaseDetailPopup):
                     text="Migrations", content=MigrationsTab(database_component, page)
                 ),
                 ft.Tab(text="Settings", content=SettingsTab(database_component, page)),
+                ft.Tab(text="Activity", content=ActivityTab(database_component, page)),
             ],
             expand=True,
         )
@@ -45,7 +48,7 @@ class DatabaseDetailDialog(BaseDetailPopup):
         super().__init__(
             page=page,
             component_data=database_component,
-            title_text=get_component_title("database"),
+            title_text=get_component_title(ComponentName.DATABASE),
             subtitle_text=subtitle,
             sections=[tabs],
             scrollable=False,

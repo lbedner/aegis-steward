@@ -6,7 +6,7 @@ from .llm_deployment import LLMDeployment
 from .llm_modality import Direction, LLMModality, Modality
 from .llm_org import LLMOrg
 from .llm_org_role import ORG_ROLES, ROLE_MAKER, ROLE_SERVER, LLMOrgRole
-from .llm_price import VOICE_PRICE_FIELDS, LLMPrice
+from .llm_price import RATE_FIELDS, VOICE_PRICE_FIELDS, LLMPrice
 from .llm_usage import LLMUsage
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "LargeLanguageModel",
     "LLMPrice",
     "VOICE_PRICE_FIELDS",
+    "RATE_FIELDS",
     "LLMModality",
     "Modality",
     "Direction",

@@ -373,7 +373,9 @@ async def _assign_dialog(
     merchants = await list_merchants(
         account_ids=None, service=service, owner_user_id=owner_user_id
     )
-    categories = await list_category_options(service=service)
+    categories = await list_category_options(
+        service=service, owner_user_id=owner_user_id
+    )
     return dialog(
         request,
         "partials/review/assign.html",

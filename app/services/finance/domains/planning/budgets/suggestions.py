@@ -24,7 +24,8 @@ from app.services.finance.domains.planning.budgets import queries
 from app.services.finance.domains.planning.budgets.lines import get_or_create_budget
 from app.services.finance.models import FinanceBudgetCategory
 from app.services.finance.schemas import BudgetSuggestion, DismissedBudgetSuggestion
-from app.services.finance.utils import current_date, current_period_month, stored_owner
+from app.services.finance.utils import current_date, current_period_month
+from app.services.shared.queries import stored_owner
 
 # Auto-budget gates. Deliberately mirror the recurring-detection ones:
 # a mean with no dispersion check invents a pattern, which is how a
@@ -114,7 +115,9 @@ async def suggest_budget_lines(
     # subscription was suggested as a budget line while also being
     # billed, which would charge the forecast twice.
     live_streams = await recurring.queries.all_live_streams(db)
-    all_categories = await ledger_queries.all_categories(db)
+    all_categories = await ledger_queries.all_categories(
+        db, owner_user_id=owner_user_id
+    )
     by_name = {c.name: c.id for c in all_categories}
     # A budget line is about money SPENT. Categories carry their own
     # classification, and it is the reliable signal: the
@@ -139,7 +142,9 @@ async def suggest_budget_lines(
         for stream in bills
         if (stream.category_id or by_name.get(inferred.get(stream.id, ""))) is None
     }
-    alias_fallback = await ledger_queries.category_alias_ids(db, fallback_names)
+    alias_fallback = await ledger_queries.category_alias_ids(
+        db, fallback_names, owner_user_id=owner_user_id
+    )
     confirmed_categories = {
         category_id
         for stream in bills

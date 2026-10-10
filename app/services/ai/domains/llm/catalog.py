@@ -6,6 +6,8 @@ this module is what the picker and a chat turn ask of the catalog.
 
 from __future__ import annotations
 
+from datetime import date
+
 from pydantic import BaseModel
 
 from app.core.db import get_async_session
@@ -40,6 +42,8 @@ class LLMListResult(BaseModel):
     # model the registry does not know - unmarked beats mislabelled.
     lab: str | None = None
     lab_icon_b64: str | None = None
+    # What kind of model: "chat", or a voice kind (LargeLanguageModel.mode).
+    mode: str = "chat"
 
     @property
     def display_id(self) -> str:
@@ -64,7 +68,8 @@ async def list_models(
     modality: str | None = None,
     limit: int = 50,
     include_disabled: bool = False,
-    mode: str = "chat",
+    released_after: date | None = None,
+    mode: str | None = "chat",
 ) -> list[LLMListResult]:
     """List LLM models from catalog with optional filtering.
 
@@ -78,7 +83,10 @@ async def list_models(
         modality: Filter by modality (text, vision, audio, etc.)
         limit: Maximum number of results to return
         include_disabled: Include disabled models in results
-        mode: The kind of model ("chat", "realtime", ...)
+        released_after: Only models released on or after this day
+        mode: The kind of model ("chat", a voice kind), or None for every
+            kind; a chat listing is the default, so no caller picking a
+            model to talk to is offered a voice one
 
     Returns:
         List of LLMListResult with model summary data
@@ -94,6 +102,7 @@ async def list_models(
             modality=modality,
             include_disabled=include_disabled,
             limit=None if vendors else limit,
+            released_after=released_after,
             mode=mode,
         )
         if vendors:
@@ -138,4 +147,5 @@ def _list_result(model: LargeLanguageModel, price: LLMPrice | None) -> LLMListRe
         released_on=model.released_on.strftime("%Y-%m-%d")
         if model.released_on
         else None,
+        mode=model.mode,
     )

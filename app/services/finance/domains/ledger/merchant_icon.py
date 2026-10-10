@@ -36,6 +36,14 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.brand_icons import (
+    CONCURRENCY,
+    ICON_SIZE,
+    TIMEOUT_SECONDS,
+    UPSTREAM,
+    domain_of,
+)
+from app.core.concurrency import background
 from app.core.time import utcnow
 from app.services.finance.domains.ledger import queries
 from app.services.finance.models import FinanceIcon
@@ -48,7 +56,6 @@ from app.services.finance.utils import normalize_payee
 _MIN_DOMAIN_LENGTH = 2
 _MAX_DOMAIN_LENGTH = 24
 
-UPSTREAM = "https://www.google.com/s2/favicons"
 ICON_PATH = "/icons"
 # The stored key column's width; a longer logo URL is simply not tried.
 _MAX_KEY_LENGTH = 255
@@ -59,8 +66,6 @@ _MAX_KEY_LENGTH = 255
 # state, and nothing user-scoped.
 _CACHE: dict[str, str | None] = {}
 _CACHE_MAX = 4096
-_CONCURRENCY = 24
-_TIMEOUT_SECONDS = 4.0
 
 # A stored miss is retried this much later. Brands do gain favicons (a
 # payee's website gets set, a new brand launches), just not per-render.
@@ -71,29 +76,10 @@ _NEGATIVE_RETRY = timedelta(days=7)
 _IN_FLIGHT: set[str] = set()
 
 
-def domain_from_website(website_url: str | None) -> str | None:
-    """The bare host from a stored payee website - the AUTHORITATIVE source
-    when a payee has one, because guessing cannot reach it.
-
-    The guess below only ever tries ``<name>.com``, which is wrong in two
-    ways a user can trivially fix by typing the real address: it misses
-    every other TLD ("aegis-stack.io"), and it strips the punctuation that
-    was part of the name ("Aegis Stack" -> "aegisstack", never
-    "aegis-stack"). Worse, a plausible-looking ``.com`` may belong to
-    somebody else entirely - "aegis-stack.com" resolves to a real, unrelated
-    site - so a confident guess can render a stranger's logo on your bill.
-    An explicit domain removes all of that.
-    """
-    raw = (website_url or "").strip()
-    if not raw:
-        return None
-    host = raw.split("//", 1)[-1]  # drop any scheme
-    host = host.split("/", 1)[0]  # drop any path
-    host = host.split("?", 1)[0].strip().lower()
-    if host.startswith("www."):
-        host = host[4:]
-    # A bare host has a dot and no spaces; anything else was not a domain.
-    return host if ("." in host and " " not in host and len(host) > 3) else None
+# The AUTHORITATIVE source when a payee has a website: guessing only ever
+# tries ``<name>.com``, which misses every other TLD and can land on a
+# stranger's logo. The parsing is the shared one (``app.core.brand_icons``).
+domain_from_website = domain_of
 
 
 # A fund's FULL name never guesses to a usable domain the way
@@ -302,10 +288,7 @@ def _schedule_fill(domains: list[str]) -> None:
     if not fresh:
         return
     _IN_FLIGHT.update(fresh)
-    task = asyncio.create_task(_fill_icons(fresh))
-    # A render-path decoration is never worth an "exception was never
-    # retrieved" warning; failures were already logged/stored as misses.
-    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+    background(_fill_icons(fresh))
 
 
 async def _fill_icons(domains: list[str]) -> None:
@@ -338,7 +321,7 @@ def upstream_request(key: str) -> tuple[str, dict[str, Any] | None]:
     domain goes through the favicon service."""
     if key.startswith(("http://", "https://")):
         return key, None
-    return UPSTREAM, {"sz": 64, "domain": key}
+    return UPSTREAM, {"sz": ICON_SIZE, "domain": key}
 
 
 async def _fetch_domains(domains: list[str]) -> dict[str, str | None]:
@@ -347,7 +330,7 @@ async def _fetch_domains(domains: list[str]) -> dict[str, str | None]:
     error."""
     import httpx
 
-    semaphore = asyncio.Semaphore(_CONCURRENCY)
+    semaphore = asyncio.Semaphore(CONCURRENCY)
     results: dict[str, str | None] = {}
 
     async def one(client: httpx.AsyncClient, domain: str) -> None:
@@ -368,7 +351,7 @@ async def _fetch_domains(domains: list[str]) -> dict[str, str | None]:
 
     try:
         async with httpx.AsyncClient(
-            timeout=_TIMEOUT_SECONDS, follow_redirects=True
+            timeout=TIMEOUT_SECONDS, follow_redirects=True
         ) as client:
             await asyncio.gather(*(one(client, d) for d in domains))
     except Exception:

@@ -55,3 +55,7 @@ version: 0.1.0
 worker_backend: arq
 include_inference: true
 inference_placement: host
+include_secrets: false
+include_deploy: false
+include_mcp: false
+include_research: false

@@ -3,7 +3,7 @@ Tests for CacheService (in-memory dict backend).
 
 All ops are async. These tests exercise the dict-backed path
 directly. The Redis-backed singleton is bypassed for the test
-session via the ``_use_dict_backed_cache`` fixture in
+session via the ``_no_real_redis`` fixture in
 ``tests/conftest.py`` — Redis clients bind to an event loop at
 import, and pytest-asyncio creates a fresh loop per test, so
 running tests through the live Redis singleton breaks. Adding
@@ -114,3 +114,96 @@ class TestCacheService:
         assert await cache.get("view:1:overview:7") is None
         assert await cache.get("view:1:github:14") is None
         assert await cache.get("view:2:overview:7") == "c"
+
+
+class TestCacheInspection:
+    """What the Overseer's Cache view reads: every entry's size and time
+    left, and per-family hits and misses (this process only)."""
+
+    @pytest.mark.asyncio
+    async def test_entries_carry_size_and_time_left(self) -> None:
+        cache = CacheService()
+        await cache.set("insights:project:7", {"stars": 12}, ttl=300)
+        entries, truncated = await cache.entries()
+        assert truncated is False
+        (entry,) = entries
+        assert entry.key == "insights:project:7"
+        assert entry.size > 0 and 0 < entry.ttl <= 300
+
+    @pytest.mark.asyncio
+    async def test_expired_entries_are_not_listed(self) -> None:
+        cache = CacheService()
+        await cache.set("gone", 1, ttl=1)
+        await asyncio.sleep(1.1)
+        assert (await cache.entries())[0] == []
+
+    @pytest.mark.asyncio
+    async def test_a_large_cache_is_sampled(self) -> None:
+        cache = CacheService()
+        for i in range(5):
+            await cache.set(f"k:{i}", i)
+        entries, truncated = await cache.entries(limit=3)
+        assert len(entries) == 3 and truncated is True
+
+    @pytest.mark.asyncio
+    async def test_hits_misses_and_sets_are_counted_per_family(self) -> None:
+        cache = CacheService()
+        await cache.set("insights:project:7", 1)
+        await cache.get("insights:project:7")
+        await cache.get("insights:project:8")
+        stats = cache.stats()["insights:project"]
+        assert (stats.hits, stats.misses, stats.sets) == (1, 1, 1)
+
+    def test_the_backend_names_itself(self) -> None:
+        assert CacheService().backend_name == "memory"
+
+
+class TestValuesWithPrefix:
+    """Every live value under a prefix, for records kept one per key (the
+    Server page's connection history)."""
+
+    async def test_returns_live_values_under_the_prefix(self) -> None:
+        cache = CacheService()
+        await cache.set("connections:record:a", {"n": 1}, ttl=60)
+        await cache.set("connections:record:b", {"n": 2}, ttl=60)
+        await cache.set("connections:recent:x", "a", ttl=60)
+        await cache.set("other:key", 3, ttl=60)
+        assert await cache.values_with_prefix("connections:record:") == {
+            "connections:record:a": {"n": 1},
+            "connections:record:b": {"n": 2},
+        }
+
+    async def test_skips_expired_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        cache = CacheService()
+        await cache.set("connections:record:old", {"n": 1}, ttl=1)
+        monkeypatch.setattr("app.core.cache.time.time", lambda: 10**12)
+        assert await cache.values_with_prefix("connections:record:") == {}
+
+
+class TestSeriesPoints:
+    """Time series kept in the cache (``app.core.series`` writes them): a
+    sorted set per series under Redis, a list here."""
+
+    async def test_points_come_back_in_time_order_from_since(self) -> None:
+        cache = CacheService()
+        await cache.append_many({"series:a:x": 1.0}, at=100.0, keep_seconds=60)
+        await cache.append_many({"series:a:x": 2.0}, at=130.0, keep_seconds=60)
+        await cache.append_many({"series:a:y": 5.0}, at=130.0, keep_seconds=60)
+        await cache.append_many({"series:b:x": 9.0}, at=130.0, keep_seconds=60)
+        assert await cache.points_with_prefix("series:a:", since=110.0) == {
+            "series:a:x": [(130.0, 2.0)],
+            "series:a:y": [(130.0, 5.0)],
+        }
+
+    async def test_a_point_older_than_its_window_is_dropped(self) -> None:
+        cache = CacheService()
+        await cache.append_many({"series:a:x": 1.0}, at=100.0, keep_seconds=60)
+        await cache.append_many({"series:a:x": 2.0}, at=200.0, keep_seconds=60)
+        assert await cache.points_with_prefix("series:a:", since=0) == {
+            "series:a:x": [(200.0, 2.0)]
+        }
+
+    async def test_a_claim_holds_until_it_expires(self) -> None:
+        cache = CacheService()
+        assert await cache.claim("series-claim:a", ttl=60) is True
+        assert await cache.claim("series-claim:a", ttl=60) is False

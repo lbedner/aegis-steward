@@ -308,8 +308,11 @@ async def line_transactions(
 async def new_line_form(
     request: Request,
     service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    categories = await list_category_options(service=service)
+    categories = await list_category_options(
+        service=service, owner_user_id=owner_user_id
+    )
     return budget_dialog(
         request, "partials/budget/line_new.html", categories=categories.items, errors=[]
     )
@@ -335,7 +338,9 @@ async def upsert_line(
     cents = positive_cents(allocated_amount)
     if cents is None:
         if source == "dialog":
-            categories = await list_category_options(service=service)
+            categories = await list_category_options(
+                service=service, owner_user_id=owner_user_id
+            )
             return budget_dialog(
                 request,
                 "partials/budget/line_new.html",

@@ -13,7 +13,6 @@ projects without the worker component don't fail to import the package.
 from app.services.load_test.worker.models import (
     LoadTestAnalysis,
     LoadTestConfiguration,
-    LoadTestErrorModel,
     LoadTestMetrics,
     LoadTestResult,
     OrchestratorRawResult,
@@ -31,7 +30,6 @@ from app.services.load_test.worker.service import (
 __all__ = [
     "LoadTestAnalysis",
     "LoadTestConfiguration",
-    "LoadTestErrorModel",
     "LoadTestMetrics",
     "LoadTestResult",
     "LoadTestService",

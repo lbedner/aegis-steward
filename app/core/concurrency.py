@@ -1,4 +1,6 @@
-"""Running independent work concurrently, with a ceiling.
+"""Running independent work concurrently, with a ceiling (``fanout``),
+CPU work off the event loop (``cpu_bound``), and work not waited for
+(``background``).
 
 The slow thing in this stack is rarely the server and rarely the event
 loop. It is a ``for`` loop over items that do not depend on each other,
@@ -22,8 +24,11 @@ thing each call site reinvents.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Sequence
 from typing import NamedTuple, TypeVar
+import weakref
+
+from app.core.log import logger
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -62,9 +67,9 @@ async def fanout(
     item is an ``Outcome`` carrying its exception; the rest still run.
     ``CancelledError`` is not caught - a cancelled batch stays cancelled.
 
-    ``fn`` must be a coroutine function. Wrap blocking work in
-    ``asyncio.to_thread`` at the call site, where it is obvious that a
-    thread is involved.
+    ``fn`` must be a coroutine function. Wrap blocking I/O in
+    ``asyncio.to_thread`` and CPU work in ``cpu_bound`` at the call site,
+    where it is obvious that a thread is involved.
     """
     if limit < 1:
         raise ValueError(f"limit must be at least 1, got {limit}")
@@ -83,3 +88,53 @@ async def fanout(
     if not listed:
         return []
     return list(await asyncio.gather(*(guarded(item) for item in listed)))
+
+
+# One gate per event loop (an asyncio.Semaphore belongs to the loop that
+# first waits on it, and tests run several).
+_cpu_gates: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _cpu_gate() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    gate = _cpu_gates.get(loop)
+    if gate is None:
+        gate = _cpu_gates[loop] = asyncio.Semaphore(1)
+    return gate
+
+
+async def cpu_bound(fn: Callable[..., R], *args: object) -> R:
+    """Run CPU-bound ``fn(*args)`` in a thread, one at a time per process.
+
+    A coroutine doing CPU work never awaits, so it holds the event loop
+    until it finishes, and everything else on the loop waits: a worker's
+    other tasks, its claim keep-alive, its heartbeat and its runtime
+    report. In a thread the loop stays free; the gate keeps the CPU work
+    itself to one at a time, which is all the GIL runs anyway.
+    """
+    # ponytail: a cancelled caller (a job timeout) frees the gate while its
+    # thread runs on; hold the gate until the thread ends if timeouts pile up.
+    async with _cpu_gate():
+        return await asyncio.to_thread(fn, *args)
+
+
+# Work in flight that no one waits for, held so none is collected first.
+_background: set[asyncio.Task[None]] = set()
+
+
+def background(work: Coroutine[object, object, None]) -> asyncio.Task[None]:
+    """Run ``work`` without waiting for it. The loop keeps only a weak
+    reference to a task, so it is held here until it ends; a failure is
+    logged, never left as "exception was never retrieved"."""
+    task = asyncio.create_task(work)
+    _background.add(task)
+    task.add_done_callback(_ended)
+    return task
+
+
+def _ended(task: asyncio.Task[None]) -> None:
+    _background.discard(task)
+    if not task.cancelled() and (error := task.exception()) is not None:
+        logger.error("Background task failed", task=task.get_name(), exc_info=error)

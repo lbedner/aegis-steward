@@ -152,7 +152,7 @@ class SlashCommandHandler:
 
         # Check for Ollama models (local, no API key needed)
         try:
-            from app.services.ai.domains.llm.ollama import OllamaClient
+            from app.components.inference.ollama import OllamaClient
 
             ollama_client = OllamaClient()
             if await ollama_client.is_available():
@@ -308,15 +308,14 @@ class SlashCommandHandler:
         from app.services.ai.domains.llm.llm_service import set_active_model
 
         result = await set_active_model(model)
-
-        if not result.success:
-            # Model not in catalog - try with force
+        if not result.success and result.vendor is None:  # not in catalog: force it
             result = await set_active_model(model, force=True)
+        if not result.success:
+            return CommandResult(success=False, message=result.message)
 
         from dotenv import load_dotenv
 
         load_dotenv(override=True)
-        self.ai_service.refresh_config()
 
         # Build message
         if result.provider_updated:

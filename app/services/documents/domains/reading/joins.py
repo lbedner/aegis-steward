@@ -79,7 +79,7 @@ async def join_recent_arrivals(
 
     from sqlmodel import col, select
 
-    from app.core.clock import utcnow
+    from app.core.time import utcnow
     from app.services.documents.models import Document
 
     # The app's one clock: stamps are stored naive UTC, and an aware

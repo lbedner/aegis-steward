@@ -19,7 +19,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.formatting import format_money
-from app.core.time import utcnow
 from app.services.finance.constants import CADENCES, ENVELOPE_CADENCES
 from app.services.finance.domains.ledger import accounts, valuations
 from app.services.finance.domains.ledger import queries as ledger_queries
@@ -27,6 +26,7 @@ from app.services.finance.domains.planning import queries
 from app.services.finance.models import (
     FinanceAccount,
 )
+from app.services.finance.utils import current_date
 
 ENVELOPE_ACCOUNT_TYPE = "envelope"
 
@@ -183,7 +183,7 @@ async def walk_envelope(
     await valuations.upsert_valuation(
         db,
         account_id=account_id,
-        as_of_date=when or utcnow().date(),
+        as_of_date=when or current_date(),
         value=(account.current_balance or 0) + delta,
         owner_user_id=owner_user_id,
         source=source,

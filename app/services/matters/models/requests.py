@@ -13,7 +13,7 @@ from datetime import date, datetime
 from sqlalchemy import Index
 from sqlmodel import Field, SQLModel
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 
 REQUEST_STATUSES = ("open", "satisfied", "waived")
 

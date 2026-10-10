@@ -255,11 +255,13 @@ class TestTheNightlySweep:
         assert seen == ["open", "swept", "receipts", "commit"]
 
     def test_the_job_is_registered_nightly_before_the_joins(self) -> None:
-        from pathlib import Path
+        from app.services.documents.scheduled_jobs import JOBS
 
-        source = Path("app/components/scheduler/main.py").read_text()
-        assert "reread_unfiled_job" in source
-        assert 'id="reread_unfiled"' in source
-        assert source.index('id="reread_unfiled"') < source.index('id="join_arrivals"')
-        worker = Path("app/components/worker/tasks/service_jobs.py").read_text()
-        assert "as_task(reread_unfiled_job)" in worker
+        jobs = {job.id: job for job in JOBS}
+        assert jobs["reread_unfiled"].func is filing.reread_unfiled_job
+
+        def at(job_id: str) -> tuple[int, int]:
+            trigger = jobs[job_id].trigger
+            return trigger["hour"], trigger["minute"]
+
+        assert at("reread_unfiled") < at("join_arrivals")

@@ -69,3 +69,24 @@ class TestRender:
         """Same URL, two bodies: caches must key on the header or a full
         load could be served a fragment."""
         assert "HX-Request" in client.get("/probe").headers["vary"]
+
+
+def test_ranked_rows_scale_to_the_largest() -> None:
+    from app.components.web_frontend.rendering import ranked
+
+    rows = ranked([{"label": "a", "n": 4}, {"label": "b", "n": 1}], by="n")
+    assert [r["ratio"] for r in rows] == [1.0, 0.25]
+    assert ranked([{"label": "none", "n": 0}], by="n")[0]["ratio"] == 0
+
+
+def test_chart_data_is_one_labelled_series() -> None:
+    from app.components.web_frontend.rendering import chart
+
+    assert chart(["Mon"], "Spend", [1.5], money=True) == {
+        "labels": ["Mon"],
+        "series": [{"label": "Spend", "values": [1.5]}],
+        "format": "money",
+    }
+    # charts.js reads a chart that names no format as money (steward's
+    # finance charts), so a count says it is one.
+    assert chart(["Mon"], "Calls", [3])["format"] == "count"

@@ -35,8 +35,8 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.clock import utcnow
 from app.core.log import logger
+from app.core.time import utcnow
 from app.services.finance.adapters.importers import queries
 from app.services.finance.adapters.importers.base import (
     CATEGORY_KEPT_NOTE,
@@ -61,7 +61,8 @@ from app.services.finance.models import (
     FinanceImportProfile,
     FinanceTransactionTag,
 )
-from app.services.finance.utils import current_date, stored_owner
+from app.services.finance.utils import current_date
+from app.services.shared.queries import stored_owner
 from app.services.system.jobs import SetLabel, unwatched
 
 # What a source is CALLED where a person reads it. The stored value is
@@ -294,12 +295,16 @@ async def ingest_transactions(
 
     async def _category_for(hint: str | None) -> int | None:
         if hint not in category_cache:
-            category_id = await service.resolve_category_alias(hint)
+            category_id = await service.resolve_category_alias(
+                hint, owner_user_id=owner_user_id
+            )
             if category_id is None and hint:
                 # Unknown category names are the USER'S OWN curation (e.g. a
                 # Quicken tree like "Bills & Utilities:Streaming"); dropping
                 # them silently discards it. Create category + alias instead.
-                category = await service.get_or_create_category_from_hint(hint)
+                category = await service.get_or_create_category_from_hint(
+                    hint, owner_user_id=owner_user_id
+                )
                 category_id = category.id if category is not None else None
             category_cache[hint] = category_id
         return category_cache[hint]

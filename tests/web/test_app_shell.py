@@ -128,9 +128,14 @@ class TestTheAssistantButton:
         from pathlib import Path
 
         css = Path("app/components/web_frontend/static/input.css").read_text()
-        rule = 'html:not([data-assistant="hide"]) #app-content:not(:has(#chat))'
+        rule = 'html:not([data-assistant="hide"]) #app-content:not(:has(#chat, .overseer-page))'
         assert rule in css
-        assert "padding-bottom" in css[css.index(rule) :].split("}")[0]
+        block = css[css.index(rule) :].split("}")[0]
+        assert "padding-bottom" in block
+        # The Overseer's room is its page's, never its full-height menus',
+        # and a page sized to the screen has none.
+        assert '.overseer-page:not([data-width="workspace"])' in block
+        assert ".overseer-fill" in block
 
     def test_the_room_follows_the_button(self, client: TestClient) -> None:
         """No room where there is no button: the chat page (its surface is

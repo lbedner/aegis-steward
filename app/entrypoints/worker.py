@@ -30,7 +30,12 @@ from importlib import import_module  # noqa: E402
 from typing import Any  # noqa: E402
 
 from arq.worker import create_worker  # noqa: E402
+import redis.asyncio as aioredis  # noqa: E402
 
+from app.components.worker import arq_hooks  # noqa: E402
+from app.components.worker.runtime import check_queues  # noqa: E402
+from app.core.config import settings  # noqa: E402
+from app.core.constants import QueueName  # noqa: E402
 from app.core.log import setup_logging  # noqa: E402
 
 
@@ -57,17 +62,22 @@ async def main(queue: str) -> None:
     their deallocators.
     """
     setup_logging()
+    check_queues()  # WORKER_QUEUES naming a queue that does not exist stops here
     worker = create_worker(settings_for(queue))
+    redis = aioredis.from_url(settings.redis_url_effective)
+    pause = asyncio.create_task(arq_hooks.follow_pause(worker, redis))
     try:
         await worker.async_run()
     finally:
+        pause.cancel()
         await worker.close()
+        await redis.aclose()
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else "system"))
-    except (KeyboardInterrupt, asyncio.CancelledError):
+        asyncio.run(main(sys.argv[1] if len(sys.argv) > 1 else QueueName.SYSTEM))
+    except KeyboardInterrupt, asyncio.CancelledError:
         # Being stopped is not a crash. watchfiles signals this process
         # on every edit, and a page of traceback per save is how a log
         # nobody reads gets made.

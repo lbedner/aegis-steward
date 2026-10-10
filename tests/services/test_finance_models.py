@@ -241,7 +241,7 @@ class TestFinanceConnection:
     async def test_partial_unique_provider_item_and_soft_delete(
         self, async_db_session: AsyncSession
     ) -> None:
-        from app.core.clock import utcnow
+        from app.core.time import utcnow
 
         first = FinanceConnection(
             provider="plaid",
@@ -632,7 +632,7 @@ class TestFinanceTransaction:
     async def test_partial_unique_external_and_soft_delete(
         self, async_db_session: AsyncSession
     ) -> None:
-        from app.core.clock import utcnow
+        from app.core.time import utcnow
         from app.services.finance.models import FinanceTransaction
 
         acct = await _seed_account(async_db_session)
@@ -1112,7 +1112,7 @@ class TestFinanceMerchant:
     async def test_user_partial_unique_and_soft_delete(
         self, async_db_session: AsyncSession
     ) -> None:
-        from app.core.clock import utcnow
+        from app.core.time import utcnow
         from app.services.finance.models import FinanceMerchant
 
         first = FinanceMerchant(
@@ -1174,7 +1174,7 @@ class TestFinanceMerchant:
 class TestFinanceTag:
     @pytest.mark.asyncio
     async def test_round_trip_and_unique(self, async_db_session: AsyncSession) -> None:
-        from app.core.clock import utcnow
+        from app.core.time import utcnow
         from app.services.finance.models import FinanceTag
 
         async_db_session.add(

@@ -66,6 +66,15 @@ class _FakeEventStream:
         yield AgentRunResultEvent(result=_FakeResult())
 
 
+def _built(agent: Any) -> Any:
+    """An async ``get_agent`` stand-in that hands back ``agent``."""
+
+    async def build(*args: Any, **kwargs: Any) -> Any:
+        return agent
+
+    return build
+
+
 class _FakeAgent:
     @asynccontextmanager
     async def run_stream_events(self, prompt: str) -> AsyncIterator[Any]:
@@ -121,7 +130,7 @@ def harness(
 
     captured: dict[str, Any] = {}
 
-    def fake_get_agent(
+    async def fake_get_agent(
         config: Any, settings: Any, system_prompt: str, **kwargs: Any
     ) -> _FakeAgent:
         captured["config"] = config
@@ -168,7 +177,7 @@ class TestTheTurnCarriesItsUser:
         monkeypatch.setattr(
             prompt_module,
             "get_agent",
-            lambda *a, **k: _RecordingAgent(),
+            _built(_RecordingAgent()),
         )
 
         await service.chat("remember something", user_id="u42")

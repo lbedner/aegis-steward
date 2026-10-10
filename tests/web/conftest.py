@@ -10,6 +10,7 @@ swap in a different app for both at once.
 from collections.abc import AsyncGenerator, Callable, Generator
 from dataclasses import dataclass
 from datetime import timedelta
+import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -70,6 +71,9 @@ def _bind_session(async_db_session: AsyncSession) -> Generator[None]:
     _SESSION.pop("current", None)
 
 
+HX = {"HX-Request": "true"}
+
+
 @pytest.fixture
 def client(app: FastAPI) -> TestClient:
     """Plain client, no lifespan: routes render without startup hooks."""
@@ -88,13 +92,21 @@ def live_client(app: FastAPI) -> Generator[TestClient]:
 @pytest.fixture
 def hx(app: FastAPI) -> TestClient:
     """A client whose every request carries ``HX-Request: true``."""
-    return TestClient(app, headers={"HX-Request": "true"})
+    return TestClient(app, headers=HX)
 
 
 @pytest.fixture
 def finance(async_db_session: AsyncSession) -> FinanceService:
     """Seed ledger rows for a page test; commit before requesting the page."""
     return FinanceService(async_db_session)
+
+
+@pytest.fixture
+def hx_user(authenticated_client: TestClient) -> TestClient:
+    """``authenticated_client`` asking as htmx does: the signed-in user's
+    fragments."""
+    authenticated_client.headers.update(HX)
+    return authenticated_client
 
 
 @pytest.fixture
@@ -373,14 +385,20 @@ async def merchant(
     return payee.id
 
 
-def await_job(client: TestClient, job_id: str, tries: int = 200) -> dict[str, object]:
-    """Poll the API until the job is terminal. The test client runs the app
-    loop only while a request is in flight, so a background job advances
-    between polls, not while a stream waits on it."""
-    for _ in range(tries):
+def await_job(
+    client: TestClient, job_id: str, timeout: float = 10.0
+) -> dict[str, object]:
+    """Poll the API until the job is terminal. A client opened with ``with``
+    keeps the app loop running, so the job advances while this sleeps. A
+    deadline, not a count of polls: a slow runner gave up on a job still
+    writing, which then broke the shared test database for every later test.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         body = client.get(f"/api/v1/jobs/{job_id}").json()
         if body["status"] != "running":
             return body
+        time.sleep(0.02)
     raise AssertionError(f"job {job_id} never finished")
 
 

@@ -10,6 +10,7 @@ server actually sends.
 
 from __future__ import annotations
 
+import base64
 from datetime import date, timedelta
 from typing import Any
 
@@ -32,9 +33,8 @@ from app.services.finance.models import (
 from app.services.finance.utils import current_date
 
 ACCESS_URL = "https://user:secret@bridge.example/simplefin"
-SETUP_TOKEN = (
-    "aHR0cHM6Ly9icmlkZ2UuZXhhbXBsZS9zaW1wbGVmaW4vY2xhaW0vVE9LRU4="  # .../claim/TOKEN
-)
+CLAIM_URL = "https://bridge.simplefin.org/simplefin/claim/TOKEN"
+SETUP_TOKEN = base64.b64encode(CLAIM_URL.encode()).decode()
 
 DEMO: dict[str, Any] = {
     "errlist": [],
@@ -418,7 +418,7 @@ class TestTheClient:
         assert await client.claim(SETUP_TOKEN) == ACCESS_URL
         (request,) = seen
         assert request.method == "POST"
-        assert str(request.url) == "https://bridge.example/simplefin/claim/TOKEN"
+        assert str(request.url) == CLAIM_URL
 
     @pytest.mark.asyncio
     async def test_a_used_token_says_so(self) -> None:
@@ -451,6 +451,21 @@ class TestTheClient:
     async def test_a_token_that_is_not_one_says_so(self) -> None:
         with pytest.raises(SimpleFINError, match="setup token"):
             await SimpleFINClient().claim("not a token")
+
+    @pytest.mark.asyncio
+    async def test_a_token_for_any_other_host_is_refused_unsent(self) -> None:
+        """A pasted token is a URL steward POSTs to: only SimpleFIN's own."""
+        seen: list[httpx.Request] = []
+        client = SimpleFINClient(
+            transport=httpx.MockTransport(
+                lambda r: seen.append(r) or httpx.Response(200)
+            )
+        )
+        elsewhere = base64.b64encode(b"https://169.254.169.254/claim").decode()
+
+        with pytest.raises(SimpleFINError, match="setup token"):
+            await client.claim(elsewhere)
+        assert seen == []
 
     @pytest.mark.asyncio
     async def test_accounts_asks_for_version_two_with_basic_auth(self) -> None:

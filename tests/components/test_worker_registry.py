@@ -66,9 +66,24 @@ def test_task_lookup_returns_the_function_itself() -> None:
     """
     queue_name = discover_worker_queues()[0]
     module = importlib.import_module(f"app.components.worker.queues.{queue_name}")
-    task_name = sorted(_defined_tasks(module))[0]
+    name = sorted(_defined_tasks(module))[0]
 
-    func = get_task_by_name(task_name)
+    func = get_task_by_name(name)
     assert func is not None
     assert callable(func)
-    assert func.__doc__, f"{task_name} lookup lost its docstring"
+    assert func.__doc__, f"{name} lookup lost its docstring"
+
+
+@pytest.mark.parametrize("queue_name", discover_worker_queues())
+def test_a_queue_connects_where_this_process_reaches_redis(queue_name: str) -> None:
+    """``REDIS_URL`` names the compose host, which the host cannot resolve
+    (``make worker-test``): a queue connects at ``redis_url_effective``, as
+    every other Redis client does."""
+    from urllib.parse import urlparse
+
+    from app.core.config import settings
+
+    module = importlib.import_module(f"app.components.worker.queues.{queue_name}")
+    redis = module.WorkerSettings.redis_settings
+    want = urlparse(settings.redis_url_effective)
+    assert (redis.host, redis.port) == (want.hostname, want.port or 6379)

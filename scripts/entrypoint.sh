@@ -20,12 +20,26 @@ if [ -f /.dockerenv ] || [ -f /run/.containerenv ] \
     export UV_LINK_MODE=copy
     export VIRTUAL_ENV=/opt/venv
     export PATH="/opt/venv/bin:$PATH"
+
+    # The image was synced when it was built and its venv is on PATH, so
+    # each role runs its program directly and ``exec``s into it: no idle
+    # ``uv run`` parent holding memory, no lock check on every start, and
+    # docker's SIGTERM reaches the program itself. In dev the source is
+    # mounted from the host, so one sync first lands a dependency added
+    # there (``uv add``) - it runs and exits.
+    RUN=()
+    if [ "$APP_ENV" = "dev" ]; then
+        uv sync --frozen --quiet
+    fi
 else
     echo "Running in local environment, UV will use project defaults"
 
     # Ensure we don't inherit Docker environment variables
     unset UV_PROJECT_ENVIRONMENT
     unset UV_SYSTEM_PYTHON
+
+    # A laptop venv may be behind the lock; ``uv run`` brings it in step.
+    RUN=(uv run)
 fi
 
 # Pop run_command from arguments
@@ -34,7 +48,7 @@ shift
 
 if [ "$run_command" = "webserver" ]; then
     # Web server (FastAPI + Flet)
-    uv run python -m app.entrypoints.webserver
+    exec "${RUN[@]}" python -m app.entrypoints.webserver
 elif [ "$run_command" = "scheduler" ]; then
     # Scheduler component. Dev auto-reload matters MORE here than for the
     # webserver: a scheduler process running stale code has no requests to
@@ -42,17 +56,27 @@ elif [ "$run_command" = "scheduler" ]; then
     # new data, silently, for days (APP_ENV from .env or SCHEDULER_WATCH
     # override, mirroring the worker branch below).
     if { [ "$APP_ENV" = "dev" ] || [ "$SCHEDULER_WATCH" = "true" ]; } \
-        && uv run python -c "import watchfiles" 2>/dev/null; then
+        && "${RUN[@]}" python -c "import watchfiles" 2>/dev/null; then
         echo "Starting scheduler with auto-reload..."
-        exec uv run watchfiles --filter python \
+        exec "${RUN[@]}" watchfiles --filter python \
             "python -m app.entrypoints.scheduler" /code/app
     else
         # watchfiles ships via uvicorn[standard] (not guaranteed in every
         # stack shape) - a missing watcher must not stop the scheduler.
-        exec uv run python -m app.entrypoints.scheduler
+        exec "${RUN[@]}" python -m app.entrypoints.scheduler
     fi
 elif [ "$run_command" = "worker" ]; then
-    # Worker component using STANDARD arq CLI
+    # Jobs one worker process runs at once on a queue, from
+    # Settings.WORKER_QUEUES (app/core/queue_workers.py). Stops the
+    # container if the settings name a queue that does not exist.
+    worker_concurrency() {
+        out=$("${RUN[@]}" python -m app.components.worker.runtime concurrency "$1" 2>&1) || {
+            printf '%s\n' "$out" >&2
+            return 1
+        }
+        printf '%s\n' "$out" | tail -n 1
+    }
+    # Worker component using arq
     queue_type="${1:-system}"  # Default to system queue if not specified
     shift
 
@@ -70,26 +94,26 @@ elif [ "$run_command" = "worker" ]; then
     # dev never saw it because the watch flag ran the worker inside
     # asyncio.run, and nothing else ran the other branch.
     if { [ "$APP_ENV" = "dev" ] || [ "$WORKER_WATCH" = "true" ]; } \
-        && uv run python -c "import watchfiles" 2>/dev/null; then
+        && "${RUN[@]}" python -c "import watchfiles" 2>/dev/null; then
         echo "Starting ${queue_type} worker with auto-reload..."
-        exec uv run watchfiles --filter python \
+        exec "${RUN[@]}" watchfiles --filter python \
             "python -m app.entrypoints.worker ${queue_type}" /code/app
     else
         echo "Starting ${queue_type} worker..."
-        exec uv run python -m app.entrypoints.worker "${queue_type}"
+        exec "${RUN[@]}" python -m app.entrypoints.worker "${queue_type}"
     fi
 elif [ "$run_command" = "build-watch" ]; then
     # Re-fingerprint web frontend assets whenever Tailwind (or a hand-edited
     # source) rewrites them, so the manifest never goes stale in dev.
-    exec uv run python -m app.components.web_frontend.build_watch
+    exec "${RUN[@]}" python -m app.components.web_frontend.build_watch
 elif [ "$run_command" = "lint" ]; then
-    uv run ruff check .
+    "${RUN[@]}" ruff check .
 elif [ "$run_command" = "typecheck" ]; then
-    uv run mypy .
+    "${RUN[@]}" mypy .
 elif [ "$run_command" = "test" ]; then
-    uv run pytest "$@"
+    "${RUN[@]}" pytest "$@"
 elif [ "$run_command" = "health" ]; then
-    uv run python -m app.cli.health check "$@"
+    "${RUN[@]}" python -m app.cli.health check "$@"
 elif [ "$run_command" = "help" ]; then
     echo "Available commands:"
     echo "  webserver   - Run FastAPI + Flet web server"

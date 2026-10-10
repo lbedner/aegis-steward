@@ -96,7 +96,7 @@ async def _llm_score(transcript: str) -> dict[str, Any]:
 
     from app.services.ai.domains.llm.providers import get_agent
 
-    agent = get_agent(config, settings, SENTIMENT_SYSTEM_PROMPT)
+    agent = await get_agent(config, settings, SENTIMENT_SYSTEM_PROMPT)
     result = await agent.run(transcript)
     reply = result.output
 

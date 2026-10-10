@@ -31,8 +31,8 @@ MESSAGES: dict[str, str] = {
     "bench.auth.one_only": "Pass only one of --as-admin / --as-user / --anon.",
     "bench.driver.fallback": "Falling back to the {driver} driver: {reason}.",
     "bench.driver.method": "ab cannot issue {method}",
-    "bench.driver.missing": "ab is not installed",    "bench.driver.docker": "no local ab, using the httpd image instead",
-
+    "bench.driver.missing": "ab is not installed",
+    "bench.driver.docker": "no local ab, using the httpd image instead",
     "bench.driver.warning": (
         "This driver tops out below what either engine can serve, so the two "
         "look equal no matter what. Install ab (apache2-utils) for a "
@@ -493,10 +493,6 @@ MESSAGES: dict[str, str] = {
     "tasks.help": "定時任務管理命令",
     "tasks.help_list": "列出所有已調度任務及狀態訊息。",
     # ── 遷移 ─────────────────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  警告：表 '{table}' 完全缺失。"
-        "請手動創建遷移：alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "未找到現有遷移記錄，請先運行 'make migrate'。",
     "migrate.checking_schema": "正在檢查數據庫結構與模型的一致性...",
     "migrate.applying_pending": "正在先執行待處理的遷移...",
@@ -588,7 +584,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "當前（本地）",
     "ai.prov_need_key": "需要 API 密鑰",
     "ai.prov_not_installed": "未安裝",
-    "ai.prov_error": "錯誤",
     "ai.providers_tip": "提示：運行 '{app} ai add-provider <名稱>' 安裝缺少的服務商。",
     # 用量面板
     "ai.usage_title": "AI 用量概覽",
@@ -860,7 +855,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "等待測試完成...",
     "loadtest.waiting_elapsed": "等待中... ({elapsed} 秒)",
     "loadtest.timeout_progress": "等待超時",
-    "loadtest.completed_progress": "測試完成！",
     # 快速測試輸出
     "loadtest.quick_cpu_title": "CPU 快速壓力測試",
     "loadtest.quick_cpu_tasks": "{count} 個 CPU 密集型任務",
@@ -929,16 +923,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "請確認任務 ID 正確且測試已完成",
     "loadtest.results_failed": "獲取結果失敗：",
     # 錯誤/超時顯示
-    "loadtest.timed_out_title": "壓力測試超時",
     "loadtest.failed_title": "壓力測試失敗",
     "loadtest.error_label": "錯誤：",
     "loadtest.test_id_label": "測試 ID：",
-    "loadtest.what_this_means": "說明：",
-    "loadtest.timeout_explanation": "調度任務超時，但各 Worker 子任務可能已完成。大規模測試超出隊列超時限制時常見此情況。",
-    "loadtest.to_investigate": "排查方式：",
-    "loadtest.tip_check_logs": "查看 Worker 日志確認子任務完成情況",
-    "loadtest.tip_smaller_batch": "大規模測試建議使用更小的批次",
-    "loadtest.tip_check_metrics": "查看隊列指標確認實際完成數",
     "loadtest.analysis_panel": "壓力測試分析",
     "loadtest.next_steps": "後續操作：",
     "loadtest.tip_check_worker_logs": "查看 Worker 日志獲取詳細錯誤訊息",

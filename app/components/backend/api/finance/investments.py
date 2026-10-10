@@ -4,9 +4,7 @@ One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
 from datetime import (
-    UTC,
     date,
-    datetime,
 )
 
 from fastapi import (
@@ -25,10 +23,7 @@ from app.components.backend.api.finance.base import (
     _MAX_IMPORT_BYTES,
     _NOT_FOUND,
 )
-from app.services.finance.deps import (
-    get_finance_service,
-    get_owner_user_id,
-)
+from app.services.finance.deps import get_finance_service
 from app.services.finance.domains.investments.securities import market_value_cents
 from app.services.finance.schemas import (
     HoldingCreate,
@@ -43,6 +38,8 @@ from app.services.finance.schemas import (
     TradeResponse,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import current_date
+from app.services.shared.deps import get_owner_user_id
 
 router = APIRouter()
 
@@ -70,7 +67,7 @@ async def upsert_holding(
         owner_user_id=owner_user_id,
         account_id=account_id,
         security_id=security.id,
-        as_of_date=body.as_of_date or datetime.now(UTC).date(),
+        as_of_date=body.as_of_date or current_date(),
         quantity_e8=round(body.quantity * 100_000_000),
         price=body.price,
         cost_basis=body.cost_basis,

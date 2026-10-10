@@ -32,7 +32,8 @@ from app.services.finance.domains.detection.analyst.shared import (
 from app.services.finance.domains.detection.insights import format_usd
 from app.services.finance.models import FinanceInsight
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import current_date, stored_owner
+from app.services.finance.utils import current_date
+from app.services.shared.queries import stored_owner
 
 
 class DeepDive(BaseModel):
@@ -234,7 +235,7 @@ async def run_deep_dive(
     service_config = service_config.model_copy(update=update)
 
     try:
-        model, model_name = model_for(service_config, settings)
+        model, model_name = await model_for(service_config, settings)
         agent: PydanticAgent[None, DeepDive] = PydanticAgent(
             model,
             instructions=agent_config.system_prompt,

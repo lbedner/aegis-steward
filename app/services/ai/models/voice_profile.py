@@ -9,7 +9,7 @@ from datetime import datetime
 
 from sqlmodel import Field, SQLModel
 
-from app.core.clock import utcnow
+from app.core.time import utcnow
 from app.core.voice_settings import (
     LIVE_IDLE_MAX_SECONDS,
     TTS_SPEED_MAX,

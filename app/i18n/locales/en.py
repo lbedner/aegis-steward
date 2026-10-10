@@ -506,6 +506,7 @@ MESSAGES: dict[str, str] = {
     "tasks.job_not_runnable": "Could not resolve job function:",
     "tasks.triggering": "Running job:",
     "tasks.trigger_success": "Job completed successfully:",
+    "tasks.trigger_queued": "Job handed to the worker (its run shows there):",
     "tasks.trigger_failed": "Job failed (see logs / history for details):",
     "tasks.no_executions": "No executions recorded yet for job:",
     "tasks.stats_failed": "Failed to load job stats:",
@@ -537,11 +538,6 @@ MESSAGES: dict[str, str] = {
     ),
     "tasks.help_history": "Show recent job execution history.",
     # ── Migrate ──────────────────────────────────────────────────────
-    "migrate.table_missing_warning": (
-        "  WARNING: Table '{table}' is missing entirely. "
-        "Create a manual migration with: "
-        "alembic revision --autogenerate -m 'add {table}'"
-    ),
     "migrate.no_existing_migrations": "No existing migrations found. Run 'make migrate' first.",
     "migrate.checking_schema": "Checking schema against models...",
     "migrate.applying_pending": "Applying pending migrations first...",
@@ -633,7 +629,6 @@ MESSAGES: dict[str, str] = {
     "ai.prov_current_local": "Current (Local)",
     "ai.prov_need_key": "Need API key",
     "ai.prov_not_installed": "Not installed",
-    "ai.prov_error": "Error",
     "ai.providers_tip": "Tip: Run '{app} ai add-provider <name>' to install missing providers.",
     # Usage panel
     "ai.usage_title": "AI Usage Summary",
@@ -883,6 +878,9 @@ MESSAGES: dict[str, str] = {
     # Help text
     "docs.help": "Show documentation links",
     "docs.help_show": "Display documentation links for installed components and services.",
+    "patterns.help": "Show how this app is built: its patterns and macros",
+    "patterns.help_show": "Print the patterns detected in this app's code, and the macro catalog, as a brief to read before building.",
+    "patterns.opt_format": "Output format: markdown or json",
     # ── Load Test ────────────────────────────────────────────────────
     # Help text
     "loadtest.help": "Load testing commands for worker performance analysis",
@@ -912,7 +910,7 @@ MESSAGES: dict[str, str] = {
     "loadtest.starting": "Starting load test...",
     "loadtest.enqueued": "Load test enqueued successfully!",
     "loadtest.task_id_label": "Task ID:",
-    "loadtest.timeout_reached": "Timeout reached after {timeout}s",
+    "loadtest.timeout_reached": "Stopped waiting after {timeout}s; the test carries on",
     "loadtest.check_results_manual": "Check results manually:",
     "loadtest.completed": "Load test completed!",
     "loadtest.check_results_later": "Use this command to check results later:",
@@ -921,7 +919,6 @@ MESSAGES: dict[str, str] = {
     "loadtest.waiting_progress": "Waiting for load test to complete...",
     "loadtest.waiting_elapsed": "Waiting for completion... ({elapsed}s)",
     "loadtest.timeout_progress": "Timeout reached",
-    "loadtest.completed_progress": "Load test completed!",
     # Quick test output
     "loadtest.quick_cpu_title": "Quick CPU Load Test",
     "loadtest.quick_cpu_tasks": "{count} CPU-intensive tasks",
@@ -990,16 +987,9 @@ MESSAGES: dict[str, str] = {
     "loadtest.check_task_hint": "Check that the task ID is correct and the test has completed",
     "loadtest.results_failed": "Failed to retrieve results:",
     # Error/timeout display
-    "loadtest.timed_out_title": "Load Test Timed Out",
     "loadtest.failed_title": "Load Test Failed",
     "loadtest.error_label": "Error:",
     "loadtest.test_id_label": "Test ID:",
-    "loadtest.what_this_means": "What this means:",
-    "loadtest.timeout_explanation": "The orchestrator task timed out, but individual worker tasks may have completed successfully. This often happens with large load tests that exceed the queue timeout.",
-    "loadtest.to_investigate": "To investigate:",
-    "loadtest.tip_check_logs": "Check worker logs for individual task completion",
-    "loadtest.tip_smaller_batch": "Consider using smaller batch sizes for large tests",
-    "loadtest.tip_check_metrics": "Check queue metrics for actual task completion counts",
     "loadtest.analysis_panel": "Load Test Analysis",
     "loadtest.next_steps": "Next steps:",
     "loadtest.tip_check_worker_logs": "Check worker logs for detailed error information",
@@ -1029,7 +1019,7 @@ MESSAGES: dict[str, str] = {
     "loadtest.type.cpu_intensive.description": "Tests worker CPU processing with fibonacci calculations",
     "loadtest.type.cpu_intensive.signature": "CPU bound - should show computation time scaling with problem size",
     "loadtest.type.cpu_intensive.duration": "1-10ms per task",
-    "loadtest.type.cpu_intensive.concurrency": "Limited by CPU cores, benefits from parallel processing",
+    "loadtest.type.cpu_intensive.concurrency": "One at a time per process, off the event loop: more processes, more at once",
     "loadtest.type.io_simulation.name": "I/O Simulation",
     "loadtest.type.io_simulation.description": "Tests async I/O handling with simulated delays",
     "loadtest.type.io_simulation.signature": "I/O bound - should show async concurrency benefits",
@@ -1337,4 +1327,6 @@ MESSAGES: dict[str, str] = {
     "blog.col_failed": "Failed",
     "blog.col_kind": "Kind",
     "blog.col_count": "Count",
+    # ── MCP ──────────────────────────────────────────────────────────
+    "mcp.help": "Serve this app's granted tools (MCP_TOOLS) to an MCP client over stdio.",
 }

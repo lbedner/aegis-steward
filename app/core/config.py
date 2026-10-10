@@ -6,12 +6,16 @@ This module centralizes application settings, allowing them to be loaded
 from environment variables for easy configuration in different environments.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, model_validator
+from pydantic_settings import SettingsConfigDict
 
+from app.core.configurable import Configurable, timezones
+from app.core.constants import DEV_ENVS, AppEnv, ComponentName, QueueName
 from app.core.formatting import format_slug
+from app.core.queue_workers import DEFAULT_QUEUES, QueueWorker
+from app.core.settings_base import SettingsBase
 from app.core.voice_settings import VoiceSettings
 
 # Default placeholder bundled with the template — anyone reading the
@@ -20,9 +24,13 @@ from app.core.voice_settings import VoiceSettings
 # so the startup guard below has a single source of truth and a renamed
 # placeholder doesn't accidentally bypass the check.
 _SECRET_KEY_PLACEHOLDER = "change-this-secret-key-in-production-use-env-variable"
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
-class Settings(VoiceSettings, BaseSettings):
+class Settings(
+    VoiceSettings,
+    SettingsBase,
+):
     """
     Defines application settings.
     `model_config` is used to specify that settings should be loaded from a .env file.
@@ -45,7 +53,7 @@ class Settings(VoiceSettings, BaseSettings):
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
     # Application environment: "dev" or "prod"
-    APP_ENV: str = "dev"
+    APP_ENV: str = AppEnv.DEV
 
     # API docs auth (HTTP Basic). When both are set, /docs /redoc /openapi.json
     # require these creds. When unset: open in dev, 404 in any other APP_ENV.
@@ -54,10 +62,22 @@ class Settings(VoiceSettings, BaseSettings):
 
     # Public signup gate. When False, /register returns 403 and OAuth new-user
     # creation is refused. Existing users still sign in normally.
-    REGISTRATION_ENABLED: bool = True
+    REGISTRATION_ENABLED: Annotated[
+        bool,
+        Configurable(
+            "service_auth", "Whether anyone can sign up; off, an admin makes accounts"
+        ),
+    ] = True
 
     # Log level for the application
-    LOG_LEVEL: str = "INFO"
+    LOG_LEVEL: Annotated[
+        str,
+        Configurable(
+            ComponentName.BACKEND,
+            "Lowest level a log line is written at",
+            choices=lambda: LOG_LEVELS,
+        ),
+    ] = "INFO"
 
     # Port for the web server
     PORT: int = 8000
@@ -73,6 +93,11 @@ class Settings(VoiceSettings, BaseSettings):
     # published port, so a project served anywhere needs no extra
     # configuration; set it explicitly for a container or a tunnel.
     API_BASE_URL: str = ""
+
+    @property
+    def is_dev(self) -> bool:
+        """Whether this is a development environment (``DEV_ENVS``)."""
+        return self.APP_ENV.lower() in DEV_ENVS
 
     @property
     def is_docker(self) -> bool:
@@ -109,24 +134,47 @@ class Settings(VoiceSettings, BaseSettings):
     # namespaced by it. See ``services/insights/constants.py``.
     BUILD_ID: str = "dev"
 
-    # Health monitoring and alerting
-    # Health checks are available via API endpoints (/health/)
-    # Use external monitoring tools (Prometheus, DataDog, etc.) to poll these endpoints
-    HEALTH_CHECK_ENABLED: bool = True
-    HEALTH_CHECK_INTERVAL_MINUTES: int = 5  # Recommended interval for monitoring
+    # Health monitoring: checks answer on /health/ for any monitor to poll
+    HEALTH_CHECK_TIMEOUT_SECONDS: Annotated[
+        float,
+        Configurable(
+            "health", "Seconds a health check waits before calling a component down"
+        ),
+    ] = 2.0
+    SYSTEM_METRICS_CACHE_SECONDS: Annotated[
+        int,
+        Field(ge=1),
+        Configurable(
+            "health",
+            "Seconds the host's CPU, memory and disk readings are reused (at least one: CPU is read as its share since the last read)",
+        ),
+    ] = 5
 
-    # Health check performance settings
-    HEALTH_CHECK_TIMEOUT_SECONDS: float = 2.0
-    SYSTEM_METRICS_CACHE_SECONDS: int = 5
-
-    # Basic alerting configuration
-    ALERTING_ENABLED: bool = False
-    ALERT_COOLDOWN_MINUTES: int = 60  # Minutes between repeated alerts for same issue
-
-    # Health check thresholds
-    MEMORY_THRESHOLD_PERCENT: float = 90.0
-    DISK_THRESHOLD_PERCENT: float = 85.0
-    CPU_THRESHOLD_PERCENT: float = 95.0
+    MEMORY_THRESHOLD_PERCENT: Annotated[
+        float,
+        Configurable(
+            "health",
+            "Memory in use, percent, at which the host or a container is unhealthy",
+        ),
+    ] = 90.0
+    DISK_THRESHOLD_PERCENT: Annotated[
+        float,
+        Configurable("health", "Disk in use, percent, at which the host is unhealthy"),
+    ] = 85.0
+    CPU_THRESHOLD_PERCENT: Annotated[
+        float,
+        Configurable(
+            "health",
+            "CPU in use, percent, at which the host or a container is unhealthy",
+        ),
+    ] = 95.0
+    WARNING_PERCENT_OF_THRESHOLD: Annotated[
+        float,
+        Configurable(
+            "health",
+            "Where a warning starts, as a percent of the memory, disk and CPU thresholds",
+        ),
+    ] = 80.0
 
     # Where stored objects live: chat attachments, documents, anything
     # addressed by content hash. A directory today; the storage component
@@ -143,7 +191,10 @@ class Settings(VoiceSettings, BaseSettings):
     # the scheduler at a mounted absolute path so prod dumps outlive the
     # container; restore from the scheduler, which is where they are visible.
     DATABASE_BACKUP_DIR: str = "backups"
-    DATABASE_BACKUP_KEEP: int = 7
+    DATABASE_BACKUP_KEEP: Annotated[
+        int,
+        Configurable(ComponentName.DATABASE, "Backups kept; older ones are removed"),
+    ] = 7
 
     # Flet frontend settings
     FLET_ASSETS_DIR: str = "assets"  # Directory for Flet static assets (images, etc.)
@@ -159,9 +210,18 @@ class Settings(VoiceSettings, BaseSettings):
     PROJECT_DESCRIPTION: str = (
         "A production-ready async Python application built with Aegis Stack"
     )
+    OVERSEER_CODE_ENABLED: Annotated[
+        bool,
+        Configurable(
+            ComponentName.WEB_FRONTEND,
+            "Show the project's source on Overseer > Code outside dev (admins only)",
+        ),
+    ] = False
 
     # Authentication settings
-    AUTH_ENABLED: bool = False  # Auth service not included; dev user is synthesized
+    # Without the auth service (or set false in .env) a dev user is synthesized
+    AUTH_ENABLED: bool = False
+    AUTH_LEVEL: str = "none"
     DEV_USER_ROLE: str = "admin"  # Role for synthetic dev user when AUTH_ENABLED=false
     # Email allowlist for ``require_admin`` — gates operator-only routes
     # (refund actions, dispute review, aggregate revenue charts, etc.).
@@ -180,7 +240,9 @@ class Settings(VoiceSettings, BaseSettings):
     # a one-time warning. Set in ``.env`` for production deploys.
     ENCRYPTION_KEY: str | None = None
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[
+        int, Configurable("service_auth", "Minutes a sign-in's access token lasts")
+    ] = 15
     # Dev-only multiplier on ``ACCESS_TOKEN_EXPIRE_MINUTES``. When
     # ``APP_ENV == "dev"``, the effective session length becomes
     # ``ACCESS_TOKEN_EXPIRE_MINUTES * DEV_TOKEN_EXPIRE_MULTIPLIER`` so
@@ -188,39 +250,100 @@ class Settings(VoiceSettings, BaseSettings):
     # staging are unaffected (the multiplier doesn't fire). Override in
     # ``.env`` if 4x isn't enough — e.g. ``DEV_TOKEN_EXPIRE_MULTIPLIER=16``.
     DEV_TOKEN_EXPIRE_MULTIPLIER: int = 4
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 14
+    REFRESH_TOKEN_EXPIRE_DAYS: Annotated[
+        int, Configurable("service_auth", "Days before a session has to sign in again")
+    ] = 14
     PASSWORD_RESET_EXPIRE_MINUTES: int = 60
     EMAIL_VERIFICATION_EXPIRE_HOURS: int = 24
 
     # Rate limiting settings
-    RATE_LIMIT_LOGIN_MAX: int = 5
-    RATE_LIMIT_LOGIN_WINDOW: int = 60
-    RATE_LIMIT_REGISTER_MAX: int = 3
-    RATE_LIMIT_REGISTER_WINDOW: int = 60
+    RATE_LIMIT_LOGIN_MAX: Annotated[
+        int,
+        Configurable(
+            "service_auth", "Sign-in attempts one address may make per window"
+        ),
+    ] = 5
+    RATE_LIMIT_LOGIN_WINDOW: Annotated[
+        int, Configurable("service_auth", "Seconds the sign-in limit counts over")
+    ] = 60
+    RATE_LIMIT_REGISTER_MAX: Annotated[
+        int,
+        Configurable(
+            "service_auth",
+            "Sign-ups or password resets one address may ask for per window",
+        ),
+    ] = 3
+    RATE_LIMIT_REGISTER_WINDOW: Annotated[
+        int, Configurable("service_auth", "Seconds the sign-up limit counts over")
+    ] = 60
     # Resend-verification is a user-initiated button; a tighter-than-register
     # limit would feel punishing during legit retries. 3 per 5 min strikes
     # the balance — still spam-proof, far less fiddly.
-    RATE_LIMIT_RESEND_VERIFICATION_MAX: int = 3
-    RATE_LIMIT_RESEND_VERIFICATION_WINDOW: int = 300
+    RATE_LIMIT_RESEND_VERIFICATION_MAX: Annotated[
+        int,
+        Configurable(
+            "service_auth", "Verification emails one address may ask for per window"
+        ),
+    ] = 3
+    RATE_LIMIT_RESEND_VERIFICATION_WINDOW: Annotated[
+        int,
+        Configurable(
+            "service_auth", "Seconds the verification-email limit counts over"
+        ),
+    ] = 300
 
     # Account lockout settings
-    ACCOUNT_LOCKOUT_ATTEMPTS: int = 5
-    ACCOUNT_LOCKOUT_MINUTES: int = 15
+    ACCOUNT_LOCKOUT_ATTEMPTS: Annotated[
+        int, Configurable("service_auth", "Failed sign-ins before an account is locked")
+    ] = 5
+    ACCOUNT_LOCKOUT_MINUTES: Annotated[
+        int, Configurable("service_auth", "Minutes a locked account stays locked")
+    ] = 15
 
-    # Proxy trust settings
-    TRUST_PROXY_HEADERS: bool = False  # Set to True only behind a trusted reverse proxy
+    TRUST_PROXY_HEADERS: bool = (
+        False  # Behind a reverse proxy: the client comes from X-Forwarded-For
+    )
+    TRUSTED_PROXIES: list[str] = [
+        "127.0.0.1",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+    ]  # Senders believed (Traefik's ranges); never "*", which believes the caller
 
     # Traffic monitor: per-source request-volume visibility ("who's hammering
     # you") rendered in Overseer. Counts requests per client IP, bucketed
     # hourly; backed by Redis when present (shared across processes), in-memory
     # otherwise (per-process, resets on restart).
-    TRAFFIC_MONITOR_ENABLED: bool = True
+    TRAFFIC_MONITOR_ENABLED: Annotated[
+        bool,
+        Configurable(
+            ComponentName.BACKEND,
+            "Count requests per client address, for the Server page's traffic",
+        ),
+    ] = True
     # Trailing window the Overseer panel ranks sources over (hours).
-    TRAFFIC_WINDOW_HOURS: int = 24
+    TRAFFIC_WINDOW_HOURS: Annotated[
+        int,
+        Configurable(
+            ComponentName.BACKEND, "Hours of traffic the Server page ranks sources over"
+        ),
+    ] = 24
     # Read-time dominance flag: a single source over this share of windowed
     # traffic (and clearing the absolute floor) is highlighted as "hammering."
-    TRAFFIC_DOMINANCE_SHARE: float = 0.5
-    TRAFFIC_DOMINANCE_FLOOR: int = 100
+    TRAFFIC_DOMINANCE_SHARE: Annotated[
+        float,
+        Configurable(
+            ComponentName.BACKEND,
+            "Share of all traffic (0 to 1) that flags one source as hammering",
+        ),
+    ] = 0.5
+    TRAFFIC_DOMINANCE_FLOOR: Annotated[
+        int,
+        Configurable(
+            ComponentName.BACKEND,
+            "Fewest requests a source needs before it can be flagged",
+        ),
+    ] = 100
 
     # HttpOnly session cookie holding the JWT after login / register /
     # OAuth callback. None = auto (off in dev, on otherwise). Set to
@@ -254,7 +377,10 @@ class Settings(VoiceSettings, BaseSettings):
             return self._localhost_url(self.REDIS_URL, {"redis"}, self.REDIS_HOST_PORT)
         return self.REDIS_URL
 
-    # arq worker settings (shared across all workers)
+    # Worker settings; per-queue ones are modelled in app/core/queue_workers.py
+    WORKER_QUEUES: dict[str, QueueWorker] = Field(default_factory=DEFAULT_QUEUES.copy)
+    WORKER_QUEUE_DEFAULT: QueueWorker = QueueWorker()
+    # Not on Overseer > Settings: arq reads both in its queue classes, before saved values apply
     WORKER_KEEP_RESULT_SECONDS: int = 3600  # Keep job results for 1 hour
     WORKER_MAX_TRIES: int = 3
 
@@ -267,11 +393,18 @@ class Settings(VoiceSettings, BaseSettings):
     WORKER_HEALTH_CHECK_INTERVAL: int = 15  # In seconds (default: 15)
 
     # Task history retention (Redis Hashes auto-expire after this)
-    TASK_HISTORY_TTL_SECONDS: int = 86400  # 24 hours
+    TASK_HISTORY_TTL_SECONDS: Annotated[
+        int, Configurable(ComponentName.WORKER, "Seconds a job's history is kept")
+    ] = 86400  # 24 hours
 
-    # PURE ARQ IMPLEMENTATION - NO CONFIGURATION NEEDED!
-    # Worker configuration comes from individual WorkerSettings classes
-    # in app/components/worker/queues/ - just import and use as arq intended!
+    # Database settings
+    DATABASE_SLOW_TRANSACTION_SECONDS: Annotated[
+        float,
+        Configurable(
+            ComponentName.DATABASE,
+            "A transaction held this long is recorded on the Database page, seconds (0: off)",
+        ),
+    ] = 2.0
 
     # Database. ABSOLUTE, on the aegis-data volume: off the bind mount or
     # WAL is unsafe (app/core/db.py). Host cannot open it; compose exec.
@@ -284,29 +417,49 @@ class Settings(VoiceSettings, BaseSettings):
     AI_ENABLED: bool = True
     AI_PROVIDER: str = "public"  # Default to public provider
     AI_MODEL: str = "auto"  # Default model (public provider uses available models)
-    AI_TEMPERATURE: float = 0.7
-    AI_MAX_TOKENS: int = 1000
+    AI_TEMPERATURE: Annotated[
+        float,
+        Field(ge=0.0, le=2.0),
+        Configurable("service_ai", "How varied the model's answers are, 0 to 2"),
+    ] = 0.7
+    AI_MAX_TOKENS: Annotated[
+        int,
+        Field(gt=0, le=8000),
+        Configurable("service_ai", "Most tokens one answer may run to"),
+    ] = 1000
     # Anthropic-only thinking depth (low|medium|high|xhigh|max). None = the API
     # default; other providers ignore it. Most of a call's cost is thinking
     # tokens, so "low" cuts spend several-fold on constrained tasks.
     AI_EFFORT: str | None = None
-    AI_TIMEOUT_SECONDS: float = 120.0
+    AI_TIMEOUT_SECONDS: Annotated[
+        float,
+        Field(gt=0),
+        Configurable("service_ai", "Seconds the model has to answer"),
+    ] = 120.0
 
     # Batch sentiment scoring of conversations. OFF by default: the job
     # spends model tokens on every unscored conversation.
-    AI_SENTIMENT_ENABLED: bool = False
-    AI_SENTIMENT_BATCH_LIMIT: int = 20
+    AI_SENTIMENT_ENABLED: Annotated[
+        bool,
+        Configurable(
+            "service_ai",
+            "Score conversations' sentiment in batches (spends model tokens)",
+        ),
+    ] = False
+    AI_SENTIMENT_BATCH_LIMIT: Annotated[
+        int, Configurable("service_ai", "Conversations scored per batch")
+    ] = 20
 
     # Provider API Keys (optional - many providers offer free tiers)
     # Optional for the public provider (LLM7.io): keyless requests use
     # the free anonymous tier (open-weight models); an account key from
     # https://dash.llm7.io unlocks premium models and higher limits.
     LLM7_API_KEY: str | None = None
-    # Optional for the pollinations provider: keyless requests use the
-    # free anonymous tier (open-weight models, no streaming); a key
-    # selects an account tier.
+    # Optional for pollinations: keyless requests use the free anonymous
+    # tier (open-weight models, no streaming); a key selects an account tier.
     POLLINATIONS_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
+    OPEN_ROUTER_API_KEY: str | None = None  # its own name: see PROVIDERS
     ANTHROPIC_API_KEY: str | None = None
     GOOGLE_API_KEY: str | None = None
     GROQ_API_KEY: str | None = None
@@ -389,7 +542,13 @@ class Settings(VoiceSettings, BaseSettings):
     # ledger without burying Review/Insights under years of stale findings.
     # 0 disables the window (full history). Rules with their own windows
     # (recurring detection, overspend, large transactions) are unaffected.
-    FINANCE_RULES_LOOKBACK_DAYS: int = 31
+    FINANCE_RULES_LOOKBACK_DAYS: Annotated[
+        int,
+        Configurable(
+            "service_finance",
+            "Days of activity the reconciliation alerts consider (0: all history)",
+        ),
+    ] = 31
     # Provider capabilities built into this stack. Credentials are set
     # separately in .env; these flags say which connect flows exist at all,
     # so the UI can offer them (and prompt for missing credentials) rather
@@ -418,8 +577,13 @@ class Settings(VoiceSettings, BaseSettings):
     SNAPTRADE_CLIENT_ID: str | None = None
     SNAPTRADE_CONSUMER_KEY: str | None = None
 
-    # Scheduler settings
-    SCHEDULER_TIMEZONE: str = "UTC"  # IANA timezone name; cron triggers inherit this
+    # Scheduler settings: an IANA timezone name, which cron triggers inherit
+    SCHEDULER_TIMEZONE: Annotated[
+        str,
+        Configurable(
+            ComponentName.SCHEDULER, "Timezone scheduled jobs run in", choices=timezones
+        ),
+    ] = "UTC"
 
     @staticmethod
     def _localhost_url(
@@ -563,15 +727,17 @@ def get_default_queue() -> str:
     """Get the default queue name for load testing."""
     # Prefer load_test queue if it exists, otherwise use first available
     available = get_available_queues()
-    if "load_test" in available:
-        return "load_test"
-    return available[0] if available else "system"
+    if QueueName.LOAD_TEST in available:
+        return QueueName.LOAD_TEST
+    return available[0] if available else QueueName.SYSTEM
 
 
 def get_load_test_queue() -> str:
     """Get the queue name for load testing."""
     available = get_available_queues()
-    return "load_test" if "load_test" in available else get_default_queue()
+    return (
+        QueueName.LOAD_TEST if QueueName.LOAD_TEST in available else get_default_queue()
+    )
 
 
 def is_valid_queue(queue_name: str) -> bool:

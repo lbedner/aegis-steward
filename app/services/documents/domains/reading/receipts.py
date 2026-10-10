@@ -333,7 +333,7 @@ async def _done_waiting(
         create_insight_if_new,
     )
     from app.services.finance.models import FinanceInsight
-    from app.services.finance.utils import stored_owner
+    from app.services.shared.queries import stored_owner
 
     if not done:
         return

@@ -27,6 +27,17 @@ class TestAIServiceInitialization:
         assert hasattr(service.config, "model")
 
 
+def test_a_setting_saved_after_the_service_was_built_applies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The service is built at import and saved settings apply as the
+    process boots, after it: its config reads them as they stand."""
+    service = AIService(settings)
+    monkeypatch.setattr(settings, "AI_TEMPERATURE", 0.2)
+    monkeypatch.setattr(settings, "AI_MAX_TOKENS", 300)
+    assert (service.config.temperature, service.config.max_tokens) == (0.2, 300)
+
+
 class TestAIServiceStatus:
     """Test AI service status reporting."""
 
@@ -91,18 +102,18 @@ class TestAIServiceStatus:
 class TestAIServiceValidation:
     """Test AI service validation."""
 
-    def test_validate_service_returns_list(self) -> None:
+    async def test_validate_service_returns_list(self) -> None:
         """Test that validate_service returns list of errors."""
         service = AIService(settings)
-        errors = service.validate_service()
+        errors = await service.validate_service()
 
         assert isinstance(errors, list)
         assert all(isinstance(e, str) for e in errors)
 
-    def test_validate_service_with_valid_config(self) -> None:
+    async def test_validate_service_with_valid_config(self) -> None:
         """Test validation with valid configuration."""
         service = AIService(settings)
-        errors = service.validate_service()
+        errors = await service.validate_service()
 
         # PUBLIC provider should have no errors (no API key required)
         if service.config.provider == AIProvider.PUBLIC:
@@ -206,3 +217,17 @@ class TestAIServiceErrorHandling:
                 pass
 
         assert "disabled" in str(exc_info.value).lower()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"), [("AI_TEMPERATURE", "5"), ("AI_MAX_TOKENS", "0")]
+)
+def test_a_value_the_config_would_refuse_is_refused_when_saved(
+    name: str, value: str
+) -> None:
+    """``config`` reads settings on every call, so an out-of-range value
+    saved in the Overseer would break each one; it is refused at the save."""
+    from app.core import saved_settings, secrets
+
+    with pytest.raises(secrets.SecretRejectedError):
+        saved_settings.coerce(name, value)

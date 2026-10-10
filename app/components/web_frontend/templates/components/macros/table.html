@@ -9,8 +9,16 @@
    row's ``currency`` when it has one; ``signed`` adds a leading ``+`` and
    colours by sign, ``toned`` colours by sign without the plus), ``date``,
    ``int``, ``status`` (the value is
-   ``{"label", "tone"}``, rendered as a ``badge``) or ``avatar`` (the
-   row's ``icon_url`` brand mark before the value); ``align`` is ``left``
+   ``{"label", "tone"}``, rendered as a ``badge``), ``avatar`` (the
+   row's ``icon_url`` brand mark before the value), ``code`` (monospace,
+   wrapping: a key, a rule, a command) or ``link`` (the value is
+   ``{"label", "url"}``; the link replaces ``target``, default
+   ``#app-content``, the way a list's row opens its item; ``mark`` puts
+   the row's mark before it); ``render`` is a macro taking the value, for
+   a cell no kind covers; ``header`` is a macro rendering the column's
+   heading in place of ``label``. A row marked ``group`` reads as a
+   heading and the ``child`` rows after it are indented (a total and its
+   parts under one set of columns); ``align`` is ``left``
    (default) or ``right``; ``phone`` (``primary`` or ``amount``) moves
    the column to the top line of a phone row (see ``table_row``). Rows are
    objects or dicts alike (Jinja reads
@@ -18,8 +26,10 @@
    renders as a dash. Zero rows render ``empty_state`` instead.
 
    ``row_id`` names each ``<tr>`` (``row_id ~ "-" ~ row.id``) so an action
-   can swap one row back; a ``{% call(row) data_table(...) %}`` block adds
-   an actions column rendered per row.
+   can swap one row back; a ``{% call(row) data_table(...) %}`` block, or
+   a macro passed as ``actions``, adds an actions column rendered per row.
+   ``detail`` is a macro taking the row: each row then gets a toggle and a
+   hidden full-width row under it with that macro's output.
 
    Three parameters exist for the register, which is a table like any
    other until you look at a row: ``select`` adds the checkbox column and
@@ -45,6 +55,8 @@
 {%- set value = row[col.key] -%}
 {%- if value is undefined or value is none or value == "" -%}
 -
+{%- elif col.render -%}
+{{ col.render(value) }}
 {%- elif col.kind == "money" -%}
 {%- set currency = row.currency -%}
 {{ value|money(currency if currency is string else "USD", signed=col.signed) }}
@@ -98,6 +110,11 @@
 {%- elif col.kind == "links" -%}
 {# Several places at once, each a door: where a document is filed. #}
 {{ doors(value, show=2) }}
+{%- elif col.kind == "code" -%}
+<code class="font-mono text-xs whitespace-normal break-words">{{ value }}</code>
+{%- elif col.kind == "link" -%}
+{%- set link -%}<a href="{{ value.url }}" {{ hx_replace(value.url, col.target or "#app-content") }} class="text-aegis-text hover:text-aegis-teal">{{ value.label }}</a>{%- endset -%}
+{%- if col.mark %}<span class="inline-flex items-center gap-2">{{ mark(row, value.label) }}{{ link }}</span>{% else %}{{ link }}{% endif -%}
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}
@@ -155,8 +172,9 @@ text-aegis-text
 
 {# One row. ``id`` lets an action swap this row back by itself; ``oob``
    marks it as an out-of-band answer (pattern 2); ``actions`` is a macro
-   (a call block's ``caller``) rendering the trailing actions cell. #}
-{% macro table_row(columns, row, id=None, oob=False, actions=None) %}
+   (a call block's ``caller``) rendering the trailing actions cell;
+   ``expandable`` leads with the toggle of its ``detail`` row. #}
+{% macro table_row(columns, row, id=None, oob=False, actions=None, expandable=False) %}
 {# Where a phone puts each cell (issue 465): the row's lead and its amount
    share the top line, every other cell is a labelled detail beneath.
    The lead is the column marked ``phone: "primary"``, else the first
@@ -168,7 +186,17 @@ text-aegis-text
 {% set lead = leads[0].key %}
 {% set amounts = columns|selectattr("phone", "equalto", "amount")|list or columns|selectattr("kind", "equalto", "money")|list %}
 {% set amount = amounts[0].key if amounts else none %}
-<tr {% if id %}id="{{ id }}"{% endif %} {% if oob %}hx-swap-oob="outerHTML"{% endif %} class="hover:bg-aegis-border/20 transition-colors">
+{# A ``group`` row heads the ``child`` rows after it (a total and its parts,
+   one set of columns); either flag rides on the row itself. #}
+{% set heading = row is mapping and row.get("group") %}
+{% set indented = row is mapping and row.get("child") %}
+<tr {% if id %}id="{{ id }}"{% endif %} {% if oob %}hx-swap-oob="outerHTML"{% endif %} {% if expandable %}@click="open = !open"{% endif %} {% if heading %}data-group{% endif %} class="group hover:bg-aegis-border/20 transition-colors{{ ' cursor-pointer' if expandable }}{{ ' font-semibold bg-aegis-border/10' if heading }}">
+  {% if expandable %}
+  <td data-role="select" class="pl-5 pr-0 py-2 w-4">
+    <button type="button" @click.stop="open = !open" aria-expanded="false" :aria-expanded="open.toString()" aria-label="Details"
+            class="text-aegis-muted hover:text-aegis-text"><span aria-hidden="true" class="inline-block transition-transform" :class="open && 'rotate-90'">›</span></button>
+  </td>
+  {% endif %}
   {% for col in columns %}
   {# The mark rides in the FIRST cell, which is made its positioning
      context: a dot positioned against the row element is not reliable,
@@ -177,7 +205,7 @@ text-aegis-text
   {# A column marked ``wrap`` lets its text break: a name or a title in
      a wide row folds rather than pushing the money off the card. #}
   {% set role = "primary" if col.key == lead else ("amount" if col.key == amount else "detail") %}
-  <td data-role="{{ role }}"{% if role == "detail" and col.label %} data-label="{{ col.label }}"{% endif %} class="{{ 'relative ' if loop.first }}px-5 py-2 {{ HIDE_BELOW.get(col.hide_below, '') }} {{ 'whitespace-normal break-words' if col.wrap else 'whitespace-nowrap' }} {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{% if loop.first %}{{ new_mark(row) }}{% endif %}{{ _cell(row, col) }}</td>
+  <td data-role="{{ role }}"{% if role == "detail" and col.label %} data-label="{{ col.label }}"{% endif %} class="{{ 'relative ' if loop.first }}{{ 'pl-10 pr-5' if indented and loop.first else 'px-5' }} py-2 {{ HIDE_BELOW.get(col.hide_below, '') }} {{ 'whitespace-normal break-words' if col.wrap else 'whitespace-nowrap' }} {{ 'text-right tabular-nums' if col.align == 'right' else 'text-left' }} {{ _tone(row, col) }}">{% if loop.first %}{{ new_mark(row) }}{% endif %}{{ _cell(row, col) }}</td>
   {% endfor %}
   {% if actions %}<td data-role="actions" class="px-2 py-2 text-right">{{ actions(row) }}</td>{% endif %}
 </tr>
@@ -190,7 +218,8 @@ text-aegis-text
    of numbers with its labels scrolled away is a column of numbers. #}
 {% macro data_table(columns, rows, empty="Nothing here yet", row_id=None, scroll=False,
                     select=False, sort=None, path=None, target=None, row=None,
-                    flush=True) %}
+                    flush=True, detail=None, actions=None) %}
+{% set actions = actions or (caller if caller is defined else None) %}
 {% if rows %}
 <div class="overflow-x-auto{{ " -mx-5" if flush }}{% if scroll %} max-h-80 overflow-y-auto{% endif %}">
   <table data-table{% if sort %} data-sortable{% endif %} class="w-full text-sm">
@@ -206,6 +235,7 @@ text-aegis-text
                  @change="$root.querySelectorAll('input[name=transaction_ids]').forEach(b => b.checked = $el.checked)">
         </th>
         {% endif %}
+        {% if detail %}<th scope="col"><span class="sr-only">Details</span></th>{% endif %}
         {% for col in columns %}
         {% if sort %}
         {# A header the reader can click. The link carries the whole
@@ -218,19 +248,30 @@ text-aegis-text
              class="inline-flex items-center gap-1 hover:text-aegis-text transition-colors">{{ col.label }}<span class="text-xxs">{{ sort.arrow(col.key) }}</span></a>
         </th>
         {% else %}
-        <th scope="col" class="px-5 py-2 font-medium {{ HIDE_BELOW.get(col.hide_below, '') }} {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.label }}</th>
+        <th scope="col" class="px-5 py-2 font-medium {{ HIDE_BELOW.get(col.hide_below, '') }} {{ 'text-right' if col.align == 'right' else 'text-left' }}">{{ col.header() if col.header else col.label }}</th>
         {% endif %}
         {% endfor %}
-        {% if caller is defined or row %}<th scope="col"{% if row %} class="px-2 py-2"{% endif %}><span class="sr-only">Actions</span></th>{% endif %}
+        {% if actions or row %}<th scope="col"{% if row %} class="px-2 py-2"{% endif %}><span class="sr-only">Actions</span></th>{% endif %}
       </tr>
     </thead>
+    {% if detail %}
+    {% for item in rows %}
+    <tbody x-data="{ open: false }" class="border-b border-aegis-border/60 last:border-0">
+      {{ table_row(columns, item, id=(row_id ~ "-" ~ item.id) if row_id else None, actions=actions, expandable=True) }}
+      <tr data-detail x-show="open" x-cloak>
+        <td colspan="{{ columns|length + 1 + (1 if actions else 0) }}" class="px-5 pb-4 pt-2 bg-aegis-border/10">{{ detail(item) }}</td>
+      </tr>
+    </tbody>
+    {% endfor %}
+    {% else %}
     <tbody class="divide-y divide-aegis-border/60">
       {% for item in rows %}
       {% if row %}{{ row(item) }}{% else %}
-      {{ table_row(columns, item, id=(row_id ~ "-" ~ item.id) if row_id else None, actions=caller if caller is defined else None) }}
+      {{ table_row(columns, item, id=(row_id ~ "-" ~ item.id) if row_id else None, actions=actions) }}
       {% endif %}
       {% endfor %}
     </tbody>
+    {% endif %}
   </table>
 </div>
 {% else %}

@@ -46,7 +46,15 @@ def resolve_loop(choice: str | None = None) -> str:
         running = ".".join(str(part) for part in sys.version_info[:2])
         wanted = ".".join(str(part) for part in ZUVLOOP_MIN_PYTHON)
         raise ValueError(f"zuvloop needs Python {wanted} or newer; this is {running}.")
+    if chosen == "asyncio":
+        return chosen
     if chosen != "auto":
+        # Checked here rather than left to the engine: granian's worker dies
+        # on a loop it cannot import, which ends a bench sweep outright.
+        if importlib.util.find_spec(chosen) is None:
+            raise ValueError(
+                f"{chosen} is not installed; add it with `uv add {chosen}`."
+            )
         return chosen
     # Never zuvloop: it is 0.0.x, so it stays something you ask for.
     return "uvloop" if importlib.util.find_spec("uvloop") else "asyncio"

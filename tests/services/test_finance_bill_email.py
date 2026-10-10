@@ -123,13 +123,11 @@ async def test_a_provider_failure_never_escapes_the_job(
 
 
 def test_the_scheduler_registers_it_once_a_day() -> None:
-    from app.components.scheduler import main
+    from app.services.finance.scheduled_jobs import JOBS
 
-    source = main.__file__
-    assert source is not None
-    text = open(source).read()
-    assert 'id="finance_bill_due_email"' in text
-    assert "finance_bill_due_email_job," in text
+    (job,) = [j for j in JOBS if j.id == "finance_bill_due_email"]
+    assert job.func is jobs.finance_bill_due_email_job
+    assert job.trigger == {"trigger": "cron", "hour": 7, "minute": 0}
 
 
 async def test_the_budget_and_goals_are_not_bills(

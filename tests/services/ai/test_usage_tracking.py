@@ -17,6 +17,7 @@ from app.services.ai.models.llm import (
     LLMUsage,
 )
 from app.services.ai.service import AIService
+from tests._session import opens
 
 
 class TestExtractUsage:
@@ -122,10 +123,7 @@ def _store_session(session: AsyncSession) -> Generator[None]:
     """The store's ``get_async_session`` yields the test's transactional
     session, wherever the ledger opens one."""
 
-    @asynccontextmanager
-    async def opened() -> AsyncGenerator[AsyncSession]:
-        yield session
-
+    opened = opens(session)
     with ExitStack() as stack:
         for target in (
             "app.services.ai.service.usage.get_async_session",
@@ -133,6 +131,204 @@ def _store_session(session: AsyncSession) -> Generator[None]:
         ):
             stack.enter_context(patch(target, opened))
         yield
+
+
+class TestWhatTheLedgerKeeps:
+    """The ledger records what a call cost in time and work, not just tokens.
+
+    ``duration_ms`` was on ``record_usage``'s signature for months and was
+    passed straight into ``LLMUsage(...)`` - a model with no such field, so
+    SQLModel discarded it without a word. The parameter read as captured
+    and was not. These pin the four fields that were being dropped.
+
+    Nullable is the point: "nobody measured this" and "this was zero" are
+    different facts, and a backfilled zero becomes a lie in an average.
+    """
+
+    async def test_a_timed_call_keeps_its_duration(
+        self,
+        async_db_session: AsyncSession,
+        llm: LargeLanguageModel,
+        price: LLMPrice,
+    ) -> None:
+        from app.services.ai import usage_recording
+
+        with _store_session(async_db_session):
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="gpt-4o",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                user_id="u-timed",
+                duration_ms=1234.5,
+            )
+
+        stmt = select(LLMUsage).where(LLMUsage.user_id == "u-timed")
+        row = (await async_db_session.exec(stmt)).first()
+        assert row is not None
+        assert row.duration_ms == 1234.5
+
+    async def test_a_turn_names_its_conversation(
+        self,
+        async_db_session: AsyncSession,
+        llm: LargeLanguageModel,
+        price: LLMPrice,
+    ) -> None:
+        """A live call and the turns taken during it share a conversation,
+        so what a call cost can be read back from the ledger."""
+        from app.services.ai import usage_recording
+
+        with _store_session(async_db_session):
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="gpt-4o",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                user_id="u-conversation",
+                conversation_id="c-1",
+            )
+
+        stmt = select(LLMUsage).where(LLMUsage.user_id == "u-conversation")
+        row = (await async_db_session.exec(stmt)).first()
+        assert row is not None
+        assert row.conversation_id == "c-1"
+
+    async def test_a_timed_call_is_a_point_on_the_live_charts(
+        self,
+        async_db_session: AsyncSession,
+        llm: LargeLanguageModel,
+        price: LLMPrice,
+    ) -> None:
+        """Pushed as it happens, so throughput and latency chart with no
+        polling: per model, seconds and output tokens a second."""
+        from app.core import series
+        from app.services.ai import usage_recording
+
+        with _store_session(async_db_session):
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="ollama/qwen2.5:7b",
+                usage={"input_tokens": 10, "output_tokens": 50},
+                user_id="u-live",
+                duration_ms=2000.0,
+            )
+        found = await series.read(f"{series.LLM}:", window=60)
+        assert {name: [v for _, v in points] for name, points in found.items()} == {
+            f"qwen2.5:7b:{series.LATENCY}": [2.0],
+            f"qwen2.5:7b:{series.TOKENS_PER_SECOND}": [25.0],
+        }
+
+    async def test_an_untimed_call_records_nothing_rather_than_zero(
+        self,
+        async_db_session: AsyncSession,
+        llm: LargeLanguageModel,
+        price: LLMPrice,
+    ) -> None:
+        """A path that does not time itself must be distinguishable from
+        one that ran instantly, or the averages quietly lie."""
+        from app.services.ai import usage_recording
+
+        with _store_session(async_db_session):
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="gpt-4o",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                user_id="u-untimed",
+            )
+
+        stmt = select(LLMUsage).where(LLMUsage.user_id == "u-untimed")
+        row = (await async_db_session.exec(stmt)).first()
+        assert row is not None
+        assert row.duration_ms is None
+
+    async def test_cache_tokens_land_when_the_provider_reports_them(
+        self,
+        async_db_session: AsyncSession,
+        llm: LargeLanguageModel,
+        price: LLMPrice,
+    ) -> None:
+        """They are already in the usage dict and already in the log line;
+        only the columns were missing."""
+        from app.services.ai import usage_recording
+
+        with _store_session(async_db_session):
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="gpt-4o",
+                usage={
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_read_tokens": 900,
+                    "cache_write_tokens": 40,
+                },
+                user_id="u-cache",
+            )
+
+        stmt = select(LLMUsage).where(LLMUsage.user_id == "u-cache")
+        row = (await async_db_session.exec(stmt)).first()
+        assert row is not None
+        assert row.cache_read_tokens == 900
+        assert row.cache_write_tokens == 40
+
+    async def test_a_provider_that_reports_no_cache_records_nothing(
+        self,
+        async_db_session: AsyncSession,
+        llm: LargeLanguageModel,
+        price: LLMPrice,
+    ) -> None:
+        """An absent key stays None. Reading it as 0 would claim the
+        provider offered a cache and missed every time."""
+        from app.services.ai import usage_recording
+
+        with _store_session(async_db_session):
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="gpt-4o",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                user_id="u-nocache",
+            )
+
+        stmt = select(LLMUsage).where(LLMUsage.user_id == "u-nocache")
+        row = (await async_db_session.exec(stmt)).first()
+        assert row is not None
+        assert row.cache_read_tokens is None
+        assert row.cache_write_tokens is None
+
+    @pytest.mark.queryspy(threshold=3)  # reads back each user's row
+    async def test_a_turn_that_used_no_tools_records_zero_not_null(
+        self,
+        async_db_session: AsyncSession,
+        llm: LargeLanguageModel,
+        price: LLMPrice,
+    ) -> None:
+        """Zero tool calls is a measurement. Not having counted is not."""
+        from app.services.ai import usage_recording
+
+        with _store_session(async_db_session):
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="gpt-4o",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                user_id="u-notools",
+                tool_calls=0,
+            )
+            await usage_recording.record_usage(
+                action="chat",
+                model_name="gpt-4o",
+                usage={"input_tokens": 10, "output_tokens": 5},
+                user_id="u-uncounted",
+            )
+
+        counted = (
+            await async_db_session.exec(
+                select(LLMUsage).where(LLMUsage.user_id == "u-notools")
+            )
+        ).first()
+        uncounted = (
+            await async_db_session.exec(
+                select(LLMUsage).where(LLMUsage.user_id == "u-uncounted")
+            )
+        ).first()
+        assert counted is not None and counted.tool_calls == 0
+        assert uncounted is not None and uncounted.tool_calls is None
 
 
 class TestRecordUsage:
@@ -528,3 +724,72 @@ class TestGetUsageStats:
 
         assert stats["total_requests"] == 2
         assert stats["success_rate"] == 50.0
+
+
+class TestTheLedgerRowIsStoredNaive:
+    """asyncpg rejects a timezone-aware value for ``timestamp without time
+    zone``, and ``record_usage`` swallows the exception - so an aware
+    timestamp is not a crash but a silently lost row: an empty ledger, a
+    zero cost, a daily budget that never trips. SQLite accepts either, so
+    the value is checked on its way in."""
+
+    async def test_the_timestamp_has_no_zone(
+        self, async_db_session: AsyncSession, llm: LargeLanguageModel, price: LLMPrice
+    ) -> None:
+        from sqlalchemy import event
+
+        from app.services.ai.usage_recording import record_usage
+
+        seen: list[datetime] = []
+
+        def capture(_mapper: Any, _conn: Any, target: LLMUsage) -> None:
+            seen.append(target.timestamp)
+
+        event.listen(LLMUsage, "before_insert", capture)
+        try:
+            with _store_session(async_db_session):
+                await record_usage(
+                    "chat", "gpt-4o", {"input_tokens": 1, "output_tokens": 1}, "u-tz"
+                )
+            # The real session commits on exit; the test's does not.
+            await async_db_session.flush()
+        finally:
+            event.remove(LLMUsage, "before_insert", capture)
+
+        assert seen, "no ledger row was written"
+        assert all(value.tzinfo is None for value in seen)
+
+    def test_the_models_default_is_naive_too(self) -> None:
+        row = LLMUsage(
+            action="chat", model_id="m", input_tokens=0, output_tokens=0, total_cost=0.0
+        )
+
+        assert row.timestamp.tzinfo is None
+
+
+async def test_recent_models_are_newest_first_each_once(
+    async_db_session: AsyncSession,
+) -> None:
+    """The chat picker leads with the models last used: from the usage
+    ledger, most recent first, each model once."""
+    from datetime import timedelta
+
+    from app.services.ai.domains.llm.queries import recent_model_ids
+
+    now = datetime.now(UTC)
+    for model_id, minutes_ago in (("a", 30), ("b", 20), ("a", 10), ("c", 40)):
+        async_db_session.add(
+            LLMUsage(
+                model_id=model_id,
+                user_id="u",
+                input_tokens=1,
+                output_tokens=1,
+                total_cost=0.0,
+                success=True,
+                action="chat",
+                timestamp=now - timedelta(minutes=minutes_ago),
+            )
+        )
+    await async_db_session.commit()
+
+    assert await recent_model_ids(async_db_session, 2) == ["a", "b"]

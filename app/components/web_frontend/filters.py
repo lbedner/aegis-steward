@@ -4,34 +4,30 @@ Registered on the environment by ``rendering.py``. Amounts arrive from the
 finance service as integer minor units with a currency code.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, date, datetime
+from functools import cache
 import html
+import re
 from statistics import median_low
 from typing import Any
 
 from markupsafe import Markup
 
 from app.core.formatting import format_date_range, format_money
+from app.core.time import today as utc_today
 
 # Re-exported: the routes and templates here have always said
 # ``filters.money_to_cents``, and it now lives with the money.
 from app.services.finance.utils import money_to_cents as money_to_cents
 from app.services.finance.utils import period_label
+from app.services.system.models import ComponentStatusType
+from app.services.system.ui import get_status_color_name
 
 
 def account_params(account_ids: list[int] | None) -> list[str]:
     """The account filter as query parameters, one per account."""
     return [f"account_ids={i}" for i in account_ids or []]
-
-
-def _utc_today() -> date:
-    """Today in UTC, the clock the rest of the app stamps rows with.
-
-    Spelled out rather than imported from a service: the web frontend
-    ships in projects that have none of them.
-    """
-    return datetime.now(UTC).date()
 
 
 def money(
@@ -69,7 +65,7 @@ def short_date(value: date | datetime | str | None, today: date | None = None) -
             month = datetime.strptime(value, "%Y-%m").date()
         except ValueError:
             return value
-        this_year = month.year == (today or _utc_today()).year
+        this_year = month.year == (today or utc_today()).year
         return f"{month:%b}" if this_year else f"{month:%b %Y}"
     if isinstance(value, str):
         try:
@@ -79,7 +75,7 @@ def short_date(value: date | datetime | str | None, today: date | None = None) -
     if isinstance(value, datetime):
         value = value.date()
     label = f"{value:%b} {value.day}"
-    if value.year == (today or _utc_today()).year:
+    if value.year == (today or utc_today()).year:
         return label
     return f"{label}, {value.year}"
 
@@ -284,7 +280,7 @@ def freshness(
         except ValueError:
             return {"label": str(when), "tone": "muted"}
     seen = when.date() if isinstance(when, datetime) else when
-    days = ((today or _utc_today()) - seen).days
+    days = ((today or utc_today()) - seen).days
     warn, bad = STALE_AFTER.get(kind, STALE_AFTER["default"])
     if after is not None:
         warn, bad = after, after
@@ -380,6 +376,44 @@ def _safe_markdown() -> Any:
     return Markdown(extensions=[GFM, MarkoExtension(renderer_mixins=[EscapeHTML])])
 
 
+# The prefix of each numbered line's address: ``L-42`` (``linespans``).
+LINE_ANCHOR = "L"
+
+
+def highlight(
+    code: str,
+    lang: str | None = None,
+    filename: str | None = None,
+    lines: bool = False,
+    wrap: bool = True,
+) -> Markup:
+    """Source as HTML, highlighted by Pygments (installed with rich) for
+    ``lang`` (``pytb`` a Python traceback), or for ``filename``, or a guess.
+    ``lines`` numbers them, each at its own address (``#L-<n>``); without
+    ``wrap`` it is the spans alone, for a ``<pre>`` the caller draws. The
+    one highlighter."""
+    from pygments import highlight as render
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import get_lexer_by_name, get_lexer_for_filename, guess_lexer
+    from pygments.util import ClassNotFound
+
+    try:
+        if lang:
+            lexer = get_lexer_by_name(lang)
+        elif filename:
+            lexer = get_lexer_for_filename(filename, code)
+        else:
+            lexer = guess_lexer(code)
+    except ClassNotFound:
+        lexer = guess_lexer(code)
+    formatter = (
+        HtmlFormatter(linenos="inline", linespans=LINE_ANCHOR)
+        if lines
+        else HtmlFormatter(nowrap=not wrap)
+    )
+    return Markup(render(code, lexer, formatter))
+
+
 _MARKDOWN = _safe_markdown()
 
 
@@ -388,26 +422,11 @@ def markdown(text: str | None) -> Markup:
     return Markup(_MARKDOWN.convert(text or ""))
 
 
-# A run's script, highlighted with the classes ``input.css`` colours from
-# the theme tokens (``.hl .k`` and friends); pygments ships with the CLI's
-# renderer already.
-def _highlighter() -> Any:
-    from pygments import highlight
-    from pygments.formatters import HtmlFormatter
-    from pygments.lexers import JsonLexer, PythonLexer
-
-    formatter = HtmlFormatter(nowrap=True)
-    lexers = {"python": PythonLexer(), "json": JsonLexer()}
-    return lambda code, lang: highlight(code, lexers[lang], formatter)
-
-
-_HIGHLIGHT = _highlighter()
-
-
 def code(source: str | None, lang: str = "python") -> Markup:
-    """Source as highlighted HTML spans (no wrapper, no styles); ``lang``
-    is python or json."""
-    return Markup(_HIGHLIGHT(source or "", lang))
+    """Source as highlighted HTML spans (no wrapper, no styles), with the
+    classes ``input.css`` colours from the theme tokens (``.hl .k`` and
+    friends); ``lang`` is python or json. ``highlight``, unwrapped."""
+    return highlight(source or "", lang, wrap=False)
 
 
 # The assistant's name, by agent slug. The queue stamps a proposal with
@@ -419,6 +438,76 @@ ASSISTANTS = {"finance-assistant": "Illiana"}
 def assistant(slug: str | None) -> str:
     """The assistant's display name for an agent slug, else the slug."""
     return ASSISTANTS.get(slug or "", slug or "")
+
+
+_RST_LITERAL = re.compile(r"``(.+?)``")
+# A literal set as code, in the accent: a docstring's, a message's names.
+_LITERAL = '<code class="font-mono text-aegis-teal">{}</code>'
+# An upper-case name, as settings and secrets are (``STRIPE_SECRET_KEY``).
+_NAME = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+
+def docstring(text: str | None) -> Markup:
+    """A docstring as HTML: escaped, its RST ``literals`` set as code.
+
+    Values that are already HTML (``Markup``) pass through as given.
+    """
+    if isinstance(text, Markup):
+        return text
+    escaped = html.escape(text or "", quote=False)
+    return Markup(_RST_LITERAL.sub(lambda m: _LITERAL.format(m.group(1)), escaped))
+
+
+def message(text: str | None) -> Markup:
+    """A health check's message as HTML: escaped, every setting or secret
+    it names (``STRIPE_SECRET_KEY not configured``) set as code, as a
+    docstring's literals are. An upper-case word nothing declares (``OK``)
+    is left alone. Its own lines stay lines (a driver's error sets the
+    statement it ran apart)."""
+    known = _declared_names()
+    escaped = html.escape(text or "", quote=False)
+    named = _NAME.sub(
+        lambda m: _LITERAL.format(m[0]) if m[0] in known else m[0], escaped
+    )
+    return Markup(named.replace("\n", "<br>"))
+
+
+@cache
+def _declared_names() -> frozenset[str]:
+    """Every setting and declared secret, by name: code, so read once."""
+    from app.core import secrets
+    from app.core.config import settings
+
+    names = {entry.name for entry in secrets.declared()}
+    return frozenset(names | set(type(settings).model_fields))
+
+
+# The web's badge tones for the shared semantic colours
+# (``get_status_color_name``, ``ui_auth``), so a state reads the same here
+# as on the CLI and the Flet dashboard.
+_TONE_BY_COLOR = {"green": "ok", "yellow": "warn", "red": "error"}
+
+
+def color_tone(color: str) -> str:
+    """The badge tone (ok, warn, error, muted) for a semantic colour name."""
+    return _TONE_BY_COLOR.get(color, "muted")
+
+
+_WORST_FIRST = ("error", "warn")
+
+
+def worst_tone(tones: Iterable[str]) -> str:
+    """The worst of ``tones``: error, then warn, else ok."""
+    found = set(tones)
+    return next((tone for tone in _WORST_FIRST if tone in found), "ok")
+
+
+def health_tone(state: str) -> str:
+    """The badge tone for a health status value."""
+    try:
+        return color_tone(get_status_color_name(ComponentStatusType(state)))
+    except ValueError:
+        return "muted"
 
 
 FILTERS: dict[str, Callable[..., Any]] = {
@@ -434,4 +523,9 @@ FILTERS: dict[str, Callable[..., Any]] = {
     "markdown": markdown,
     "code": code,
     "assistant": assistant,
+    "highlight": highlight,
+    "docstring": docstring,
+    "message": message,
+    "health_tone": health_tone,
+    "color_tone": color_tone,
 }

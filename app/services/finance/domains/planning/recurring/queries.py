@@ -25,6 +25,7 @@ from app.services.finance.models import (
     FinanceTransaction,
     FinanceTransfer,
 )
+from app.services.shared.queries import owner_filters
 
 
 def owner_clause_txn(column, owner_user_id: int | None):
@@ -68,8 +69,9 @@ async def active_streams(
             if subject_id == HOUSEHOLD
             else FinanceRecurringStream.subject_id == subject_id
         )
-    if owner_user_id is not None:
-        query = query.where(FinanceRecurringStream.owner_user_id == owner_user_id)
+    query = query.where(
+        *owner_filters(FinanceRecurringStream.owner_user_id, owner_user_id)
+    )
     query = query.order_by(FinanceRecurringStream.next_expected_date)
     return list((await db.exec(query)).all())
 
@@ -78,8 +80,9 @@ async def stream_by_id(
     db: AsyncSession, stream_id: int, *, owner_user_id: int | None = None
 ) -> FinanceRecurringStream | None:
     query = select(FinanceRecurringStream).where(FinanceRecurringStream.id == stream_id)
-    if owner_user_id is not None:
-        query = query.where(FinanceRecurringStream.owner_user_id == owner_user_id)
+    query = query.where(
+        *owner_filters(FinanceRecurringStream.owner_user_id, owner_user_id)
+    )
     return (await db.exec(query)).first()
 
 

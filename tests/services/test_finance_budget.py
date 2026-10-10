@@ -422,6 +422,20 @@ class TestParseBudgetGoal:
         assert result.suggested_limit == round(result.baseline_monthly * 0.30)
 
     @pytest.mark.asyncio
+    async def test_a_long_run_of_digits_reads_in_one_pass(
+        self, svc: FinanceService
+    ) -> None:
+        """Goal text is typed by the user: a search that restarts at every
+        digit of a run took quadratic time on one with no percent sign."""
+        import time
+
+        started = time.monotonic()
+        result = await svc.parse_budget_goal(owner_user_id=1, text="0" * 50_000)
+
+        assert time.monotonic() - started < 1
+        assert result.matched is False
+
+    @pytest.mark.asyncio
     async def test_matches_category_when_no_payee_hits(
         self, svc: FinanceService
     ) -> None:
