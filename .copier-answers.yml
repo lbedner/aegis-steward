@@ -1,6 +1,5 @@
-# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
 _commit: 5390ab4dffbf8b3cda2533b1d6adbb0509f312fc
-_src_path: gh:lbedner/aegis-stack
+_src_path: git+file:///Users/leonardbedner/Workspace/worktrees/aegis-stack/steward-update-source
 _template_version: 0.13.0
 aegis_version: 0.13.0
 ai_backend: sqlite
