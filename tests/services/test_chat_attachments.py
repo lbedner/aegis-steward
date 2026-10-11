@@ -60,3 +60,22 @@ class TestAnnotateAttachments:
     def test_no_attachments_leaves_the_message_alone(self) -> None:
         assert annotate_attachments("hi", []) == "hi"
         assert annotate_attachments("hi", None) == "hi"
+
+
+class TestSizeCap:
+    """The browser's byte cap is advice; the model is the server's cap."""
+
+    def test_an_attachment_at_the_byte_cap_is_accepted(self) -> None:
+        from app.core.chat_transcript import MAX_IMAGE_BYTES
+
+        data = base64.b64encode(b"x" * MAX_IMAGE_BYTES).decode()
+        assert ChatAttachment(media_type="image/png", data_b64=data).data_b64
+
+    def test_an_attachment_past_the_byte_cap_is_refused(self) -> None:
+        from pydantic import ValidationError
+
+        from app.core.chat_transcript import MAX_IMAGE_BYTES
+
+        data = base64.b64encode(b"x" * (MAX_IMAGE_BYTES + 3)).decode()
+        with pytest.raises(ValidationError):
+            ChatAttachment(media_type="image/png", data_b64=data)

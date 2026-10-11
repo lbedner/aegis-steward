@@ -15,6 +15,8 @@ import struct
 from typing import Any
 import zlib
 
+from app.core.config import settings
+
 # Rendering scale over 72 dpi: 2.0 gives 144 dpi, enough for a vision
 # model to read body text and for a thumbnail to be crisp.
 RENDER_SCALE = 2.0
@@ -23,26 +25,34 @@ PNG_MEDIA_TYPE = "image/png"
 
 
 class PdfPages:
-    """One opened PDF: how many pages, the text layer of each, a render."""
+    """One opened PDF: how many pages, the text layer of each, a render.
+
+    ``len`` is the truth about the file; ``readable`` is how many of its
+    pages anything here walks (``DOCUMENTS_MAX_PDF_PAGES``)."""
 
     def __init__(self, data: bytes) -> None:
         import pypdfium2 as pdfium  # lazy: see module docstring
 
         self._doc = pdfium.PdfDocument(data)
+        self.readable = min(len(self._doc), settings.DOCUMENTS_MAX_PDF_PAGES)
 
     def __len__(self) -> int:
         return len(self._doc)
 
+    def page(self, page_number: int) -> Any:
+        """The pdfium page itself, for a reader that needs its objects."""
+        return self._doc[page_number - 1]
+
     def text(self, page_number: int) -> str:
         """The page's own text layer, blank for a scan."""
-        page = self._doc[page_number - 1]
+        page = self.page(page_number)
         try:
             return page.get_textpage().get_text_range().strip()
         finally:
             page.close()
 
     def render_png(self, page_number: int, *, scale: float = RENDER_SCALE) -> bytes:
-        page = self._doc[page_number - 1]
+        page = self.page(page_number)
         try:
             bitmap: Any = page.render(scale=scale, rev_byteorder=True, prefer_bgrx=True)
         finally:

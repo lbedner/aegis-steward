@@ -20,8 +20,9 @@ import base64
 import binascii
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app.core.chat_transcript import MAX_IMAGE_BYTES
 from app.core.log import logger
 from app.core.storage import get_storage
 
@@ -30,7 +31,9 @@ class ChatAttachment(BaseModel):
     """One image part of a chat turn, base64 over the JSON body."""
 
     media_type: str
-    data_b64: str
+    # The byte cap as base64 (4 characters per 3 bytes): the browser's
+    # copy of the cap is advice, this one is enforced.
+    data_b64: str = Field(max_length=-(-MAX_IMAGE_BYTES // 3) * 4)
     name: str | None = None
 
     def decoded(self) -> bytes:

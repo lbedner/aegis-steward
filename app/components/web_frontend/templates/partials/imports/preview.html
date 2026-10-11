@@ -8,9 +8,12 @@
    dots, and the per-account split is the ranked card, which answers
    "where does this land" at a glance instead of a list added up by eye.
 
-   Needs: preview (ImportPreviewResponse), lands (the ranked per-account
-   rows), cap (PREVIEW_DETAIL_CAP), run_path (where the commit posts).
+   Rendered as the review job's last frame (partials/jobs/status.html).
+   Needs: preview (ImportPreviewResponse, as the job's JSON result); the
+   ranking, the cap and where the commit posts come from the import
+   route's ``import_lands`` and ``import_review``.
 #}
+{% set cap = import_review.cap %}
 {% from "components/macros/layout.html" import card, ranked_rows, badge %}
 {% from "components/macros/form.html" import button_classes %}
 {% from "components/macros/imports.html" import count_cells, count_dots, footnote, named, more %}
@@ -46,6 +49,7 @@
 
   <div class="space-y-3 max-h-[26rem] overflow-y-auto">
     {# One bar is not a ranking, it is "To add" restated. #}
+    {% set lands = preview.inserts_by_account|import_lands %}
     {% if lands %}
     {% call card("Where the new rows land", id="import-lands") %}
     {{ ranked_rows(lands) }}
@@ -57,7 +61,7 @@
     <ul class="space-y-1">
       {% for name in preview.new_accounts %}{{ named("Account", name, "warn") }}{% endfor %}
       {% for name in preview.new_categories[:cap] %}{{ named("Category", name) }}{% endfor %}
-      {{ more(preview.new_categories|length, cap, "categories") }}
+      {{ more(preview.new_categories_total, cap, "categories") }}
     </ul>
     {% endcall %}
     {% endif %}
@@ -86,7 +90,7 @@
         </span>
       </li>
       {% endfor %}
-      {{ more(preview.edits|length, cap, "updates") }}
+      {{ more(preview.rows_updated, cap, "updates") }}
     </ul>
     {% endcall %}
     {% endif %}
@@ -97,7 +101,7 @@
     <button type="button" data-dialog-close class="{{ button_classes('default') }}">Cancel</button>
     {# Outside the form, so it inherits nothing from it: the encoding has
        to be stated here or htmx posts the file urlencoded. #}
-    <button type="button" hx-post="{{ run_path }}" hx-target="#import-result" hx-include="#import-form"
+    <button type="button" hx-post="{{ import_review.run_path }}" hx-target="#import-result" hx-include="#import-form"
             hx-encoding="multipart/form-data"
             class="{{ button_classes() }}">Import {{ "{:,}".format(preview.changes) }} change{{ "" if preview.changes == 1 else "s" }}</button>
   </div>

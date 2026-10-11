@@ -10,9 +10,8 @@ from fastapi.testclient import TestClient
 import pytest
 
 from tests._mbox import PDF, eml_bytes, mbox_bytes, message
-from tests.web.conftest import await_job
+from tests.web.conftest import follow
 from tests.web.dom import one, select, stat, text
-from tests.web.test_import import frames_of
 
 MBOX = (
     "export.mbox",
@@ -76,12 +75,8 @@ class TestFollowedToTheEnd:
     def test_the_frame_counts_what_landed_and_the_paper_is_on_the_shelf(
         self, live_client: TestClient, no_reader: list[int]
     ) -> None:
-        answer = _upload(live_client, MBOX)
-        stream_url = one(answer.text, "[sse-connect]").get("sse-connect") or ""
-        job_id = stream_url.removeprefix("/jobs/").removesuffix("/events")
-
-        assert await_job(live_client, job_id)["status"] == "done"
-        final = frames_of(live_client, stream_url)[-1]
+        status, final = follow(live_client, _upload(live_client, MBOX).text)
+        assert status == "done"
         assert stat(final, "Messages") == "1"
         assert stat(final, "Letters filed") == "1"
         assert stat(final, "Attachments filed") == "1"
@@ -103,14 +98,7 @@ class TestFollowedToTheEnd:
         """A message filed as a letter IS text: the page text is the
         original, not a reading of it, so the dialog shows it where a PDF
         would go - not 'No preview' with the words folded away below."""
-        answer = _upload(live_client, MBOX)
-        stream_url = one(answer.text, "[sse-connect]").get("sse-connect") or ""
-        assert (
-            await_job(
-                live_client, stream_url.removeprefix("/jobs/").removesuffix("/events")
-            )["status"]
-            == "done"
-        )
+        assert follow(live_client, _upload(live_client, MBOX).text)[0] == "done"
 
         shelf = live_client.get(
             "/documents", params={"q": "claim has been processed"}

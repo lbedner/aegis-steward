@@ -13,8 +13,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
-from app.components.backend.api.finance.base import _MAX_IMPORT_BYTES, _NOT_FOUND
-from app.components.backend.api.finance.declare import _preview_payload
+from app.components.backend.api.finance.base import _NOT_FOUND, read_upload
 from app.services.finance.adapters.importers import (
     csv_profiles,
     imports,
@@ -34,6 +33,52 @@ router = APIRouter()
 
 
 # -- Imports -----------------------------------------------------------------
+
+
+async def _upload(
+    file: UploadFile,
+    account_id: int | None,
+    service: FinanceService,
+    owner_user_id: int | None,
+) -> bytes:
+    """The checks an upload passes before anything reads it: the size cap,
+    and a target account the caller owns."""
+    data = await read_upload(file)
+    if account_id is not None:
+        account = await service.get_account(account_id, owner_user_id=owner_user_id)
+        if account is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND
+            )
+    return data
+
+
+async def start_import_job(
+    file: UploadFile,
+    *,
+    account_id: int | None,
+    kind: str,
+    service: FinanceService,
+    owner_user_id: int | None,
+) -> str:
+    """Check the upload, park it in storage, and hand ``kind`` of run to a
+    job (``imports_job.RUNS``). The file is never parsed in this process.
+
+    The bytes go to storage, not into the queue: the worker mounts the
+    same volume, and a queue is a poor place to park a file.
+    """
+    from app.core.storage import get_storage
+    from app.services.finance.domains import imports_job
+
+    data = await _upload(file, account_id, service, owner_user_id)
+    storage_key = await get_storage().put(data, content_type=file.content_type)
+    return await imports_job.start_import(
+        storage_key,
+        file_name=file.filename,
+        account_id=account_id,
+        owner_user_id=owner_user_id,
+        kind=kind,
+    )
 
 
 @router.post("/import", response_model=None)
@@ -56,34 +101,17 @@ async def import_file(
     Follow ``GET /api/v1/jobs/{id}/events``; the terminal event's ``result``
     carries the same fields as the synchronous response.
     """
-    data = await file.read()
-    if len(data) > _MAX_IMPORT_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File too large (max 10 MB).",
-        )
-    if account_id is not None:
-        account = await service.get_account(account_id, owner_user_id=owner_user_id)
-        if account is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND
-            )
-
     if background:
-        # The bytes go to storage, not into the queue: the worker mounts
-        # the same volume, and a queue is a poor place to park a file.
-        from app.core.storage import get_storage
-        from app.services.finance.domains.imports_job import start_import
-
-        storage_key = await get_storage().put(data, content_type=file.content_type)
-        job_id = await start_import(
-            storage_key,
-            file_name=file.filename,
+        job_id = await start_import_job(
+            file,
             account_id=account_id,
+            kind="import",
+            service=service,
             owner_user_id=owner_user_id,
         )
         return JSONResponse({"job_id": job_id}, status_code=status.HTTP_202_ACCEPTED)
 
+    data = await _upload(file, account_id, service, owner_user_id)
     try:
         result = await service.import_file(
             owner_user_id=owner_user_id,
@@ -120,18 +148,7 @@ async def preview_import(
     auto-created accounts or categories, no transaction writes. The client
     shows this, then re-posts the same bytes to ``/import`` to commit.
     """
-    data = await file.read()
-    if len(data) > _MAX_IMPORT_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File too large (max 10 MB).",
-        )
-    if account_id is not None:
-        account = await service.get_account(account_id, owner_user_id=owner_user_id)
-        if account is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND
-            )
+    data = await _upload(file, account_id, service, owner_user_id)
     try:
         plan = await service.preview_file(
             owner_user_id=owner_user_id,
@@ -151,7 +168,7 @@ async def preview_import(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    return await _preview_payload(service.db, plan)
+    return await service.preview_payload(plan)
 
 
 @router.get("/import/batches", response_model=list[ImportBatchSummary])

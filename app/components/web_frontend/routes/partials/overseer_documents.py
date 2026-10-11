@@ -15,6 +15,7 @@ from app.components.backend.api.documents.pages import page_image
 from app.components.web_frontend import overseer_documents
 from app.components.web_frontend.rendering import dialog, go_to, toast_response
 from app.core.formatting import safe_filename
+from app.core.uploads import read_upload, stored_file
 from app.services.documents import queries
 from app.services.documents.deps import get_document_service
 from app.services.documents.domains.extraction.dispatch import start_extraction
@@ -79,8 +80,7 @@ async def page_render(
     service: DocumentService = Depends(get_document_service),
 ) -> Response:
     """The page's stored render, from the object store."""
-    row = await _page(service, document_id, number)
-    return await page_image(row, await service.get(document_id))
+    return await page_image(await _page(service, document_id, number))
 
 
 @router.post("/upload")
@@ -92,7 +92,7 @@ async def upload(
     """File the bytes (the same bytes are filed once), then open the document."""
     name = safe_filename(file.filename or "", fallback="document")
     document = await service.ingest(
-        await file.read(), title=name, kind=kind, media_type=file.content_type
+        await read_upload(file), title=name, kind=kind, media_type=file.content_type
     )
     return go_to(
         overseer_documents.document_url(document.id or 0),
@@ -178,13 +178,7 @@ async def download(
     data = await service.content(document_id) if document else None
     if document is None or data is None:
         raise HTTPException(status_code=404)
-    return Response(
-        data,
-        media_type=document.media_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename(document.title)}"'
-        },
-    )
+    return stored_file(data, document.title, claimed=document.media_type, download=True)
 
 
 @router.get("/{document_id}/confirm-delete", response_class=HTMLResponse)

@@ -28,6 +28,7 @@ from typing import Any
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import OpenSession
+from app.services.documents.domains.extraction.pdf import PdfPages
 
 CHECK = "check.attach"
 PROPOSED_BY = "reading"
@@ -90,17 +91,16 @@ def _jpeg(obj: Any) -> bytes:
 def split_checks(pdf: bytes) -> list[CheckImage]:
     """Every check scan in a PDF, front with its back, in page order.
     ``[]`` for a PDF with none - or bytes that are not a PDF at all."""
-    import pypdfium2 as pdfium
     import pypdfium2.raw as raw
 
     try:
-        document = pdfium.PdfDocument(pdf)
+        document = PdfPages(pdf)
     except Exception:  # noqa: BLE001 - not a PDF pdfium can open: no checks
         return []
     found: list[CheckImage] = []
-    for index in range(len(document)):
+    for number in range(1, document.readable + 1):
         scans = []
-        for obj in document[index].get_objects(filter=(raw.FPDF_PAGEOBJ_IMAGE,)):
+        for obj in document.page(number).get_objects(filter=(raw.FPDF_PAGEOBJ_IMAGE,)):
             meta = obj.get_metadata()
             ratio = meta.width / max(meta.height, 1)
             if meta.width >= _MIN_WIDTH_PX and _WIDE[0] <= ratio <= _WIDE[1]:
@@ -116,7 +116,7 @@ def split_checks(pdf: bytes) -> list[CheckImage]:
             sides = [obj for _b, _l, obj in sorted(row, key=lambda s: s[1])]
             found.append(
                 CheckImage(
-                    page=index + 1,
+                    page=number,
                     slot=slot,
                     front=_jpeg(sides[0]),
                     back=_jpeg(sides[1]) if len(sides) > 1 else None,

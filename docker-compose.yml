@@ -20,7 +20,7 @@ x-app: &app
     # Docker container marker for entrypoint script. A service that sets
     # its own environment list REPLACES this one (YAML merge keys do not
     # join lists), so anything every container must see lives in the
-    # Dockerfile's ENV (PORT, STORAGE_ROOT), not here.
+    # Dockerfile's ENV (PORT, STORAGE_ROOT, DATABASE_BACKUP_DIR), not here.
     - DOCKER_CONTAINER=1
     - PORT=${PORT:-8000}
     - WEBSERVER_ENGINE=${WEBSERVER_ENGINE:-uvicorn}
@@ -42,10 +42,9 @@ x-app: &app
     # The cost is deliberate: the host can no longer open this file.
     # Anything that talks to the database runs `docker compose exec`.
     - aegis-data:/data/db
-    # Where the scheduler's backup job writes dumps. Named, so they survive
-    # container recreation and the deploy's rsync. It lives here, not on the
-    # scheduler: a service-level volumes list REPLACES this one, which once
-    # left the scheduler on its own empty database.
+    # DATABASE_BACKUP_DIR (see the Dockerfile). Named, so backups survive
+    # container recreation and the deploy's rsync; on the anchor, since a
+    # service-level volumes list REPLACES this one.
     - backup-data:/var/backups/app
   labels:
     logging: "aegis-stack"
@@ -118,11 +117,6 @@ services:
       # Docker container marker
       - DOCKER_CONTAINER=1
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
-      # The scheduled backup job writes here. Without the volume below the
-      # dumps land in the container's writable layer and are destroyed by
-      # the next `up --force-recreate` - i.e. every deploy - so they are
-      # not restorable and only cost disk.
-      - DATABASE_BACKUP_DIR=/var/backups/app
     restart: unless-stopped
     memswap_limit: &scheduler-memory 256M  # see webserver
     deploy:

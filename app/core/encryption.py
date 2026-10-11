@@ -27,8 +27,8 @@ Each ciphertext is tagged with a version prefix and a base64 blob:
     v2:<base64_url(nonce || ciphertext_with_tag)>
 
 * Cipher: AES-256-GCM (AEAD — confidentiality + integrity in one).
-* Key:    SHA-256 of ``settings.ENCRYPTION_KEY`` (or ``SECRET_KEY``
-          as a backward-compat fallback). 32-byte AES-256 key.
+* Key:    SHA-256 of ``settings.ENCRYPTION_KEY`` (``SECRET_KEY`` where
+          settings lets it be unset). 32-byte AES-256 key.
 * Nonce:  12 random bytes per call. Same plaintext + same key + same
           context = different ciphertext (so equality across rows
           leaks nothing).
@@ -83,9 +83,10 @@ _fallback_warned = False
 def _encryption_key_material() -> bytes:
     """Return the raw bytes the AESGCM key is derived from.
 
-    Prefers ``settings.ENCRYPTION_KEY``; falls back to ``settings.SECRET_KEY``
-    with a one-time warning so legacy deploys keep working. ``settings`` is
-    the single source of truth — tests rotate the key by
+    Prefers ``settings.ENCRYPTION_KEY``, else ``settings.SECRET_KEY`` with a
+    one-time warning; settings refuses to boot without the key wherever the
+    fallback is not allowed (``_guard_missing_encryption_key_in_prod``).
+    ``settings`` is the single source of truth — tests rotate the key by
     ``monkeypatch.setattr(settings, "ENCRYPTION_KEY", ...)`` plus a
     ``_reset_cache()`` call.
     """

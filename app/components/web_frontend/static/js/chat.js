@@ -252,7 +252,6 @@
   // from the staged list, and the stream request carries the bytes as
   // base64. They ride one turn only: cleared on success, kept on failure
   // so a retry still has them.
-  const MAX_FILES = 6;
   let staged = []; // {name, media_type, data_b64, url}
   const drawChips = () => {
     const box = document.getElementById('chat-attachments');
@@ -302,14 +301,14 @@
   // marker. Only an image is shrunk, and only an image has a thumbnail.
   // What counts as either is the server's (``chat_composer``).
   const stage = async (file) => {
-    const { images, documents, max_bytes: maxBytes } = config().composer;
+    const { images, documents, max_bytes: maxBytes, max_files: maxFiles } = config().composer;
     const isImage = images.includes(file.type);
     if (!isImage && !documents.includes(file.type)) {
       toast(`${file.name || 'That'} is not an image or a PDF.`, 'error');
       return;
     }
     if (file.size > maxBytes) { toast(`${file.name} is over ${maxBytes / 1024 / 1024} MB.`, 'error'); return; }
-    if (staged.length >= MAX_FILES) { toast(`Up to ${MAX_FILES} files per message.`, 'error'); return; }
+    if (staged.length >= maxFiles) { toast(`Up to ${maxFiles} files per message.`, 'error'); return; }
     let payload = file;
     if (isImage) {
       try { payload = await shrink(file); } catch (_) { /* undecodable: send as pasted, the model will say so */ }

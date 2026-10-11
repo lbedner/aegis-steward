@@ -121,7 +121,15 @@ async def _extract_pdf(
         if document.page_count != total:
             document.page_count = total
             db.add(document)
-        for number in range(1, total + 1):
+        reading = pdf.readable
+        if reading < total:
+            logger.warning(
+                "documents.pages_capped",
+                document_id=document_id,
+                read=reading,
+                total=total,
+            )
+        for number in range(1, reading + 1):
             page = existing.get(number)
             if page is not None and page.status == "read" and not force:
                 result.skipped += 1
@@ -149,7 +157,7 @@ async def _extract_pdf(
             # waits on this one, and two readings of one file deadlock.
             await db.commit()
             if progress is not None:
-                progress(number, total)
+                progress(number, reading)
     finally:
         pdf.close()
 

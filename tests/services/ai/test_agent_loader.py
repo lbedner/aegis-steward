@@ -1,6 +1,7 @@
 """Tests for the agent config loader (DB source, fallback, cache)."""
 
 from collections.abc import Generator
+from typing import Any
 
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -414,47 +415,135 @@ class TestAWriteCalledFromAScript:
         """Only at a write this agent holds: a read-only agent pointed at
         save_memory would go after a tool it cannot call (PR #304 review)."""
         from pydantic_ai import Agent
-        from pydantic_ai.messages import (
-            ModelMessage,
-            ModelResponse,
-            RetryPromptPart,
-            TextPart,
-            ToolCallPart,
-        )
-        from pydantic_ai.models.function import AgentInfo, FunctionModel
 
         from app.services.ai.domains.chat.tools import resolve_tools
 
         config = _code_mode(*tool_names)
-        told: list[str] = []
-
-        def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
-            retries = [
-                part
-                for message in messages
-                for part in getattr(message, "parts", [])
-                if isinstance(part, RetryPromptPart)
-            ]
-            if not retries:
-                return ModelResponse(
-                    parts=[
-                        ToolCallPart(
-                            "run_code", {"code": 'await save_memory(text="x")'}
-                        )
-                    ]
-                )
-            told.append(str(retries[-1].content))
-            return ModelResponse(parts=[TextPart("ok")])
-
         agent = Agent(
-            FunctionModel(model),
+            _run_code_once('await save_memory(text="x")'),
             tools=resolve_tools(config.tool_names),
             capabilities=agent_capabilities(config),
         )
-        await agent.run("remember x")
+        told = (await agent.run("remember x")).output
 
-        assert told and "save_memory" in told[0]  # the sandbox's own error
-        assert ("`save_memory` is its own tool" in told[0]) is hinted
+        assert "save_memory" in told  # the sandbox's own error
+        assert ("`save_memory` is its own tool" in told) is hinted
+
+
+def _run_code_once(code: str) -> Any:
+    """A model that sends one ``run_code`` and then answers, keeping what
+    the sandbox told it."""
+    from pydantic_ai.messages import (
+        ModelMessage,
+        ModelResponse,
+        RetryPromptPart,
+        TextPart,
+        ToolCallPart,
+        ToolReturnPart,
+    )
+    from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        answered = [
+            part
+            for message in messages
+            for part in getattr(message, "parts", [])
+            if isinstance(part, ToolReturnPart | RetryPromptPart)
+        ]
+        if not answered:
+            return ModelResponse(parts=[ToolCallPart("run_code", {"code": code})])
+        return ModelResponse(parts=[TextPart(str(answered[-1].content))])
+
+    return FunctionModel(model)
+
+
+class TestCodeModeLimits:
+    """Snippets run inside the webserver process, and any chat can start
+    one (#486): each is held to the configured time and memory, and a
+    user runs one at a time."""
+
+    def test_the_configured_limits_are_the_sandboxes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "AI_CODE_MODE_MAX_SECONDS", 7.0)
+        monkeypatch.setattr(settings, "AI_CODE_MODE_MAX_MEMORY_BYTES", 12345678)
+        code_mode = next(
+            cap
+            for cap in agent_capabilities(_code_mode("ledger"))
+            if type(cap).__name__ == "CodeMode"
+        )
+
+        assert code_mode.resource_limits == {
+            "max_duration_secs": 7.0,
+            "max_memory": 12345678,
+        }
+
+    def test_the_defaults_are_tight(self) -> None:
+        from app.core.config import Settings
+
+        fields = Settings.model_fields
+        assert fields["AI_CODE_MODE_MAX_SECONDS"].default == 10.0
+        assert fields["AI_CODE_MODE_MAX_MEMORY_BYTES"].default == 64 * 1024 * 1024
+
+    async def test_a_snippet_over_the_memory_limit_is_stopped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The setting reaches Monty itself, not just the capability."""
+        from pydantic_ai import Agent
+
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "AI_CODE_MODE_MAX_MEMORY_BYTES", 1024 * 1024)
+        agent = Agent(
+            _run_code_once("x = [0] * 5_000_000\nlen(x)"),
+            capabilities=agent_capabilities(_code_mode()),
+        )
+
+        result = await agent.run("allocate")
+
+        assert "memory limit exceeded" in result.output
+
+    @pytest.mark.parametrize(
+        ("users", "overlapped"),
+        [(("u1", "u1"), False), (("u1", "u2"), True)],
+        ids=["same-user", "two-users"],
+    )
+    async def test_one_user_runs_one_snippet_at_a_time(
+        self, users: tuple[str, str], overlapped: bool
+    ) -> None:
+        import asyncio
+        from dataclasses import dataclass
+
+        from pydantic_ai import Agent
+
+        @dataclass
+        class Deps:
+            user_id: str
+
+        running = 0
+        most = 0
+
+        async def probe() -> int:
+            """Counts how many snippets are inside it at once."""
+            nonlocal running, most
+            running += 1
+            most = max(most, running)
+            await asyncio.sleep(0.05)
+            running -= 1
+            return most
+
+        agent = Agent(
+            _run_code_once("await probe()"),
+            deps_type=Deps,
+            tools=[probe],
+            capabilities=agent_capabilities(_code_mode("probe")),
+        )
+
+        await asyncio.gather(*(agent.run("go", deps=Deps(user)) for user in users))
+
+        assert (most == 2) is overlapped
 
 
 def test_her_prompt_says_writes_are_their_own_tools() -> None:

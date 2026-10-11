@@ -3,10 +3,6 @@
 One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
-from datetime import (
-    date,
-)
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -20,8 +16,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.backend.api.finance.base import (
     _INVESTMENT_IMPORT_PROFILES,
-    _MAX_IMPORT_BYTES,
     _NOT_FOUND,
+    read_upload,
 )
 from app.services.finance.deps import get_finance_service
 from app.services.finance.domains.investments.securities import market_value_cents
@@ -29,7 +25,6 @@ from app.services.finance.schemas import (
     HoldingCreate,
     HoldingListResponse,
     HoldingResponse,
-    InvestmentImportPosition,
     InvestmentImportPreviewResponse,
     InvestmentImportResultResponse,
     SecurityCreate,
@@ -113,14 +108,9 @@ async def _read_investment_ledger(file: UploadFile, profile: str) -> list:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown profile {profile!r}. Known: {_INVESTMENT_IMPORT_PROFILES}.",
         )
-    data = await file.read()
-    if len(data) > _MAX_IMPORT_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File too large (max 10 MB).",
-        )
+    data = await read_upload(file)
     try:
-        return parse_optum_settled_transactions(data.decode("utf-8-sig"))
+        return parse_optum_settled_transactions(data)
     except UnknownActivityTypeError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -140,34 +130,9 @@ async def preview_import_investments(
     touching the database. The dialog between file pick and commit runs
     on this, so the account choice is made looking at real numbers.
     """
-    activities = await _read_investment_ledger(file, profile)
-    from app.services.finance.domains.investments.activity import replay_positions
+    from app.services.finance.domains.investments.activity import preview_ledger
 
-    # Value each position at its security's last ledger price - the same
-    # mark the loader will store, and the freshest one the file itself
-    # can honestly claim (not a live quote).
-    last_price: dict[str, float] = {}
-    last_date_seen: dict[str, date] = {}
-    for activity in activities:
-        prior = last_date_seen.get(activity.security_name)
-        if prior is None or activity.trade_date >= prior:
-            last_date_seen[activity.security_name] = activity.trade_date
-            last_price[activity.security_name] = float(activity.price)
-    positions = [
-        InvestmentImportPosition(
-            name=name,
-            shares=float(shares),
-            value=round(float(shares) * last_price[name] * 100),
-        )
-        for name, shares in sorted(replay_positions(activities).items())
-    ]
-    return InvestmentImportPreviewResponse(
-        activities_parsed=len(activities),
-        first_date=min(a.trade_date for a in activities),
-        last_date=max(a.trade_date for a in activities),
-        total_value=sum(p.value for p in positions),
-        positions=positions,
-    )
+    return preview_ledger(await _read_investment_ledger(file, profile))
 
 
 @router.post("/import-investments", response_model=InvestmentImportResultResponse)
@@ -189,9 +154,7 @@ async def import_investments(
     manual brokerage account on the spot - the same courtesy the register
     import extends when an OFX file names an account that doesn't exist yet.
     """
-    from app.services.finance.domains.investments.loader import (
-        import_investment_activities,
-    )
+    from app.services.finance.domains.investments.loader import load_ledger
 
     if account_id is None and not (account_name or "").strip():
         raise HTTPException(
@@ -214,23 +177,15 @@ async def import_investments(
             classification="asset",
         )
         account_created = True
-    result = await import_investment_activities(
+    result = await load_ledger(
         service.db,
         owner_user_id=owner_user_id,
-        account_id=account.id,
+        account=account,
         activities=activities,
-    )
-    await service.db.commit()
-    return InvestmentImportResultResponse(
-        activities_parsed=len(activities),
-        trades_inserted=result.trades_inserted,
-        trades_updated=result.trades_updated,
-        securities_created=result.securities_created,
-        securities_matched=result.securities_matched,
-        account_id=account.id,
-        account_name=account.name,
         account_created=account_created,
     )
+    await service.db.commit()
+    return result
 
 
 @router.get("/accounts/{account_id}/trades", response_model=TradeListResponse)

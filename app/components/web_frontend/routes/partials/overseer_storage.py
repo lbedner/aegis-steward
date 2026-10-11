@@ -18,6 +18,7 @@ from app.components.web_frontend.rendering import dialog, go_to
 from app.core.constants import ComponentName
 from app.core.formatting import safe_filename
 from app.core.storage import get_storage
+from app.core.uploads import read_upload, stored_file
 
 router = APIRouter(prefix=overseer_storage.PARTIALS)
 
@@ -51,12 +52,8 @@ async def download(bucket: str, key: str) -> Response:
     if found is None:
         raise HTTPException(status_code=404)
     data, content_type = found
-    return Response(
-        data,
-        media_type=content_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": f'attachment; filename="{_filename(key) or "download"}"'
-        },
+    return stored_file(
+        data, _filename(key) or "download", claimed=content_type, download=True
     )
 
 
@@ -110,7 +107,9 @@ async def upload(
     name = _filename(file.filename or "")
     if not name:
         raise HTTPException(status_code=422, detail="The file needs a name.")
-    await store.upload(bucket, prefix + name, await file.read(), file.content_type)
+    await store.upload(
+        bucket, prefix + name, await read_upload(file), file.content_type
+    )
     return go_to(
         f"{BROWSE_PAGE}?{urlencode({'bucket': bucket, 'prefix': prefix})}",
         f"Uploaded {name}",

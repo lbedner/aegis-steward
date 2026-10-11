@@ -8,6 +8,7 @@ debt costs); importing this module arms the whole surface.
 
 from __future__ import annotations
 
+from app.services.ai.domains.chat import memory_changes as memory
 from app.services.documents.domains import reading
 from app.services.documents.domains.reading import check_card, checks, receipts
 from app.services.finance.domains.writes import (
@@ -382,6 +383,43 @@ register(
         payload_model=reading.RequestPayload,
         execute=reading.request_execute,
         describe=reading.request_describe,
+    )
+)
+# What the assistant remembers is a write too: see memory_changes.
+register(
+    ChangeExecutor(
+        change_type="memory.save",
+        title="Remember a fact",
+        payload_model=memory.SavePayload,
+        execute=memory.save_execute,
+        describe=memory.save_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="memory.replace",
+        title="Replace everything remembered",
+        payload_model=memory.ReplacePayload,
+        execute=memory.replace_execute,
+        describe=memory.replace_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="memory.update",
+        title="Change a remembered fact",
+        payload_model=memory.UpdatePayload,
+        execute=memory.update_execute,
+        describe=memory.update_describe,
+    )
+)
+register(
+    ChangeExecutor(
+        change_type="memory.forget",
+        title="Forget a remembered fact",
+        payload_model=memory.ForgetPayload,
+        execute=memory.forget_execute,
+        describe=memory.forget_describe,
     )
 )
 # The plan's other half (#166): bills and income already had cards;

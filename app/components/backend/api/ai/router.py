@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from app.components.backend.api.ai import conversations as conversation_routes
 from app.components.backend.api.ai import memory as memory_routes
 from app.components.backend.api.ai import speech as speech_routes
-from app.core.chat_transcript import tool_label
+from app.core.chat_transcript import MAX_ATTACHMENTS, tool_label
 from app.core.config import settings
 from app.core.log import logger
 from app.core.streaming import Waiting, announce_waiting
@@ -89,7 +89,9 @@ class ChatRequest(BaseModel):
     surface: str | None = None
     # Image parts riding this turn (screenshots, receipts) - generic
     # across every agent and surface; see domains/chat/attachments.py.
-    attachments: list[ChatAttachment] = Field(default_factory=list)
+    attachments: list[ChatAttachment] = Field(
+        default_factory=list, max_length=MAX_ATTACHMENTS
+    )
 
 
 class ChatResponse(BaseModel):
@@ -299,8 +301,6 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type",
         },
     )
 

@@ -24,6 +24,7 @@ from app.components.web_frontend.routes.chat import (
 from app.core.chat_transcript import readable
 from app.core.db import get_async_session
 from app.core.log import logger
+from app.core.uploads import read_upload
 from app.services.ai.domains.voice.models import (
     AudioFormat,
     AudioInput,
@@ -78,7 +79,7 @@ async def transcribe(
     route: the script puts it in the textarea, where it can be edited.
     ``seconds`` is how long the browser recorded: transcription bills by
     the second (#270), and a webm upload does not say."""
-    content = await audio.read()
+    content = await read_upload(audio)
     if not content:
         return JSONResponse({"error": NO_SPEECH}, status_code=422)
     try:

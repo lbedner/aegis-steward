@@ -1,23 +1,22 @@
 """The memory tools the model calls: save, replace, update, forget.
 
 Storage and injection live in ``user_memory``; this module is the tool
-surface over it. Importing it registers the tools.
+surface over it. Each tool files a card (``memory_changes``). Importing it
+registers the tools.
 """
 
 from typing import Any
-
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
 from app.services.ai.domains.chat import user_memory
 from app.services.ai.domains.chat.tools import register_tool
 
 
-async def save_memory(new_fact: str, category: str = "general") -> str:
-    """Remember one durable fact about the current user.
+async def save_memory(new_fact: str, category: str = "general") -> dict[str, Any] | str:
+    """Ask the user to approve remembering one durable fact about them.
 
-    Category is one of: family, food, lifestyle, health, personal,
-    program, general.
+    Category is one of: {categories}. This files an approval card: nothing
+    is remembered until the user approves it, so never say it is saved.
     """
     user_id = user_memory.current_user_id.get()
     if not user_id:
@@ -25,82 +24,73 @@ async def save_memory(new_fact: str, category: str = "general") -> str:
         return "No user context available; nothing was saved."
     if not new_fact.strip():
         return "Nothing to save; provide a fact."
-    return await user_memory.own_write(
-        lambda session: user_memory.save_user_fact(
-            user_id, new_fact, category, session=session
-        )
+    return await _propose(
+        "memory.save", {"user_id": user_id, "fact": new_fact, "category": category}
     )
 
 
-async def replace_memory(memory_text: str) -> str:
-    """Replace everything known about the current user, one fact per line."""
+save_memory.__doc__ = (save_memory.__doc__ or "").format(
+    categories=", ".join(user_memory.MEMORY_CATEGORIES)
+)
+
+
+async def replace_memory(memory_text: str) -> dict[str, Any] | str:
+    """Ask the user to approve replacing everything known about them, one
+    fact per line. Files an approval card: nothing changes until the user
+    approves it."""
     user_id = user_memory.current_user_id.get()
     if not user_id:
         logger.warning("replace_memory called without user context; nothing saved")
         return "No user context available; nothing was saved."
-    return await user_memory.own_write(
-        lambda session: user_memory.replace_user_memory(
-            user_id, memory_text, session=session
-        )
+    return await _propose(
+        "memory.replace", {"user_id": user_id, "memory_text": memory_text}
     )
 
 
-def _find_fact(facts: list[dict[str, Any]], words: str) -> int | None:
-    """The one saved fact ``words`` picks out, or None. A quote of the fact
-    (either direction, case-insensitive) is enough; two matches is a
-    question back to the model rather than a guess."""
-    hits = [
-        i
-        for i, entry in enumerate(facts)
-        if user_memory.is_duplicate(str(entry.get("fact", "")), words)
-    ]
-    return hits[0] if len(hits) == 1 else None
+async def _propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """File the card; why, see ``memory_changes``."""
+    from app.services.finance.ai_write_tools import propose
+
+    return await propose(change_type, payload)
 
 
-async def update_memory(old_fact: str, new_fact: str) -> str:
-    """Rewrite one saved fact that has changed - Marisa's hours firmed up,
-    a valuation was revised - in place, instead of saving a second one
-    beside the first. ``old_fact`` is a quote of the saved fact."""
+async def update_memory(old_fact: str, new_fact: str) -> dict[str, Any] | str:
+    """Ask the user to approve rewriting one saved fact that has changed -
+    the hours firmed up, a valuation was revised - in place, instead of
+    saving a second one beside the first. ``old_fact`` is a quote of the
+    saved fact. Files an approval card: nothing changes until the user
+    approves it."""
     user_id = user_memory.current_user_id.get()
     if not user_id:
         return "No user context available; nothing was changed."
     if not new_fact.strip():
         return "Nothing to save; provide the corrected fact."
-
-    async def write(session: AsyncSession) -> str:
-        facts = await user_memory.list_user_facts(user_id, session=session)
-        index = _find_fact(facts, old_fact)
-        if index is None:
-            return (
-                "No single saved fact matches that; quote it more exactly, or "
-                "save_memory if it is new."
-            )
-        entry = await user_memory.update_user_fact(
-            user_id, index, fact=new_fact, session=session
-        )
-        return f"Updated ({entry['category']}): {entry['fact']}"
-
-    return await user_memory.own_write(write)
+    # Checked here, not left to the card: a card whose fact is gone still
+    # files (it draws as "No longer applies").
+    try:
+        saved = await user_memory.saved_fact(user_id, old_fact)
+    except ValueError as e:
+        return f"{e} If it is new, save_memory it."
+    return await _propose(
+        "memory.update",
+        {"user_id": user_id, "old_fact": saved["fact"], "new_fact": new_fact},
+    )
 
 
-async def forget_memory(fact: str) -> str:
-    """Drop one saved fact - because it is no longer true, or because a
-    tool can now read it (a stream that was declared, an account that
-    was created). ``fact`` is a quote of the saved fact."""
+async def forget_memory(fact: str) -> dict[str, Any] | str:
+    """Ask the user to approve dropping one saved fact - because it is no
+    longer true, or because a tool can now read it (a stream that was
+    declared, an account that was created). ``fact`` is a quote of the
+    saved fact. Files an approval card: nothing is forgotten until the
+    user approves it, so never say it is gone."""
     user_id = user_memory.current_user_id.get()
     if not user_id:
         return "No user context available; nothing was forgotten."
-
-    async def write(session: AsyncSession) -> str:
-        facts = await user_memory.list_user_facts(user_id, session=session)
-        index = _find_fact(facts, fact)
-        if index is None:
-            return "No single saved fact matches that; quote it more exactly."
-        gone = facts[index]["fact"]
-        await user_memory.delete_user_fact(user_id, index, session=session)
-        return f"Forgot: {gone}"
-
-    return await user_memory.own_write(write)
+    try:  # as in update_memory
+        saved = await user_memory.saved_fact(user_id, fact)
+    except ValueError as e:
+        return str(e)
+    return await _propose("memory.forget", {"user_id": user_id, "fact": saved["fact"]})
 
 
 # Built-in registration: importing this module makes the tools grantable
@@ -108,28 +98,28 @@ async def forget_memory(fact: str) -> str:
 register_tool(
     "save_memory",
     save_memory,
-    description="Persist one durable fact about the current user",
+    description="File a card asking to remember one durable fact about the user",
     native_write=True,
     replace=True,
 )
 register_tool(
     "replace_memory",
     replace_memory,
-    description="Replace all saved facts about the current user",
+    description="File a card asking to replace all saved facts about the user",
     native_write=True,
     replace=True,
 )
 register_tool(
     "update_memory",
     update_memory,
-    description="Rewrite one saved fact that has changed, in place",
+    description="File a card asking to rewrite one saved fact that has changed",
     native_write=True,
     replace=True,
 )
 register_tool(
     "forget_memory",
     forget_memory,
-    description="Drop one saved fact that is no longer true or that a tool can now read",
+    description="File a card asking to drop one saved fact no longer true or now readable",
     native_write=True,
     replace=True,
 )

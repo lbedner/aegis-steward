@@ -572,7 +572,8 @@ class TestAttachments:
     ) -> None:
         from app.core.storage import get_storage
 
-        png = b"\x89PNG-not-really-a-png"
+        # The signature is real: the served type is read off the bytes.
+        png = b"\x89PNG\r\n\x1a\n-not-really-a-png"
         key = await get_storage().put(png, content_type="image/png")
         conversation = await ai_service.conversation_manager.create_conversation(
             provider=AIProvider.OLLAMA,
@@ -594,7 +595,8 @@ class TestAttachments:
         thread = hx.get(f"/chat/conversations/{conversation.id}").text
         img = one(thread, "[data-role=user] [data-attachments] img")
         assert img.get("alt") == "receipt.png"
-        assert img.get("src") == f"/chat/attachments/{key}?type=image%2Fpng"
+        # No type in the URL: the bytes decide what is served.
+        assert img.get("src") == f"/chat/attachments/{key}"
         # Opens in the one modal, never a new tab.
         none(thread, "[data-attachments] a[target=_blank]")
         assert one(thread, "[data-attachments] button[data-view-image]").get(
@@ -605,16 +607,14 @@ class TestAttachments:
         assert served.status_code == 200
         assert served.content == png and served.headers["content-type"] == "image/png"
         assert "immutable" in served.headers["cache-control"]
+        # A URL from before still works; its ``type`` claims nothing.
+        old = hx.get(f"/chat/attachments/{key}", params={"type": "text/html"})
+        assert old.status_code == 200
+        assert old.headers["content-type"] == "image/png"
 
-    def test_attachment_route_refuses_bad_keys_and_types(self, hx: TestClient) -> None:
+    def test_attachment_route_refuses_bad_keys(self, hx: TestClient) -> None:
         assert hx.get("/chat/attachments/../etc/passwd").status_code == 404
         assert hx.get("/chat/attachments/" + "a" * 64).status_code == 404
-        assert (
-            hx.get(
-                "/chat/attachments/" + "a" * 64, params={"type": "text/html"}
-            ).status_code
-            == 404
-        )
 
     def test_composer_has_the_attach_control(self, client: TestClient) -> None:
         page = client.get("/chat").text

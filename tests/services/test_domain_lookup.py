@@ -13,12 +13,14 @@ because a real site happened to be up has proved nothing about the code.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 from typing import Any
 
 import pytest
+
+from tests._fake_dns import answering, resolving_to
 
 PAGES: dict[str, tuple[int, str]] = {
     # The confirming site: the name is in the title.
@@ -52,6 +54,19 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         """Quiet. A test server narrating every request buries the run."""
+
+
+@pytest.fixture(autouse=True)
+def fixture_server_is_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fixture server listens on loopback, which the guarded fetch
+    refuses (#485). Only that one address is let through here; the rest
+    of the check still runs."""
+    from app.core import safe_fetch
+
+    real = safe_fetch.is_public
+    monkeypatch.setattr(
+        safe_fetch, "is_public", lambda address: address == "127.0.0.1" or real(address)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -221,3 +236,100 @@ class TestReadingTheContactPage:
         from app.services.matters.domain_lookup import contact_page
 
         assert await contact_page(site, scheme="http", paths=("/nope",)) == []
+
+
+class TestReadingOnlyThePublicInternet:
+    """The assistant chooses the host, and an injected document can choose
+    it for her (#485). A name resolving inward is never fetched, and the
+    one redirect is resolved and checked again on its own."""
+
+    @pytest.mark.asyncio
+    async def test_a_host_resolving_to_the_metadata_service_is_not_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        from app.services.matters.domain_lookup import confirm
+
+        resolving_to(monkeypatch, ["169.254.169.254"])
+        sent = answering(monkeypatch, httpx.Response(200, text="Anybody"))
+
+        assert await confirm("Anybody", ["metadata.example"]) is None
+        assert sent == []
+
+    @pytest.mark.asyncio
+    async def test_the_redirect_is_resolved_and_checked_again(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same host, second lookup: a name that rebinds inward between the
+        first fetch and its redirect is refused at the redirect."""
+        import httpx
+
+        from app.services.matters.domain_lookup import _read
+
+        asked = resolving_to(monkeypatch, ["93.184.216.34"], ["10.0.0.5"])
+        sent = answering(
+            monkeypatch, httpx.Response(301, headers={"location": "/contact"})
+        )
+
+        assert await _read("https://rebind.example/", "rebind.example") is None
+        assert [str(request.url) for request in sent] == ["https://93.184.216.34/"]
+        assert asked == ["rebind.example", "rebind.example"]
+
+    @staticmethod
+    def _counted(pulled: list[int], chunks: int) -> AsyncIterator[bytes]:
+        """A 64 KiB-a-chunk body that records how much of it was pulled."""
+
+        async def body() -> AsyncIterator[bytes]:
+            for _ in range(chunks):
+                pulled.append(1)
+                yield b"x" * 65536
+
+        return body()
+
+    @pytest.mark.asyncio
+    async def test_an_endless_page_is_read_only_to_the_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        from app.core.safe_fetch import MAX_BODY_BYTES
+        from app.services.matters.domain_lookup import _read
+
+        pulled: list[int] = []
+        resolving_to(monkeypatch, ["93.184.216.34"])
+        answering(
+            monkeypatch,
+            httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                content=self._counted(pulled, 200),
+            ),
+        )
+
+        page = await _read("https://huge.example/", "huge.example")
+
+        assert page is not None and len(page) == MAX_BODY_BYTES
+        assert len(pulled) <= MAX_BODY_BYTES // 65536 + 1
+
+    @pytest.mark.asyncio
+    async def test_a_page_that_is_not_text_is_not_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        from app.services.matters.domain_lookup import _read
+
+        pulled: list[int] = []
+        resolving_to(monkeypatch, ["93.184.216.34"])
+        answering(
+            monkeypatch,
+            httpx.Response(
+                200,
+                headers={"content-type": "application/pdf"},
+                content=self._counted(pulled, 8),
+            ),
+        )
+
+        assert await _read("https://pdf.example/", "pdf.example") is None
+        assert pulled == []

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tests.web.conftest import Ledger, await_job
+from tests.web.conftest import HX, Ledger, follow
 from tests.web.dom import none, one, select, stat, text
 
 FIXTURES = Path(__file__).parent.parent / "services" / "finance" / "fixtures"
@@ -24,17 +24,22 @@ CSV = (
     (FIXTURES / "sample_quicken_all.csv").read_bytes(),
     "text/csv",
 )
+OPTUM = (
+    "optum_hsa_sample.tsv",
+    (FIXTURES / "optum_hsa_sample.tsv").read_bytes(),
+    "text/tab-separated-values",
+)
 
 
 def review(client: TestClient, upload: tuple, **data: str) -> str:
-    """The review panel Import opens for ``upload``."""
+    """The review panel Import opens for ``upload``: the request answers
+    with a follower, and the review is the job's last frame."""
+    data = {"lane": "statement", **data}
     response = client.post(
-        "/accounts/import/preview",
-        files={"file": upload},
-        data={"lane": "statement", **data},
+        "/accounts/import/preview", files={"file": upload}, data=data
     )
     assert response.status_code == 200
-    return response.text
+    return follow(client, response.text)[1]
 
 
 @pytest.fixture
@@ -150,10 +155,10 @@ class TestDialog:
         assert "data-import-retry" in refused
 
     def test_the_review_still_posts_the_form_it_hid(
-        self, client: TestClient, ledger: Ledger
+        self, live_client: TestClient, ledger: Ledger, job_session: None
     ) -> None:
         """The guard on the fix: hiding must not become removing."""
-        panel = review(client, QIF, account_id=str(ledger.checking))
+        panel = review(live_client, QIF, account_id=str(ledger.checking))
         run = one(panel, 'button[hx-post="/accounts/import"]')
         assert run.get("hx-include") == "#import-form"
 
@@ -163,9 +168,9 @@ class TestReview:
     same named detail the Flet review dialog showed."""
 
     def test_names_the_file_and_counts_what_would_happen(
-        self, client: TestClient, ledger: Ledger
+        self, live_client: TestClient, ledger: Ledger, job_session: None
     ) -> None:
-        panel = review(client, QIF, account_id=str(ledger.checking))
+        panel = review(live_client, QIF, account_id=str(ledger.checking))
         assert "sample_quicken.qif" in text(one(panel, "#import-preview"))
         assert stat(panel, "To add") == "8"
         assert stat(panel, "To update") == "0"
@@ -177,9 +182,9 @@ class TestReview:
         assert "Nothing has been written yet." in text(one(panel, "#import-preview"))
 
     def test_the_confirm_button_commits_the_reviewed_file(
-        self, client: TestClient, ledger: Ledger
+        self, live_client: TestClient, ledger: Ledger, job_session: None
     ) -> None:
-        panel = review(client, QIF, account_id=str(ledger.checking))
+        panel = review(live_client, QIF, account_id=str(ledger.checking))
         run = one(panel, 'button[hx-post="/accounts/import"]')
         assert run.get("hx-target") == "#import-result"
         assert run.get("hx-include") == "#import-form"
@@ -190,19 +195,27 @@ class TestReview:
         assert run.get("hx-encoding") == "multipart/form-data"
 
     def test_names_what_a_commit_would_mint(
-        self, client: TestClient, ledger: Ledger, csv_profiles: None
+        self,
+        live_client: TestClient,
+        ledger: Ledger,
+        csv_profiles: None,
+        job_session: None,
     ) -> None:
         """An import that quietly invents an account is the surprise this
         panel exists to head off, so each one is named, not counted."""
-        panel = review(client, CSV)
+        panel = review(live_client, CSV)
         creates = text(one(panel, "#import-creates"))
         assert "CHECKING" in creates and "AMEX CARD" in creates
         assert "Groceries" in creates
 
     def test_ranks_where_the_new_rows_land(
-        self, client: TestClient, ledger: Ledger, csv_profiles: None
+        self,
+        live_client: TestClient,
+        ledger: Ledger,
+        csv_profiles: None,
+        job_session: None,
     ) -> None:
-        rows = select(review(client, CSV), "#import-lands .ranked > li")
+        rows = select(review(live_client, CSV), "#import-lands .ranked > li")
         # Biggest first, and an account that does not exist yet says so.
         assert [text(one(row, "span.truncate")) for row in rows] == [
             "AMEX CARD (new)",
@@ -211,10 +224,10 @@ class TestReview:
         assert [text(one(row, "span.font-medium")) for row in rows] == ["3", "2"]
 
     def test_one_account_is_not_a_ranking(
-        self, client: TestClient, ledger: Ledger
+        self, live_client: TestClient, ledger: Ledger, job_session: None
     ) -> None:
         """One bar is not a ranking, it is "To add" restated."""
-        none(review(client, QIF, account_id=str(ledger.checking)), "#import-lands")
+        none(review(live_client, QIF, account_id=str(ledger.checking)), "#import-lands")
 
     def test_an_already_imported_file_offers_no_button(
         self, live_client: TestClient, ledger: Ledger, job_session: None
@@ -226,50 +239,195 @@ class TestReview:
             files={"file": QIF},
             data={"account_id": str(ledger.checking), "lane": "statement"},
         )
-        stream = one(started.text, "[sse-connect]").get("sse-connect") or ""
-        job = stream.removeprefix("/jobs/").removesuffix("/events")
-        assert await_job(live_client, job)["status"] == "done"
+        assert follow(live_client, started.text)[0] == "done"
         panel = review(live_client, QIF, account_id=str(ledger.checking))
         none(panel, 'button[hx-post="/accounts/import"]')
         none(panel, "#import-counts")
         assert "already" in text(one(panel, "#import-preview")).lower()
 
     def test_a_qif_without_an_account_asks_for_one(
-        self, client: TestClient, ledger: Ledger
+        self, live_client: TestClient, ledger: Ledger, job_session: None
     ) -> None:
-        response = client.post(
+        """The file is read on the worker, so the question arrives as the
+        job's frame - and puts the chooser back, since picking the account
+        is the next step."""
+        frame = review(live_client, QIF, account_id="")
+        alert = one(frame, "[data-import-retry] [role='alert']")
+        assert "account" in text(alert).lower()
+        none(frame, "#import-preview")
+
+    def test_unsupported_file_fails_the_job_with_a_retry(
+        self, live_client: TestClient, ledger: Ledger, job_session: None
+    ) -> None:
+        frame = review(
+            live_client,
+            ("statement.pdf", b"%PDF-1.4", "application/pdf"),
+            account_id=str(ledger.checking),
+        )
+        one(frame, "[data-import-retry] [role='alert']")
+
+
+class TestReviewCap:
+    def test_the_job_keeps_only_what_the_frame_shows(self, client: TestClient) -> None:
+        """The review's job record lives in Redis: it carries the capped
+        detail the frame names, and the frame counts the rest from the
+        totals, not from the lists it was handed."""
+        from datetime import date
+
+        from app.components.web_frontend.routes.jobs import render_snapshot
+        from app.services.finance.constants import PREVIEW_DETAIL_CAP
+        from app.services.finance.domains import imports_job
+        from app.services.finance.schemas import (
+            ImportPreviewEdit,
+            ImportPreviewResponse,
+        )
+
+        cap = PREVIEW_DETAIL_CAP
+        n = cap + 3
+        response = ImportPreviewResponse(
+            rows_total=n,
+            rows_updated=n,
+            new_categories=[f"Category {i}" for i in range(n)],
+            edits=[
+                ImportPreviewEdit(
+                    transaction_id=i, date=date(2026, 1, 1), amount=100, changes=["x"]
+                )
+                for i in range(n)
+            ],
+        )
+        result = imports_job.capped_review(response)
+        assert len(result["edits"]) == cap
+        assert len(result["new_categories"]) == cap
+
+        html = render_snapshot(
+            None,  # type: ignore[arg-type]
+            {
+                "status": "done",
+                "name": imports_job.job_name("preview", "x.csv"),
+                "label": "",
+                "result": result,
+            },
+        )
+        assert len(select(html, "#import-edits [data-edit]")) == cap
+        assert "and 3 more updates" in text(one(html, "#import-edits"))
+        assert "and 3 more categories" in text(one(html, "#import-creates"))
+
+
+class TestPreviewOffTheRequest:
+    """#487: an 18k-row plan measured 253 MiB inside the web process. The
+    request stores the upload and answers with a follower; the plan is
+    made where the import itself runs."""
+
+    def test_the_request_answers_with_a_follower_not_a_review(
+        self, live_client: TestClient, ledger: Ledger, job_session: None
+    ) -> None:
+        response = live_client.post(
             "/accounts/import/preview",
             files={"file": QIF},
-            data={"account_id": "", "lane": "statement"},
+            data={"account_id": str(ledger.checking), "lane": "statement"},
+            headers=HX,
         )
-        assert response.status_code == 422
-        assert "account" in text(one(response.text, '[role="alert"]')).lower()
+        assert response.status_code == 200
+        none(response.text, "html")  # a fragment, never the shell
+        follower = one(response.text, "[sse-connect]")
+        assert follower.get("hx-ext") == "sse" and follower.get("sse-swap") == "status"
+        none(response.text, "#import-preview")
 
-    def test_unsupported_file_is_a_422(
-        self, client: TestClient, ledger: Ledger
+        panel = follow(live_client, response.text)[1]
+        assert stat(panel, "To add") == "8"
+        one(panel, 'button[hx-post="/accounts/import"]')
+
+    def test_an_oversized_file_does_not_plan_inline(
+        self, client: TestClient, ledger: Ledger, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from app.services.finance.domains import imports_job
+        from app.services.finance.service import FinanceService
+
+        async def _plans_inline(*a: object, **k: object) -> None:
+            raise AssertionError("the request planned the file itself")
+
+        handed: dict[str, object] = {}
+
+        async def _start(storage_key: str, **kwargs: object) -> str:
+            handed.update(storage_key=storage_key, **kwargs)
+            return "queued-job"
+
+        monkeypatch.setattr(FinanceService, "preview_file", _plans_inline)
+        monkeypatch.setattr(imports_job, "start_import", _start)
+        big = ("big.qif", QIF[1] * 2000, "text/plain")
+
         response = client.post(
             "/accounts/import/preview",
-            files={"file": ("statement.pdf", b"%PDF-1.4", "application/pdf")},
+            files={"file": big},
             data={"account_id": str(ledger.checking), "lane": "statement"},
         )
-        assert response.status_code == 422
-        one(response.text, '[role="alert"]')
+
+        assert response.status_code == 200
+        follower = one(response.text, "[sse-connect]")
+        assert follower.get("sse-connect") == "/jobs/queued-job/events"
+        assert handed["kind"] == "preview"
+        assert handed["file_name"] == "big.qif"
 
 
-def frames_of(client: TestClient, url: str) -> list[str]:
-    """Every SSE frame's data (joined lines) from a finished job's stream."""
-    frames: list[str] = []
-    payload: list[str] = []
-    with client.stream("GET", url) as stream:
-        assert stream.headers["content-type"].startswith("text/event-stream")
-        for line in stream.iter_lines():
-            if line.startswith("data:"):
-                payload.append(line[5:].strip())
-            elif line == "" and payload:
-                frames.append("\n".join(payload))
-                payload = []
-    return frames
+class TestInvestments:
+    """The investment lane runs where the statement import runs, too: its
+    review and its commit are both jobs the dialog follows."""
+
+    def test_the_review_arrives_via_the_job(
+        self, live_client: TestClient, ledger: Ledger, job_session: None
+    ) -> None:
+        panel = review(live_client, OPTUM, lane="investments")
+        heading = text(one(panel, "#import-preview h3"))
+        assert heading.startswith("7 activities")
+
+    def test_each_position_names_its_security_and_shares(
+        self, live_client: TestClient, ledger: Ledger, job_session: None
+    ) -> None:
+        panel = review(live_client, OPTUM, lane="investments")
+        rows = select(panel, "#import-preview tbody tr")
+        assert rows
+        for row in rows:
+            name, shares = (text(cell) for cell in select(row, "td")[:2])
+            assert "-" not in (name, shares)  # the table's blank cell
+
+    def test_the_import_runs_as_a_job(
+        self, live_client: TestClient, ledger: Ledger, job_session: None
+    ) -> None:
+        response = live_client.post(
+            "/accounts/import",
+            files={"file": OPTUM},
+            data={"account_id": str(ledger.checking), "lane": "investments"},
+            headers=HX,
+        )
+        assert response.status_code == 200
+        none(response.text, "#import-summary")  # nothing ran inline
+        summary = follow(live_client, response.text)[1]
+        assert "7 activities" in text(one(summary, "#import-summary"))
+        trades = live_client.get(f"/api/v1/finance/accounts/{ledger.checking}/trades")
+        assert trades.json()["total"] == 7
+
+    def test_an_import_with_no_account_is_refused_before_it_is_stored(
+        self, client: TestClient, ledger: Ledger, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ledger has nowhere to land without an account, and the form
+        says so up front: no file parked, no job queued to fail."""
+        from app.core import storage
+        from app.services.finance.domains import imports_job
+
+        def _never(*a: object, **k: object) -> None:
+            raise AssertionError("a ledger with no account was stored or queued")
+
+        monkeypatch.setattr(storage, "get_storage", _never)
+        monkeypatch.setattr(imports_job, "start_import", _never)
+
+        response = client.post(
+            "/accounts/import",
+            files={"file": OPTUM},
+            data={"account_id": "", "lane": "investments"},
+        )
+        none(response.text, "[sse-connect]")
+        alert = one(response.text, "[data-import-retry] [role='alert']")
+        assert imports_job.NEEDS_ACCOUNT in text(alert)
 
 
 class TestImportJob:
@@ -284,11 +442,8 @@ class TestImportJob:
         assert response.status_code == 200
         follower = one(response.text, "[sse-connect]")
         assert follower.get("hx-ext") == "sse" and follower.get("sse-swap") == "status"
-        stream_url = follower.get("sse-connect") or ""
-        job_id = stream_url.removeprefix("/jobs/").removesuffix("/events")
-
-        assert await_job(live_client, job_id)["status"] == "done"
-        final = frames_of(live_client, stream_url)[-1]
+        status, final = follow(live_client, response.text)
+        assert status == "done"
         assert stat(final, "Added") == "8"  # the review's layout, past tense
         assert (
             one(final, 'button[hx-get="/accounts"]').get("hx-target") == "#app-content"
@@ -353,12 +508,13 @@ class TestWhereTheImportRuns:
 
         sent: dict[str, object] = {}
 
-        async def _enqueue(job_id, storage_key, file_name, account_id, owner):
+        async def _enqueue(job_id, storage_key, file_name, account_id, owner, kind):
             sent.update(
                 job_id=job_id,
                 storage_key=storage_key,
                 file_name=file_name,
                 account_id=account_id,
+                kind=kind,
             )
 
         class _Store:
@@ -374,7 +530,11 @@ class TestWhereTheImportRuns:
         )
 
         job_id = await imports_job.start_import(
-            "store/abc123", file_name="ledger.csv", account_id=7, owner_user_id=None
+            "store/abc123",
+            file_name="ledger.csv",
+            account_id=7,
+            owner_user_id=None,
+            kind="import",
         )
 
         assert sent["job_id"] == job_id
@@ -382,6 +542,7 @@ class TestWhereTheImportRuns:
         assert sent["storage_key"] == "store/abc123"
         assert sent["file_name"] == "ledger.csv"
         assert sent["account_id"] == 7
+        assert sent["kind"] == "import"
 
     @pytest.mark.asyncio
     async def test_no_worker_still_imports_here(
@@ -403,7 +564,11 @@ class TestWhereTheImportRuns:
         monkeypatch.setattr(imports_job, "start_import_in_process", _in_process)
 
         job_id = await imports_job.start_import(
-            "store/abc123", file_name="ledger.csv", account_id=None, owner_user_id=None
+            "store/abc123",
+            file_name="ledger.csv",
+            account_id=None,
+            owner_user_id=None,
+            kind="import",
         )
 
         assert job_id == "local-job"

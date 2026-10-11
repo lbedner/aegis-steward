@@ -183,13 +183,20 @@ class Settings(
     # Which backend get_storage() builds: the storage component flips this
     # to a bucket; everything else keeps the directory above.
     STORAGE_BACKEND: str = "filesystem"
+    # Caps on files from outside: an upload past its limit is a 413 before
+    # it is read whole; the worker skips what is past its caps, with a warning.
+    UPLOAD_MAX_BYTES: int = 25 * 1024 * 1024
+    IMPORT_MAX_BYTES: int = 10 * 1024 * 1024  # a finance file import, any door
+    MAIL_IMPORT_MAX_BYTES: int = 100 * 1024 * 1024  # a mailbox export is many files
+    MAIL_IMPORT_MAX_MESSAGES: int = 2000
+    DOCUMENTS_MAX_PDF_PAGES: int = 200
 
     # Where the scheduled backup job writes dumps. A relative path resolves
     # against the process cwd, which inside a container is the writable
     # layer - fine for local dev, but there the dumps are destroyed by the
-    # next `up --force-recreate`, i.e. every deploy. The compose files point
-    # the scheduler at a mounted absolute path so prod dumps outlive the
-    # container; restore from the scheduler, which is where they are visible.
+    # next `up --force-recreate`, i.e. every deploy. The Dockerfile points
+    # every container at the mounted backup-data volume so dumps outlive
+    # the container. The same job snapshots STORAGE_ROOT here as well.
     DATABASE_BACKUP_DIR: str = "backups"
     DATABASE_BACKUP_KEEP: Annotated[
         int,
@@ -236,8 +243,7 @@ class Settings(
     # Distinct secret for column-level at-rest encryption (AES-GCM v2 in
     # ``app/core/encryption.py``). Splits JWT-signing and credential-
     # encryption blast radii so leaking one secret doesn't compromise
-    # both. When unset, encryption.py falls back to ``SECRET_KEY`` with
-    # a one-time warning. Set in ``.env`` for production deploys.
+    # both. When it is required: ``_guard_missing_encryption_key_in_prod``.
     ENCRYPTION_KEY: str | None = None
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: Annotated[
@@ -484,6 +490,11 @@ class Settings(
     AI_MAX_CONVERSATION_LENGTH: int = 50  # Max messages per conversation
     AI_CONVERSATION_TIMEOUT_HOURS: int = 24  # Auto-cleanup old conversations
 
+    # Code mode's run_code sandbox runs inside the webserver process, per
+    # snippet session (#486). Monty's own defaults are 30 s and 256 MiB.
+    AI_CODE_MODE_MAX_SECONDS: float = 10.0
+    AI_CODE_MODE_MAX_MEMORY_BYTES: int = 64 * 1024 * 1024
+
     # Operations / registrar configuration (always present — the `dns`
     # CLI and the ops/ adapters ride alongside any component selection).
     #
@@ -655,15 +666,28 @@ class Settings(
 
         Anyone reading the public template knows this value, so leaving it
         unchanged would let an attacker forge JWTs against the deploy. We
-        only enforce when APP_ENV != "dev" so local development keeps
+        only enforce outside dev (``is_dev``) so local development keeps
         working without forcing every contributor to set the env var.
         """
-        if self.APP_ENV != "dev" and self.SECRET_KEY == _SECRET_KEY_PLACEHOLDER:
+        if not self.is_dev and self.SECRET_KEY == _SECRET_KEY_PLACEHOLDER:
             raise ValueError(
                 "SECRET_KEY is set to the template placeholder. Generate a "
                 "random value (e.g. `python -c 'import secrets;"
                 " print(secrets.token_urlsafe(64))'`) and set it via the "
                 "SECRET_KEY env var before booting outside dev."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _guard_missing_encryption_key_in_prod(self) -> Settings:
+        """The one home of the rule: outside dev (``is_dev``) ENCRYPTION_KEY
+        is required, since the SECRET_KEY fallback once sealed stored
+        credentials with the public placeholder. Dev keeps the fallback."""
+        if not self.is_dev and not self.ENCRYPTION_KEY:
+            raise ValueError(
+                "ENCRYPTION_KEY is not set. Generate one (e.g. `openssl rand "
+                "-base64 48`), keep it in a password manager, and set it via "
+                "the ENCRYPTION_KEY env var before booting outside dev."
             )
         return self
 

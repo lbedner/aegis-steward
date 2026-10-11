@@ -16,11 +16,14 @@ async def finance_import_task(
     file_name: str,
     account_id: int | None,
     owner_user_id: int | None,
+    kind: str = "import",
 ) -> dict[str, Any]:
+    """A file import, or its review (``imports_job.RUNS``). ``kind`` is
+    last and defaulted so a job queued before it existed still runs."""
     from app.services.finance.domains.imports_job import run_import_job
 
     return await run_import_job(
-        job_id, storage_key, file_name, account_id, owner_user_id
+        job_id, storage_key, file_name, account_id, owner_user_id, kind
     )
 
 

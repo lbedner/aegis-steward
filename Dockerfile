@@ -87,6 +87,11 @@ ENV PORT=$PORT
 # declares its own list replaces the anchor's wholesale, and this was
 # quietly dropping to the code directory in every container.
 ENV STORAGE_ROOT=/data/storage
+# Where the nightly backup job writes (the backup-data volume in compose).
+# Here for the same reason: the job runs on the worker, and setting this
+# only on the scheduler sent the worker's backups into its own container
+# layer, gone on every deploy.
+ENV DATABASE_BACKUP_DIR=/var/backups/app
 
 # Expose the port
 EXPOSE $PORT

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 from typing import Annotated, Any
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import JSONResponse, Response
@@ -37,6 +36,7 @@ from app.components.web_frontend.rendering import (
 )
 from app.core.chat_transcript import (
     IMAGE_TYPES,
+    MAX_ATTACHMENTS,
     MAX_IMAGE_BYTES,
     footer_line,
     readable,
@@ -46,6 +46,7 @@ from app.core.chat_transcript import (
     trace_output,
 )
 from app.core.storage import get_storage, validate_key
+from app.core.uploads import stored_file
 from app.services.ai.domains.chat.agent_loader import DEFAULT_AGENT_SLUG
 from app.services.ai.domains.chat.attachments import lift_pastes
 from app.services.ai.domains.chat.cards import MARKER
@@ -165,6 +166,7 @@ templates.env.globals["chat_composer"] = {
     "documents": ["application/pdf"],
     "paste_threshold": PASTE_THRESHOLD,
     "max_bytes": MAX_IMAGE_BYTES,
+    "max_files": MAX_ATTACHMENTS,
 }
 
 
@@ -180,9 +182,7 @@ def paste_chip(paste: dict[str, Any]) -> dict[str, Any]:
 
 def attachment_url(stored: dict[str, Any]) -> str:
     """Where a stored image is served from (see ``attachment``)."""
-    return f"{ATTACHMENTS}/{stored['key']}?" + urlencode(
-        {"type": stored.get("media_type") or "image/png"}
-    )
+    return f"{ATTACHMENTS}/{stored['key']}"
 
 
 async def model_icons(messages: list[Any]) -> dict[str, str]:
@@ -447,20 +447,18 @@ async def paste(request: Request, paste_id: str) -> Response:
 
 
 @router.get(ATTACHMENTS + "/{key:path}", include_in_schema=False)
-async def attachment(key: str, type: str = "image/png") -> Response:
-    """A stored image by its content key. Content-addressed, so the
-    browser may cache it for good."""
+async def attachment(key: str) -> Response:
+    """A stored image by its content key, served as its bytes say (an old
+    URL's ``?type=`` is ignored). Content-addressed, so the browser may
+    cache it for good."""
     try:
         validate_key(key)
     except ValueError:
         raise HTTPException(status_code=404) from None
-    if not type.startswith("image/"):
-        raise HTTPException(status_code=404)
-    data = await get_storage().get(key)
-    or_404(data)
-    return Response(
-        content=data,
-        media_type=type,
+    data = or_404(await get_storage().get(key))
+    return stored_file(
+        data,
+        "attachment",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
 

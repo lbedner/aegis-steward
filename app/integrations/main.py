@@ -172,7 +172,7 @@ def create_integrated_app() -> FastAPI:
         session_handler,
         assets_dir=str(flet_assets),
         upload_dir=str(flet_uploads),
-        max_upload_size=10 * 1024 * 1024,  # matches the finance import cap
+        max_upload_size=settings.IMPORT_MAX_BYTES,
         secret_key=settings.SECRET_KEY,
     )
     # Mount Flet at /dashboard to avoid intercepting FastAPI routes like /health

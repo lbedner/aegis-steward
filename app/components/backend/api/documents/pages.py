@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app.core.db import get_async_session
 from app.core.storage import get_storage
+from app.core.uploads import stored_file
 from app.services.documents.deps import get_document_service
 from app.services.documents.domains.extraction.dispatch import start_extraction
 from app.services.documents.domains.extraction.pages import (
@@ -25,7 +26,7 @@ from app.services.documents.domains.extraction.pages import (
 )
 from app.services.documents.domains.extraction.vision import vision_reader
 from app.services.documents.domains.reading.proposals import read_and_propose
-from app.services.documents.models import Document, DocumentPage
+from app.services.documents.models import DocumentPage
 from app.services.documents.queries import page_for, pages_for
 from app.services.documents.service import DocumentService
 from app.services.shared.deps import get_owner_user_id
@@ -145,15 +146,16 @@ async def get_page_image(
     service: DocumentService = Depends(get_document_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    row = await _page(service, document_id, page_number, owner_user_id)
-    document = await service.get(document_id, owner_user_id=owner_user_id)
-    return await page_image(row, document)
+    return await page_image(
+        await _page(service, document_id, page_number, owner_user_id)
+    )
 
 
-async def page_image(row: DocumentPage, document: Document | None) -> Response:
+async def page_image(row: DocumentPage) -> Response:
     """A page's stored render from the object store: a PNG, or the upload
-    itself when the page is the original image. Shared with the Overseer's
-    Documents page, which serves the same bytes to the operator."""
+    itself when the page is the original image, typed by its bytes. Shared
+    with the Overseer's Documents page, which serves the same bytes to the
+    operator."""
     if not row.image_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="No page image"
@@ -164,10 +166,7 @@ async def page_image(row: DocumentPage, document: Document | None) -> Response:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Page image is not retrievable from storage",
         )
-    media_type = "image/png"
-    if document is not None and row.image_key == document.storage_key:
-        media_type = document.media_type or media_type
-    return Response(content=data, media_type=media_type)
+    return stored_file(data, f"page-{row.page_number}")
 
 
 async def _page(

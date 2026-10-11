@@ -32,6 +32,8 @@ _IMAGE_MEDIA_TYPES = {
 # service reads off a page), and how large one may be.
 IMAGE_TYPES = frozenset(_IMAGE_MEDIA_TYPES.values())
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+# Files one turn may carry: the composer stops here and the request holds it.
+MAX_ATTACHMENTS = 6
 
 
 def image_media_type(filename: str) -> str | None:

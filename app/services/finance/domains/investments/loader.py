@@ -10,6 +10,7 @@ synthesized dedup key (the source ledger carries no row IDs).
 from __future__ import annotations
 
 import hashlib
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -19,6 +20,10 @@ from app.services.finance.domains.investments.activity import (
     InvestmentActivity,
     replay_positions,
 )
+
+if TYPE_CHECKING:
+    from app.services.finance.models import FinanceAccount
+    from app.services.finance.schemas import InvestmentImportResultResponse
 
 _SOURCE = "csv"
 # finance_security_price's source CHECK has no 'csv' option (it enumerates
@@ -164,3 +169,31 @@ async def import_investment_activities(
         )
 
     return result
+
+
+async def load_ledger(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    account: FinanceAccount,
+    activities: list[InvestmentActivity],
+    account_created: bool = False,
+) -> InvestmentImportResultResponse:
+    """``import_investment_activities`` into ``account``, as the result
+    the API answers with and the import dialog's job hands back."""
+    from app.services.finance.schemas import InvestmentImportResultResponse
+
+    assert account.id is not None
+    result = await import_investment_activities(
+        db, owner_user_id=owner_user_id, account_id=account.id, activities=activities
+    )
+    return InvestmentImportResultResponse(
+        activities_parsed=len(activities),
+        trades_inserted=result.trades_inserted,
+        trades_updated=result.trades_updated,
+        securities_created=result.securities_created,
+        securities_matched=result.securities_matched,
+        account_id=account.id,
+        account_name=account.name,
+        account_created=account_created,
+    )

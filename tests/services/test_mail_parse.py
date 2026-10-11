@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.core.config import settings
 from app.services.mail import parse
 from tests._mbox import PDF, eml_bytes, mbox_bytes, message
 
@@ -30,6 +31,18 @@ class TestWhatAFileIs:
     def test_an_eml_yields_the_one_message(self) -> None:
         read = parse.messages(eml_bytes(message(subject="just this")), "x.eml")
         assert [m.subject for m in read] == ["just this"]
+
+    def test_a_mailbox_past_the_cap_stops_at_the_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The rest is skipped with a warning, not a failed import: the
+        first messages still file."""
+        monkeypatch.setattr(settings, "MAIL_IMPORT_MAX_MESSAGES", 2)
+        data = mbox_bytes([message(subject=s) for s in ("one", "two", "three")])
+
+        read = parse.messages(data, "export.mbox")
+
+        assert [m.subject for m in read] == ["one", "two"]
 
 
 class TestWhatAMessageCarries:
