@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.core.chat_transcript import IMAGE_TYPES, MAX_IMAGE_BYTES
 from app.core.pastebox import pastebox
+from app.core.uploads import read_upload
 
 router = APIRouter(prefix="/pastebox", tags=["pastebox"])
 
@@ -33,12 +34,7 @@ async def stage_paste(file: UploadFile) -> PasteStageResponse:
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"Only images can be pasted, not {file.content_type!r}.",
         )
-    data = await file.read()
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Pasted image is larger than {MAX_IMAGE_BYTES // 2**20}MB.",
-        )
+    data = await read_upload(file, MAX_IMAGE_BYTES)
     pastebox.stage(
         media_type=file.content_type or "image/png",
         data=data,

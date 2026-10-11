@@ -1,7 +1,7 @@
 {# One job snapshot, as the SSE follower swaps it in. Running: the label.
    Done: the result, rendered by what the job was. Failed: the error. #}
 {% from "components/macros/feedback.html" import error_banner %}
-{% from "components/macros/imports.html" import count_cells, count_dots, job_done %}
+{% from "components/macros/imports.html" import job_done %}
 {% from "components/macros/layout.html" import stats_strip %}
 {% if job.status == "running" %}
 <p class="flex items-center gap-2 text-sm text-aegis-muted">
@@ -39,15 +39,13 @@
   {% endif %}
   {{ job_done("/documents") }}
 </section>
+{#- A finance file's runs: the job read the file so the web process did
+    not, and its frame is what the request used to answer with. Which
+    frame is the run's own (``imports_job.RUNS``, published by the
+    import route); a review calls the result ``preview``, a summary
+    ``result``. -#}
+{% elif import_frame is defined and import_frame(job.name) %}
+{% set preview = job.result %}{% set result = job.result %}{% include import_frame(job.name) %}
 {% else %}
-<section id="import-summary" class="space-y-4">
-  <h3 class="text-sm font-semibold text-aegis-text">Import complete</h3>
-  {# The review's layout in the past tense: the same five numbers, the
-     same words, so the two screens can be read against each other. #}
-  {% if job.result and job.result.rows_total is defined %}
-  {{ count_cells(job.result, [("Added", "Now in your ledger"), ("Updated", "Changed in place"), ("Already had", "Left alone")]) }}
-  {{ count_dots(job.result) }}
-  {% endif %}
-  {{ job_done("/accounts") }}
-</section>
+<p class="text-sm text-aegis-muted" data-job-done>Done.</p>
 {% endif %}

@@ -66,7 +66,7 @@ BUDGET: dict[str, int] = {
     "services/ai/domains/llm/queries.py": 556,
     "components/web_frontend/filters.py": 531,
     "core/formatting.py": 505,
-    "core/config.py": 752,
+    "core/config.py": 776,  # #481 upload caps, #482 encryption-key guard, #486 code mode limits
 }
 
 

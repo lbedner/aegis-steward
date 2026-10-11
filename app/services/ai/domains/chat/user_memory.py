@@ -40,11 +40,6 @@ MEMORY_CATEGORIES = (
     "general",
 )
 
-# Tools that WRITE memory. Code mode sandboxes an agent's tools behind
-# run_code; these stay native calls so a write is a visible tool call in
-# the trail rather than a line inside generated Python.
-MEMORY_WRITE_TOOL_NAMES: tuple[str, ...] = ("save_memory", "replace_memory")
-
 current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=None)
 # Attribution for writes made mid-turn (queue proposals): which agent
 # asked, in which conversation. Set by the same runtimes that bind the
@@ -107,7 +102,9 @@ async def get_user_memory(
 
 
 def _facts(row: AgentUserMemory) -> list[dict[str, Any]]:
-    return list(row.memory.get("structured_facts", []))
+    # Copies: an entry edited in place would edit the loaded value too,
+    # and the flush would see nothing to write.
+    return [dict(entry) for entry in row.memory.get("structured_facts", [])]
 
 
 def is_duplicate(existing: str, candidate: str) -> bool:
@@ -116,6 +113,18 @@ def is_duplicate(existing: str, candidate: str) -> bool:
     a = existing.casefold().strip()
     b = candidate.casefold().strip()
     return bool(a and b) and (a in b or b in a)
+
+
+def find_fact(facts: list[dict[str, Any]], words: str) -> int | None:
+    """The one saved fact ``words`` picks out, or None. A quote of the fact
+    (either direction, case-insensitive) is enough; two matches is a
+    question back to the model rather than a guess."""
+    hits = [
+        i
+        for i, entry in enumerate(facts)
+        if is_duplicate(str(entry.get("fact", "")), words)
+    ]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _normalize_category(category: str) -> str:
@@ -152,7 +161,8 @@ async def save_user_fact(
     row.memory = {**row.memory, "structured_facts": facts}
     row.updated_at = utcnow_naive()
     session.add(row)
-    await session.commit()
+    # The change queue's approval owns the commit (#484).
+    await session.flush()
     logger.info("Saved user fact", user_id=user_id, category=category)
     return f"Saved ({category}): {fact.strip()}"
 
@@ -256,7 +266,7 @@ async def replace_user_memory(
     row.memory = {**row.memory, "structured_facts": facts}
     row.updated_at = utcnow_naive()
     session.add(row)
-    await session.commit()
+    await session.flush()
     logger.info("Replaced user memory", user_id=user_id, fact_count=len(facts))
     return f"Memory replaced with {len(facts)} fact(s)."
 
@@ -277,61 +287,82 @@ async def list_user_facts(
     return [{**entry, "index": i} for i, entry in enumerate(_facts(row))]
 
 
+async def _locate(
+    session: AsyncSession, user_id: str, at: int | str
+) -> tuple[AgentUserMemory, list[dict[str, Any]], int]:
+    """The user's row, its facts, and where ``at`` points, in one read.
+
+    ``at`` is an index (the dashboard's) or a quote of the fact (the
+    assistant's: found by its words, because facts are addressed by
+    position and the list may have moved since the card was filed).
+    """
+    row = await get_user_memory(session, user_id) or AgentUserMemory(user_id=user_id)
+    facts = _facts(row)
+    if isinstance(at, str):
+        index = find_fact(facts, at)
+        if index is None:
+            raise ValueError(
+                f"No single saved fact matches {at!r}; quote it more exactly."
+            )
+        return row, facts, index
+    if not 0 <= at < len(facts):
+        raise IndexError(f"No fact at index {at} for user {user_id}")
+    return row, facts, at
+
+
+async def saved_fact(
+    user_id: str, quote: str, *, session: AsyncSession | None = None
+) -> dict[str, Any]:
+    """The one saved fact ``quote`` picks out; ValueError when none or
+    several do."""
+    async with session_or(session) as db:
+        _, facts, index = await _locate(db, user_id, quote)
+        return facts[index]
+
+
 async def _rewrite_facts(
-    user_id: str,
-    facts: list[dict[str, Any]],
-    *,
-    session: AsyncSession,
+    row: AgentUserMemory, facts: list[dict[str, Any]], *, session: AsyncSession
 ) -> None:
-    row = await get_user_memory(session, user_id)
-    if row is None:
-        raise IndexError(f"No saved memory for user {user_id}")
+    # Flush only: every caller's session commits on exit (a route's,
+    # own_write's, the change queue's approval).
     row.memory = {**row.memory, "structured_facts": facts}
     row.updated_at = utcnow_naive()
     session.add(row)
-    await session.commit()
+    await session.flush()
 
 
 async def update_user_fact(
     user_id: str,
-    index: int,
+    at: int | str,
     *,
     fact: str | None = None,
     category: str | None = None,
     session: AsyncSession,
 ) -> dict[str, Any]:
-    """Rewrite one saved fact in place; returns the updated entry."""
-    facts = [
-        {k: v for k, v in entry.items() if k != "index"}
-        for entry in await list_user_facts(user_id, session=session)
-    ]
-    if not 0 <= index < len(facts):
-        raise IndexError(f"No fact at index {index} for user {user_id}")
+    """Rewrite one saved fact in place (``at`` as in ``_locate``);
+    returns the updated entry."""
+    row, facts, index = await _locate(session, user_id, at)
     if fact is not None and fact.strip():
         facts[index]["fact"] = fact.strip()
     if category is not None:
         facts[index]["category"] = _normalize_category(category)
-    await _rewrite_facts(user_id, facts, session=session)
+    await _rewrite_facts(row, facts, session=session)
     logger.info("Updated user fact", user_id=user_id, index=index)
     return {**facts[index], "index": index}
 
 
 async def delete_user_fact(
     user_id: str,
-    index: int,
+    at: int | str,
     *,
     session: AsyncSession,
-) -> None:
-    """Forget one saved fact."""
-    facts = [
-        {k: v for k, v in entry.items() if k != "index"}
-        for entry in await list_user_facts(user_id, session=session)
-    ]
-    if not 0 <= index < len(facts):
-        raise IndexError(f"No fact at index {index} for user {user_id}")
-    facts.pop(index)
-    await _rewrite_facts(user_id, facts, session=session)
+) -> dict[str, Any]:
+    """Forget one saved fact (``at`` as in ``_locate``); returns it."""
+    row, facts, index = await _locate(session, user_id, at)
+    gone = facts.pop(index)
+    await _rewrite_facts(row, facts, session=session)
     logger.info("Deleted user fact", user_id=user_id, index=index)
+    return gone
 
 
 def format_user_memory(row: AgentUserMemory | None) -> str | None:

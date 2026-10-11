@@ -15,10 +15,14 @@ from email.message import EmailMessage
 from email.utils import parseaddr, parsedate_to_datetime
 import hashlib
 from html.parser import HTMLParser
+from itertools import islice
 import mailbox
 from pathlib import Path
 import re
 import tempfile
+
+from app.core.config import settings
+from app.core.log import logger
 
 MAIL_SUFFIXES = (".mbox", ".eml")
 
@@ -78,7 +82,11 @@ def messages(data: bytes, filename: str) -> list[ParsedMessage]:
             path, factory=lambda f: message_from_bytes(f.read(), policy=policy.default)
         )
         try:
-            return [_read(one) for one in box]
+            # Counting is a scan for "From " lines; only what is kept is parsed.
+            total, cap = len(box), settings.MAIL_IMPORT_MAX_MESSAGES
+            if total > cap:
+                logger.warning("mail.import.capped", kept=cap, skipped=total - cap)
+            return [_read(one) for one in islice(box, cap)]
         finally:
             box.close()
 

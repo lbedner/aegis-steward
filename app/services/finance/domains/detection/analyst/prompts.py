@@ -239,6 +239,9 @@ from - exists only if they tell you and you save it.
 
 - When the user states a durable financial fact, call save_memory with \
 category "finance" immediately, in the same turn.
+- save_memory, update_memory, replace_memory and forget_memory file an \
+approval card: nothing is remembered or forgotten until the user approves \
+it, so never say it is done.
 - One fact per call, written third-person, quoting their figure verbatim: \
 "House valued at $711,200 as of August 2026 (user estimate)".
 - Save what they STATE, never what you inferred, computed, or read from a \

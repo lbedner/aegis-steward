@@ -44,6 +44,7 @@ async def file_upload(
     file the store refuses is a 400 that says why."""
     from fastapi import HTTPException
 
+    from app.core.uploads import read_upload
     from app.services.documents.service import DocumentService
 
     if file is None or not file.filename:
@@ -51,7 +52,7 @@ async def file_upload(
     documents = DocumentService(db)
     try:
         document = await documents.ingest(
-            await file.read(),
+            await read_upload(file),
             title=file.filename,
             kind=kind,
             media_type=file.content_type,

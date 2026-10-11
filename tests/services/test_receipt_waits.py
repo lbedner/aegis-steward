@@ -335,5 +335,5 @@ async def _import(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(storage, "get_storage", lambda: _Store())
     monkeypatch.setattr(schemas, "import_result_payload", lambda _r: {})
     await imports_job.run_import(
-        "key", file_name="x.csv", account_id=None, owner_user_id=None
+        "key", file_name="x.csv", account_id=None, owner_user_id=None, kind="import"
     )

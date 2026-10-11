@@ -6,6 +6,8 @@ to the matching domain module as ``module.func(self.db, ...)``.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.services.finance.adapters.importers import imports
 from app.services.finance.models import (
     FinanceImportBatch,
@@ -13,6 +15,9 @@ from app.services.finance.models import (
 )
 from app.services.finance.service.base import FinanceServiceBase
 from app.services.system.jobs import SetLabel
+
+if TYPE_CHECKING:
+    from app.services.finance.schemas import ImportPreviewResponse
 
 
 class ImportsMixin(FinanceServiceBase):
@@ -62,6 +67,12 @@ class ImportsMixin(FinanceServiceBase):
             file_bytes=file_bytes,
             account_id=account_id,
         )
+
+    async def preview_payload(self, plan: imports.ImportPlan) -> ImportPreviewResponse:
+        """A plan as the review shows it, account and category names in."""
+        from app.services.finance.adapters.importers.preview import preview_payload
+
+        return await preview_payload(self.db, plan)
 
     async def import_file(
         self,

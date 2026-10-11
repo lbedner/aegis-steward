@@ -9,6 +9,7 @@ with the reason, never as an empty string.
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.config import settings
 from app.core.storage import FilesystemStorage, get_storage, set_storage
 from app.services.documents import DocumentService
 from app.services.documents.domains.extraction.pages import extract_document
@@ -69,6 +70,28 @@ class TestTextLayer:
         assert page.image_key
         png = await get_storage().get(page.image_key)
         assert png is not None and png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+class TestThePageCap:
+    @pytest.mark.asyncio
+    async def test_a_pdf_past_the_cap_reads_only_the_pages_under_it(
+        self, svc, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "DOCUMENTS_MAX_PDF_PAGES", 2)
+        doc = await svc.ingest(
+            pdf_bytes(["First page text", "Second page text", "Third page text"]),
+            title="Long",
+            media_type="application/pdf",
+            owner_user_id=1,
+        )
+
+        result = await extract_document(svc.db, doc.id, owner_user_id=1, vision=None)
+
+        assert result.read == 2
+        pages = await pages_for(svc.db, doc.id)
+        assert [p.page_number for p in pages] == [1, 2]
+        # The count is still the truth about the file.
+        assert (await svc.get(doc.id, owner_user_id=1)).page_count == 3
 
 
 class TestScans:

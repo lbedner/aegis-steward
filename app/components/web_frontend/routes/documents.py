@@ -32,8 +32,10 @@ from app.components.web_frontend.rendering import (
     with_toast,
 )
 from app.components.web_frontend.routes.requests import ACCEPTS
+from app.core.config import settings
 from app.core.db import get_async_session
 from app.core.storage import get_storage
+from app.core.uploads import read_upload
 from app.services.documents.domains.extraction.dispatch import start_extraction
 from app.services.finance.deps import get_owner_user_id
 from app.services.mail.jobs import start_mail_import
@@ -161,7 +163,8 @@ async def upload(
     """
     if file is not None and is_mail_export(file.filename):
         storage_key = await get_storage().put(
-            await file.read(), content_type=file.content_type
+            await read_upload(file, settings.MAIL_IMPORT_MAX_BYTES),
+            content_type=file.content_type,
         )
         job_id = await start_mail_import(
             storage_key, file_name=str(file.filename), owner_user_id=owner_user_id

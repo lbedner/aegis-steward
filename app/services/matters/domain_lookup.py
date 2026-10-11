@@ -38,6 +38,7 @@ TIMEOUT_SECONDS = 4.0
 # Eleanor's page answered 403 to it and 200 to this (2026-09-23). Never
 # a browser's string - a lookup that disguises itself is a scraper.
 USER_AGENT = "AegisSteward/1.0 (household records; contact lookup)"
+_REDIRECTS = (301, 302, 303, 307, 308)
 
 # Where an organization puts its contact details, in the order worth
 # trying. A site that hides them behind a search form is a site this
@@ -90,8 +91,14 @@ async def _read(url: str, host: str) -> str | None:
     rule is not "how many" but "where to": a 301 onto another company's
     server would otherwise be fetched and its page read as evidence
     about this name.
+
+    Both hops go through ``guarded_get`` (#485): the host is the model's
+    choice, so it is resolved, checked public and dialled at the checked
+    address, and the redirect is resolved and checked again.
     """
     import httpx
+
+    from app.core.safe_fetch import guarded_get, read_capped
 
     try:
         async with httpx.AsyncClient(
@@ -99,19 +106,24 @@ async def _read(url: str, host: str) -> str | None:
             follow_redirects=False,
             headers={"User-Agent": USER_AGENT},
         ) as client:
-            response = await client.get(url)
-            if response.status_code in (301, 302, 303, 307, 308):
-                location = response.headers.get("location", "")
-                if not location or _host_of(location) not in ("", host):
-                    return None
-                response = await client.get(str(response.url.join(location)))
-            if response.status_code != 200:
-                return None
-            # Text only. A PDF or an image proves nothing and costs the
-            # same timeout to download.
-            if "text" not in response.headers.get("content-type", "text/html"):
-                return None
-            return response.text
+            for hop in range(2):
+                async with guarded_get(client, url) as response:
+                    if hop == 0 and response.status_code in _REDIRECTS:
+                        location = response.headers.get("location", "")
+                        if not location or _host_of(location) not in ("", host):
+                            return None
+                        # Joined onto the URL asked for: the response's own
+                        # URL carries the IP it was dialled at, not the host.
+                        url = str(httpx.URL(url).join(location))
+                        continue
+                    if response.status_code != 200:
+                        return None
+                    # Text only, judged before a byte of the body is read.
+                    # A PDF or an image proves nothing about the name.
+                    if "text" not in response.headers.get("content-type", "text/html"):
+                        return None
+                    return await read_capped(response)
+            return None
     except Exception:
         # A dead host, a typo, no network: all the same answer. A lookup
         # is a convenience and must never be an outage.

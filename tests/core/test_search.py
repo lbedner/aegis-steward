@@ -199,21 +199,13 @@ async def test_the_app_says_who_it_is_when_it_reads_a_page(
     import httpx
 
     from app.services.matters import domain_lookup
+    from tests._fake_dns import answering, resolving_to
 
-    sent: dict[str, str] = {}
-    real = httpx.AsyncClient
-
-    def answered(request: httpx.Request) -> httpx.Response:
-        sent.update(request.headers)
-        return httpx.Response(200, text="Eleanor")
-
-    def client(**kwargs: Any) -> httpx.AsyncClient:
-        return real(transport=httpx.MockTransport(answered), **kwargs)
-
-    monkeypatch.setattr(httpx, "AsyncClient", client)
+    resolving_to(monkeypatch, ["93.184.216.34"])
+    sent = answering(monkeypatch, httpx.Response(200, text="Eleanor"))
     await domain_lookup._read("https://example.org/", "example.org")
 
-    assert sent["user-agent"] == domain_lookup.USER_AGENT
+    assert sent[0].headers["user-agent"] == domain_lookup.USER_AGENT
     assert "AegisSteward" in domain_lookup.USER_AGENT
 
 

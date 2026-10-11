@@ -67,11 +67,15 @@ class TestAFinishedImport:
     def test_it_still_says_import_complete(self) -> None:
         """The import's own frame is unchanged: it is read against the
         review screen that precedes it."""
+        # The import route publishes which frame each run renders.
+        import app.components.web_frontend.routes.finance.imports  # noqa: F401
+        from app.services.finance.domains.imports_job import job_name
+
         html = render_snapshot(
             _request(),
             # Without the counts: those cells have their own tests, and
             # this one is about which FRAME a job gets.
-            _snapshot("imports-file:3"),
+            _snapshot(job_name("import", "x.csv")),
         )
         one(html, "#import-summary")
         assert "Import complete" in text(one(html, "h3"))

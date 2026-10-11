@@ -17,6 +17,7 @@ session, which cannot see rows written inside a test transaction.
 from fastapi.testclient import TestClient
 import pytest
 
+from app.core.config import settings
 from app.core.storage import FilesystemStorage, set_storage
 
 
@@ -82,6 +83,40 @@ class TestDocumentEndpoints:
 
         assert response.status_code == 200
         assert response.content == b"the bytes"
+
+    def test_an_html_upload_comes_back_as_a_download_it_cannot_run(
+        self, authenticated_app_client: TestClient
+    ) -> None:
+        """An attachment from anybody's email must not become a page on
+        this origin: the bytes decide the type, not the claim."""
+        created = authenticated_app_client.post(
+            "/api/v1/documents",
+            files={"file": ("x.html", b"<script>alert(1)</script>", "text/html")},
+            data={"title": "x.html"},
+        ).json()
+
+        response = authenticated_app_client.get(
+            f"/api/v1/documents/{created['id']}/content"
+        )
+
+        assert response.headers["content-type"] == "application/octet-stream"
+        assert response.headers["content-disposition"].startswith("attachment;")
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["content-security-policy"] == "sandbox"
+        # The app-wide headers ride on every response.
+        assert response.headers["x-frame-options"] == "SAMEORIGIN"
+
+    def test_an_upload_past_the_limit_is_413(
+        self, authenticated_app_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "UPLOAD_MAX_BYTES", 10)
+
+        response = authenticated_app_client.post(
+            "/api/v1/documents",
+            files={"file": ("big.pdf", b"%PDF-" + b"x" * 100, "application/pdf")},
+        )
+
+        assert response.status_code == 413
 
     def test_an_unknown_kind_is_a_client_error(
         self, authenticated_app_client: TestClient

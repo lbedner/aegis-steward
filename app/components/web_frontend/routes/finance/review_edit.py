@@ -25,6 +25,7 @@ from app.components.web_frontend.rendering import (
     or_404,
     where_from,
 )
+from app.core.uploads import stored_file
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.writes.queue import get_change, revise_fields
 from app.services.finance.domains.writes.registry import (
@@ -154,4 +155,4 @@ async def change_scan(
     )
     key = keys[page] if 0 <= page < len(keys) else None
     content = or_404(await get_storage().get(key) if key else None)
-    return Response(content, media_type="image/jpeg")
+    return stored_file(content, f"scan-{page + 1}")

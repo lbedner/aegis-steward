@@ -18,7 +18,15 @@ from app.core.chat_transcript import script_line
 # The tools whose results become approval cards, the kinds of card a
 # trace records (a drawn card is ``cards.MARKER``), and which id names
 # which: the web layer draws each from its kind.
-CARD_TOOLS = ("propose", "propose_many", "pending")
+CARD_TOOLS = (
+    "propose",
+    "propose_many",
+    "pending",
+    "save_memory",
+    "replace_memory",
+    "update_memory",
+    "forget_memory",
+)
 CHANGE_MARKER = "pending_change"
 BATCH_MARKER = "pending_change_batch"
 IDENTITY_KEYS = {"batch_id": BATCH_MARKER, "pending_change_id": CHANGE_MARKER}

@@ -1,7 +1,7 @@
 """
 Database backup service for aegis-steward.
 
-Provides database backup functionality for scheduled backup jobs.
+Provides database (and object storage) backups for scheduled backup jobs.
 Included when scheduler and database components are both present.
 
 """
@@ -10,10 +10,12 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 import sqlite3
+import tarfile
 
 from app.core.config import settings
 from app.core.db import DATABASE_PATH
 from app.core.log import logger
+from app.core.storage import FilesystemStorage, get_storage
 
 # Backup file naming pattern
 BACKUP_FILE_PREFIX = "database_backup_"
@@ -21,8 +23,12 @@ BACKUP_FILE_PREFIX = "database_backup_"
 BACKUP_FILE_SUFFIX = ".db"
 BACKUP_FILE_PATTERNS = (f"{BACKUP_FILE_PREFIX}*{BACKUP_FILE_SUFFIX}",)
 
-# Kept for callers that imported the single-pattern name.
-BACKUP_FILE_PATTERN = BACKUP_FILE_PATTERNS[0]
+# Object storage snapshots, beside the database copies. Not in
+# BACKUP_FILE_PATTERNS: those are what a restore lists, and a tarball is
+# not a database.
+STORAGE_BACKUP_PREFIX = "storage_backup_"
+STORAGE_BACKUP_SUFFIX = ".tar"
+STORAGE_BACKUP_PATTERNS = (f"{STORAGE_BACKUP_PREFIX}*{STORAGE_BACKUP_SUFFIX}",)
 
 
 def _copy_database(source: Path, destination: Path) -> None:
@@ -65,42 +71,30 @@ def backup_dir() -> Path:
     return Path(settings.DATABASE_BACKUP_DIR)
 
 
-def list_backups(directory: Path) -> list[Path]:
+def list_backups(
+    directory: Path, patterns: tuple[str, ...] = BACKUP_FILE_PATTERNS
+) -> list[Path]:
     """Every backup file in ``directory``, newest first, all formats."""
-    files = [
-        f
-        for pattern in BACKUP_FILE_PATTERNS
-        for f in directory.glob(pattern)
-        if f.is_file()
-    ]
+    files = [f for pattern in patterns for f in directory.glob(pattern) if f.is_file()]
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return files
 
 
-def _copy_database(source: Path, destination: Path) -> None:
-    """A consistent copy of a live SQLite database.
+def _snapshot_storage(source: Path, destination: Path) -> None:
+    """A plain tar of the object store, streamed file by file.
 
-    NOT ``shutil.copy2``. Under WAL a commit lives in the ``-wal`` until
-    something checkpoints it back, and copying the main file alone
-    silently produces a backup missing the newest writes - the exact
-    ones anybody restoring is reaching for. On a database young enough
-    that even its schema is still in the log, the copy comes back with
-    no tables at all, which is what this looked like when it was found:
-    a backup that opens cleanly and contains nothing.
+    Not gzipped: the store is mostly PDFs and images, already compressed,
+    so gzip would spend the worker's CPU every night to save next to
+    nothing.
 
-    SQLite's own backup API reads through the log and takes a consistent
-    snapshot while other connections keep writing, which is the whole
-    reason it exists. Blocking, so callers run it off the loop.
+    Written under a temporary name and renamed when complete, so a run
+    that dies halfway never leaves a truncated archive counted as a backup.
+    Blocking, so callers run it off the loop.
     """
-    live = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
-    try:
-        copy = sqlite3.connect(destination)
-        try:
-            live.backup(copy)
-        finally:
-            copy.close()
-    finally:
-        live.close()
+    partial = destination.with_name(destination.name + ".partial")
+    with tarfile.open(partial, "w") as tar:
+        tar.add(source, arcname="storage")
+    partial.replace(destination)
 
 
 async def backup_database_job() -> None:
@@ -129,6 +123,17 @@ async def backup_database_job() -> None:
     await asyncio.to_thread(_copy_database, Path(DATABASE_PATH), backup_path)
     logger.info(f"Database backup created: {backup_path}")
 
+    # The documents the rows point at. Only for the filesystem backend: a
+    # bucket keeps its own copies, and a store nothing has written to yet
+    # has nothing to keep.
+    storage_root = Path(settings.STORAGE_ROOT)
+    if isinstance(get_storage(), FilesystemStorage) and storage_root.is_dir():
+        storage_path = (
+            directory / f"{STORAGE_BACKUP_PREFIX}{timestamp}{STORAGE_BACKUP_SUFFIX}"
+        )
+        await asyncio.to_thread(_snapshot_storage, storage_root, storage_path)
+        logger.info(f"Storage backup created: {storage_path}")
+
     # Prune old backups. Only reached on a successful backup, so a failed
     # run never deletes known-good backups.
     await _cleanup_old_backups(directory)
@@ -145,19 +150,23 @@ async def _cleanup_old_backups(directory: Path, keep_count: int | None = None) -
     if keep_count is None:
         keep_count = settings.DATABASE_BACKUP_KEEP
     try:
-        # One retention window across every format -- keeping N of each
-        # would double the footprint the setting is meant to bound.
-        backup_files = list_backups(directory)
+        # One retention window across every database format -- keeping N
+        # of each would double the footprint the setting is meant to bound.
+        # Storage snapshots are a different thing and keep the same N.
+        for patterns in (BACKUP_FILE_PATTERNS, STORAGE_BACKUP_PATTERNS):
+            backup_files = list_backups(directory, patterns)
 
-        # Remove old backups beyond keep_count
-        old_backups = backup_files[keep_count:]
-        for old_backup in old_backups:
-            old_backup.unlink()
-            logger.info(f"Removed old backup: {old_backup.name}")
+            # Remove old backups beyond keep_count
+            old_backups = backup_files[keep_count:]
+            for old_backup in old_backups:
+                old_backup.unlink()
+                logger.info(f"Removed old backup: {old_backup.name}")
 
-        if old_backups:
-            kept_count = min(len(backup_files), keep_count)
-            logger.info(f"Cleaned up {len(old_backups)} old backups, kept {kept_count}")
+            if old_backups:
+                kept_count = min(len(backup_files), keep_count)
+                logger.info(
+                    f"Cleaned up {len(old_backups)} old backups, kept {kept_count}"
+                )
 
     except Exception as e:
         logger.error(f"Backup cleanup failed: {e}")

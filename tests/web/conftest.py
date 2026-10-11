@@ -27,6 +27,7 @@ from app.services.finance.domains.detection.analyst.shared import STANDALONE_USE
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 from tests.services._finance_factories import seed_limit
+from tests.web.dom import one
 
 _SESSION: dict[str, AsyncSession] = {}
 
@@ -400,6 +401,30 @@ def await_job(
             return body
         time.sleep(0.02)
     raise AssertionError(f"job {job_id} never finished")
+
+
+def frames_of(client: TestClient, url: str) -> list[str]:
+    """Every SSE frame's data (joined lines) from a finished job's stream."""
+    frames: list[str] = []
+    payload: list[str] = []
+    with client.stream("GET", url) as stream:
+        assert stream.headers["content-type"].startswith("text/event-stream")
+        for line in stream.iter_lines():
+            if line.startswith("data:"):
+                payload.append(line[5:].strip())
+            elif line == "" and payload:
+                frames.append("\n".join(payload))
+                payload = []
+    return frames
+
+
+def follow(client: TestClient, follower: str) -> tuple[object, str]:
+    """Run the job a follower fragment streams to its end: the API's
+    terminal status, and the last frame the page shows."""
+    stream_url = one(follower, "[sse-connect]").get("sse-connect") or ""
+    job_id = stream_url.removeprefix("/jobs/").removesuffix("/events")
+    status = await_job(client, job_id)["status"]
+    return status, frames_of(client, stream_url)[-1]
 
 
 @pytest.fixture

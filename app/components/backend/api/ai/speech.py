@@ -14,6 +14,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.core.log import logger
+from app.core.uploads import read_upload
 from app.core.voice_settings import TTS_SPEED_MAX, TTS_SPEED_MIN, setting_default
 from app.services.ai.deps import ai_service
 from app.services.ai.domains.voice import (
@@ -76,7 +77,7 @@ async def _audio_input(audio: UploadFile, language: str | None = None) -> AudioI
             detail=f"Unsupported audio format: {audio.filename}. "
             f"Supported: {', '.join(f.value for f in AudioFormat)}",
         )
-    content = await audio.read()
+    content = await read_upload(audio)
     if not content:
         raise HTTPException(status_code=400, detail="Empty audio file")
     return AudioInput(content=content, format=audio_format, language=language)

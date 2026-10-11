@@ -71,7 +71,9 @@ class TestASilentStreamSaysSo:
             return
             yield  # pragma: no cover
 
-        assert [f async for f in announce_waiting(nothing(), every=0.01)] == []
+        # A beat interval no run reaches: at 10 ms a loaded machine could
+        # let one beat through before the empty stream ended.
+        assert [f async for f in announce_waiting(nothing(), every=5)] == []
 
     @pytest.mark.asyncio
     async def test_the_source_failure_is_the_callers_to_see(self) -> None:

@@ -22,7 +22,7 @@ from fastapi import (
 from pydantic import BaseModel, Field
 
 from app.components.backend.api.documents.pages import router as pages_router
-from app.core.formatting import safe_filename
+from app.core.uploads import read_upload, stored_file
 from app.services.documents.deps import get_document_service
 from app.services.documents.models import Document
 from app.services.documents.service import DocumentService, ProtectedDocumentError
@@ -125,7 +125,7 @@ async def upload_document(
     than a second one, so a retried upload is safe. The status code says
     which happened: 201 for a new document, 200 for one already held.
     """
-    data = await file.read()
+    data = await read_upload(file)
     try:
         document, created = await service.store(
             data,
@@ -234,15 +234,7 @@ async def download_document(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Document content is not retrievable from storage",
         )
-    return Response(
-        content=data,
-        media_type=document.media_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": (
-                f'inline; filename="{safe_filename(document.title)}"'
-            ),
-        },
-    )
+    return stored_file(data, document.title, claimed=document.media_type)
 
 
 @router.post("/{document_id}/tags", response_model=DocumentResponse)

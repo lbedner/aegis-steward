@@ -246,6 +246,26 @@ class TestChatAgentSlug:
         assert response.status_code == 200
         assert mock_chat.call_args.kwargs["attachments"] == []
 
+    def test_a_turn_carries_no_more_files_than_the_composer_takes(
+        self, client: TestClient
+    ) -> None:
+        """The composer stops at ``MAX_ATTACHMENTS``; the server holds the
+        same line for a client that does not."""
+        from app.core.chat_transcript import MAX_ATTACHMENTS
+
+        image = {"media_type": "image/png", "data_b64": "aGk=", "name": "a.png"}
+        with patch(
+            "app.components.backend.api.ai.router.ai_service.chat",
+            new=AsyncMock(return_value=self._reply()),
+        ) as mock_chat:
+            response = client.post(
+                "/api/v1/ai/chat",
+                json={"message": "hi", "attachments": [image] * (MAX_ATTACHMENTS + 1)},
+            )
+
+        assert response.status_code == 422
+        mock_chat.assert_not_called()
+
 
 class TestLLMPickerGating:
     """The picker's usable filter: no key, no models."""
@@ -442,12 +462,15 @@ class TestStreamToolFrame:
 
         with patch.object(router.ai_service, "stream_chat", fake_stream):
             client = TestClient(create_integrated_app())
-            body = client.post(
+            response = client.post(
                 "/api/v1/ai/chat/stream", json={"message": "hi", "user_id": "u"}
-            ).text
+            )
+        body = response.text
         frame = next(b for b in body.split("\n\n") if b.startswith("event: tool"))
         data = json.loads(frame.split("data: ", 1)[1])
         assert data["label"] == "ledger(months=3)"
+        # Same-origin callers only: no other site may read the stream.
+        assert "access-control-allow-origin" not in response.headers
 
 
 class TestStreamErrorFrame:

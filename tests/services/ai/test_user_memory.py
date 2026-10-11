@@ -24,6 +24,7 @@ from app.services.ai.domains.chat.user_memory import (
     update_user_fact,
 )
 from app.services.ai.models.agents import AgentUserMemory
+from app.services.finance.models import FinancePendingChange
 from tests._session import opens
 
 
@@ -139,7 +140,7 @@ class TestFinanceCategory:
 
     async def test_finance_is_a_real_category(self, session: AsyncSession) -> None:
         await save_user_fact(
-            "u1", "House Bedner is worth $711,200", "finance", session=session
+            "u1", "The house is worth $711,200", "finance", session=session
         )
 
         row = await get_user_memory(session, "u1")
@@ -249,24 +250,25 @@ class TestTurnUserContext:
     plain string - which a model reports to the user as success. That
     silence is the failure mode this guards."""
 
-    async def test_inside_the_context_the_tool_saves(
+    async def test_inside_the_context_the_tool_files_for_that_user(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        @asynccontextmanager
-        async def _session() -> AsyncGenerator[AsyncSession]:
-            yield session
+        from app.services.finance import ai_write_tools
 
-        monkeypatch.setattr(user_memory_module, "get_async_session", _session)
+        monkeypatch.setattr(ai_write_tools, "get_async_session", opens(session))
 
         with memory_user("u42"):
             reply = await save_memory(
                 new_fact="house is worth $711,200", category="finance"
             )
 
-        assert "Saved" in reply
-        row = await get_user_memory(session, "u42")
-        assert row is not None
-        assert row.memory["structured_facts"][0]["fact"] == "house is worth $711,200"
+        # A card for u42's approval (#484); nothing saved until then.
+        assert isinstance(reply, dict)
+        assert reply["status"] == "pending"
+        card = await session.get(FinancePendingChange, reply["pending_change_id"])
+        assert card is not None
+        assert card.payload["user_id"] == "u42"
+        assert await get_user_memory(session, "u42") is None
 
     async def test_context_is_restored_afterwards(self) -> None:
         with memory_user("u42"):
@@ -279,27 +281,6 @@ class TestSaveMemoryTool:
     def test_tools_are_registered(self) -> None:
         assert "save_memory" in registered_tool_names()
         assert "replace_memory" in registered_tool_names()
-
-    async def test_tool_saves_fact_for_current_user(
-        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        @asynccontextmanager
-        async def fake_session() -> AsyncGenerator[AsyncSession]:
-            yield session
-
-        monkeypatch.setattr(user_memory_module, "get_async_session", fake_session)
-        token = current_user_id.set("u42")
-        try:
-            reply = await save_memory(new_fact="drinks oat milk", category="food")
-        finally:
-            current_user_id.reset(token)
-
-        assert "drinks oat milk" in reply
-        result = await session.exec(
-            select(AgentUserMemory).where(AgentUserMemory.user_id == "u42")
-        )
-        row = result.first()
-        assert row is not None
 
     async def test_tool_without_user_context_saves_nothing(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
@@ -318,7 +299,7 @@ class TestSaveMemoryTool:
 
 
 class TestAFactThatChangesIsRewritten:
-    """Marisa's hours firmed up and the assistant saved a second fact
+    """The sitter's hours firmed up and the assistant saved a second fact
     beside the first. update_memory rewrites the one; forget_memory drops
     one a tool can now read."""
 
@@ -326,13 +307,16 @@ class TestAFactThatChangesIsRewritten:
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from app.services.ai.domains.chat import memory_tools, user_memory
+        from app.services.finance import ai_write_tools
+        from app.services.finance.domains import writes
 
         monkeypatch.setattr(user_memory, "get_async_session", opens(session))
+        monkeypatch.setattr(ai_write_tools, "get_async_session", opens(session))
         token = user_memory.current_user_id.set("u1")
         try:
             await save_user_fact(
                 "u1",
-                "Marisa works irregular hours at $15/hour",
+                "The sitter works irregular hours at $15/hour",
                 "finance",
                 session=session,
             )
@@ -342,21 +326,25 @@ class TestAFactThatChangesIsRewritten:
 
             said = await memory_tools.update_memory(
                 "irregular hours",
-                "Marisa works Tuesdays and Wednesdays, 3 hours each, at $15/hour",
+                "The sitter works Tuesdays and Wednesdays, 3 hours each, at $15/hour",
             )
-            assert said.startswith("Updated (finance)")
+            # A card first (#484); approving it is what rewrites the fact.
+            assert isinstance(said, dict)
+            approved = await writes.approve(session, said["pending_change_id"])
+            assert approved.result is not None
+            assert approved.result["memory"].startswith("Updated (finance)")
             facts = [
                 f["fact"]
                 for f in await user_memory.list_user_facts("u1", session=session)
             ]
             assert facts == [
-                "Marisa works Tuesdays and Wednesdays, 3 hours each, at $15/hour",
+                "The sitter works Tuesdays and Wednesdays, 3 hours each, at $15/hour",
                 "House valued at $711,200",
             ]
 
-            assert (
-                await memory_tools.forget_memory("Tuesdays and Wednesdays")
-            ).startswith("Forgot:")
+            said = await memory_tools.forget_memory("Tuesdays and Wednesdays")
+            assert isinstance(said, dict)
+            await writes.approve(session, said["pending_change_id"])
             facts = [
                 f["fact"]
                 for f in await user_memory.list_user_facts("u1", session=session)

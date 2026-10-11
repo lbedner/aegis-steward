@@ -200,6 +200,21 @@ class TestSplittingTheDownload:
         pdf.save(out)
         assert checks.split_checks(out.getvalue()) == []
 
+    def test_pages_past_the_pdf_page_cap_are_not_walked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import pypdfium2 as pdfium
+
+        from app.core.config import settings
+
+        pdf = pdfium.PdfDocument(_download([("white", "gray")]))
+        pdf.import_pages(pdfium.PdfDocument(_download([("ivory", "silver")])))
+        out = io.BytesIO()
+        pdf.save(out)
+        monkeypatch.setattr(settings, "DOCUMENTS_MAX_PDF_PAGES", 1)
+
+        assert [c.page for c in checks.split_checks(out.getvalue())] == [1]
+
 
 async def _rows(db: AsyncSession) -> dict[str, int]:
     svc = FinanceService(db)

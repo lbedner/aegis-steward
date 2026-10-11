@@ -16,10 +16,12 @@ the next request sees the change. A prompt change made in another process
 recorded prompt change and empties itself when a newer one appears.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 import re
 from typing import Any
+import weakref
 
 from pydantic_ai.settings import ModelSettings
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -205,8 +207,17 @@ def agent_capabilities(config: AgentConfig) -> list[Any]:
         # write tool just declares itself.
         native = native_write_tool_names()
         capabilities.append(
-            CodeMode(tools=[name for name in config.tool_names if name not in native])
+            CodeMode(
+                tools=[name for name in config.tool_names if name not in native],
+                # Explicit, not Monty's 30 s / 256 MiB: the sandbox shares
+                # the webserver process with every other request (#486).
+                resource_limits={
+                    "max_duration_secs": settings.AI_CODE_MODE_MAX_SECONDS,
+                    "max_memory": settings.AI_CODE_MODE_MAX_MEMORY_BYTES,
+                },
+            )
         )
+        capabilities.append(_one_run_per_user())
         # Hint only at writes this agent holds: pointing a read-only agent
         # at save_memory would send it after a tool it cannot call.
         granted_writes = native & frozenset(config.tool_names)
@@ -265,6 +276,39 @@ def _native_write_hints(granted: frozenset[str]) -> Any:
                 raise
 
     return _NativeWriteHints()
+
+
+# One lock per user while any of their snippets is running or waiting;
+# weak values, so an idle user's lock goes away on its own.
+# ponytail: per process; a multi-worker webserver allows one run per user
+# per worker. Move to a Redis lock if the webserver scales out.
+_RUN_CODE_LOCKS: weakref.WeakValueDictionary[Any, asyncio.Lock] = (
+    weakref.WeakValueDictionary()
+)
+
+
+def _one_run_per_user() -> Any:
+    """A capability that runs one ``run_code`` per user at a time (#486).
+
+    A second snippet WAITS rather than failing: a model often sends two
+    run_code calls in one response, and a refusal would just come back
+    as a retry. Waiting bounds the sandboxes per user at one either way.
+    Keyed on ``deps.user_id``; deps without one share a single lock.
+    """
+    from pydantic_ai.capabilities import AbstractCapability
+
+    class _OneRunPerUser(AbstractCapability[Any]):
+        async def wrap_tool_execute(
+            self, ctx: Any, *, call: Any, tool_def: Any, args: Any, handler: Any
+        ) -> Any:
+            if tool_def.name != "run_code":
+                return await handler(args)
+            user = getattr(ctx.deps, "user_id", None)
+            lock = _RUN_CODE_LOCKS.setdefault(user, asyncio.Lock())
+            async with lock:
+                return await handler(args)
+
+    return _OneRunPerUser()
 
 
 def _tool_output_limits(*, code_mode: bool = False) -> Any:

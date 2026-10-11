@@ -1,4 +1,5 @@
-"""The built-in save_memory tool works end-to-end in the tool loop."""
+"""The built-in save_memory tool works end-to-end in the tool loop: it
+files an approval card for the turn's user and saves nothing yet (#484)."""
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -14,6 +15,8 @@ from app.services.ai.domains.chat.tools import resolve_tools
 import app.services.ai.domains.chat.user_memory as user_memory_module
 from app.services.ai.domains.chat.user_memory import current_user_id
 from app.services.ai.models.agents import AgentUserMemory
+from app.services.finance import ai_write_tools
+from app.services.finance.models import FinancePendingChange
 
 
 @dataclass
@@ -21,7 +24,7 @@ class _Deps:
     subject_id: int
 
 
-async def test_model_driven_save_memory_persists_a_fact(
+async def test_model_driven_save_memory_files_a_card(
     async_db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -32,6 +35,7 @@ async def test_model_driven_save_memory_persists_a_fact(
         yield async_db_session
 
     monkeypatch.setattr(user_memory_module, "get_async_session", fake_session)
+    monkeypatch.setattr(ai_write_tools, "get_async_session", fake_session)
 
     agent: ToolChatAgent[_Deps] = ToolChatAgent(
         model=TestModel(call_tools=["save_memory"]),
@@ -60,10 +64,17 @@ async def test_model_driven_save_memory_persists_a_fact(
     assert isinstance(done, DoneFrame)
     assert done.tool_calls == 1
 
+    card = (
+        await async_db_session.exec(
+            select(FinancePendingChange).where(
+                FinancePendingChange.change_type == "memory.save"
+            )
+        )
+    ).one()
+    assert card.status == "pending"
+    assert card.payload["user_id"] == "u7"
+
     result = await async_db_session.exec(
         select(AgentUserMemory).where(AgentUserMemory.user_id == "u7")
     )
-    row = result.first()
-
-    assert row is not None
-    assert len(row.memory["structured_facts"]) == 1
+    assert result.first() is None

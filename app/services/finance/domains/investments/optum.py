@@ -50,11 +50,14 @@ def _to_decimal(text: str) -> Decimal:
     return Decimal(text.replace("$", "").replace(",", "").strip())
 
 
-def parse_optum_settled_transactions(text: str) -> list[InvestmentActivity]:
+def parse_optum_settled_transactions(text: str | bytes) -> list[InvestmentActivity]:
     """Parse the tab-separated "Settled Transactions" export/paste.
 
     Skips the title line, reads the header, then one activity per data row.
+    An upload arrives as bytes, BOM and all.
     """
+    if isinstance(text, bytes):
+        text = text.decode("utf-8-sig")
     rows = list(csv.reader(io.StringIO(text), delimiter="\t"))
     header_idx = next(
         i for i, row in enumerate(rows) if row and row[0].strip() == "Transaction Date"
