@@ -59,8 +59,9 @@ services:
       - webserver
     ports:
       # Host port auto-selected by `make serve` (WEBSERVER_HOST_PORT);
-      # falls back to PORT for a raw `docker compose up`.
-      - "${WEBSERVER_HOST_PORT:-${PORT:-8000}}:${PORT:-8000}"
+      # falls back to PORT for a raw `docker compose up`. Loopback only:
+      # the app has no login (tests/test_published_ports_stay_local.py).
+      - "127.0.0.1:${WEBSERVER_HOST_PORT:-${PORT:-8000}}:${PORT:-8000}"
     depends_on:
       redis:
         condition: service_healthy
