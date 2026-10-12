@@ -33,10 +33,17 @@ def test_the_load_test_worker_stays_off_the_server() -> None:
 def test_traefik_stays_off_the_laptop() -> None:
     """Dev reaches the webserver on its own port. Another stack's Traefik
     already holds 80 and 8080 on the laptop, so a dev Traefik would fail
-    ``make serve``, and nothing in dev needs the Docker socket."""
+    ``make serve``."""
     services = _compose("docker-compose.yml")["services"]
-    for name in ("traefik", "socket-proxy"):
-        assert services[name]["profiles"] == ["prod"], name
+    assert services["traefik"]["profiles"] == ["prod"]
+
+
+def test_the_socket_proxy_runs_wherever_the_webserver_does() -> None:
+    """The deploy component is installed in dev too, so Overseer's
+    container reads go through the proxy's socket there as well; without
+    it every sample fails."""
+    services = _compose("docker-compose.yml")["services"]
+    assert services["socket-proxy"]["profiles"] == services["webserver"]["profiles"]
 
 
 def test_traefik_refuses_an_upload_over_the_apps_largest_cap() -> None:

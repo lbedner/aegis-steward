@@ -291,6 +291,7 @@ services:
           memory: 64M
           cpus: '0.1'
     profiles:
+      - dev
       - prod
 
   # TEST PROFILE
