@@ -33,7 +33,7 @@ async def _raised(db: AsyncSession, key: str = "large_txn:991") -> FinanceInsigh
         insight_type="large_transaction",
         dedup_key=key,
         severity="warning",
-        title="Large charge: $1,240.00 at Hudson Dental",
+        title="Large charge: $1,240.00 at Riverbend Dental",
         body="Larger than anything at this payee before.",
     )
     assert insight is not None
@@ -53,7 +53,7 @@ class TestTheAssistantProposesAReading:
             {
                 "insight_id": insight.id,
                 "state": "legitimate",
-                "note": "Crown for Marisa, planned since June.",
+                "note": "Crown for Alex, planned since June.",
             },
             owner_user_id=OWNER,
             proposed_by_agent="steward",
@@ -64,7 +64,7 @@ class TestTheAssistantProposesAReading:
 
         await db.refresh(insight)
         assert insight.resolution == "legitimate"
-        assert insight.resolution_note == "Crown for Marisa, planned since June."
+        assert insight.resolution_note == "Crown for Alex, planned since June."
         assert insight.status == "actioned"
         assert insight.resolved_at is not None
 
@@ -120,7 +120,7 @@ class TestTheAssistantProposesAReading:
             owner_user_id=OWNER,
         )
         said = {row.label: row.value for row in await describe_change(db, card)}
-        assert said["Anomaly"] == "Large charge: $1,240.00 at Hudson Dental"
+        assert said["Anomaly"] == "Large charge: $1,240.00 at Riverbend Dental"
         assert said["Reading"] == "Mis-categorized"
         assert said["Note"] == "Not dining."
 

@@ -287,6 +287,173 @@ class TestRoot:
         assert response.headers["location"] == "/overview"
 
 
+class TestAuthPages:
+    """The auth pages, present because this project selected the auth service.
+
+    These drive the real handlers, which delegate to the API's own login and
+    register endpoints, so they cover the delegation as well as the pages.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _enable_auth(self, registration_open: None):
+        """Real auth on, rate limiters reset between tests.
+
+        ``get_current_user_from_token`` returns a synthetic dev user when
+        AUTH_ENABLED is False, and the page routes declare the same limiters
+        the API does. The TestClient uses one client IP for the whole module,
+        so without a reset the limiter accumulates hits from earlier tests
+        and 429s the later ones.
+        """
+        from app.components.backend.security.rate_limit import register_limiter
+        from app.core.config import settings
+
+        prior = settings.AUTH_ENABLED
+        settings.AUTH_ENABLED = True
+        register_limiter.reset()
+        try:
+            yield
+        finally:
+            settings.AUTH_ENABLED = prior
+
+    def test_auth_pages_render(self, async_client_with_db: TestClient) -> None:
+        # Basic auth has no email, so no reset or verification pages.
+        for path in (
+            "/login",
+            "/register",
+        ):
+            assert async_client_with_db.get(path).status_code == 200, path
+
+    def test_register_signs_in_and_lands_where_it_should(
+        self, async_client_with_db: TestClient
+    ) -> None:
+        response = async_client_with_db.post(
+            "/register",
+            data={
+                "email": "ada@example.com",
+                "password": "hunter2hunter2",
+                "full_name": "Ada",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        # Basic auth has no verification step to wait on: straight in.
+        assert response.headers["location"] == "/overseer"
+        # Cookies must land on the redirect the browser follows, which only
+        # works because the handler hands its RedirectResponse to the API
+        # handler as the response object.
+        assert "aegis_session" in response.cookies
+        assert "aegis_refresh" in response.cookies
+
+    def test_login_returns_to_the_next_target(
+        self, async_client_with_db: TestClient
+    ) -> None:
+        async_client_with_db.post(
+            "/register",
+            data={"email": "grace@example.com", "password": "hunter2hunter2"},
+            follow_redirects=False,
+        )
+        response = async_client_with_db.post(
+            "/login",
+            data={
+                "email": "grace@example.com",
+                "password": "hunter2hunter2",
+                "next": "/dashboard",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/dashboard"
+        assert "aegis_session" in response.cookies
+
+    def test_wrong_password_says_nothing_useful(
+        self, async_client_with_db: TestClient
+    ) -> None:
+        """Wrong password and unknown account get the same answer, so the
+        form can't be used to find out which emails have accounts."""
+        async_client_with_db.post(
+            "/register",
+            data={"email": "alan@example.com", "password": "hunter2hunter2"},
+            follow_redirects=False,
+        )
+        wrong = async_client_with_db.post(
+            "/login",
+            data={"email": "alan@example.com", "password": "wrongwrong"},
+            follow_redirects=False,
+        )
+        unknown = async_client_with_db.post(
+            "/login",
+            data={"email": "nobody@example.com", "password": "hunter2hunter2"},
+            follow_redirects=False,
+        )
+        assert wrong.headers["location"] == "/login?error=invalid"
+        assert unknown.headers["location"] == wrong.headers["location"]
+
+    def test_next_cannot_redirect_off_site(
+        self, async_client_with_db: TestClient
+    ) -> None:
+        """``?next=`` is attacker-controlled, so anything not a local path is
+        discarded rather than followed."""
+        async_client_with_db.post(
+            "/register",
+            data={"email": "linus@example.com", "password": "hunter2hunter2"},
+            follow_redirects=False,
+        )
+        for hostile in (
+            "//evil.example",
+            "/\\evil.example",  # browsers read a backslash as a slash
+            "https://evil.example",
+            "javascript:alert(1)",
+        ):
+            response = async_client_with_db.post(
+                "/login",
+                data={
+                    "email": "linus@example.com",
+                    "password": "hunter2hunter2",
+                    "next": hostile,
+                },
+                follow_redirects=False,
+            )
+            assert response.headers["location"] == "/", hostile
+
+    def test_logout_drops_both_cookies(self, async_client_with_db: TestClient) -> None:
+        async_client_with_db.post(
+            "/register",
+            data={"email": "edsger@example.com", "password": "hunter2hunter2"},
+            follow_redirects=False,
+        )
+        assert async_client_with_db.cookies.get("aegis_session"), "not signed in"
+
+        response = async_client_with_db.get("/logout", follow_redirects=False)
+        assert response.status_code == 303
+
+        # Both cookies must be expired, not just the session one: leaving the
+        # refresh cookie behind would let the next page load silently resume
+        # the session the user just ended.
+        cleared = "; ".join(response.headers.get_list("set-cookie"))
+        assert "aegis_session=" in cleared
+        assert "aegis_refresh=" in cleared
+        assert not async_client_with_db.cookies.get("aegis_session")
+        assert not async_client_with_db.cookies.get("aegis_refresh")
+
+    def test_logout_ends_the_session_on_the_server(
+        self, async_client_with_db: TestClient
+    ) -> None:
+        """Dropping the cookies only forgets them in this browser; a copy of
+        the access token must stop working too."""
+        async_client_with_db.post(
+            "/register",
+            data={"email": "barbara@example.com", "password": "hunter2hunter2"},
+            follow_redirects=False,
+        )
+        token = async_client_with_db.cookies.get("aegis_session")
+        async_client_with_db.get("/logout", follow_redirects=False)
+
+        me = async_client_with_db.get(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert me.status_code == 401
+
+
 class TestBaseLayout:
     """The base layout's load-bearing head details.
 
@@ -311,12 +478,12 @@ class TestBaseLayout:
     def test_alpine_collapse_plugin_loads_before_core(self, page: str) -> None:
         """Alpine registers plugin directives at init: if core runs first,
         x-collapse is silently dead."""
-        assert page.index("@alpinejs/collapse") < page.index("alpinejs@"), (
-            "collapse plugin must be loaded before Alpine core"
-        )
+        assert page.index("vendor/alpinejs-collapse-") < page.index(
+            "vendor/alpinejs-3"
+        ), "collapse plugin must be loaded before Alpine core"
 
     def test_alpine_scripts_are_deferred(self, page: str) -> None:
-        for src in ("@alpinejs/collapse", "alpinejs@"):
+        for src in ("vendor/alpinejs-collapse-", "vendor/alpinejs-3"):
             tag = page[page.index(src) - 200 : page.index(src) + 200]
             assert "defer" in tag, src
 
@@ -358,6 +525,8 @@ class TestBaseLayout:
 
     def test_no_pulse_only_assets(self, page: str) -> None:
         """The port dropped Pulse's chart/date-picker stack; nothing should
-        still reference it."""
+        still load it. (Chart.js itself is fetched on first use by
+        charts.js, so the page names it only as a data attribute.)"""
+        srcs = " ".join(re.findall(r'src="([^"]+)"', page)).lower()
         for banned in ("chart.js", "chartjs-chart-geo", "world-atlas", "flatpickr"):
-            assert banned not in page.lower(), banned
+            assert banned not in srcs, banned

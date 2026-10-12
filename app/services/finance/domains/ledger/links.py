@@ -1,6 +1,6 @@
 """Transactions filed against places outside the ledger (#290, #303).
 
-A charge belongs to a case ("Marisa's Root Canals") or a contact (the
+A charge belongs to a case ("Alex's Root Canals") or a contact (the
 dentist) the way a document does: by label - ``matter_tag``,
 ``party_tag`` - so one vocabulary says where anything is filed. Many to
 many, and a link can be taken back off.

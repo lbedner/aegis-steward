@@ -122,7 +122,7 @@ async def revise_card(
     db: AsyncSession, row: FinancePendingChange, fields: dict[str, str]
 ) -> FinancePendingChange:
     """``revise_fields`` on a card already in hand: one read for many
-    cards (Illiana's "it's Holy Cow" across a batch)."""
+    cards (Illiana's "it's Sweet Scoop" across a batch)."""
     from app.services.finance.domains.writes.registry import (
         current_payload,
         editable_fields,

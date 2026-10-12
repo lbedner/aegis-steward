@@ -13,8 +13,10 @@ from app.components.backend.api import (
     worker,
 )
 from app.components.backend.api.ai.router import router as ai_router
+from app.components.backend.api.auth.router import router as auth_router
 from app.components.backend.api.comms.router import router as comms_router
 from app.components.backend.api.database import router as database_router
+from app.components.backend.api.deploy.router import router as deploy_router
 from app.components.backend.api.documents.router import router as documents_router
 from app.components.backend.api.finance.router import router as finance_router
 from app.components.backend.api.llm.routes import router as llm_router
@@ -33,10 +35,12 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(task_history.router, prefix="/api/v1")
     app.include_router(worker_events.router, prefix="/events", tags=["events"])
     app.include_router(scheduler.router, prefix="/api/v1")
+    app.include_router(auth_router, prefix="/api/v1")
     app.include_router(ai_router, prefix="/api/v1")
     app.include_router(voice_router, prefix="/api/v1")
     app.include_router(llm_router, prefix="/api/v1")
     app.include_router(comms_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
     app.include_router(database_router, prefix="/api/v1")
+    app.include_router(deploy_router, prefix="/api/v1")
     app.include_router(finance_router, prefix="/api/v1")

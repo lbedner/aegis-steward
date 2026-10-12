@@ -22,10 +22,10 @@ class TestAParty:
         the case - that belongs to the matter that names them."""
         parties = PartyService(async_db_session)
 
-        james = await parties.create(name="James Bedner", kind="person")
-        dss = await parties.create(name="Dutchess County DSS", kind="organization")
+        james = await parties.create(name="James Doe", kind="person")
+        dss = await parties.create(name="Example County DSS", kind="organization")
         facility = await parties.create(
-            name="Eleanor Nursing Care Center", kind="organization"
+            name="Maple Nursing Care Center", kind="organization"
         )
         await async_db_session.commit()
 
@@ -33,30 +33,30 @@ class TestAParty:
             p.id for p in (james, dss, facility)
         )
         # A person files under their last name; an organization under its
-        # own. The reader looks for "Bedner", not "James".
-        assert james.sort_name == "Bedner, James"
-        assert dss.sort_name == "Dutchess County DSS"
+        # own. The reader looks for "Doe", not "James".
+        assert james.sort_name == "Doe, James"
+        assert dss.sort_name == "Example County DSS"
         # No role anywhere on the row.
         assert not hasattr(james, "role")
         # Filing order, which is not alphabetical by display name:
-        # "James Bedner" files under B and therefore leads.
+        # "James Doe" files under D and therefore leads.
         listed = await parties.find()
         assert [p.sort_name for p in listed] == [
-            "Bedner, James",
-            "Dutchess County DSS",
-            "Eleanor Nursing Care Center",
+            "Doe, James",
+            "Example County DSS",
+            "Maple Nursing Care Center",
         ]
 
     @pytest.mark.asyncio
-    async def test_two_bedners_are_two_people(
+    async def test_two_does_are_two_people(
         self, async_db_session: AsyncSession
     ) -> None:
         """Identity is the row, never the name. Merging is a decision
         somebody makes, not something a normalizer does on a Tuesday."""
         parties = PartyService(async_db_session)
 
-        first = await parties.create(name="James Bedner", kind="person")
-        second = await parties.create(name="James Bedner", kind="person")
+        first = await parties.create(name="James Doe", kind="person")
+        second = await parties.create(name="James Doe", kind="person")
         await async_db_session.commit()
 
         assert first.id != second.id
@@ -71,14 +71,14 @@ class TestAParty:
         which is the whole reason the column is stored rather than
         computed on read."""
         parties = PartyService(async_db_session)
-        party = await parties.create(name="Jim Bedner", kind="person")
-        assert party.sort_name == "Bedner, Jim"
+        party = await parties.create(name="Jim Doe", kind="person")
+        assert party.sort_name == "Doe, Jim"
 
-        await parties.update(party.id, {"name": "James Bedner"})
+        await parties.update(party.id, {"name": "James Doe"})
         await async_db_session.commit()
 
-        assert party.name == "James Bedner"
-        assert party.sort_name == "Bedner, Jim"
+        assert party.name == "James Doe"
+        assert party.sort_name == "Doe, Jim"
 
     @pytest.mark.asyncio
     async def test_contact_is_a_bag_because_every_party_carries_a_different_one(
@@ -88,20 +88,20 @@ class TestAParty:
         A column per detail is null for everyone it does not apply to."""
         parties = PartyService(async_db_session)
         party = await parties.create(
-            name="Dutchess County DSS",
+            name="Example County DSS",
             kind="organization",
-            contact={"address": "60 Market St, Poughkeepsie NY", "fax": "845-486-3178"},
+            contact={"address": "10 Center St, Anytown NY", "fax": "555-555-0168"},
         )
         await async_db_session.commit()
 
-        assert party.contact["fax"] == "845-486-3178"
+        assert party.contact["fax"] == "555-555-0168"
 
     @pytest.mark.asyncio
     async def test_removal_is_soft_because_things_point_here(
         self, async_db_session: AsyncSession
     ) -> None:
         parties = PartyService(async_db_session)
-        party = await parties.create(name="James Bedner", kind="person")
+        party = await parties.create(name="James Doe", kind="person")
         await async_db_session.commit()
 
         assert await parties.remove(party.id) is True

@@ -1,1 +1,212 @@
+#!/bin/bash
+# Server Setup Script for aegis-steward
+# This script is idempotent - safe to run multiple times
+#
+# Usage: ssh root@your-server 'bash -s' < scripts/server-setup.sh
+#        or: scp scripts/server-setup.sh root@server:/tmp/ && ssh root@server /tmp/server-setup.sh
+
+set -euo pipefail
+
+echo "=== aegis-steward Server Setup ==="
+echo "Setting up server for Docker-based deployment..."
+
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+else
+    echo "ERROR: Cannot detect OS"
+    exit 1
+fi
+
+echo "Detected OS: $OS"
+
+#=============================================================================
+# PACKAGE INSTALLATION
+#=============================================================================
+
+install_docker_ubuntu() {
+    echo "Installing Docker on Ubuntu/Debian..."
+
+    # Install prerequisites
+    apt-get update
+    apt-get install -y ca-certificates curl gnupg lsb-release
+
+    # Add Docker GPG key
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/$OS/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null || true
+    chmod a+r /etc/apt/keyrings/docker.gpg
+
+    # Add Docker repository
+    echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$OS \
+        $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    # Install Docker
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+install_docker_fedora() {
+    echo "Installing Docker on Fedora..."
+
+    dnf -y install dnf-plugins-core
+    dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+    dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+# Install Docker if not present
+if ! command -v docker &> /dev/null; then
+    case $OS in
+        ubuntu|debian)
+            install_docker_ubuntu
+            ;;
+        fedora)
+            install_docker_fedora
+            ;;
+        *)
+            echo "ERROR: Unsupported OS: $OS"
+            echo "Please install Docker manually: https://docs.docker.com/engine/install/"
+            exit 1
+            ;;
+    esac
+else
+    echo "Docker already installed: $(docker --version)"
+fi
+
+#=============================================================================
+# UV INSTALLATION (Python package manager for CLI access)
+#=============================================================================
+
+echo "Installing build tools..."
+
+# Install build-essential for native Python package compilation (e.g., chroma-hnswlib)
+case $OS in
+    ubuntu|debian)
+        apt-get install -y --no-install-recommends build-essential
+        ;;
+    fedora)
+        dnf install -y gcc gcc-c++ make
+        ;;
+esac
+
+echo "Installing uv..."
+
+if ! command -v uv &> /dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Add to PATH for current session
+    export PATH="$HOME/.local/bin:$PATH"
+    # Ensure it persists across logins
+    if ! grep -q 'uv' "$HOME/.bashrc" 2>/dev/null; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+    fi
+    echo "uv installed: $(uv --version)"
+else
+    echo "uv already installed: $(uv --version)"
+fi
+
+#=============================================================================
+# DOCKER CONFIGURATION
+#=============================================================================
+
+echo "Configuring Docker..."
+
+# Enable and start Docker
+systemctl enable docker
+systemctl start docker
+
+# Add current user to docker group (if not root)
+if [ "$EUID" -ne 0 ] && ! groups | grep -q docker; then
+    usermod -aG docker $USER
+    echo "Added $USER to docker group. Log out and back in for this to take effect."
+fi
+
+# Configure Docker daemon for production
+DOCKER_DAEMON_CONFIG="/etc/docker/daemon.json"
+if [ ! -f "$DOCKER_DAEMON_CONFIG" ]; then
+    echo "Creating Docker daemon configuration..."
+    cat > "$DOCKER_DAEMON_CONFIG" << 'EOF'
+{
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+    },
+    "storage-driver": "overlay2"
+}
+EOF
+    systemctl restart docker
+else
+    echo "Docker daemon configuration already exists"
+fi
+
+#=============================================================================
+# FIREWALL CONFIGURATION
+#=============================================================================
+
+echo "Configuring firewall..."
+
+# Configure firewall (ufw for Ubuntu/Debian, firewalld for Fedora)
+if command -v ufw &> /dev/null; then
+    ufw --force enable 2>/dev/null || true
+    ufw allow ssh
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    echo "UFW firewall configured"
+elif command -v firewall-cmd &> /dev/null; then
+    systemctl enable firewalld
+    systemctl start firewalld
+    firewall-cmd --permanent --add-service=ssh
+    firewall-cmd --permanent --add-service=http
+    firewall-cmd --permanent --add-service=https
+    firewall-cmd --reload
+    echo "Firewalld configured"
+else
+    echo "WARNING: No firewall detected. Please configure manually."
+fi
+
+#=============================================================================
+# DIRECTORY SETUP
+#=============================================================================
+
+echo "Setting up application directories..."
+
+APP_DIR="/opt/aegis-steward"
+mkdir -p "$APP_DIR"
+mkdir -p "$APP_DIR/data"
+mkdir -p "$APP_DIR/traefik/acme"
+
+# Set permissions
+chown -R root:root "$APP_DIR"
+chmod 755 "$APP_DIR"
+chmod 600 "$APP_DIR/traefik/acme"
+
+#=============================================================================
+# SYSTEM OPTIMIZATIONS
+#=============================================================================
+
+echo "Applying system optimizations..."
+
+# Increase file limits for Docker
+if ! grep -q "* soft nofile 65535" /etc/security/limits.conf; then
+    cat >> /etc/security/limits.conf << 'EOF'
+
+# Docker optimizations
+* soft nofile 65535
+* hard nofile 65535
+EOF
+fi
+
+# Enable TCP BBR congestion control (better network performance)
+if ! sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q bbr; then
+    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    sysctl -p 2>/dev/null || true
+fi
+
+#=============================================================================
+# VERIFICATION
+#=============================================================================
+
+echo ""
 

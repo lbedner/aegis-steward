@@ -4,7 +4,7 @@ Revision ID: 027
 Revises: 026
 Create Date: 2026-09-17 02:30:00.000000
 
-An EOB said Marisa owed $146 to the provider, and the ledger showed a
+An EOB said Alex owed $146 to the provider, and the ledger showed a
 $146 charge to Endodontics on the day of the visit, and nothing tied
 them. With the link, "owed to providers" is a number that goes down
 when you pay.

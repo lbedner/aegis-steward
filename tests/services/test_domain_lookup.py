@@ -29,7 +29,7 @@ PAGES: dict[str, tuple[int, str]] = {
         200,
         "<html><body>Delta Dental of New York<br>"
         "P.O. Box 660138<br>Dallas, TX 75266-0138<br>"
-        "Call 1-888-282-8784<br>mail us at help@example.com</body></html>",
+        "Call 1-888-555-0162<br>mail us at help@example.com</body></html>",
     ),
     # A parked domain: answers, says nothing about anybody.
     "/parked": (200, "<html><title>Buy this domain</title><body>For sale</body>"),
@@ -137,7 +137,7 @@ class TestCorroboratingAgainstWhatIsAlreadyKnown:
     """The name on a page proves the page MENTIONS the organization. It
     does not prove the page belongs to it.
 
-    There is more than one "Eleanor Nursing Care Center" in the country,
+    There is more than one "Maple Nursing Care Center" in the country,
     and a directory listing carries the name more prominently than the
     home page does. Either would confirm on the name alone, and then
     somebody else's phone number is filed under your grandfather's
@@ -152,13 +152,13 @@ class TestCorroboratingAgainstWhatIsAlreadyKnown:
     async def test_a_page_missing_a_known_postcode_is_refused(self, site: str) -> None:
         from app.services.matters.domain_lookup import confirm
 
-        # The site says "Delta Dental of New York" but nothing in Hyde
-        # Park. Known-good detail we already hold: a different postcode.
+        # The site says "Delta Dental of New York" but nothing in
+        # Lakeside. Known-good detail we already hold: a different postcode.
         found = await confirm(
             "Delta Dental of New York",
             [site],
             scheme="http",
-            corroborate={"12538"},
+            corroborate={"12346"},
         )
         assert found is None
 
@@ -178,15 +178,15 @@ class TestCorroboratingAgainstWhatIsAlreadyKnown:
     async def test_a_number_written_differently_still_corroborates(
         self, site: str
     ) -> None:
-        """The record holds "1-888-282-8784" and the page may print
-        "(888) 282-8784". One number, two spellings."""
+        """The record holds "1-888-555-0162" and the page may print
+        "(888) 555-0162". One number, two spellings."""
         from app.services.matters.domain_lookup import confirm
 
         found = await confirm(
             "Delta Dental of New York",
             [f"{site}/contact"],
             scheme="http",
-            corroborate={"(888) 282-8784"},
+            corroborate={"(888) 555-0162"},
         )
         assert found == f"{site}/contact"
 
@@ -226,7 +226,7 @@ class TestReadingTheContactPage:
 
         found = await contact_page(site, scheme="http", paths=("/contact",))
         fields = {offer["field"]: offer for offer in found}
-        assert fields["phone"]["value"] == "1-888-282-8784"
+        assert fields["phone"]["value"] == "1-888-555-0162"
         assert "Dallas, TX 75266-0138" in fields["address"]["value"]
         # Every row cites the URL it was read from, or it is not a row.
         assert fields["phone"]["url"].endswith("/contact")

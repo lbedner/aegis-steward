@@ -5,8 +5,8 @@ add-account dialog, the Accounts filter, and every listing that has to
 decide whether somebody else's pension belongs in our total - and three
 answers would drift the day one of them changed.
 
-A subject is the money side of a party: James Bedner the person in the
-address book, and James Bedner whose pension account this is, are one
+A subject is the money side of a party: James Doe the person in the
+address book, and James Doe whose pension account this is, are one
 identity. The subject row is made when an account is first put in
 somebody's name rather than maintained as a second list.
 """

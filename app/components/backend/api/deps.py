@@ -17,5 +17,12 @@ exists for plugin authors and any external code that prefers the
 single canonical "all deps" import surface.
 """
 
+from app.components.backend.security.rate_limit import (
+    login_rate_limit,
+    password_reset_rate_limit,
+    register_rate_limit,
+    resend_verification_rate_limit,
+)
 from app.core.audit import get_audit
 from app.core.db import get_async_db, get_db
+from app.services.auth.deps import get_user_service

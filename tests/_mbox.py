@@ -17,7 +17,7 @@ import tempfile
 def message(
     *,
     sender: str = "Delta Dental <claims@deltadentalins.com>",
-    to: str = "leonard@example.com",
+    to: str = "sam@example.com",
     subject: str = "Your claim has been processed",
     body: str = "Your claim was processed. See the attached statement.",
     sent: datetime | None = None,

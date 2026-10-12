@@ -1,7 +1,7 @@
 """Job status endpoints: one JSON snapshot, one SSE stream.
 
 Long-running operations return ``202 {"job_id": ...}`` from their own
-endpoints (e.g. ``POST /finance/import?background=true``); these two
+endpoints (e.g. ``POST /finance/import``); these two
 endpoints are how any client follows the work. The SSE stream is the
 primary path (the dashboard's LoadingOverlay consumes it); the JSON
 snapshot exists for tests, curl, and anything that cannot hold a stream.

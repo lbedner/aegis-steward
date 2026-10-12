@@ -1,7 +1,7 @@
 """She can open a matter (#284).
 
 Asked twice and refused twice: "can you create a case for this? ... a
-matter", then "let's create a matter, and call it Marisa's Root
+matter", then "let's create a matter, and call it Alex's Root
 Canals". Everything else about a case - its asks, its events, its
 paper - had a card; opening one did not, so a visit with no case had
 nowhere to go.
@@ -32,14 +32,14 @@ class TestOpeningAMatter:
     async def test_the_card_says_what_it_will_open(
         self, async_db_session: AsyncSession
     ) -> None:
-        marisa = await _party(async_db_session, "Marisa Bedner")
+        alex = await _party(async_db_session, "Alex Doe")
         dentist = await _party(
             async_db_session, "Magdalena Goralczyk, DDS", "organization"
         )
         payload = OpenMatterPayload(
-            title="Marisa's Root Canals",
+            title="Alex's Root Canals",
             kind="dental",
-            subject_party_id=marisa,
+            subject_party_id=alex,
             counterpart_party_id=dentist,
             opened_on=date(2026, 9, 29),
             note="Two root canals, about $1,800, reimbursed from the HSA",
@@ -50,8 +50,8 @@ class TestOpeningAMatter:
             for row in await open_matter_describe(async_db_session, payload, None)
         }
 
-        assert said["Matter"] == "Marisa's Root Canals"
-        assert said["About"] == "Marisa Bedner"
+        assert said["Matter"] == "Alex's Root Canals"
+        assert said["About"] == "Alex Doe"
         assert said["With"] == "Magdalena Goralczyk, DDS"
         assert said["Opened"] == "2026-09-29"
 
@@ -59,7 +59,7 @@ class TestOpeningAMatter:
     async def test_approving_it_opens_the_case_with_its_people(
         self, async_db_session: AsyncSession
     ) -> None:
-        marisa = await _party(async_db_session, "Marisa Bedner")
+        alex = await _party(async_db_session, "Alex Doe")
         dentist = await _party(
             async_db_session, "Magdalena Goralczyk, DDS", "organization"
         )
@@ -67,8 +67,8 @@ class TestOpeningAMatter:
         done = await open_matter_execute(
             async_db_session,
             OpenMatterPayload(
-                title="Marisa's Root Canals",
-                subject_party_id=marisa,
+                title="Alex's Root Canals",
+                subject_party_id=alex,
                 counterpart_party_id=dentist,
             ),
             None,
@@ -78,14 +78,14 @@ class TestOpeningAMatter:
         matters = MatterService(async_db_session)
         matter = await matters.get(done["matter_id"])
         assert matter is not None and matter.status == "open"
-        assert matter.subject_party_id == marisa
+        assert matter.subject_party_id == alex
         # who it is ABOUT and who it is WITH are participants too, as the
         # page reads them
         roles = {
             (party.id, link.role)
             for link, party in await matters.participants(matter.id)
         }
-        assert roles == {(marisa, "subject"), (dentist, "agency")}
+        assert roles == {(alex, "subject"), (dentist, "agency")}
 
     @pytest.mark.asyncio
     async def test_a_reference_already_on_a_case_is_refused(
@@ -94,14 +94,14 @@ class TestOpeningAMatter:
         """The agency's own number is how two letters agree they are one
         case; a second case under it is how the next letter gets lost."""
         await MatterService(async_db_session).open(
-            title="Medicaid renewal", reference="MA258760XX"
+            title="Medicaid renewal", reference="MA123456XX"
         )
         await async_db_session.flush()
 
         with pytest.raises(ValueError, match="Medicaid renewal"):
             await open_matter_describe(
                 async_db_session,
-                OpenMatterPayload(title="Renewal again", reference="MA258760XX"),
+                OpenMatterPayload(title="Renewal again", reference="MA123456XX"),
                 None,
             )
 

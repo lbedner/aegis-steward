@@ -53,7 +53,7 @@ class TestRowChips:
 
     def test_compact_chips_are_actually_smaller(self) -> None:
         """The register column is dense; its chips shrink so a name like
-        "Marisa" fits inside the pill instead of overflowing it."""
+        "Alex" fits inside the pill instead of overflowing it."""
 
         def _chip_text(chips):
             return next(

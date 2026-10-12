@@ -7,12 +7,18 @@ week a lab renames a product line (Meta's Muse Glimmer carries no
 repository IS the lab.
 """
 
+import base64
 from typing import Any
 
+import httpx
+import pytest
+
 from app.services.ai.domains.llm.etl.lab_resolver import (
+    _org_avatar,
     pick_repo,
     strip_local_tag,
 )
+from tests._fake_dns import answering, resolving_to
 
 
 class TestStripLocalTag:
@@ -59,3 +65,45 @@ class TestPickRepo:
 
     def test_no_candidates_at_all(self) -> None:
         assert pick_repo([], "anything") is None
+
+
+class TestOrgAvatarFetch:
+    """The avatar URL comes out of the registry's JSON: someone else's
+    choice, so it is fetched only on the public internet (#493)."""
+
+    async def test_an_avatar_on_a_private_address_is_not_fetched(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        resolving_to(monkeypatch, ["169.254.169.254"])
+        sent = answering(monkeypatch, httpx.Response(200, content=b"png"))
+
+        async with httpx.AsyncClient() as client:
+            assert await _org_avatar(client, "https://avatars.example/a.png") is None
+
+        assert sent == []
+
+    async def test_a_redirect_to_a_private_address_is_not_followed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        resolving_to(monkeypatch, ["93.184.216.34"], ["10.0.0.5"])
+        sent = answering(
+            monkeypatch,
+            httpx.Response(302, headers={"location": "https://inside.example/a"}),
+            httpx.Response(200, content=b"png"),
+        )
+
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            assert await _org_avatar(client, "https://avatars.example/a.png") is None
+
+        assert len(sent) == 1
+
+    async def test_a_public_avatar_is_kept(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        resolving_to(monkeypatch, ["93.184.216.34"])
+        answering(monkeypatch, httpx.Response(200, content=b"png"))
+
+        async with httpx.AsyncClient() as client:
+            icon = await _org_avatar(client, "https://avatars.example/a.png")
+
+        assert icon == base64.b64encode(b"png").decode()

@@ -35,7 +35,7 @@ def _stored() -> dict[str, object]:
         property_kind="primary",
         valuation_source="user",
         valuation_as_of=date(2026, 8, 1),
-        address_label="House Bedner",
+        address_label="House Doe",
     )
 
 
@@ -49,7 +49,7 @@ class TestRoundTrip:
         assert meta.down_payment == 5_700_000
         assert meta.property_kind == "primary"
         assert meta.valuation_source == "user"
-        assert meta.address_label == "House Bedner"
+        assert meta.address_label == "House Doe"
 
     def test_keys_are_namespaced_so_neighbours_survive(self) -> None:
         stored = set_property_metadata({"unrelated": 1}, purchase_price=1)
@@ -151,7 +151,7 @@ class TestPartialWrites:
         self, svc: FinanceService
     ) -> None:
         account = await svc.create_manual_account(
-            name="House Bedner",
+            name="House Doe",
             account_type=PROPERTY_ACCOUNT_TYPE,
             classification="asset",
             owner_user_id=1,
@@ -159,7 +159,7 @@ class TestPartialWrites:
         await svc.set_property_details(
             account.id,
             owner_user_id=1,
-            address_label="House Bedner",
+            address_label="House Doe",
             ownership_share_bps=5_000,
             include_in_net_worth=False,
         )
@@ -171,7 +171,7 @@ class TestPartialWrites:
         meta = property_metadata(account.metadata_)
         assert meta is not None
         assert meta.purchase_price == 28_500_000  # the write landed
-        assert meta.address_label == "House Bedner"  # and took nothing with it
+        assert meta.address_label == "House Doe"  # and took nothing with it
         assert meta.ownership_share_bps == 5_000
         assert meta.include_in_net_worth is False
 
@@ -202,7 +202,7 @@ class TestServiceWrite:
         self, svc: FinanceService
     ) -> None:
         account = await svc.create_manual_account(
-            name="House Bedner",
+            name="House Doe",
             account_type=PROPERTY_ACCOUNT_TYPE,
             classification="asset",
             owner_user_id=1,
@@ -230,7 +230,7 @@ class TestServiceWrite:
         self, svc: FinanceService, async_db_session
     ) -> None:
         account = await svc.create_manual_account(
-            name="House Bedner",
+            name="House Doe",
             account_type=PROPERTY_ACCOUNT_TYPE,
             classification="asset",
             owner_user_id=1,
@@ -293,7 +293,7 @@ class TestSecuredDebt:
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         house = await svc.create_manual_account(
-            name="House Bedner",
+            name="House Doe",
             account_type=PROPERTY_ACCOUNT_TYPE,
             classification="asset",
             owner_user_id=1,
@@ -324,7 +324,7 @@ class TestSecuredDebtService:
     @staticmethod
     async def _pair(svc: FinanceService) -> tuple[Any, Any]:
         house = await svc.create_manual_account(
-            name="House Bedner",
+            name="House Doe",
             account_type=PROPERTY_ACCOUNT_TYPE,
             classification="asset",
             owner_user_id=1,

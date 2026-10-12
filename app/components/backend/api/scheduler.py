@@ -11,15 +11,23 @@ from app.components.backend.api.models import (
     TriggerJobResponse,
 )
 from app.core.log import logger
+from app.services.auth.deps import require_admin
 from app.services.scheduler import (
     ScheduledTaskManager,
     import_job_function,
     run_triggered_job,
 )
 
+# Operator-only: scheduled job names + recent stats leak internals
+# (job args may carry user IDs / emails); the run-now action is a
+# trivial DoS vector if reachable anonymously. Admins only
+# (``ADMIN_USER_EMAILS``).
+_require_admin = require_admin
+
 router = APIRouter(
     prefix="/scheduler",
     tags=["scheduler"],
+    dependencies=[Depends(_require_admin)],
 )
 
 

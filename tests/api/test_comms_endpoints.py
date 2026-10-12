@@ -10,13 +10,27 @@ import pytest
 
 
 @pytest.fixture
-def test_client(app: FastAPI) -> TestClient:
-    """Create a test client for the FastAPI app.
+def test_client(app: FastAPI, async_db_session) -> TestClient:
+    """Create a test client with the test DB wired into async deps.
 
-    No admin gate in non-auth stacks, so no async-db override needed —
-    the send endpoints are reachable without a bearer token.
+    Uses the top-level ``app`` fixture from ``tests/conftest.py``. Also
+    overrides ``get_async_db`` with the in-memory ``async_db_session``
+    so admin-gated send endpoints can resolve the bearer-token user
+    against the test DB (where ``auth_headers``'s user actually lives)
+    instead of the real asyncpg pool. Without this override the gate
+    fires before ``mock_send`` is reached and the tests 401.
     """
-    return TestClient(app)
+    from app.core.db import get_async_db
+
+    async def _get_test_async_db():
+        yield async_db_session
+
+    app.dependency_overrides[get_async_db] = _get_test_async_db
+    client = TestClient(app)
+    try:
+        yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
 class TestCommsHealthEndpoints:
@@ -216,8 +230,9 @@ class TestSendingDomains:
         monkeypatch.setattr(ResendAdapter, "check_domain", check_domain)
 
     @pytest.fixture
-    def api(self, test_client: TestClient) -> TestClient:
-        return test_client
+    def api(self, authenticated_client: TestClient) -> TestClient:
+        """An admin: the domain routes are admin-only with auth."""
+        return authenticated_client
 
     def test_lists_domains(self, api: TestClient, domains: None) -> None:
         response = api.get("/api/v1/comms/domains")

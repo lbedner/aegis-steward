@@ -56,7 +56,7 @@ async def filed() -> AsyncIterator[Filed]:
             )
             for cents in (150_000, 30_000)
         ]
-        matter = await MatterService(db).open(title="Marisa's Root Canals")
+        matter = await MatterService(db).open(title="Alex's Root Canals")
         dentist = await PartyService(db).create(
             name="Blondin Endodontics", kind="organization"
         )

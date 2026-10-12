@@ -28,7 +28,7 @@ PAGES: list[Any] = [
     {
         "page": 1,
         "text": (
-            "HUDSON VALLEY CREDIT UNION\n"
+            "RIVERBEND CREDIT UNION\n"
             "Statement period 08/01/2026 - 08/26/2026\n"
             "CLASSIC CHECKING ending 3639\n"
         ),
@@ -37,9 +37,9 @@ PAGES: list[Any] = [
 ]
 
 ON_FILE = (
-    "Hudson Valley Credit Union",
+    "Riverbend Credit Union",
     "Delta Dental of New York, Inc.",
-    "Hudson Valley",
+    "Riverbend",
 )
 
 
@@ -47,7 +47,7 @@ class TestWhatCountsAsAName:
     def test_a_download_is_not_a_name(self) -> None:
         for filename in (
             "20260826-statements-3639-.pdf",
-            "AP_DRTNY107_23548895152718_44328175.pdf",
+            "AP_DRTNY107_12345678901234_12345678.pdf",
             "scan0001.PDF",
             "IMG_4821.jpeg",
             "ppo_policy_document.pdf",
@@ -77,7 +77,7 @@ class TestWhatCountsAsAName:
             "Medicaid renewal request",
             "Dad's POA",
             "NYSLRS Monthly Statement.pdf",
-            "Executed POA for Bedner.pdf",
+            "Executed POA for Doe.pdf",
         ):
             assert not looks_like_a_filename(named)
 
@@ -86,15 +86,15 @@ class TestWhoseLetterheadItIs:
     def test_the_organization_on_the_front(self) -> None:
         found = whose_letterhead(PAGES, ON_FILE)
         assert found is not None
-        assert found.value == "Hudson Valley Credit Union"
+        assert found.value == "Riverbend Credit Union"
         assert found.page == 1
         # Cited: the line it was read off, so the card can show it.
-        assert found.because == "HUDSON VALLEY CREDIT UNION"
+        assert found.because == "RIVERBEND CREDIT UNION"
 
     def test_the_longest_name_wins(self) -> None:
-        """ "Hudson Valley" is also on file, and a shelf of documents from
-        "Hudson Valley" is a shelf that lost the credit union."""
-        assert whose_letterhead(PAGES, ON_FILE).value == "Hudson Valley Credit Union"
+        """ "Riverbend" is also on file, and a shelf of documents from
+        "Riverbend" is a shelf that lost the credit union."""
+        assert whose_letterhead(PAGES, ON_FILE).value == "Riverbend Credit Union"
 
     def test_a_name_inside_a_longer_word_is_not_a_name(self) -> None:
         """Live: "Chase" was read off the line "Purchases +$0.00" and
@@ -129,7 +129,7 @@ class TestWhoseLetterheadItIs:
 class TestTheNameItself:
     def test_who_what_and_when(self) -> None:
         found = compose(whose_letterhead(PAGES, ON_FILE), "statement", "2026-08-26")
-        assert found.value == "Hudson Valley Credit Union statement, August 2026"
+        assert found.value == "Riverbend Credit Union statement, August 2026"
 
     def test_a_tax_form_is_named_for_its_tax_year(self) -> None:
         """A 1099-INT printed January 5, 2026 is the 2025 form; "January
@@ -137,18 +137,17 @@ class TestTheNameItself:
         head = whose_letterhead(PAGES, ON_FILE)
         for year in (2025, "2025"):  # read off the page, or off the card
             assert compose(head, "1099-INT", year).value == (
-                "Hudson Valley Credit Union 1099-INT, 2025"
+                "Riverbend Credit Union 1099-INT, 2025"
             )
 
     def test_what_is_not_known_is_left_out(self) -> None:
         head = whose_letterhead(PAGES, ON_FILE)
         assert (
-            compose(head, "statement", None).value
-            == "Hudson Valley Credit Union statement"
+            compose(head, "statement", None).value == "Riverbend Credit Union statement"
         )
         assert (
             compose(head, None, "2026-08-26").value
-            == "Hudson Valley Credit Union, August 2026"
+            == "Riverbend Credit Union, August 2026"
         )
 
     def test_the_papers_own_heading_tells_two_of_a_kind_apart(self) -> None:
@@ -162,32 +161,32 @@ class TestTheNameItself:
         application = Finding("kind", "form", 1, "Application")
         contract = Finding("kind", "form", 1, "Combined Contract and Disclosure Form")
         assert compose(head, application, None).value == (
-            "Hudson Valley Credit Union Application"
+            "Riverbend Credit Union Application"
         )
         assert compose(head, contract, None).value == (
-            "Hudson Valley Credit Union Combined Contract and Disclosure Form"
+            "Riverbend Credit Union Combined Contract and Disclosure Form"
         )
 
     def test_a_heading_that_already_names_the_sender_stands_alone(self) -> None:
-        """ "Hudson Valley Credit Union Welcome to Hudson Valley Credit
+        """ "Riverbend Credit Union Welcome to Riverbend Credit
         Union" says it twice."""
         from app.services.documents.domains.reading.findings import Finding
 
-        welcome = Finding("kind", "letter", 1, "Welcome to Hudson Valley Credit Union")
+        welcome = Finding("kind", "letter", 1, "Welcome to Riverbend Credit Union")
         said = compose(whose_letterhead(PAGES, ON_FILE), welcome, None)
-        assert said.value == "Welcome to Hudson Valley Credit Union"
+        assert said.value == "Welcome to Riverbend Credit Union"
 
     def test_an_identifier_is_not_part_of_a_name(self) -> None:
-        """ "GreenSky Application ID: 1903014447" was proposed as a title.
+        """ "GreenSky Application ID: 1234567890" was proposed as a title.
         The ID is the one thing on that heading nobody would say out
         loud, and a name with a ten-digit number in it cannot be
         recognised in a list (2026-09-19)."""
         from app.services.documents.domains.reading.findings import Finding
 
         for heading, expected in (
-            ("Application ID: 1903014447", "Hudson Valley Credit Union Application"),
-            ("Statement #00123456", "Hudson Valley Credit Union Statement"),
-            ("Account Summary", "Hudson Valley Credit Union Account Summary"),
+            ("Application ID: 1234567890", "Riverbend Credit Union Application"),
+            ("Statement #00123456", "Riverbend Credit Union Statement"),
+            ("Account Summary", "Riverbend Credit Union Account Summary"),
         ):
             said = compose(
                 whose_letterhead(PAGES, ON_FILE),
@@ -205,7 +204,7 @@ class TestTheNameItself:
             "kind", "statement", 1, "Your statement of benefits for the plan year 2026"
         )
         said = compose(whose_letterhead(PAGES, ON_FILE), wordy, None)
-        assert said.value == "Hudson Valley Credit Union statement"
+        assert said.value == "Riverbend Credit Union statement"
 
     def test_an_organization_alone_is_not_a_name(self) -> None:
         """Run over a real shelf, this named four different documents
@@ -241,7 +240,7 @@ class TestWhoSentIt:
         from app.services.matters.service import PartyService
 
         hvcu = await PartyService(async_db_session).create(
-            name="Hudson Valley Credit Union", kind="organization"
+            name="Riverbend Credit Union", kind="organization"
         )
         document = Document(
             title="20260826-statements-3639-.pdf",
@@ -268,7 +267,7 @@ class TestWhoSentIt:
         # An ID, because that is what the payload takes - a name typed
         # there is a second directory nobody can join to the first.
         assert change.payload["sender"]["value"] == str(hvcu.id)
-        assert change.payload["sender"]["because"] == "HUDSON VALLEY CREDIT UNION"
+        assert change.payload["sender"]["because"] == "RIVERBEND CREDIT UNION"
 
     @pytest.mark.asyncio
     async def test_a_stranger_is_not_proposed(
@@ -306,14 +305,14 @@ class TestWhoSentIt:
 class TestWhichCaseItBelongsTo:
     """A letter that quotes a case number belongs to that case, and the
     app should say so when the paper lands rather than wait to be told.
-    The county writes MA258760XX on every page of every letter."""
+    The county writes MA123456XX on every page of every letter."""
 
     async def _renewal(self, db: AsyncSession, text: str) -> Any:
         from app.services.documents.models import Document, DocumentPage
         from app.services.matters.matters import MatterService
 
         matter = await MatterService(db).open(
-            title="Medicaid renewal", reference="MA258760XX"
+            title="Medicaid renewal", reference="MA123456XX"
         )
         document = Document(
             title="scan0004.pdf",
@@ -344,13 +343,13 @@ class TestWhichCaseItBelongsTo:
 
         matter, document = await self._renewal(
             async_db_session,
-            "DUTCHESS COUNTY DSS\nCase MA258760XX\nRenewal of eligibility\n",
+            "EXAMPLE COUNTY DSS\nCase MA123456XX\nRenewal of eligibility\n",
         )
 
         change = await propose_reading(opens(async_db_session), document.id)
         assert change.payload["matter"]["value"] == str(matter.id)
         # Cited, like every other reading on this card.
-        assert "MA258760XX" in change.payload["matter"]["because"]
+        assert "MA123456XX" in change.payload["matter"]["because"]
 
     @pytest.mark.asyncio
     async def test_paper_that_names_no_case_is_filed_nowhere(
@@ -359,7 +358,7 @@ class TestWhichCaseItBelongsTo:
         from app.services.documents.domains.reading.proposals import propose_reading
 
         _matter, document = await self._renewal(
-            async_db_session, "DUTCHESS COUNTY DSS\nSomething else entirely\n"
+            async_db_session, "EXAMPLE COUNTY DSS\nSomething else entirely\n"
         )
         change = await propose_reading(opens(async_db_session), document.id)
         assert change is None or change.payload.get("matter") is None
@@ -374,7 +373,7 @@ class TestWhichCaseItBelongsTo:
         )
         from app.services.matters.matters import MatterService
 
-        matter, document = await self._renewal(async_db_session, "Case MA258760XX\n")
+        matter, document = await self._renewal(async_db_session, "Case MA123456XX\n")
         await metadata_execute(
             async_db_session,
             MetadataPayload(
@@ -382,7 +381,7 @@ class TestWhichCaseItBelongsTo:
                 matter={
                     "value": str(matter.id),
                     "page": 1,
-                    "because": "Case MA258760XX",
+                    "because": "Case MA123456XX",
                 },
             ),
             None,
@@ -654,13 +653,13 @@ class TestWhatElseTheFrontPageSays:
         from app.services.matters.service import PartyService
 
         party = await PartyService(async_db_session).create(
-            name="Dutchess County DSS",
+            name="Example County DSS",
             kind="organization",
-            contact={"phone": "(845) 486-3000"},
+            contact={"phone": "(555) 555-0161"},
         )
         await async_db_session.flush()
         document = await _front_page(
-            async_db_session, "NOTICE OF RENEWAL", "Questions? Call 845-486-3000"
+            async_db_session, "NOTICE OF RENEWAL", "Questions? Call 555-555-0161"
         )
 
         change = await propose_reading(opens(async_db_session), document.id)
@@ -676,18 +675,18 @@ class TestWhatElseTheFrontPageSays:
         from app.services.matters.service import PartyService
 
         named = await PartyService(async_db_session).create(
-            name="Hudson Valley Credit Union", kind="organization"
+            name="Riverbend Credit Union", kind="organization"
         )
         await PartyService(async_db_session).create(
-            name="Dutchess County DSS",
+            name="Example County DSS",
             kind="organization",
-            contact={"phone": "(845) 486-3000"},
+            contact={"phone": "(555) 555-0161"},
         )
         await async_db_session.flush()
         document = await _front_page(
             async_db_session,
-            "HUDSON VALLEY CREDIT UNION",
-            "Their county office: 845-486-3000",
+            "RIVERBEND CREDIT UNION",
+            "Their county office: 555-555-0161",
         )
 
         change = await propose_reading(opens(async_db_session), document.id)
@@ -803,7 +802,7 @@ class TestWhoHoldsTheAccount:
         document = await _front_page(
             async_db_session,
             "Testcase County DSS",
-            "Dear Mr. Bedner:",
+            "Dear Mr. Doe:",
             "Send statements for account ending 6620.",
         )
 

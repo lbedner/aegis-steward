@@ -47,12 +47,18 @@ def _owner_scoped_account(
 
 
 async def live_account_id_by_name(
-    db: AsyncSession, *, name: str, owner_user_id: int | None
+    db: AsyncSession,
+    *,
+    name: str,
+    owner_user_id: int | None,
+    account_type: str | None = None,
 ) -> int | None:
     query = select(FinanceAccount.id).where(
         FinanceAccount.name == name,
         FinanceAccount.deleted_at.is_(None),
     )
+    if account_type is not None:
+        query = query.where(FinanceAccount.account_type == account_type)
     return (await db.exec(_owner_scoped_account(query, owner_user_id))).first()
 
 

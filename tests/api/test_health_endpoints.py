@@ -28,7 +28,9 @@ class TestHealthEndpoints:
         await backend_hooks.execute_startup_hooks()
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             yield client
 
         # Clean up after test
@@ -340,7 +342,9 @@ class TestLivenessProbe:
         # (or without) health-check registration.
         app = create_integrated_app()
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             response = await client.get("/health/")
 
         assert response.status_code == 200

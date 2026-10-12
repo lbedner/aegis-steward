@@ -52,6 +52,25 @@ class TestRuntimeWebhookUrl:
         set_runtime_webhook_url(None)
         assert get_webhook_url() == "https://static.example/wh"
 
+    def test_a_server_receives_it_at_its_public_address(self, monkeypatch) -> None:
+        """Outside dev there is no tunnel: Plaid posts to the domain."""
+        monkeypatch.setattr(plaid_mod.settings, "APP_ENV", "prod")
+        monkeypatch.setattr(
+            plaid_mod.settings, "PUBLIC_BASE_URL", "https://steward.example/"
+        )
+        assert get_webhook_url() == (
+            "https://steward.example/api/v1/finance/webhook/plaid"
+        )
+        monkeypatch.setattr(
+            plaid_mod.settings, "PLAID_WEBHOOK_URL", "https://static.example/wh"
+        )
+        assert get_webhook_url() == "https://static.example/wh"
+
+    def test_dev_without_a_tunnel_has_none(self, monkeypatch) -> None:
+        """Plaid cannot reach localhost, so dev sends no webhook at all."""
+        monkeypatch.setattr(plaid_mod.settings, "APP_ENV", "dev")
+        assert get_webhook_url() is None
+
     @pytest.mark.asyncio
     async def test_link_token_carries_the_resolved_webhook(self, monkeypatch) -> None:
         set_runtime_webhook_url("https://abc.trycloudflare.com/wh")

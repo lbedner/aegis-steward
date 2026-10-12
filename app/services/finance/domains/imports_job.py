@@ -92,7 +92,8 @@ def capped_review(review: ImportPreviewResponse) -> dict[str, Any]:
     """The review as its job records it: the frame names only
     ``PREVIEW_DETAIL_CAP`` updates and new categories, so the job record
     in Redis holds no more. "And N more" counts from ``rows_updated`` and
-    ``new_categories_total``. The JSON API's review stays whole."""
+    ``new_categories_total``. The JSON API's review is this one too
+    (#494): no client shows more."""
     from app.services.finance.constants import PREVIEW_DETAIL_CAP
 
     capped = review.model_copy(

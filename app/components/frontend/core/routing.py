@@ -5,8 +5,8 @@ Maps route strings to ``BaseView`` subclasses and drives view transitions
 through the lifecycle hooks. The flow on each navigation:
 
 1. Reentrancy guard rejects the call if a route change is already in flight.
-2. (No auth gate — project
-   was generated without ``include_auth``.)
+2. If the destination is auth-protected and no session
+   token exists, redirect to ``/login``.
 3. Look up the ``BaseView`` class for the route in ``ROUTE_TO_VIEW``.
 4. Instantiate it.
 5. Call ``on_leave()`` on the currently-active view, if any. **This is the
@@ -26,8 +26,9 @@ from urllib.parse import parse_qs, urlparse
 
 import flet as ft
 
+from app.components.frontend.auth.session import is_authenticated
 from app.components.frontend.controls.snack_bar import ErrorSnackBar
-from app.components.frontend.core.routes import PUBLIC_ROUTES
+from app.components.frontend.core.routes import LOGIN_ROUTE, PUBLIC_ROUTES
 from app.core.log import logger
 
 if TYPE_CHECKING:
@@ -55,6 +56,14 @@ def is_authenticated_route(route: str) -> bool:
     """Return True if the route requires authentication."""
     base = urlparse(route).path.rstrip("/") or "/"
     return base not in PUBLIC_ROUTES
+
+
+def redirect_to_login(page: ft.Page) -> None:
+    """Send the user to the login page if they're not already there."""
+    base = urlparse(page.route or "").path.rstrip("/") or "/"
+    if base != LOGIN_ROUTE:
+        logger.info("router.redirect_to_login", from_route=page.route, to=LOGIN_ROUTE)
+        page.go(LOGIN_ROUTE)
 
 
 def _extract_query_params(route: str) -> dict[str, Any]:
@@ -97,6 +106,10 @@ async def route_change(page: ft.Page, event: ft.RouteChangeEvent) -> None:
         raw_route = event.route or "/"
         route = deepcopy(raw_route).rstrip("/") or "/"
         logger.info("router.route_change", route=route, raw=raw_route)
+
+        if is_authenticated_route(route) and not await is_authenticated(page):
+            redirect_to_login(page)
+            return
 
         base = urlparse(route).path.rstrip("/") or "/"
         view_cls = ROUTE_TO_VIEW.get(base)

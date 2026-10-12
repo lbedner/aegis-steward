@@ -40,14 +40,14 @@ class TestItKeepsWhatArrived:
         service = DocumentService(async_db_session)
         document = await service.ingest(
             pdf_bytes(["Anything else"]),
-            title="AP_DRTNY107_23548895152718.pdf",
+            title="AP_DRTNY107_12345678901234.pdf",
             media_type="application/pdf",
         )
         await service.update(document.id, {"title": "Delta Dental Application"})
         await async_db_session.flush()
 
         assert document.title == "Delta Dental Application"
-        assert document.filename == "AP_DRTNY107_23548895152718.pdf"
+        assert document.filename == "AP_DRTNY107_12345678901234.pdf"
 
 
 class TestWhatCountsAsUnnamed:
@@ -62,7 +62,7 @@ class TestWhatCountsAsUnnamed:
         assert_named = "Delta Dental Application"
         from app.services.documents.domains.reading.titles import still_unnamed
 
-        assert not still_unnamed(assert_named, "AP_DRTNY107_23548895152718.pdf")
+        assert not still_unnamed(assert_named, "AP_DRTNY107_12345678901234.pdf")
 
     def test_without_a_filename_it_falls_back_to_the_guess(self) -> None:
         """Rows that predate the column keep the heuristic: their

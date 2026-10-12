@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from starlette.responses import Response
 
+from app.components.backend.middleware.security_headers import csp_nonce
 from app.components.web_frontend import ranges
 from app.components.web_frontend.assets import COMPONENT_DIR, static_url
 from app.components.web_frontend.filters import FILTERS, assistant
@@ -32,8 +33,7 @@ from app.services.finance.constants import account_sections
 from app.services.system import topology, ui_runtime
 
 templates = Jinja2Templates(directory=str(COMPONENT_DIR / "templates"))
-
-templates.env.globals["static"] = static_url
+templates.env.globals.update(static=static_url, csp_nonce=csp_nonce)
 
 
 def voice() -> dict[str, object]:

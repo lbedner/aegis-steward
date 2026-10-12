@@ -31,8 +31,8 @@ class TestTheMattersPage:
         """The columns say who a case is ABOUT and who it is WITH; the
         participant list is what the page reads. Both have to be true,
         so opening a matter writes the links too."""
-        _party(client, "James Bedner", "person")
-        _party(client, "Dutchess County DSS", "organization")
+        _party(client, "James Doe", "person")
+        _party(client, "Example County DSS", "organization")
         people = client.get("/contacts").text
         ids = [
             el.get("hx-get").rsplit("/", 1)[-1]
@@ -44,7 +44,7 @@ class TestTheMattersPage:
             data={
                 "title": "Medicaid renewal",
                 "kind": "medicaid",
-                "reference": "MA258760XX",
+                "reference": "MA123456XX",
                 "subject_party_id": ids[0],
                 "counterpart_party_id": ids[1],
                 "opened_on": "2026-08-20",
@@ -52,7 +52,7 @@ class TestTheMattersPage:
         )
 
         listing = client.get("/matters").text
-        assert "MA258760XX" in text(one(listing, "#matters"))
+        assert "MA123456XX" in text(one(listing, "#matters"))
         opened = one(listing, "#matters tbody [data-open]")
 
         page = client.get(opened.get("hx-get")).text
@@ -71,7 +71,7 @@ class TestTheMattersPage:
                 data={
                     "title": "Medicaid renewal",
                     "kind": "medicaid",
-                    "reference": "MA258760XX",
+                    "reference": "MA123456XX",
                     "subject_party_id": "",
                     "counterpart_party_id": "",
                     "opened_on": "",
@@ -560,7 +560,7 @@ class TestSignIns:
             data={
                 "label": "IBEW pension portal",
                 "url": "pensionportal.example.com",
-                "username": "jbedner",
+                "username": "jdoe",
                 "secret": "correct-horse",
                 "note": "",
             },
@@ -1322,7 +1322,7 @@ class TestAContactSeesItsCases:
     def test_the_cases_they_are_in_say_as_what(self, client: TestClient) -> None:
         from tests.web.test_contacts import _contact
 
-        party_id = _contact(client, "Dutchess DSS (contact page)", "organization")
+        party_id = _contact(client, "Example DSS (contact page)", "organization")
         matter_page = _matter(client, "MA-CONTACT-1")
         client.post(
             matter_page + "/participants",

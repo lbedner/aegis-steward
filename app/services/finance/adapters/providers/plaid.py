@@ -49,6 +49,9 @@ def _webhook_error(reason: str) -> PlaidError:
     return PlaidError("invalid_webhook", reason)
 
 
+# Where Plaid posts (the finance connections router, public in the gate).
+PLAID_WEBHOOK_PATH = "/api/v1/finance/webhook/plaid"
+
 # Dev-tunnel override for the webhook delivery URL. The startup hook
 # (``app/components/backend/startup/finance_webhook_tunnel.py``) sets this
 # after discovering the cloudflared quick tunnel's public hostname; when unset,
@@ -62,8 +65,12 @@ def set_runtime_webhook_url(url: str | None) -> None:
 
 
 def get_webhook_url() -> str | None:
-    """The webhook URL new link tokens carry: tunnel override, else settings."""
-    return _runtime_webhook_url or settings.PLAID_WEBHOOK_URL
+    """The webhook URL new link tokens carry: tunnel override, else settings,
+    else on a server its public address (dev has none Plaid can reach)."""
+    url = _runtime_webhook_url or settings.PLAID_WEBHOOK_URL
+    if url or settings.is_dev:
+        return url
+    return settings.PUBLIC_BASE_URL.rstrip("/") + PLAID_WEBHOOK_PATH
 
 
 PLAID_KEYS = ("PLAID_CLIENT_ID", "PLAID_SECRET")

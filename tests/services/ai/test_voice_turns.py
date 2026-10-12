@@ -34,8 +34,8 @@ from app.services.finance.domains.detection.analyst.seeds import (
 AGENT = "finance-assistant"
 SURFACE = "finance"
 OWNER = "0"
-QUESTION = "How much is left in Vanessa's envelope?"
-ANSWER = "## Vanessa\n\n- **$212** left this week."
+QUESTION = "How much is left in Robin's envelope?"
+ANSWER = "## Robin\n\n- **$212** left this week."
 
 
 class FakeSTT:
@@ -178,7 +178,7 @@ async def test_the_turn_carries_its_context_and_the_hint(
         user_id=OWNER,
         agent_slug=AGENT,
         surface=SURFACE,
-        transcription_hint="Illiana, Vanessa",
+        transcription_hint="Illiana, Robin",
     )
 
     assert seen == {
@@ -188,7 +188,7 @@ async def test_the_turn_carries_its_context_and_the_hint(
         "agent_slug": AGENT,
         "surface": SURFACE,
     }
-    assert stt.calls[0][0].prompt == "Illiana, Vanessa"
+    assert stt.calls[0][0].prompt == "Illiana, Robin"
 
 
 @pytest.mark.asyncio
@@ -205,11 +205,11 @@ async def test_speaking_an_answer_asks_no_model(
 
     monkeypatch.setattr(service, "chat", _no_chat)
     spoken = await service.prepare_for_voice(
-        "## Vanessa\n\n- **$212** left, see [the envelope](/budget).\n"
+        "## Robin\n\n- **$212** left, see [the envelope](/budget).\n"
         "```python\nx = 1\n```\n1. Next: `groceries`"
     )
 
-    assert spoken == "Vanessa. $212 left, see the envelope. Next: groceries"
+    assert spoken == "Robin. $212 left, see the envelope. Next: groceries"
 
 
 @pytest.mark.parametrize(

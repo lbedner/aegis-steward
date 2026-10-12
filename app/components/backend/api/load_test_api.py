@@ -12,8 +12,9 @@ dashboard tab degrades to an empty-state placeholder.
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 
+from app.services.auth.deps import get_current_active_user
 from app.services.load_test.api.models import (
     APILoadTestConfiguration,
     APILoadTestResult,
@@ -60,6 +61,7 @@ async def run_and_store(
 @router.get("/recent")
 async def list_recent_runs(
     limit: int = Query(20, ge=1, le=100, description="Max runs to return"),
+    _current_user=Depends(get_current_active_user),
 ) -> list[dict[str, Any]]:
     """Recent HTTP load-test runs, newest first."""
     return await recent_runs(limit)
@@ -68,6 +70,7 @@ async def list_recent_runs(
 @router.get("/{test_id}")
 async def get_run(
     test_id: str,
+    _current_user=Depends(get_current_active_user),
 ) -> dict[str, Any]:
     """Fetch a single HTTP load-test result by ID."""
 

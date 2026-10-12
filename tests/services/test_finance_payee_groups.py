@@ -21,8 +21,8 @@ from tests.services._finance_factories import seed_payee_txn
 # is that these five disagree in every way EXCEPT containing "DOORDASH", so
 # no prefix or token rule groups them.
 _DOORDASH = [
-    "DOORDASH*CROWN FRIEDSAN FRANCIS NT_KBVL6WXU +16506819470",
-    "DOORDASH*COUNTRY CORSAN FRANCIS NT_KUI9MCQP +16506819470",
+    "DOORDASH*CROWN FRIEDSAN FRANCIS NT_KBVL6WXU +16505550123",
+    "DOORDASH*COUNTRY CORSAN FRANCIS NT_KUI9MCQP +16505550123",
     "BT*DD *DOORDASH MCDOSAN FRANCISCO CA XXXX--X3007",
     "VENMO *DOORDASH XXX-XXX-4430 NY 10/07",
     "Doordash",
@@ -94,7 +94,7 @@ class TestPayeeGroups:
         account = await _account(svc)
         for i, descriptor in enumerate(_DOORDASH):
             await _txn(svc, account.id, descriptor, i + 1)
-        await _txn(svc, account.id, "STARBUCKS STORE 1234 POUGHKEEPSIE NY", 20)
+        await _txn(svc, account.id, "STARBUCKS STORE 1234 ANYTOWN NY", 20)
         merchant = await svc.create_merchant("DoorDash", owner_user_id=1)
 
         page, _, _ = await svc.payee_groups(owner_user_id=1)

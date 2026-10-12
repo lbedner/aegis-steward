@@ -702,9 +702,9 @@ class TestComms:
     def test_says_what_the_job_would_send_and_where(
         self, client: TestClient, streams: Streams, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+        monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
         page = client.get("/settings/comms").text
-        assert "leonard@example.com" in text(one(page, "#comms"))
+        assert "sam@example.com" in text(one(page, "#comms"))
         preview = one(page, "#bill-email-preview")
         # Rent is due in ten days, Water is overdue; the default window is
         # a week, so only the overdue one is in tomorrow's email.
@@ -721,7 +721,7 @@ class TestComms:
     def test_nothing_due_says_so(
         self, client: TestClient, ledger: Ledger, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+        monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
         page = client.get("/settings/comms").text
         assert "Nothing due" in text(one(page, "#bill-email-preview"))
 
@@ -729,7 +729,7 @@ class TestComms:
         self, client: TestClient, streams: Streams, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Settings shows the mail; only the scheduler posts it."""
-        monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+        monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
         sent: list[object] = []
 
         async def _send(**kwargs: object) -> object:
@@ -793,11 +793,11 @@ class TestActivity:
 
         class Csv:
             source_type = "csv"
-            file_name = "House Bedner Finances-export-2026-09-14.csv"
+            file_name = "House Doe Finances-export-2026-09-14.csv"
 
         class Sync:
             source_type = "snaptrade_sync"
             file_name = None
 
-        assert run_title(Csv()).startswith("CSV · House Bedner")
+        assert run_title(Csv()).startswith("CSV · House Doe")
         assert run_title(Sync()) == "SnapTrade"

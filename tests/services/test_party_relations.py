@@ -1,7 +1,7 @@
 """Who is related to whom (#289).
 
 "What children do you have under this household" - none recorded, and
-after Vanessa and Mariah were added she could only say they shared the
+after Robin and Casey were added she could only say they shared the
 address. A relationship between two people is recorded (spouse, parent
 of, or other), proposed as a card, and read back from both sides.
 """
@@ -25,11 +25,11 @@ pytestmark = pytest.mark.queryspy(threshold=4)
 
 async def _family(db: AsyncSession) -> tuple[int, int, int]:
     people = PartyService(db)
-    leonard = await people.create(name="Leonard Bedner", kind="person")
-    marisa = await people.create(name="Marisa Bedner", kind="person")
-    vanessa = await people.create(name="Vanessa Bedner", kind="person")
+    sam = await people.create(name="Sam Doe", kind="person")
+    alex = await people.create(name="Alex Doe", kind="person")
+    robin = await people.create(name="Robin Doe", kind="person")
     await db.flush()
-    return int(leonard.id or 0), int(marisa.id or 0), int(vanessa.id or 0)
+    return int(sam.id or 0), int(alex.id or 0), int(robin.id or 0)
 
 
 class TestRelating:
@@ -37,33 +37,31 @@ class TestRelating:
     async def test_a_relationship_reads_from_both_sides(
         self, async_db_session: AsyncSession
     ) -> None:
-        leonard, marisa, vanessa = await _family(async_db_session)
+        sam, alex, robin = await _family(async_db_session)
 
-        assert await relations.relate(async_db_session, leonard, vanessa, "parent")
-        assert not await relations.relate(async_db_session, leonard, vanessa, "parent")
-        await relations.relate(async_db_session, leonard, marisa, "spouse")
+        assert await relations.relate(async_db_session, sam, robin, "parent")
+        assert not await relations.relate(async_db_session, sam, robin, "parent")
+        await relations.relate(async_db_session, sam, alex, "spouse")
 
-        known = await relations.relations_for(async_db_session, [leonard, vanessa])
-        assert sorted((r["relation"], r["party_id"]) for r in known[leonard]) == [
-            ("parent of", vanessa),
-            ("spouse of", marisa),
+        known = await relations.relations_for(async_db_session, [sam, robin])
+        assert sorted((r["relation"], r["party_id"]) for r in known[sam]) == [
+            ("parent of", robin),
+            ("spouse of", alex),
         ]
-        assert [(r["relation"], r["party_id"]) for r in known[vanessa]] == [
-            ("child of", leonard)
+        assert [(r["relation"], r["party_id"]) for r in known[robin]] == [
+            ("child of", sam)
         ]
 
     @pytest.mark.asyncio
     async def test_a_relationship_can_be_taken_back(
         self, async_db_session: AsyncSession
     ) -> None:
-        leonard, _marisa, vanessa = await _family(async_db_session)
-        await relations.relate(async_db_session, leonard, vanessa, "parent")
+        sam, _alex, robin = await _family(async_db_session)
+        await relations.relate(async_db_session, sam, robin, "parent")
 
-        await relations.unrelate(async_db_session, leonard, vanessa, "parent")
+        await relations.unrelate(async_db_session, sam, robin, "parent")
 
-        assert (await relations.relations_for(async_db_session, [leonard]))[
-            leonard
-        ] == []
+        assert (await relations.relations_for(async_db_session, [sam]))[sam] == []
 
 
 class TestTheCard:
@@ -71,9 +69,9 @@ class TestTheCard:
     async def test_she_proposes_it_and_it_lands(
         self, async_db_session: AsyncSession
     ) -> None:
-        leonard, _marisa, vanessa = await _family(async_db_session)
+        sam, _alex, robin = await _family(async_db_session)
         payload = RelateContactsPayload(
-            party_id=leonard, related_party_id=vanessa, relation="parent"
+            party_id=sam, related_party_id=robin, relation="parent"
         )
 
         said = [
@@ -82,9 +80,9 @@ class TestTheCard:
         ]
         await relate_contacts_execute(async_db_session, payload, None)
 
-        assert said == ["Leonard Bedner is parent of Vanessa Bedner"]
-        known = await relations.relations_for(async_db_session, [vanessa])
-        assert known[vanessa][0]["relation"] == "child of"
+        assert said == ["Sam Doe is parent of Robin Doe"]
+        known = await relations.relations_for(async_db_session, [robin])
+        assert known[robin][0]["relation"] == "child of"
 
     def test_only_known_relationships_between_two_people(self) -> None:
         with pytest.raises(ValidationError):
@@ -101,12 +99,12 @@ class TestHerRead:
         from app.services.matters import ai_tools
 
         monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
-        leonard, _marisa, vanessa = await _family(async_db_session)
-        await relations.relate(async_db_session, leonard, vanessa, "parent")
+        sam, _alex, robin = await _family(async_db_session)
+        await relations.relate(async_db_session, sam, robin, "parent")
         await async_db_session.commit()
 
         found = {p["id"]: p for p in (await ai_tools.parties())["parties"]}
 
-        assert found[leonard]["relations"] == [
-            {"relation": "parent of", "party_id": vanessa, "party": "Vanessa Bedner"}
+        assert found[sam]["relations"] == [
+            {"relation": "parent of", "party_id": robin, "party": "Robin Doe"}
         ]

@@ -338,7 +338,7 @@ class TestFilingEveryTransactionOfAPayee:
 
     Found live 2026-09-11 on Shop Rite: 536 rows, 3 categories, 0
     uncategorised. Four other payees are past the cap too - Target 1,017,
-    Starbucks 965, Amazon 850, Adams Fairacre Farms 540.
+    Starbucks 965, Amazon 850, Greenacre Farms 540.
     """
 
     @pytest.mark.asyncio

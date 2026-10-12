@@ -1,7 +1,7 @@
 """An envelope that pays for what wears a tag.
 
-Vanessa's allowance is virtual, but what the household buys her is
-real: Roblox codes on the family card. Tag the charge "Vanessa" and her
+Robin's allowance is virtual, but what the household buys her is
+real: Roblox codes on the family card. Tag the charge "Robin" and her
 envelope pays for it; untag it and the money comes back (#240).
 
 The envelope SETTLES against the ledger rather than being walked on
@@ -32,7 +32,7 @@ async def follow_tag(
 ) -> FinanceAccount:
     """Point an envelope at a tag, counting from ``since``; None stops it.
 
-    Counting starts fresh: the real "Vanessa" tag has charges on it back
+    Counting starts fresh: the real "Robin" tag has charges on it back
     to 2019, and an envelope pointed at it today pays for what comes
     next, not for all of those.
     """
@@ -114,7 +114,7 @@ async def retag(
     The same tag with a new start keeps what it has counted, and settle
     walks only the difference: moving the start back spends the tagged
     charges it now covers, moving it forward gives them back. Two August
-    Dark Side Records charges tagged after the fact are why (2026-09-23).
+    Spinning Disc Records charges tagged after the fact are why (2026-09-23).
     """
     from app.services.finance.utils import current_date
 

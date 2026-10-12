@@ -17,7 +17,7 @@ from app.services.finance.domains.ledger.properties import (
 from app.services.finance.service import FinanceService
 
 
-async def _house(svc: FinanceService, name: str = "House Bedner"):
+async def _house(svc: FinanceService, name: str = "House Doe"):
     return await svc.create_manual_account(
         name=name,
         account_type=PROPERTY_ACCOUNT_TYPE,

@@ -189,8 +189,8 @@ class TagPayload(BaseModel):
 class TagSwapPayload(TagPayload):
     """A tag attached, and optionally another taken off in the same card.
 
-    A swap was two cards, and the second previewed "With Vanessa -> none"
-    because it could not see the first adding "Vanessa" - one change read
+    A swap was two cards, and the second previewed "With Robin -> none"
+    because it could not see the first adding "Robin" - one change read
     as two contradicting ones (2026-09-23).
     """
 

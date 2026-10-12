@@ -22,8 +22,8 @@ def _pages(*lines: str) -> list[dict]:
 
 ACCOUNT = Known(kind="account", target=47, how="mask", value="3639")
 DENTAL = Known(kind="party", target=7, how="domain", value="deltadentalins.com")
-DSS = Known(kind="party", target=2, how="phone", value="(845) 486-3000")
-BANK = Known(kind="institution", target=1, how="routing", value="221979363")
+DSS = Known(kind="party", target=2, how="phone", value="(555) 555-0161")
+BANK = Known(kind="institution", target=1, how="routing", value="011000015")
 
 
 class TestTheAccountAStatementIsFor:
@@ -38,14 +38,14 @@ class TestTheAccountAStatementIsFor:
             assert [one.target for one, _ in found] == [47], line
 
     def test_the_whole_number_printed_bare(self) -> None:
-        """A real Chase statement prints "000000957483639" on every page
+        """A real Chase statement prints "000000123403639" on every page
         with no label at all. Fifteen digits ending in the last four on
         file is not a year, an amount or a coincidence (2026-09-19)."""
-        found = identify(_pages("000000957483639"), [ACCOUNT])
+        found = identify(_pages("000000123403639"), [ACCOUNT])
         assert [one.target for one, _ in found] == [47]
 
     def test_a_long_number_that_ends_somewhere_else(self) -> None:
-        assert identify(_pages("000000957481164"), [ACCOUNT]) == []
+        assert identify(_pages("000000123401164"), [ACCOUNT]) == []
 
     def test_four_digits_alone_are_not_an_account(self) -> None:
         """A statement is full of four-digit numbers - a year, an amount,
@@ -73,18 +73,18 @@ class TestTheSenderByWhatTheyPrint:
 
     def test_a_phone_however_it_is_punctuated(self) -> None:
         for line in (
-            "Call us at (845) 486-3000",
-            "845.486.3000",
-            "1-845-486-3000",
+            "Call us at (555) 555-0161",
+            "555.555.0161",
+            "1-555-555-0161",
         ):
             found = identify(_pages(line), [DSS])
             assert [one.target for one, _ in found] == [2], line
 
     def test_a_number_that_is_not_theirs(self) -> None:
-        assert identify(_pages("Call us at (845) 486-3001"), [DSS]) == []
+        assert identify(_pages("Call us at (555) 555-0165"), [DSS]) == []
 
     def test_a_routing_number_names_the_bank(self) -> None:
-        found = identify(_pages("Routing #221979363"), [BANK])
+        found = identify(_pages("Routing #011000015"), [BANK])
         assert [one.target for one, _ in found] == [1]
 
     def test_nine_digits_that_are_not_a_routing_number(self) -> None:
@@ -114,7 +114,7 @@ class TestWhatItCites:
     def test_one_hit_per_thing(self) -> None:
         """A phone printed in the header and again in the footer is one
         sender, not two."""
-        found = identify(_pages("(845) 486-3000", "Questions? (845) 486-3000"), [DSS])
+        found = identify(_pages("(555) 555-0161", "Questions? (555) 555-0161"), [DSS])
         assert len(found) == 1
 
 
@@ -141,14 +141,14 @@ class TestWhatTheAppAlreadyKnows:
             kind="organization",
             contact={
                 "website": "https://www.deltadentalins.com",
-                "phone": "1-888-282-8784",
+                "phone": "1-888-555-0162",
             },
         )
         bank = FinanceInstitution(
             name="HVCU",
             normalized_name="hvcu",
             provider="manual",
-            routing_number="221979363",
+            routing_number="011000015",
         )
         async_db_session.add(bank)
         await async_db_session.flush()
@@ -160,8 +160,8 @@ class TestWhatTheAppAlreadyKnows:
 
         assert ("account", "mask", "3639") in index
         assert ("party", "domain", "https://www.deltadentalins.com") in index
-        assert ("party", "phone", "1-888-282-8784") in index
-        assert ("institution", "routing", "221979363") in index
+        assert ("party", "phone", "1-888-555-0162") in index
+        assert ("institution", "routing", "011000015") in index
 
     @pytest.mark.asyncio
     async def test_a_contact_with_nothing_printable_is_not_in_it(
@@ -255,11 +255,11 @@ class TestTheSenderByTheirAddress:
         from app.services.matters.service import PartyService
 
         county = await PartyService(async_db_session).create(
-            name="Dutchess County DSS",
+            name="Example County DSS",
             kind="organization",
             contact={
-                "email": "DSS@dutchessny.gov",
-                "also": [{"label": "caseworker", "value": "jdoe@dutchessny.gov"}],
+                "email": "DSS@example.gov",
+                "also": [{"label": "caseworker", "value": "jdoe@example.gov"}],
             },
         )
         known = await known_strings(async_db_session)
@@ -268,4 +268,4 @@ class TestTheSenderByTheirAddress:
             for k in known
             if k.kind == "party" and k.how == "email" and k.target == county.id
         }
-        assert addresses == {"dss@dutchessny.gov", "jdoe@dutchessny.gov"}
+        assert addresses == {"dss@example.gov", "jdoe@example.gov"}

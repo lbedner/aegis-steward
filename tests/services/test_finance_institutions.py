@@ -156,7 +156,7 @@ class TestWhatTheDirectoryShows:
             bank.id,
             name="Fidelity Investments",
             url="https://fidelity.com",
-            phone="800-343-3548",
+            phone="800-555-0160",
             owner_user_id=1,
         )
 
@@ -167,13 +167,13 @@ class TestWhatTheDirectoryShows:
         (row,) = await svc.institution_usage(owner_user_id=1)
         assert (row.url, row.phone, row.domain) == (
             "https://fidelity.com",
-            "800-343-3548",
+            "800-555-0160",
             "fidelity.com",
         )
         contact = await PartyService(svc.db).get(updated.party_id)
         assert contact is not None and contact.contact == {
             "website": "https://fidelity.com",
-            "phone": "800-343-3548",
+            "phone": "800-555-0160",
         }
 
     @pytest.mark.asyncio

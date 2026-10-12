@@ -15,7 +15,7 @@ reader sees comes from here.
 
 from __future__ import annotations
 
-# What somebody IS to a case. The role is per matter: Eleanor is the
+# What somebody IS to a case. The role is per matter: Maple is the
 # facility here and a payee in the ledger.
 ROLE_LABELS: dict[str, str] = {
     "subject": "Subject",

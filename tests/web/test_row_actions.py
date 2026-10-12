@@ -281,7 +281,7 @@ class TestOobCounter:
 
 
 class TestTheRegisterDoesNotRepeatItself:
-    """Measured on the real ledger 2026-09-11, after Leonard reported the
+    """Measured on the real ledger 2026-09-11, after the owner reported the
     account search crawling: a register response was 1,097 KB, and 1,041
     of that was the fifty rows. Each row carried its own copy of the
     category list - 270 options, 17.5 KB of a 20.8 KB row - so every

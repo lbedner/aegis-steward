@@ -21,7 +21,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import status
 from fastapi.testclient import TestClient
+import pytest
 
+from app.core.config import settings
 from app.services.load_test.api.models import (
     APILoadTestConfiguration,
     APILoadTestMetrics,
@@ -95,54 +97,66 @@ def _fake_store_for_get(item: APILoadTestResult | None) -> MagicMock:
     return store
 
 
-class TestLoadTestAPIEndpointsOpen:
-    """Auth service not enabled — endpoints are open, like ``/health/``."""
+@pytest.fixture(autouse=True)
+def _enable_auth():
+    prior = settings.AUTH_ENABLED
+    settings.AUTH_ENABLED = True
+    try:
+        yield
+    finally:
+        settings.AUTH_ENABLED = prior
 
-    def test_recent_with_store_returns_list(self, client: TestClient) -> None:
+
+class TestLoadTestAPIEndpointsAuthGated:
+    def test_recent_requires_auth(self, client: TestClient) -> None:
+        response = client.get("/api/v1/load-tests/api/recent")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_get_requires_auth(self, client: TestClient) -> None:
+        response = client.get("/api/v1/load-tests/api/abc")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_recent_with_store_returns_list(
+        self, authenticated_client: TestClient
+    ) -> None:
         fake = _fake_store_for_recent([_result("a"), _result("b")])
         with _patch_store_op(fake):
-            response = client.get("/api/v1/load-tests/api/recent")
+            response = authenticated_client.get("/api/v1/load-tests/api/recent")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert len(body) == 2
         assert body[0]["test_id"] == "a"
         fake.list_recent.assert_awaited_once()
 
-    def test_recent_no_store_returns_empty_list(self, client: TestClient) -> None:
+    def test_recent_no_store_returns_empty_list(
+        self, authenticated_client: TestClient
+    ) -> None:
         """No Redis configured -> closure gets ``None`` -> returns ``[]``."""
         with _patch_store_op(None):
-            response = client.get("/api/v1/load-tests/api/recent")
+            response = authenticated_client.get("/api/v1/load-tests/api/recent")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
 
-    def test_get_with_store_returns_run(self, client: TestClient) -> None:
+    def test_get_with_store_returns_run(self, authenticated_client: TestClient) -> None:
         fake = _fake_store_for_get(_result("findme"))
         with _patch_store_op(fake):
-            response = client.get("/api/v1/load-tests/api/findme")
+            response = authenticated_client.get("/api/v1/load-tests/api/findme")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["test_id"] == "findme"
+        body = response.json()
+        assert body["test_id"] == "findme"
+        assert body["metrics"]["tasks_sent"] == 10
         fake.get.assert_awaited_once_with("findme")
 
-    def test_get_with_store_404_when_missing(self, client: TestClient) -> None:
+    def test_get_with_store_404_when_missing(
+        self, authenticated_client: TestClient
+    ) -> None:
         fake = _fake_store_for_get(None)
         with _patch_store_op(fake):
-            response = client.get("/api/v1/load-tests/api/missing")
+            response = authenticated_client.get("/api/v1/load-tests/api/missing")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_get_no_store_returns_404(self, client: TestClient) -> None:
+    def test_get_no_store_returns_404(self, authenticated_client: TestClient) -> None:
         """No Redis configured -> closure gets ``None`` -> 404."""
         with _patch_store_op(None):
-            response = client.get("/api/v1/load-tests/api/anything")
+            response = authenticated_client.get("/api/v1/load-tests/api/anything")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_recent_respects_limit_query_param(self, client: TestClient) -> None:
-        fake = _fake_store_for_recent([])
-        with _patch_store_op(fake):
-            response = client.get("/api/v1/load-tests/api/recent?limit=5")
-        assert response.status_code == status.HTTP_200_OK
-        # The closure forwarded the requested limit to the store.
-        fake.list_recent.assert_awaited_once_with(5)
-
-    def test_recent_rejects_invalid_limit(self, client: TestClient) -> None:
-        response = client.get("/api/v1/load-tests/api/recent?limit=0")
-        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

@@ -1,7 +1,9 @@
-"""Simple in-memory rate limiter for auth endpoints.
+"""Rate limits for auth endpoints.
 
-The ``RateLimiter`` class and its three pre-configured instances are the
-implementation. The ``*_rate_limit`` callables at the bottom of this
+Sign-in is counted in Redis (the shared cache), per address and per email,
+so neither a restart nor a second process resets it (``login_rate_limit``).
+The rest are in-memory: the ``RateLimiter`` class and its pre-configured
+instances. The ``*_rate_limit`` callables at the bottom of this
 module are thin ``Depends``-able wrappers; route handlers import those
 from ``app.components.backend.api.deps`` rather than reaching in here
 directly.
@@ -11,6 +13,7 @@ import time
 
 from fastapi import HTTPException, Request, status
 
+from app.core.cache import get_cache
 from app.core.config import settings
 
 
@@ -96,7 +99,6 @@ class RateLimiter:
 
 
 # Shared instances for auth endpoints
-login_limiter = RateLimiter("RATE_LIMIT_LOGIN_MAX", "RATE_LIMIT_LOGIN_WINDOW")
 register_limiter = RateLimiter("RATE_LIMIT_REGISTER_MAX", "RATE_LIMIT_REGISTER_WINDOW")
 password_reset_limiter = RateLimiter(
     "RATE_LIMIT_REGISTER_MAX", "RATE_LIMIT_REGISTER_WINDOW"
@@ -110,9 +112,27 @@ resend_verification_limiter = RateLimiter(
 )
 
 
-def login_rate_limit(request: Request) -> None:
-    """FastAPI dependency: enforce the login rate limit."""
-    login_limiter.check(request)
+# Where sign-in attempts are counted in the cache.
+LOGIN_BUCKET = "ratelimit:login:"
+
+
+async def login_rate_limit(request: Request) -> None:
+    """FastAPI dependency: enforce the sign-in limit, per address and per
+    email (the API form's ``username``, the page form's ``email``). Every
+    attempt counts, so guesses spread over addresses still run out."""
+    form = await request.form()
+    email = str(form.get("username") or form.get("email") or "").strip().lower()
+    buckets = [f"{LOGIN_BUCKET}ip:{get_client_ip(request) or 'unknown'}"]
+    if email:
+        buckets.append(f"{LOGIN_BUCKET}email:{email}")
+    window = settings.RATE_LIMIT_LOGIN_WINDOW
+    counts = [await get_cache().hit(bucket, window) for bucket in buckets]
+    if max(counts) > settings.RATE_LIMIT_LOGIN_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+            headers={"Retry-After": str(window)},
+        )
 
 
 def register_rate_limit(request: Request) -> None:

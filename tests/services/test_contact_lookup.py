@@ -1,7 +1,7 @@
 """Reading the reach fields off paper already on the shelf.
 
 The address, the phone and the website were printed on the letterhead
-before anybody asked for them. Dutchess County DSS puts its own street
+before anybody asked for them. Example County DSS puts its own street
 address and switchboard at the top of every letter it sends, and the
 contact record for it held nothing but an address somebody typed.
 
@@ -16,23 +16,23 @@ from pathlib import Path
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-LETTERHEAD = """DUTCHESS COUNTY
+LETTERHEAD = """EXAMPLE COUNTY
 DEPARTMENT OF
 COMMUNITY AND FAMILY SERVICES
-60 MARKET STREET
-POUGHKEEPSIE, NY 12601
-(845) 486-3000
+10 CENTER STREET
+ANYTOWN, NY 12345
+(555) 555-0161
 
-James Bedner Date : 8/27/2026
-c/o Eleanor Nursing Care Center
-419 N. Quaker Lane Case #; MA258760XX
-Hyde Park, NY 12538
+James Doe Date : 8/27/2026
+c/o Maple Nursing Care Center
+100 N. Orchard Lane Case #; MA123456XX
+Lakeside, NY 12346
 
 REQUEST FOR INFORMATION / REQUEST TO TAKE ACTION
 In order to determine your eligibility for assistance, we need either
 the information listed below or you to take the action listed below.
-Questions: call your examiner at 845-486-3301 or fax 845-486-3345.
-Visit us at www.dutchessny.gov/dcfs for more.
+Questions: call your examiner at 555-555-0163 or fax 555-555-0164.
+Visit us at www.example.gov/dcfs for more.
 """
 
 
@@ -43,10 +43,10 @@ class TestWhatAPageOffers:
         from app.services.matters.lookup import found_in
 
         found = found_in(LETTERHEAD)
-        assert found["phone"] == "(845) 486-3000"
-        assert found["website"] == "www.dutchessny.gov/dcfs"
-        assert "60 Market Street" in found["address"]
-        assert "Poughkeepsie, NY 12601" in found["address"]
+        assert found["phone"] == "(555) 555-0161"
+        assert found["website"] == "www.example.gov/dcfs"
+        assert "10 Center Street" in found["address"]
+        assert "Anytown, NY 12345" in found["address"]
 
     def test_the_first_phone_wins_because_letterheads_lead(self) -> None:
         """Three numbers on the page and only one is the switchboard.
@@ -56,8 +56,8 @@ class TestWhatAPageOffers:
         from app.services.matters.lookup import found_in
 
         found = found_in(LETTERHEAD)
-        assert found["phone"] == "(845) 486-3000"
-        assert "845-486-3301" not in found.values()
+        assert found["phone"] == "(555) 555-0161"
+        assert "555-555-0163" not in found.values()
 
     def test_a_box_is_an_address_too(self) -> None:
         """What large organizations actually print. Delta Dental and
@@ -74,20 +74,18 @@ class TestWhatAPageOffers:
         assert found_in("Net Benefit: $1004.93\nThis is a lifetime benefit.") == {}
 
     def test_a_case_number_is_not_a_phone_number(self) -> None:
-        """``MA258760XX`` and ``23548895152718`` are on this paper too.
+        """``MA123456XX`` and ``12345678901234`` are on this paper too.
         A digit run is not a phone number."""
         from app.services.matters.lookup import found_in
 
-        found = found_in("Case #; MA258760XX ref 23548895152718 acct 4483109900")
+        found = found_in("Case #; MA123456XX ref 12345678901234 acct 1234509876")
         assert "phone" not in found
 
     def test_an_email_the_letterhead_vouches_for_is_read(self) -> None:
         from app.services.matters.lookup import found_in
 
-        found = found_in(
-            "Visit www.dutchessny.gov/dcfs or write to info@dutchessny.gov."
-        )
-        assert found["email"] == "info@dutchessny.gov"
+        found = found_in("Visit www.example.gov/dcfs or write to info@example.gov.")
+        assert found["email"] == "info@example.gov"
 
     def test_a_recipients_email_is_not_read_as_the_senders(self) -> None:
         """Found on the real shelf. A Delta Dental notice carried the
@@ -98,7 +96,7 @@ class TestWhatAPageOffers:
 
         found = found_in(
             "Delta Dental of New York\ndeltadentalins.com/about/contact/\n"
-            "Enrollee: Marisa B <someone@gmail.com>"
+            "Enrollee: Alex B <someone@gmail.com>"
         )
         assert found["website"] == "deltadentalins.com/about/contact/"
         assert "email" not in found
@@ -116,22 +114,22 @@ class TestWhatAPageOffers:
         assert "email" not in found
 
     def test_a_domain_inside_an_email_is_not_a_website(self) -> None:
-        """Live, on the DSS letter: `Traver@dfa.state.ny.us` was read as
+        """Live, on the DSS letter: `Examiner@dfa.state.ny.us` was read as
         a website of `state.ny.us`, which then "corroborated" the email
         it had been extracted from. Two wrong fields propping each other
         up. An email is removed before any website is looked for."""
         from app.services.matters.lookup import found_in
 
-        found = found_in("Contact P. Traver at Traver@dfa.state.ny.us today.")
+        found = found_in("Contact P. Examiner at Examiner@dfa.state.ny.us today.")
         assert "website" not in found
         assert "email" not in found
 
     def test_a_real_site_beside_an_email_still_reads(self) -> None:
         from app.services.matters.lookup import found_in
 
-        found = found_in("See www.dutchessny.gov/dcfs or mail Traver@dutchessny.gov.")
-        assert found["website"] == "www.dutchessny.gov/dcfs"
-        assert found["email"] == "Traver@dutchessny.gov"
+        found = found_in("See www.example.gov/dcfs or mail Examiner@example.gov.")
+        assert found["website"] == "www.example.gov/dcfs"
+        assert found["email"] == "Examiner@example.gov"
 
     def test_an_email_with_nothing_to_vouch_for_it_is_dropped(self) -> None:
         """No letterhead site on the page means nothing corroborates the
@@ -151,7 +149,7 @@ class TestTheLabelledLines:
     makes these worth keeping.
 
     The value is taken verbatim, the whole of the line after the colon.
-    A person reads these; nothing parses them. "Melissa. Traver@..."
+    A person reads these; nothing parses them. "Jordan. Examiner@..."
     carries an OCR artifact, and showing it as printed is honest where
     quietly closing the gap would be a guess dressed as a reading.
     """
@@ -159,33 +157,33 @@ class TestTheLabelledLines:
     def test_it_reads_a_labelled_number(self) -> None:
         from app.services.matters.lookup import lines_in
 
-        found = lines_in("SSPA-45 fax: 845-486-3301")
-        assert found == [("fax", "845-486-3301")]
+        found = lines_in("SSPA-45 fax: 555-555-0163")
+        assert found == [("fax", "555-555-0163")]
 
     def test_it_keeps_the_value_as_printed(self) -> None:
         from app.services.matters.lookup import lines_in
 
-        found = lines_in("Rev. 12/13 Email: Melissa. Traver@dfa.state.ny.us")
-        assert found == [("Email", "Melissa. Traver@dfa.state.ny.us")]
+        found = lines_in("Rev. 12/13 Email: Jordan. Examiner@dfa.state.ny.us")
+        assert found == [("Email", "Jordan. Examiner@dfa.state.ny.us")]
 
     def test_a_line_with_no_way_to_reach_anyone_is_not_a_line(self) -> None:
         from app.services.matters.lookup import lines_in
 
-        assert lines_in("Case #; MA258760XX") == []
+        assert lines_in("Case #; MA123456XX") == []
         assert lines_in("Date : 8/27/2026") == []
 
     def test_an_unlabelled_number_is_dropped(self) -> None:
         """A label this cannot read is a line it must not invent."""
         from app.services.matters.lookup import lines_in
 
-        assert lines_in("Call 845-486-3345 between 9 and 5.") == []
+        assert lines_in("Call 555-555-0164 between 9 and 5.") == []
 
     def test_the_letterhead_number_is_not_repeated_as_a_line(self) -> None:
         from app.services.matters.lookup import found_in, lines_in
 
-        page = "DUTCHESS COUNTY\n(845) 486-3000\nSSPA-45 fax: 845-486-3301"
-        assert found_in(page)["phone"] == "(845) 486-3000"
-        assert lines_in(page, besides={"(845) 486-3000"}) == [("fax", "845-486-3301")]
+        page = "EXAMPLE COUNTY\n(555) 555-0161\nSSPA-45 fax: 555-555-0163"
+        assert found_in(page)["phone"] == "(555) 555-0161"
+        assert lines_in(page, besides={"(555) 555-0161"}) == [("fax", "555-555-0163")]
 
 
 class TestWhatToProposeForAParty:
@@ -201,9 +199,9 @@ class TestWhatToProposeForAParty:
         from app.services.matters.service import PartyService
 
         party = await PartyService(async_db_session).create(
-            name="Dutchess Testcase",
+            name="Example Testcase",
             kind="organization",
-            contact={"address": "60 Market Street, Poughkeepsie, NY 12601"},
+            contact={"address": "10 Center Street, Anytown, NY 12345"},
         )
         document = Document(
             title="Request.pdf", kind="letter", storage_key="k1", content_hash="h1"
@@ -219,7 +217,7 @@ class TestWhatToProposeForAParty:
         offers = await contact_details(async_db_session, party.id)
         fields = {offer["field"]: offer for offer in offers}
         assert "address" not in fields, "already on the record"
-        assert fields["phone"]["value"] == "(845) 486-3000"
+        assert fields["phone"]["value"] == "(555) 555-0161"
         # Every offer says where it was read, or it is not an offer.
         assert fields["phone"]["document_id"] == document.id
         assert fields["phone"]["page"] == 1
@@ -236,7 +234,7 @@ class TestWhatToProposeForAParty:
         party = await PartyService(async_db_session).create(
             name="Lines Testcase",
             kind="organization",
-            contact={"also": [{"label": "fax", "value": "845-486-3301"}]},
+            contact={"also": [{"label": "fax", "value": "555-555-0163"}]},
         )
         document = Document(
             title="Letter.pdf", kind="letter", storage_key="k3", content_hash="h3"
@@ -251,8 +249,8 @@ class TestWhatToProposeForAParty:
             async_db_session,
             document.id,
             1,
-            "DUTCHESS COUNTY\n60 MARKET STREET\nPOUGHKEEPSIE, NY 12601\n"
-            "(845) 486-3000\nSSPA-45 fax: 845-486-3301\nphone: 845-486-3345",
+            "EXAMPLE COUNTY\n10 CENTER STREET\nANYTOWN, NY 12345\n"
+            "(555) 555-0161\nSSPA-45 fax: 555-555-0163\nphone: 555-555-0164",
         )
 
         offers = await contact_details(async_db_session, party.id)
@@ -260,7 +258,7 @@ class TestWhatToProposeForAParty:
         # The fax is already a line on the record, so only the examiner's
         # number is new - and the letterhead's own number is a main
         # field, not a line.
-        assert [(o["label"], o["value"]) for o in lines] == [("phone", "845-486-3345")]
+        assert [(o["label"], o["value"]) for o in lines] == [("phone", "555-555-0164")]
         assert lines[0]["document_id"] == document.id
         assert lines[0]["page"] == 1
 

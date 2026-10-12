@@ -7,7 +7,8 @@ cross-cutting concerns (logging, error UI) per event.
 
 - ``on_connect`` fires when the WebSocket connects (initial load + browser
   refresh + reconnect after a transient drop). When the user refreshes,
-  this is our cue to call ``current_view.on_refresh()``.
+  this is our cue to call ``current_view.on_refresh()`` or
+  redirect to ``/login`` if the session no longer has a valid token.
 - ``on_disconnect`` fires on tab close / lost connection. Logging only.
 - ``on_error`` fires on uncaught Flet runtime errors. Logging only.
 - ``on_resize`` fires on viewport changes. Right now nothing UI-level
@@ -19,6 +20,8 @@ from __future__ import annotations
 
 import flet as ft
 
+from app.components.frontend.auth.session import is_authenticated
+from app.components.frontend.core.routing import redirect_to_login
 from app.components.frontend.core.session_health import reload_if_server_restarted
 from app.core.log import logger
 
@@ -36,6 +39,12 @@ async def on_connect(event: ft.ControlEvent) -> None:
     # first update() against it raises. Reload it now instead - same
     # cure, minus the frozen frame and the loops that have to notice.
     if await reload_if_server_restarted(page):
+        return
+
+    # Refresh-or-redirect: if the user refreshes the browser on a
+    # protected route and their token has expired, kick them to login.
+    if not await is_authenticated(page):
+        redirect_to_login(page)
         return
 
     # Browser refresh path: tell the active view to reload its data.

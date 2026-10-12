@@ -28,12 +28,12 @@ class TestSuggestedPayeeName:
     def test_a_shouty_bank_descriptor_falls_back_to_the_key(self) -> None:
         """An all-caps sample carries no case information worth keeping,
         and usually trails a store number and a city."""
-        assert suggested_payee_name("TARGET", "TARGET POUGHKEEPSIE NY") == "Target"
+        assert suggested_payee_name("TARGET", "TARGET ANYTOWN NY") == "Target"
 
     def test_a_noisy_descriptor_falls_back_to_the_key(self) -> None:
         """Mixed case is not enough on its own - this one has it, and is
         still not a name anybody would choose."""
-        sample = "DOORDASH*CROWN FRIEDSAN FRANCIS NT_KBVL6WXU +16506819470"
+        sample = "DOORDASH*CROWN FRIEDSAN FRANCIS NT_KBVL6WXU +16505550123"
         assert suggested_payee_name("DOORDASH CROWN FRIEDSAN FRANCIS", sample) == (
             "Doordash Crown Friedsan Francis"
         )

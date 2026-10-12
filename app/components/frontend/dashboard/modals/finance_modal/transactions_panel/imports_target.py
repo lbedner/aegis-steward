@@ -9,6 +9,7 @@ nothing of what happens next: the caller hands them the continuation.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import flet as ft
 
@@ -31,27 +32,71 @@ from app.components.frontend.dashboard.modals.finance_modal.transactions_panel.b
     TransactionsPanelState,
 )
 from app.components.frontend.theme import AegisTheme as Theme
+from app.services.finance.domains.imports_job import NEEDS_ACCOUNT
 
-# Import uploads parse the file and run the reconciliation plan inside
-# the request, so they legitimately outlive the client-wide 10s UI
-# budget. The commit path is exempt: it returns a job id immediately
-# and streams progress over SSE.
-_IMPORT_TIMEOUT_SECONDS = 120.0
+PREVIEW_PATH = "/api/v1/finance/import/preview"
 
 
 class ImportTargetMixin(TransactionsPanelState):
-    """The two "into which account?" dialogs of the import flow."""
+    """The two "into which account?" dialogs of the import flow, and the
+    one way the flow hands a file to the server."""
+
+    async def _upload_job(
+        self,
+        path: str,
+        data: bytes,
+        original_name: str,
+        params: dict[str, object] | None = None,
+        *,
+        needs_account: Callable[[], Awaitable[None]] | None = None,
+    ) -> dict[str, Any] | None:
+        """Post the file to an import endpoint and follow the job it
+        starts: every one answers with a job id at once and parses on the
+        worker (#494), the overlay's label tracking the job's.
+
+        The job's result, or None once the overlay says why not. A file
+        that names no account goes to ``needs_account`` instead, when the
+        caller can ask for one.
+        """
+        from app.components.frontend.controls import jobs
+        from app.components.frontend.state.session_state import get_session_state
+
+        overlay = LoadingOverlay.of(self.page)
+        api = get_session_state(self.page).api_client
+        started = await api.post_multipart(
+            path,
+            files={"file": (original_name, data, "application/octet-stream")},
+            params=params or {},
+        )
+        if not isinstance(started, dict) or "job_id" not in started:
+            # The real reason (HTTP status + detail body), not a guess.
+            overlay.fail(
+                api.last_error or "Import failed for an unknown reason.",
+                title="Import failed",
+            )
+            return None
+        outcome = await jobs.follow_job(
+            api, started["job_id"], on_label=overlay.update_label
+        )
+        if outcome.error == NEEDS_ACCOUNT and needs_account is not None:
+            overlay.hide()
+            await needs_account()
+            return None
+        if outcome.error is not None:
+            overlay.fail(outcome.error, title="Import failed")
+            return None
+        overlay.hide()
+        return outcome.result
 
     async def _ask_target_account(
         self,
-        preview: dict,
         data: bytes,
         original_name: str,
         then: Callable[..., Awaitable[None]],
     ) -> None:
         """The file names no account and none is selected: ask, then
-        preview again with the answer. Explicit beats a server 400 the
-        client can only echo, and beats guessing from the sidebar."""
+        preview again with the answer. Explicit beats an error the client
+        can only echo, and beats guessing from the sidebar."""
         from app.components.frontend.state.session_state import get_session_state
 
         api = get_session_state(self.page).api_client
@@ -64,7 +109,6 @@ class ImportTargetMixin(TransactionsPanelState):
             )
             return
         target_dd = FormDropdown(label="Into account", options=options, value=default)
-        layout = preview.get("layout") or "This file"
         dialog_handle = DialogHandle()
 
         async def _close() -> None:
@@ -73,34 +117,19 @@ class ImportTargetMixin(TransactionsPanelState):
         async def _preview_into() -> None:
             account_id = int(target_dd.value or default)
             await _close()
-            overlay = LoadingOverlay.of(self.page)
-            overlay.show(f"Checking {original_name}...")
-            again = await api.post_multipart(
-                "/api/v1/finance/import/preview",
-                files={"file": (original_name, data, "application/octet-stream")},
-                params={"account_id": account_id},
-                timeout=_IMPORT_TIMEOUT_SECONDS,
+            LoadingOverlay.of(self.page).show(f"Checking {original_name}...")
+            again = await self._upload_job(
+                PREVIEW_PATH, data, original_name, {"account_id": account_id}
             )
-            if not isinstance(again, dict):
-                overlay.fail(
-                    api.last_error or "Import failed for an unknown reason.",
-                    title="Import failed",
-                )
-                return
-            overlay.hide()
-            await then(again, data, original_name, account_id=account_id)
+            if again is not None:
+                await then(again, data, original_name, account_id=account_id)
 
         dialog = StyledAlertDialog(
             handle=dialog_handle,
             title=f"Import {original_name}",
             body=ft.Column(
                 [
-                    SecondaryText(
-                        f"{layout} statements carry no account name. "
-                        f"{preview.get('rows_total', 0):,} rows read. "
-                        "Which account is this?",
-                        size=Theme.Typography.BODY_SMALL,
-                    ),
+                    SecondaryText(NEEDS_ACCOUNT, size=Theme.Typography.BODY_SMALL),
                     target_dd,
                 ],
                 spacing=Theme.Spacing.MD,

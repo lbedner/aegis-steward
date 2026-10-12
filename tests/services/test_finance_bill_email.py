@@ -82,13 +82,13 @@ async def test_lists_the_bills_due_in_the_window(
     a_bill: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
     monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_DAYS", 7)
     await jobs.finance_bill_due_email_job()
 
     assert len(outbox) == 1
     mail = outbox[0]
-    assert mail["to"] == "leonard@example.com"
+    assert mail["to"] == "sam@example.com"
     assert mail["subject"] == "1 bill due in the next 7 days"
     assert "Rent" in mail["text"] and "$1,500.00" in mail["text"]
 
@@ -100,7 +100,7 @@ async def test_a_window_that_ends_before_the_bill_sends_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Rent is three days out; a one-day window has nothing to say."""
-    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
     monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_DAYS", 1)
     await jobs.finance_bill_due_email_job()
     assert outbox == []
@@ -113,7 +113,7 @@ async def test_a_provider_failure_never_escapes_the_job(
 ) -> None:
     """The scheduler must not see an exception: a failed mail is logged
     and the run ends."""
-    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
 
     async def _boom(**_kwargs: Any) -> None:
         raise RuntimeError("Resend is down.")
@@ -149,7 +149,7 @@ async def test_the_budget_and_goals_are_not_bills(
     assert goal.id is not None
     await async_db_session.commit()
 
-    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
     monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_DAYS", 40)
     await jobs.finance_bill_due_email_job()
 
@@ -185,6 +185,6 @@ async def test_one_address_gets_one_mail(
     )
     await async_db_session.commit()
 
-    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "leonard@example.com")
+    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", "sam@example.com")
     await jobs.finance_bill_due_email_job()
     assert len(outbox) == 1

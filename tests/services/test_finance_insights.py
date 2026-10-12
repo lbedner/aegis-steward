@@ -865,7 +865,7 @@ class TestMissedRecurring:
             async_db_session,
             is_user_confirmed=True,
             account_id=old_card.id,
-            name="ELEANOR",
+            name="MAPLE",
             last_date=date(2026, 6, 1),
             next_expected_date=date(2026, 7, 1),
         )
@@ -874,7 +874,7 @@ class TestMissedRecurring:
             async_db_session,
             is_user_confirmed=True,
             account_id=checking.id,
-            name="ELEANOR",
+            name="MAPLE",
             last_date=date(2026, 7, 3),
             next_expected_date=date(2026, 8, 3),
         )
@@ -896,7 +896,7 @@ class TestMissedRecurring:
             async_db_session,
             is_user_confirmed=True,
             account_id=old_card.id,
-            name="ELEANOR",
+            name="MAPLE",
             last_date=date(2026, 6, 1),
             next_expected_date=date(2026, 7, 1),
         )
@@ -910,7 +910,7 @@ class TestMissedRecurring:
             async_db_session,
             is_user_confirmed=True,
             account_id=checking.id,
-            name="ELEANOR",
+            name="MAPLE",
             last_date=date(2026, 7, 3),
             next_expected_date=date(2026, 8, 3),
         )

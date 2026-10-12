@@ -7,7 +7,7 @@ vendor information, and current configuration status.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlmodel import Session
 
@@ -26,8 +26,14 @@ from app.services.ai.domains.llm.llm_service import (
     list_vendors,
     set_active_model,
 )
+from app.services.auth.deps import get_current_active_user
 
 router = APIRouter(prefix="/llm", tags=["llm"])
+
+# Switching the model rewrites runtime configuration, so it is not a read.
+# Auth-enabled stacks require a signed-in caller; standalone stacks have no
+# identity to check against and leave it open like the rest of the dashboard API.
+require_model_switch = get_current_active_user
 
 
 # Response models
@@ -353,6 +359,7 @@ async def get_current() -> CurrentConfigResponse:
 @router.post("/current", response_model=SetModelResponse)
 async def set_current(
     body: SetModelRequest,
+    _user: Any = Depends(require_model_switch),
 ) -> SetModelResponse:
     """Switch the active LLM model.
 
@@ -383,7 +390,9 @@ async def set_current(
 
 
 @router.delete("/current", response_model=CurrentConfigResponse)
-async def clear_current() -> CurrentConfigResponse:
+async def clear_current(
+    _user: Any = Depends(require_model_switch),
+) -> CurrentConfigResponse:
     """Remove the stored model override; .env becomes the source again.
 
     Idempotent: clearing when no override exists is a no-op that still

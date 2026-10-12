@@ -19,10 +19,12 @@ from app.services.system.models import ComponentStatus, ComponentStatusType
 
 from ..dashboard.cards import (
     AICard,
+    AuthCard,
     CommsCard,
     DatabaseCard,
     DocumentsCard,
     FinanceCard,
+    IngressCard,
     OllamaCard,
     RedisCard,
     SchedulerCard,
@@ -121,6 +123,9 @@ def create_component_card(component_name: str, component_data: Any) -> ft.Contai
         elif component_name == ComponentName.DATABASE:
             return DatabaseCard(component_data).build()
 
+        elif component_name == ComponentName.INGRESS:
+            return IngressCard(component_data).build()
+
         elif component_name == ComponentName.OLLAMA:
             return OllamaCard(component_data).build()
 
@@ -134,6 +139,9 @@ def create_component_card(component_name: str, component_data: Any) -> ft.Contai
 
         elif component_name == "service_ai":
             return AICard(component_data).build()
+
+        elif component_name == "service_auth":
+            return AuthCard(component_data).build()
 
         elif component_name == "service_comms":
             return CommsCard(component_data).build()

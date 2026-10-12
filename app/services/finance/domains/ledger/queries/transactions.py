@@ -336,8 +336,8 @@ async def top_payees_over_window(
     The payee is ``payee_label``'s rule in SQL: the payee somebody NAMED
     first, then the one the source supplied, then the raw descriptor.
     Grouping on the source's name alone made this list disagree with
-    every other surface - the register showed "Eleanor Nursing Care"
-    while this showed "Recurring Withdrawal Debit Card CK *Eleanor Nu...".
+    every other surface - the register showed "Maple Nursing Care"
+    while this showed "Recurring Withdrawal Debit Card CK *Maple Nu...".
 
     It is not only the label. Naming a payee is what makes its rows ADD
     UP: on the live ledger one Shop Rite reached this list at $662.78

@@ -1,7 +1,7 @@
 """A check download is one card: skip some, approve the rest, fix a payee (#420).
 
 The reader filed fourteen separate check cards from one download, and a
-misread payee ("Holly Cow" for Holy Cow) could be fixed by nobody: the
+misread payee ("Sweat Scoop" for Sweet Scoop) could be fixed by nobody: the
 card was not editable and Illiana had no way to touch a pending card.
 """
 
@@ -21,7 +21,7 @@ from app.services.finance.domains.writes.queue import (
 from tests._session import opens
 
 
-def _card(transaction_id: int, payee: str | None = "Holly Cow") -> dict[str, Any]:
+def _card(transaction_id: int, payee: str | None = "Sweat Scoop") -> dict[str, Any]:
     return {
         "document_id": 22,
         "page": 5,
@@ -41,11 +41,11 @@ class TestTheCard:
         cited reading; they must stay approvable."""
         old = {
             **_card(1),
-            "payee": {"value": "Dr. Clark", "page": 5, "because": "ORDER OF Dr. Clark"},
+            "payee": {"value": "Dr. Molar", "page": 5, "because": "ORDER OF Dr. Molar"},
         }
         old.pop("payee_because")
         card = check_card.CheckPayload(**old)
-        assert (card.payee, card.payee_because) == ("Dr. Clark", "ORDER OF Dr. Clark")
+        assert (card.payee, card.payee_because) == ("Dr. Molar", "ORDER OF Dr. Molar")
 
     @pytest.mark.asyncio
     async def test_only_the_payee_can_be_edited(
@@ -57,10 +57,10 @@ class TestTheCard:
         assert change.id is not None
 
         revised = await revise_fields(
-            async_db_session, change.id, {"payee": "Holy Cow"}, owner_user_id=None
+            async_db_session, change.id, {"payee": "Sweet Scoop"}, owner_user_id=None
         )
 
-        assert revised.payload["payee"] == "Holy Cow"
+        assert revised.payload["payee"] == "Sweet Scoop"
         # Everything else is the card's own and stays.
         assert revised.payload["front_key"] == "scans/front-1"
         assert revised.payload["transaction_id"] == 1
@@ -114,15 +114,15 @@ class TestIllianaFixesAPayee:
     async def test_a_phrase_revises_every_card_that_misread_it(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """ "It's Holy Cow" fixes the reader's cards that said Holly Cow,
-        and leaves the one that read Dr. Clark alone."""
+        """ "It's Sweet Scoop" fixes the reader's cards that said Sweat Scoop,
+        and leaves the one that read Dr. Molar alone."""
         from app.services.ai.domains.chat.user_memory import memory_user
         from app.services.finance import ai_write_tools
 
         monkeypatch.setattr(
             ai_write_tools, "get_async_session", opens(async_db_session)
         )
-        for n, payee in ((1, "Holly Cow"), (2, "Holly Cow"), (3, "Dr. Clark")):
+        for n, payee in ((1, "Sweat Scoop"), (2, "Sweat Scoop"), (3, "Dr. Molar")):
             await propose(
                 async_db_session,
                 checks.CHECK,
@@ -134,7 +134,7 @@ class TestIllianaFixesAPayee:
 
         with memory_user("1", agent_slug="finance-assistant", conversation_id="c-1"):
             result = await ai_write_tools.revise(
-                {"payee": "Holy Cow"}, about="Holly Cow"
+                {"payee": "Sweet Scoop"}, about="Sweat Scoop"
             )
 
         assert len(result["revised"]) == 2
@@ -143,4 +143,4 @@ class TestIllianaFixesAPayee:
             for c in await list_changes(async_db_session, status="pending")
             if c.change_type == checks.CHECK
         )
-        assert payees == ["Dr. Clark", "Holy Cow", "Holy Cow"]
+        assert payees == ["Dr. Molar", "Sweet Scoop", "Sweet Scoop"]

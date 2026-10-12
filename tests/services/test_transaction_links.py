@@ -1,7 +1,7 @@
 """A transaction filed against a matter or a contact (#290, #303).
 
 "I don't have a tool to link it directly to a specific matter" - the
-$1,500 root canal charge belonged on "Marisa's Root Canals", and the
+$1,500 root canal charge belonged on "Alex's Root Canals", and the
 dentist's charges with the dentist's record. Transactions are filed by
 the labels documents already are (``matter_tag``, ``party_tag``), many
 to many, and can be unfiled.
@@ -63,9 +63,7 @@ class TestTheCard:
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         charge = await _charge(svc)
-        matter = await MatterService(async_db_session).open(
-            title="Marisa's Root Canals"
-        )
+        matter = await MatterService(async_db_session).open(title="Alex's Root Canals")
         payload = LinkTransactionPayload(
             transaction_id=charge, matter_id=int(matter.id or 0)
         )
@@ -76,7 +74,7 @@ class TestTheCard:
         }
         await link_transaction_execute(async_db_session, payload, None)
 
-        assert said["Link to"] == "Marisa's Root Canals"
+        assert said["Link to"] == "Alex's Root Canals"
         assert "BLONDIN ENDODONTICS" in said["Transaction"]
         filed = await links.linked(async_db_session, [matter_tag(int(matter.id or 0))])
         assert [t.id for t in filed[matter_tag(int(matter.id or 0))]] == [charge]

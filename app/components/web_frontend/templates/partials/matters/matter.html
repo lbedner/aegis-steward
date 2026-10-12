@@ -13,7 +13,7 @@
 <form {{ hx_dialog_post("/matters/new") }} class="space-y-4">
   {% call field("Title") %}{{ text_input("title", title, placeholder="Medicaid renewal", required=True, autofocus=True) }}{% endcall %}
   {% call field("Kind") %}{{ text_input("kind", kind, placeholder="medicaid, insurance, tax, estate") }}{% endcall %}
-  {% call field("Their reference") %}{{ text_input("reference", reference, placeholder="MA258760XX") }}{% endcall %}
+  {% call field("Their reference") %}{{ text_input("reference", reference, placeholder="MA123456XX") }}{% endcall %}
   {% call field("About") %}{{ pick_or_add("subject_party_id", parties, blank="Nobody yet", new_field="new_subject", hint="or name the person this is about") }}{% endcall %}
   {% call field("With") %}{{ pick_or_add("counterpart_party_id", parties, blank="Nobody yet", new_field="new_counterpart", hint="or name the agency that wrote") }}{% endcall %}
   {% call field("Opened") %}{{ date_input("opened_on", "", block=True) }}{% endcall %}

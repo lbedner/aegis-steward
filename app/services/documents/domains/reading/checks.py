@@ -53,7 +53,7 @@ _DATE = re.compile(r"\bDATE\b\D{0,3}(\d{1,2}/\d{1,2}/\d{2,4})", re.I)
 # the date on its face.
 _CLEARS = (timedelta(days=-3), timedelta(days=60))
 # A payee read off handwriting this close to one of yours IS yours:
-# "Nuance Health" is NuVance Health, not a second payee (#22, #21).
+# "Nuence Health" is NuVence Health, not a second payee (#22, #21).
 _SAME_PAYEE = 0.85
 # Table separators and dashes a transcription wraps a field in.
 _NOISE = " |—–-:$"

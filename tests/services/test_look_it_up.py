@@ -14,11 +14,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tests._session import opens
 
 
-async def _eleanor(db: AsyncSession, **contact: str) -> Any:
+async def _maple(db: AsyncSession, **contact: str) -> Any:
     from app.services.matters.service import PartyService
 
     party = await PartyService(db).create(
-        name="Testcase Eleanor Care", kind="organization", contact=contact or None
+        name="Testcase Maple Care", kind="organization", contact=contact or None
     )
     await db.flush()
     return party
@@ -31,7 +31,7 @@ def _web(found: list[dict[str, Any]], asked: list[Any] | None = None) -> Any:
         if asked is not None:
             asked.append((name, list(guesses), set(known)))
         return {
-            "confirmed": "example.org/eleanor/" if found else None,
+            "confirmed": "example.org/maple/" if found else None,
             "found_by": "search",
             "offers": found,
         }
@@ -41,9 +41,9 @@ def _web(found: list[dict[str, Any]], asked: list[Any] | None = None) -> Any:
 
 PHONE = {
     "field": "phone",
-    "value": "(845) 229-9177",
-    "url": "https://example.org/eleanor/",
-    "source": "found by web search; read at https://example.org/eleanor/",
+    "value": "(555) 555-0166",
+    "url": "https://example.org/maple/",
+    "source": "found by web search; read at https://example.org/maple/",
 }
 
 
@@ -55,13 +55,13 @@ class TestLookingItUp:
         from app.services.matters import domain_lookup
         from app.services.matters.lookup import propose_look_up
 
-        party = await _eleanor(async_db_session)
+        party = await _maple(async_db_session)
         monkeypatch.setattr(domain_lookup, "web_offers", _web([PHONE]))
 
         card = await propose_look_up(opens(async_db_session), party.id)
 
         assert card is not None and card.change_type == "contact.amend"
-        assert card.payload["phone"] == "(845) 229-9177"
+        assert card.payload["phone"] == "(555) 555-0166"
         assert card.payload["sources"]["phone"].startswith("found by web search")
 
     @pytest.mark.asyncio
@@ -71,7 +71,7 @@ class TestLookingItUp:
         from app.services.matters import domain_lookup
         from app.services.matters.lookup import propose_look_up
 
-        party = await _eleanor(async_db_session, phone="845-229-9177")
+        party = await _maple(async_db_session, phone="555-555-0166")
         monkeypatch.setattr(domain_lookup, "web_offers", _web([PHONE]))
 
         assert await propose_look_up(opens(async_db_session), party.id) is None
@@ -86,12 +86,12 @@ class TestLookingItUp:
         from app.services.matters.lookup import propose_look_up
 
         asked: list[Any] = []
-        party = await _eleanor(async_db_session, website="example.org/eleanor/")
+        party = await _maple(async_db_session, website="example.org/maple/")
         monkeypatch.setattr(domain_lookup, "web_offers", _web([], asked))
 
         await propose_look_up(opens(async_db_session), party.id)
 
-        assert asked[0][1] == ["example.org/eleanor/"]
+        assert asked[0][1] == ["example.org/maple/"]
 
     @pytest.mark.asyncio
     async def test_nothing_found_is_no_card(
@@ -100,7 +100,7 @@ class TestLookingItUp:
         from app.services.matters import domain_lookup
         from app.services.matters.lookup import propose_look_up
 
-        party = await _eleanor(async_db_session)
+        party = await _maple(async_db_session)
         monkeypatch.setattr(domain_lookup, "web_offers", _web([]))
 
         assert await propose_look_up(opens(async_db_session), party.id) is None
@@ -134,7 +134,7 @@ class TestLookingItUp:
         from app.services.matters import domain_lookup
         from app.services.matters.lookup import propose_look_up
 
-        party = await _eleanor(async_db_session)
+        party = await _maple(async_db_session)
         monkeypatch.setattr(domain_lookup, "web_offers", _web([PHONE]))
 
         first = await propose_look_up(opens(async_db_session), party.id)
@@ -148,7 +148,7 @@ class TestTheCardReadsCleanly:
     async def test_where_a_value_came_from_sits_under_it(
         self, async_db_session: AsyncSession
     ) -> None:
-        """Value and source ran together on one line, "(845) 229-9177 ·
+        """Value and source ran together on one line, "(555) 555-0166 ·
         found by web search; read at https://...", which was hard to read
         (2026-09-24). The source is the row's note, drawn beneath it."""
         from app.services.matters.contacts import (
@@ -156,16 +156,16 @@ class TestTheCardReadsCleanly:
             amend_contact_describe,
         )
 
-        party = await _eleanor(async_db_session)
+        party = await _maple(async_db_session)
         rows = await amend_contact_describe(
             async_db_session,
             AmendContactPayload(
                 party_id=party.id,
-                phone="(845) 229-9177",
+                phone="(555) 555-0166",
                 sources={"phone": PHONE["source"]},
             ),
             None,
         )
         phone = next(row for row in rows if row.label == "Phone")
-        assert phone.value == "- → (845) 229-9177"
+        assert phone.value == "- → (555) 555-0166"
         assert phone.note == PHONE["source"]

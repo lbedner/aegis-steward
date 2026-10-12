@@ -21,7 +21,7 @@ ASKED = "Proof of GROSS monthly income for each pension."
 async def _letter(db: AsyncSession) -> tuple[int, int]:
     matter = await MatterService(db).open(title="Medicaid renewal", reference="MA-RD-1")
     document = await DocumentService(db).ingest(
-        b"%PDF-1.4 renewal", title="Bedner J Request.pdf", kind="letter"
+        b"%PDF-1.4 renewal", title="Doe J Request.pdf", kind="letter"
     )
     await db.flush()
     return int(matter.id), int(document.id)
@@ -56,7 +56,7 @@ class TestTheCardListsWhatWasAsked:
         said = {r.label: r.value for r in rows}
 
         assert said["Matter"] == "Medicaid renewal"
-        assert said["Read from"] == "Bedner J Request.pdf"
+        assert said["Read from"] == "Doe J Request.pdf"
         assert said["Due"] == "2026-09-08"
         assert "Proof of GROSS monthly income" in said["Record a figure"]
         cited = next(r for r in rows if r.label == "Record a figure")
@@ -323,7 +323,7 @@ class TestALetterOnAMatterProposesItsDemands:
 
         matter_id, document_id = await _letter(async_db_session)
         await self._pages(
-            async_db_session, document_id, "Dear Mr. Bedner:\nAs of 08/24/2026"
+            async_db_session, document_id, "Dear Mr. Doe:\nAs of 08/24/2026"
         )
         await DocumentService(async_db_session).tag(document_id, matter_tag(matter_id))
         await async_db_session.flush()

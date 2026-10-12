@@ -146,6 +146,47 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     _queryspy_shape.shape_loaded_baseline(session.config)
 
 
+# Tests refer to owners by number: ``owner_user_id=1`` on a finance row,
+# ``user_id=42`` on a payment customer, ``0`` for the standalone-install
+# sentinel the services write when no owner is given. With auth in the stack
+# those columns are real foreign keys to ``user`` - in a generated database
+# they always were - so the rows must exist in every database a test writes
+# through. Seeded once per engine, committed, so every session and every
+# test transaction on that engine sees them.
+KNOWN_OWNER_IDS = (0, 1, 2, 7, 8, 42, 99, 999)
+
+
+def _known_owner_rows() -> list[Any]:
+    from app.models.user import User
+
+    return [
+        User(id=n, email=f"owner{n}@test.local", hashed_password="!", is_active=True)
+        for n in KNOWN_OWNER_IDS
+    ]
+
+
+# Every request a test makes is signed in, as the synthetic admin
+# ``AUTH_ENABLED=false`` stands in (``get_current_user_from_token``): the one
+# place the whole suite gets past the app's gate, so a test about something
+# else never has to sign in. A test about signing in (the gate, the login,
+# the Overseer's admin check) turns auth back on itself.
+@pytest.fixture(autouse=True)
+def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "AUTH_ENABLED", False)
+
+
+# Sign-in attempts are counted in the shared cache, which outlives a test:
+# every test starts with a fresh count, as if the window had passed.
+@pytest.fixture(autouse=True)
+async def _fresh_login_limit() -> None:
+    from app.components.backend.security.rate_limit import LOGIN_BUCKET
+    from app.core.cache import get_cache
+
+    await get_cache().invalidate_prefix(LOGIN_BUCKET)
+
+
 # Swap the module-level ``cache`` singleton to the in-memory dict
 # backend for the whole test session. The Redis-backed singleton
 # binds its async connection pool to the event loop alive when it
@@ -372,6 +413,9 @@ def engine() -> Engine:
 
     # Create all tables once per test session
     SQLModel.metadata.create_all(engine)
+    with Session(engine) as seed:
+        seed.add_all(_known_owner_rows())
+        seed.commit()
 
     return engine
 
@@ -450,6 +494,9 @@ async def app_owned_engine():
 
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+    async with AsyncSession(engine, expire_on_commit=False) as seed:
+        seed.add_all(_known_owner_rows())
+        await seed.commit()
 
     yield engine
 
@@ -612,6 +659,9 @@ async def async_engine():
     # Create all tables once per test session
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
+    async with AsyncSession(engine, expire_on_commit=False) as seed:
+        seed.add_all(_known_owner_rows())
+        await seed.commit()
 
     yield engine
 
@@ -709,6 +759,22 @@ async def async_db_session(async_engine) -> AsyncGenerator[AsyncSession]:
 
 
 @pytest.fixture
+def job_session(
+    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The import job opens its own session; point it at the test's."""
+    from contextlib import asynccontextmanager
+
+    from app.services.finance.domains import imports_job
+
+    @asynccontextmanager
+    async def _session():  # noqa: ANN202
+        yield async_db_session
+
+    monkeypatch.setattr(imports_job, "get_async_session", _session)
+
+
+@pytest.fixture
 async def async_client_with_db(
     app: FastAPI, async_db_session: AsyncSession
 ) -> AsyncGenerator[TestClient]:
@@ -725,6 +791,52 @@ async def async_client_with_db(
 
     # Clean up dependency override
     app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Composable test-data factories
+#
+# Each factory returns a callable so a single test can produce multiple
+# distinct rows. Defaults guarantee unique keys per call (no email/slug
+# collisions); pass kwargs to pin specific fields. Pattern:
+#
+#     async def test_something(user_factory):
+#         alice = await user_factory()
+#         bob = await user_factory(email="bob@test.com")
+#
+# Compose factories by taking another factory as a fixture arg — see
+# ``owner_with_org`` below.
+# ---------------------------------------------------------------------------
+
+# Default plaintext password baked into ``user_factory`` (and the
+# ``auth_user`` / ``admin_user`` fixtures). Tests that log in via the
+# API import this so the literal lives in one place. Override per call
+# by passing ``password=...`` to the factory.
+DEFAULT_USER_PASSWORD = "password123"
+
+
+@pytest.fixture
+async def user_factory(async_db_session: AsyncSession):
+    """Build distinct users via repeated calls. Auto-unique email by default."""
+    import uuid
+
+    from app.models.user import UserCreate
+    from app.services.auth.users import UserService
+
+    user_service = UserService(async_db_session)
+    counter = {"n": 0}
+
+    async def _make(**overrides):
+        counter["n"] += 1
+        defaults = {
+            "email": f"user{counter['n']}-{uuid.uuid4().hex[:8]}@test.com",
+            "full_name": f"Test User {counter['n']}",
+            "password": DEFAULT_USER_PASSWORD,
+        }
+        defaults.update(overrides)
+        return await user_service.create_user(UserCreate(**defaults))
+
+    return _make
 
 
 @pytest.fixture
@@ -767,28 +879,86 @@ async def authenticated_client(
 
 
 @pytest.fixture
-def auth_headers() -> dict[str, str]:
-    """No-op headers fixture for stacks without the auth service.
+async def auth_user(async_db_session: AsyncSession):
+    """Create a generic authenticated user. Basic auth has no role
+    concept, so this is just "a logged-in user" — no admin claim."""
+    from app.models.user import UserCreate
+    from app.services.auth.users import UserService
 
-    Tests that share assertions with auth-enabled stacks can ask for
-    ``auth_headers`` and get ``{}`` here; the endpoints aren't gated.
-    """
-    return {}
+    user_service = UserService(async_db_session)
+    return await user_service.create_user(
+        UserCreate(
+            email="auth-fixture@test.com",
+            full_name="Auth Fixture",
+            password=DEFAULT_USER_PASSWORD,
+        )
+    )
+
+
+@pytest.fixture
+async def auth_headers(auth_user) -> dict[str, str]:
+    """Bearer token headers for ``auth_user``."""
+    from app.core.security import create_access_token
+
+    token = create_access_token(data={"sub": auth_user.email})
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
 def acting_owner_user_id() -> int | None:
-    """No auth service, so owner-scoped rows carry no owner.
+    """The owner scope requests resolve to: ``None``, the household's.
 
-    The auth-stack counterpart returns the authenticated user's id; here
-    ``None`` keeps seed helpers written once and correct in both stacks.
+    Steward has one owner, and ``get_owner_user_id`` maps whoever is signed
+    in to the household's rows, which carry no owner. Seed owner-scoped
+    rows with this so they are the ones the reads assert on.
     """
     return None
 
 
 @pytest.fixture
+def registration_open(
+    async_client_with_db: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Signups as a signed-in admin sees them once they open them: steward
+    has no open signup (``/register`` is behind the gate and
+    ``REGISTRATION_ENABLED`` is off), but the handlers are still there."""
+    from app.core.config import settings
+    from app.core.security import create_access_token
+
+    monkeypatch.setattr(settings, "REGISTRATION_ENABLED", True)
+    token = create_access_token({"sub": "owner1@test.local"})
+    async_client_with_db.headers["Authorization"] = f"Bearer {token}"
+
+
+# The seeded owner this fixture acts as. Any of ``KNOWN_OWNER_IDS`` would
+# do; 1 is the one tests already mean when they write ``owner_user_id=1``.
+APP_CLIENT_OWNER_ID = 1
+
+
+@pytest.fixture
 def authenticated_app_client(client: TestClient) -> TestClient:
-    """Use the regular client in this stack's unauthenticated tests."""
+    """``client``, signed as a seeded owner.
+
+    The sibling of ``authenticated_client``, and the difference is which
+    database the request reads. ``authenticated_client`` rides
+    ``async_client_with_db``, whose override binds the request to the
+    test's own session: work handed to a SEPARATE session cannot see
+    what it wrote, because that session never commits. Use this one for
+    endpoints that hand work off - document extraction, job dispatch -
+    and ``authenticated_client`` everywhere else, so the test
+    transaction still rolls the data back.
+
+    It cannot reuse ``auth_headers``: that seeds its user inside the
+    test transaction, so a request on the app's own engine authenticates
+    against a database where that user does not exist, and every call
+    401s. The owners in ``KNOWN_OWNER_IDS`` are already committed to
+    ``app_owned_engine`` and active, so a token for one of them resolves
+    on the engine the request actually reads.
+    """
+    from app.core.security import create_access_token
+
+    token = create_access_token(data={"sub": f"owner{APP_CLIENT_OWNER_ID}@test.local"})
+    client.headers.update({"Authorization": f"Bearer {token}"})
     return client
 
 

@@ -210,8 +210,8 @@ class PayeeAssignMixin:
                 ),
             ],
             # Wide enough for the descriptors to read whole. They run to
-            # ~100 characters ("DOORDASH DASHPASS SAN FRANCISCO MARISA
-            # BEDNER-14013-NT_MKD9OUT0 +16506819470"), and the tail is
+            # ~100 characters ("DOORDASH DASHPASS SAN FRANCISCO ALEX
+            # DOE-14013-NT_MKD9OUT0 +16505550123"), and the tail is
             # often the only thing distinguishing two rows - ellipsizing
             # it defeats the point of showing the table.
             width=980,

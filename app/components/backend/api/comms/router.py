@@ -6,9 +6,11 @@ FastAPI router for email, SMS, and voice call endpoints.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.models.user import User
+from app.services.auth.deps import require_admin
 from app.services.comms.calls import (
     CallConfigurationError,
     CallError,
@@ -38,6 +40,13 @@ from app.services.comms.sms import (
     send_sms,
     validate_sms_config,
 )
+
+# Operator-only: these endpoints proxy directly to the billed Resend /
+# Twilio / voice-provider accounts. Reachable anonymously they're an
+# instant spend-burn vector. Admins only (``ADMIN_USER_EMAILS``).
+# The router-level dep doesn't fit here because the public health /
+# status / version GETs share this router; per-handler instead.
+_require_admin = require_admin
 
 router = APIRouter(prefix="/comms", tags=["communications"])
 
@@ -79,6 +88,7 @@ class CallMakeResponse(BaseModel):
 @router.post("/email/send", response_model=EmailSendResponse)
 async def send_email_endpoint(
     request: SendEmailRequest,
+    _: User = Depends(_require_admin),
 ) -> EmailSendResponse:
     """
     Send an email via Resend.
@@ -115,6 +125,7 @@ async def send_email_endpoint(
 @router.post("/sms/send", response_model=SMSSendResponse)
 async def send_sms_endpoint(
     request: SendSMSRequest,
+    _: User = Depends(_require_admin),
 ) -> SMSSendResponse:
     """
     Send an SMS via Twilio.
@@ -152,6 +163,7 @@ async def send_sms_endpoint(
 @router.post("/call/make", response_model=CallMakeResponse)
 async def make_call_endpoint(
     request: MakeCallRequest,
+    _: User = Depends(_require_admin),
 ) -> CallMakeResponse:
     """
     Make a voice call via Twilio.
@@ -305,7 +317,9 @@ def _resend_failed(exc: Exception) -> HTTPException:
 
 
 @router.get("/domains", response_model=list[DomainResponse])
-async def list_domains() -> list[DomainResponse]:
+async def list_domains(
+    _: User = Depends(_require_admin),
+) -> list[DomainResponse]:
     """The Resend account's domains and their verification status."""
     from app.services.ops.adapters.resend import ResendAdapter
 
@@ -322,6 +336,7 @@ async def list_domains() -> list[DomainResponse]:
 @router.post("/domains", response_model=DomainAdded)
 async def add_domain(
     body: NewDomain,
+    _: User = Depends(_require_admin),
 ) -> DomainAdded:
     """Add a sending domain (or find it) and return the DNS records it needs."""
     from app.services.ops.adapters.resend import ResendAdapter
@@ -344,6 +359,7 @@ async def add_domain(
 @router.post("/domains/{domain}/check", response_model=DomainResponse)
 async def check_domain(
     domain: str,
+    _: User = Depends(_require_admin),
 ) -> DomainResponse:
     """Ask Resend to check the domain's DNS now and return its status."""
     from app.services.ops.adapters.resend import ResendAdapter

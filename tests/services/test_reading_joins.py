@@ -43,7 +43,7 @@ async def _matter_with_an_ask(
     db: AsyncSession, *, ask: str | None, asked: str = "Proof of account balance"
 ) -> tuple[int, int, int]:
     """A matter, its subject, and one open ask on it."""
-    party = await PartyService(db).create(name="James Bedner", kind="person")
+    party = await PartyService(db).create(name="James Doe", kind="person")
     matter = await MatterService(db).open(
         reference="MA-JOIN-1", title="Renewal", subject_party_id=int(party.id)
     )

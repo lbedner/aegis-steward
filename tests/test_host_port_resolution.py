@@ -99,3 +99,23 @@ class TestOllamaBaseUrlEffective:
             OLLAMA_HOST_PORT=11500,
         )
         assert s.ollama_base_url_effective == "http://localhost:9999"
+
+
+class TestTraefikApiUrlEffective:
+    URL = "http://traefik:8080"
+
+    def test_uses_host_port_when_set(self) -> None:
+        s = Settings(TRAEFIK_API_URL=self.URL, INGRESS_DASHBOARD_PORT=8090)
+        assert s.traefik_api_url_effective == "http://localhost:8090"
+
+    def test_defaults_to_container_port_when_unset(self) -> None:
+        s = Settings(TRAEFIK_API_URL=self.URL)
+        assert s.traefik_api_url_effective == "http://localhost:8080"
+
+    def test_local_override_wins_over_host_port(self) -> None:
+        s = Settings(
+            TRAEFIK_API_URL=self.URL,
+            TRAEFIK_API_URL_LOCAL="http://localhost:9000",
+            INGRESS_DASHBOARD_PORT=8090,
+        )
+        assert s.traefik_api_url_effective == "http://localhost:9000"

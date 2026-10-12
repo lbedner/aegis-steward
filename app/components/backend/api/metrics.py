@@ -11,13 +11,24 @@ projects leave it open, matching ``/health/``.
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.components.backend.middleware.performance import metrics_service
+from app.services.auth.deps import get_current_active_user
+
+# Operator-only metrics — RBAC stacks gate on ``role=admin`` (DB
+# column as source of truth, matching auth/org modal pattern). Basic-
+# auth stacks have no role concept, so fall back to "any authed user."
+# Stored at module level so tests can override the closure via
+# ``app.dependency_overrides`` — ``require_role`` returns a new closure
+# per call, so a fresh ``require_role("admin")`` in test code wouldn't
+# key against the one the router uses.
+_require_admin = get_current_active_user
 
 router = APIRouter(
     prefix="/metrics",
     tags=["metrics"],
+    dependencies=[Depends(_require_admin)],
 )
 
 

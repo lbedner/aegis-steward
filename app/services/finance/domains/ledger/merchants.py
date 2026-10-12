@@ -383,7 +383,7 @@ async def file_payee_under(
 
     Found on a real ledger: Shop Rite owns 536 rows, and four other
     payees are past the old cap too (Target 1,017, Starbucks 965, Amazon
-    850, Adams Fairacre Farms 540).
+    850, Greenacre Farms 540).
 
     One statement, and deliberately the same row set the tally counts, so
     "filed" and "asked about" can never disagree again.

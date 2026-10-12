@@ -35,10 +35,15 @@ MANIFEST_PATH = DIST_DIR / "manifest.json"
 # fingerprinted copy sits next to the original rather than nesting.
 TAILWIND_OUTPUT = "dist/app.css"
 
-# Directories scanned for hand-authored assets, and the extension each
-# holds. Add a file to either and it is fingerprinted automatically; no
-# list to keep in sync.
-SOURCE_TREES: tuple[tuple[str, str], ...] = (("css", ".css"), ("js", ".js"))
+# Directories scanned for assets, and the extension each holds. Add a file
+# to one and it is fingerprinted automatically; no list to keep in sync.
+# ``vendor`` holds third-party scripts byte for byte, outside ``js`` so
+# Biome neither lints nor reformats them.
+SOURCE_TREES: tuple[tuple[str, str], ...] = (
+    ("css", ".css"),
+    ("js", ".js"),
+    ("vendor", ".js"),
+)
 
 
 def iter_sources() -> list[tuple[str, str]]:

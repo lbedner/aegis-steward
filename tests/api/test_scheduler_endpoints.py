@@ -19,12 +19,22 @@ class TestSchedulerEndpoints:
     """Test scheduler API endpoints with various states."""
 
     @pytest.fixture
-    async def async_client(self) -> AsyncGenerator[AsyncClient]:
+    async def async_client(self, async_db_session) -> AsyncGenerator[AsyncClient]:
         """Async HTTP client for testing.
 
-        No auth or no DB in this stack, so no override needed.
+        Overrides ``get_async_db`` with the in-memory ``async_db_session``
+        from conftest so admin-gated routes can look up the bearer-token
+        user against the test DB (where ``admin_user`` / ``auth_user``
+        actually live) instead of the real asyncpg pool.
         """
+        from app.core.db import get_async_db
+
         app = create_integrated_app()
+
+        async def _get_test_async_db():
+            yield async_db_session
+
+        app.dependency_overrides[get_async_db] = _get_test_async_db
 
         # Manually trigger startup for component registration
         from app.components.backend.hooks import backend_hooks
@@ -33,8 +43,12 @@ class TestSchedulerEndpoints:
         await backend_hooks.execute_startup_hooks()
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             yield client
+
+        app.dependency_overrides.clear()
 
         # Clean up after test
         await backend_hooks.execute_shutdown_hooks()

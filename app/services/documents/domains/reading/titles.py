@@ -10,7 +10,7 @@ NO MODEL. A title looks like prose, which is what made reaching for one
 tempting, but every part of it is already read: ``metadata`` finds the
 KIND and the DATE off the front page by pattern, and the address book
 already holds the organizations that write to this household. A name is
-those three joined - "Hudson Valley Credit Union statement, August
+those three joined - "Riverbend Credit Union statement, August
 2026" - and joining them is exact, free, and explainable to the person
 approving it.
 
@@ -90,7 +90,7 @@ def whose_letterhead(pages: Iterable[Page], names: Iterable[str]) -> Finding | N
     The FIRST line that names one wins, not the longest name in the
     document: an insurer mentioned on page two of a bank statement is a
     party to something, not the sender of this. Within a line the
-    longest name wins, so "Hudson Valley Credit Union" beats a shorter
+    longest name wins, so "Riverbend Credit Union" beats a shorter
     row that is a prefix of it.
 
     And the line has to BE the name. A directory of a hundred payees
@@ -174,10 +174,10 @@ def _descriptor(kind: Finding | str | None) -> str:
 
 
 # What a heading says that nobody would read aloud: "Application ID:
-# 1903014447". The identifier is the one part of a name that cannot be
+# 1234567890". The identifier is the one part of a name that cannot be
 # recognised in a list, and it is exactly the part a filename was full
 # of (2026-09-19).
-# Either the number SAYS it is one ("ID: 1903014447", "#00123456") or it
+# Either the number SAYS it is one ("ID: 1234567890", "#00123456") or it
 # is long enough to be nothing else. A bare four digits is a year, and
 # "plan year 2026" keeps its year.
 _IDENTIFIER = re.compile(
@@ -234,7 +234,7 @@ def compose(
 
 
 # A case number is quoted, not described: the county prints
-# "Case MA258760XX" on every page it sends. Short references are not
+# "Case MA123456XX" on every page it sends. Short references are not
 # matched at all - a three-character one appears in prose by accident,
 # and a document filed on the wrong case is worse than one filed on
 # none.

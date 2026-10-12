@@ -207,11 +207,11 @@ class TestTheSenderIsKnown:
         """A county office prints its caseworker's address as readily as
         its main one; ``also`` lines carry those, and they count."""
         county = await PartyService(async_db_session).create(
-            name="Dutchess County DSS",
+            name="Example County DSS",
             kind="organization",
-            contact={"also": [{"label": "caseworker", "value": "jdoe@dutchessny.gov"}]},
+            contact={"also": [{"label": "caseworker", "value": "jdoe@example.gov"}]},
         )
-        data = eml_bytes(message(sender="J Doe <JDOE@dutchessny.gov>"))
+        data = eml_bytes(message(sender="J Doe <JDOE@example.gov>"))
         await ingest.ingest_mail(open_session, data=data, file_name="x.eml")
 
         [row] = await _rows(async_db_session, MailMessage)

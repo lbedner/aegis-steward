@@ -146,11 +146,11 @@ class TestTheBodyIsTheLetter:
     def test_an_html_only_body_is_flattened_to_text(self) -> None:
         [read] = parse.messages(
             eml_bytes(
-                message(body="Dear Leonard", inline_images=[("logo.png", b"\x89PNG")])
+                message(body="Dear Sam", inline_images=[("logo.png", b"\x89PNG")])
             ),
             "x.eml",
         )
-        assert "Dear Leonard" in read.body_text
+        assert "Dear Sam" in read.body_text
         assert "<" not in read.body_text and "cid:" not in read.body_text
 
     def test_styles_and_scripts_are_not_words(self) -> None:
@@ -158,7 +158,7 @@ class TestTheBodyIsTheLetter:
         mail.set_content(
             "<html><head><style>.x{color:red}</style></head>"
             "<body><script>track()</script><p>Sign in at optumfinancial.com</p>"
-            "<p>844-288-6246</p></body></html>",
+            "<p>844-555-0167</p></body></html>",
             subtype="html",
         )
         [read] = parse.messages(eml_bytes(mail), "x.eml")
@@ -166,4 +166,4 @@ class TestTheBodyIsTheLetter:
         assert "Sign in at optumfinancial.com" in read.body_text
         # Block tags become line breaks, so a phone stays on its own line
         # for the identity rules, which read a page line by line.
-        assert "844-288-6246" in read.body_text.splitlines()
+        assert "844-555-0167" in read.body_text.splitlines()

@@ -25,7 +25,7 @@ from app.components.frontend.dashboard.modals.finance_modal.import_summary impor
     investment_import_summary_body,
 )
 from app.components.frontend.dashboard.modals.finance_modal.transactions_panel.imports_target import (
-    _IMPORT_TIMEOUT_SECONDS,
+    PREVIEW_PATH,
     ImportTargetMixin,
 )
 from app.core.constants import dashboard_upload_dir
@@ -139,8 +139,6 @@ class ImportsFlowMixin(ImportTargetMixin):
 
     async def _finish_import(self) -> None:
         """Hand the uploaded file to the import API, report, and refresh."""
-        from app.components.frontend.state.session_state import get_session_state
-
         overlay = LoadingOverlay.of(self.page)
         pending, self._pending_upload = self._pending_upload, None
         if pending is None:
@@ -165,28 +163,17 @@ class ImportsFlowMixin(ImportTargetMixin):
         params: dict[str, object] = {}
         if self._account is not None:
             params["account_id"] = self._account["id"]
-        api = get_session_state(self.page).api_client
-        preview = await api.post_multipart(
-            "/api/v1/finance/import/preview",
-            files={"file": (original_name, data, "application/octet-stream")},
-            params=params,
-            timeout=_IMPORT_TIMEOUT_SECONDS,
-        )
-        if not isinstance(preview, dict):
-            # Show the real reason (HTTP status + detail body), not a
-            # guess - that is the whole point of the overlay.
-            overlay.fail(
-                api.last_error or "Import failed for an unknown reason.",
-                title="Import failed",
-            )
-            return
-        overlay.hide()
-        if preview.get("needs_account"):
+
+        async def _ask() -> None:
             await self._ask_target_account(
-                preview, data, original_name, then=self._show_import_preview
+                data, original_name, then=self._show_import_preview
             )
-            return
-        await self._show_import_preview(preview, data, original_name)
+
+        preview = await self._upload_job(
+            PREVIEW_PATH, data, original_name, params, needs_account=_ask
+        )
+        if preview is not None:
+            await self._show_import_preview(preview, data, original_name)
 
     async def _finish_investment_import(self, data: bytes, original_name: str) -> None:
         """Parse-preview the ledger, then open the review dialog where the
@@ -195,23 +182,15 @@ class ImportsFlowMixin(ImportTargetMixin):
         written until the dialog's Import button."""
         from app.components.frontend.state.session_state import get_session_state
 
-        overlay = LoadingOverlay.of(self.page)
-        overlay.update_label(f"Checking {original_name}...")
-        api = get_session_state(self.page).api_client
-        preview = await api.post_multipart(
-            "/api/v1/finance/import-investments/preview",
-            files={"file": (original_name, data, "application/octet-stream")},
-            timeout=_IMPORT_TIMEOUT_SECONDS,
+        LoadingOverlay.of(self.page).update_label(f"Checking {original_name}...")
+        preview = await self._upload_job(
+            "/api/v1/finance/import-investments/preview", data, original_name
         )
-        if not isinstance(preview, dict):
-            overlay.fail(
-                api.last_error or "Import failed for an unknown reason.",
-                title="Import failed",
-            )
+        if preview is None:
             return
+        api = get_session_state(self.page).api_client
         accounts = await api.get("/api/v1/finance/accounts", cache_ttl=30)
         account_rows = accounts.get("items", []) if isinstance(accounts, dict) else []
-        overlay.hide()
         await self._show_investment_import_review(
             preview,
             account_rows,
@@ -223,27 +202,13 @@ class ImportsFlowMixin(ImportTargetMixin):
     async def _run_investment_import(
         self, data: bytes, original_name: str, params: dict[str, object]
     ) -> None:
-        """Commit a reviewed ledger. Synchronous, no background job - a
-        few hundred rows loads in well under a second, unlike a
-        multi-year bank statement."""
-        from app.components.frontend.state.session_state import get_session_state
-
-        overlay = LoadingOverlay.of(self.page)
-        overlay.show(f"Importing {original_name}...")
-        api = get_session_state(self.page).api_client
-        response = await api.post_multipart(
-            "/api/v1/finance/import-investments",
-            files={"file": (original_name, data, "application/octet-stream")},
-            params=params,
-            timeout=_IMPORT_TIMEOUT_SECONDS,
+        """Commit a reviewed ledger, as a job like every import."""
+        LoadingOverlay.of(self.page).show(f"Importing {original_name}...")
+        response = await self._upload_job(
+            "/api/v1/finance/import-investments", data, original_name, params
         )
-        if not isinstance(response, dict):
-            overlay.fail(
-                api.last_error or "Import failed for an unknown reason.",
-                title="Import failed",
-            )
+        if response is None:
             return
-        overlay.hide()
         await self._show_investment_import_summary(response)
 
         # The target may be a freshly minted account: refresh the sidebar
@@ -284,38 +249,23 @@ class ImportsFlowMixin(ImportTargetMixin):
         """Commit a previewed file: the background import job path.
         ``account_id`` is the target the user picked for a file that names
         none; otherwise the sidebar selection stands."""
-        from app.components.frontend.state.session_state import get_session_state
-
-        overlay = LoadingOverlay.of(self.page)
-        overlay.show(f"Importing {original_name}...")
-        params: dict[str, object] = {"background": "true"}
+        LoadingOverlay.of(self.page).show(f"Importing {original_name}...")
+        params: dict[str, object] = {}
         if account_id is not None:
             params["account_id"] = account_id
         elif self._account is not None:
             params["account_id"] = self._account["id"]
         else:
             params.update(self._account_filter.params())
-        api = get_session_state(self.page).api_client
         # The endpoint validates the upload and returns a job id in
         # milliseconds; the long part (row inserts + reconciliation rules)
         # runs as a server job whose SSE stream drives this overlay. No
         # request is left holding a multi-minute connection.
-        started = await api.post_multipart(
-            "/api/v1/finance/import",
-            files={"file": (original_name, data, "application/octet-stream")},
-            params=params,
+        response = await self._upload_job(
+            "/api/v1/finance/import", data, original_name, params
         )
-        if not isinstance(started, dict) or "job_id" not in started:
-            overlay.fail(
-                api.last_error or "Import failed for an unknown reason.",
-                title="Import failed",
-            )
-            return
-        response = await overlay.run_job(api, started["job_id"], title="Import failed")
         if response is None:
-            return  # run_job already showed the job's error
-
-        overlay.hide()
+            return
         # An import moves real money around: the outcome gets a modal the
         # user has to acknowledge, not a snackbar that fades while they are
         # looking elsewhere. Every row is accounted for - the counts sum to

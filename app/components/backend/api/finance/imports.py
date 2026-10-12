@@ -11,20 +11,12 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import JSONResponse
 
 from app.components.backend.api.finance.base import _NOT_FOUND, read_upload
-from app.services.finance.adapters.importers import (
-    csv_profiles,
-    imports,
-)
 from app.services.finance.deps import get_finance_service
 from app.services.finance.schemas import (
     ImportBatchResponse,
     ImportBatchSummary,
-    ImportPreviewResponse,
-    ImportResultResponse,
-    import_result_payload,
 )
 from app.services.finance.service import FinanceService
 from app.services.shared.deps import get_owner_user_id
@@ -61,8 +53,23 @@ async def start_import_job(
     service: FinanceService,
     owner_user_id: int | None,
 ) -> str:
-    """Check the upload, park it in storage, and hand ``kind`` of run to a
-    job (``imports_job.RUNS``). The file is never parsed in this process.
+    """Check the upload, then ``park_import`` it as ``kind`` of run."""
+    data = await _upload(file, account_id, service, owner_user_id)
+    return await park_import(
+        data, file, account_id=account_id, kind=kind, owner_user_id=owner_user_id
+    )
+
+
+async def park_import(
+    data: bytes,
+    file: UploadFile,
+    *,
+    account_id: int | None,
+    kind: str,
+    owner_user_id: int | None,
+) -> str:
+    """Park checked bytes in storage and hand ``kind`` of run to a job
+    (``imports_job.RUNS``). The file is never parsed in this process.
 
     The bytes go to storage, not into the queue: the worker mounts the
     same volume, and a queue is a poor place to park a file.
@@ -70,7 +77,6 @@ async def start_import_job(
     from app.core.storage import get_storage
     from app.services.finance.domains import imports_job
 
-    data = await _upload(file, account_id, service, owner_user_id)
     storage_key = await get_storage().put(data, content_type=file.content_type)
     return await imports_job.start_import(
         storage_key,
@@ -81,94 +87,61 @@ async def start_import_job(
     )
 
 
-@router.post("/import", response_model=None)
+@router.post("/import", status_code=status.HTTP_202_ACCEPTED)
 async def import_file(
     file: UploadFile = File(...),
     account_id: int | None = None,
-    background: bool = False,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
-) -> ImportResultResponse | JSONResponse:
+) -> dict[str, str]:
     """Upload an OFX/QFX/QIF/CSV file and ingest it under a reversible batch.
 
     Dispatch is by file extension. QIF/CSV need an ``account_id`` (they carry no
     account info); OFX can resolve its own. Duplicate rows are deduped; an
     identical re-upload short-circuits via the file hash.
 
-    With ``background=true`` the upload is validated synchronously, the
-    ingest (row inserts + inline reconciliation rules - the long part) runs
-    as an in-process job, and the response is ``202 {"job_id": ...}``.
-    Follow ``GET /api/v1/jobs/{id}/events``; the terminal event's ``result``
-    carries the same fields as the synchronous response.
+    Always the import job (#494): only the size and the account are checked
+    here, the answer is ``202 {"job_id": ...}``, and the terminal event of
+    ``GET /api/v1/jobs/{id}/events`` carries the ``ImportResultResponse``
+    fields, or the reason the file was refused.
     """
-    if background:
-        job_id = await start_import_job(
-            file,
-            account_id=account_id,
-            kind="import",
-            service=service,
-            owner_user_id=owner_user_id,
-        )
-        return JSONResponse({"job_id": job_id}, status_code=status.HTTP_202_ACCEPTED)
-
-    data = await _upload(file, account_id, service, owner_user_id)
-    try:
-        result = await service.import_file(
-            owner_user_id=owner_user_id,
-            file_name=file.filename,
-            file_bytes=data,
-            account_id=account_id,
-        )
-    except imports.UnsupportedFileTypeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)
-        ) from exc
-    except csv_profiles.UnknownCsvLayoutError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-    except ValueError as exc:  # e.g. QIF/CSV without an account_id
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    return ImportResultResponse(**import_result_payload(result))
+    job_id = await start_import_job(
+        file,
+        account_id=account_id,
+        kind="import",
+        service=service,
+        owner_user_id=owner_user_id,
+    )
+    return {"job_id": job_id}
 
 
-@router.post("/import/preview", response_model=ImportPreviewResponse)
+@router.post("/import/preview", status_code=status.HTTP_202_ACCEPTED)
 async def preview_import(
     file: UploadFile = File(...),
     account_id: int | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
-) -> ImportPreviewResponse:
+) -> dict[str, str]:
     """Dry-run an import: what /import would do with this exact file.
 
     Same params and dispatch as ``POST /import``, produced from the same
     classification the commit executes — but a pure read. No batch row, no
     auto-created accounts or categories, no transaction writes. The client
     shows this, then re-posts the same bytes to ``/import`` to commit.
+
+    The plan runs as the import job (#494), like the web dialog's review:
+    the answer is ``202 {"job_id": ...}`` and the finished job's result is
+    the review as ``imports_job.capped_review`` keeps it. A file that
+    names no account fails the job with ``imports_job.NEEDS_ACCOUNT``.
     """
-    data = await _upload(file, account_id, service, owner_user_id)
-    try:
-        plan = await service.preview_file(
-            owner_user_id=owner_user_id,
-            file_name=file.filename,
-            file_bytes=data,
-            account_id=account_id,
-        )
-    except imports.UnsupportedFileTypeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)
-        ) from exc
-    except csv_profiles.UnknownCsvLayoutError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-    except ValueError as exc:  # e.g. QIF/CSV without an account_id
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        ) from exc
-    return await service.preview_payload(plan)
+    job_id = await start_import_job(
+        file,
+        account_id=account_id,
+        kind="preview",
+        service=service,
+        owner_user_id=owner_user_id,
+    )
+    return {"job_id": job_id}
 
 
 @router.get("/import/batches", response_model=list[ImportBatchSummary])

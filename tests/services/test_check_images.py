@@ -29,10 +29,10 @@ from tests._session import opens
 from tests.services._finance_factories import seed_account
 
 # What the vision model returned for check 1802's front (2026-10-06, live).
-VISION_1802 = """MR. LEONARD J. BEDNER
-MRS. MARISA M. BEDNER
-3 KELLEY CIR.
-POUGHKEEPSIE, NY 12601
+VISION_1802 = """MR. SAM J. DOE
+MRS. ALEX M. DOE
+12 EXAMPLE CIR.
+ANYTOWN, NY 12345
 
 50-17/223
 1802
@@ -40,7 +40,7 @@ POUGHKEEPSIE, NY 12601
 DATE 6/30/25
 
 PAY TO THE
-ORDER OF Dr. Clark
+ORDER OF Dr. Molar
 $40.00
 
 forty 00/100
@@ -52,17 +52,17 @@ www.Chase.com
 
 MEMO
 
-Marisa Bedner
+Alex Doe
 
-021300173 957483639 1802"""
+021000021 123403639 1802"""
 
 # What Tesseract read off check 1524's front (2026-10-06, live).
 OCR_1524 = (
-    "1524 Nx, Leonard J. Badnex 50-17/223 AAs, Marisa MA Bednar 3 Kalley "
-    "Circle ; Poughke2psiz. Ny 12601 oat 2: | 25 __ moe Jolene 2 arte $25.00 . "
+    "1524 Nx, Sam J. Dae 50-17/223 AAs, Alex MA Doh 12 Exampie "
+    "Circle ; Anyt0wn. Ny 12345 oat 2: | 25 __ moe Pat 2 arte $25.00 . "
     "se ———— o° /D0_. DOLLARS a Ee CHASE spMorgan Chase Bank, N.A."
 )
-OCR_1802 = "MR, LEONARD J. BEDNER 50-17/223 POE NY on (3025 saat D) Choe $ 4.007. CHASE"
+OCR_1802 = "MR, SAM J. DOE 50-17/223 POE NY on (3025 saat D) Choe $ 4.007. CHASE"
 
 
 def _jpeg(width: int, height: int, color: str) -> bytes:
@@ -104,10 +104,10 @@ class TestReadingACheck:
         assert (read.number, read.amount_cents, read.payee, read.dated) == (
             "1802",
             4000,
-            "Dr. Clark",
+            "Dr. Molar",
             date(2025, 6, 30),
         )
-        assert read.account == "957483639"
+        assert read.account == "123403639"
 
     def test_ocr_gives_what_it_can_and_never_a_payee_it_cannot_see(self) -> None:
         read = checks.parse_check(OCR_1524)
@@ -138,9 +138,9 @@ class TestMatchingWhatWasRead:
 
     def test_a_payee_is_read_without_the_bars_and_wide_spaces(self) -> None:
         read = checks.parse_check(
-            "PAY TO THE\nORDER OF | Hyde Park Swim & Tennis Club |\n$178.00"
+            "PAY TO THE\nORDER OF | Lakeside Swim & Tennis Club |\n$178.00"
         )
-        assert read.payee == "Hyde Park Swim & Tennis Club"
+        assert read.payee == "Lakeside Swim & Tennis Club"
         smart = checks.parse_check("ORDER OF Smart Park\u00a0\u00a0\u00a0 $214.11")
         assert smart.payee == "Smart Park"
 
@@ -176,10 +176,10 @@ class TestMatchingWhatWasRead:
         assert checks.match(undated, [], renamed) is None
 
     def test_a_misread_payee_is_snapped_to_yours(self) -> None:
-        assert checks.known_payee("Nuance Health", ["NuVance Health", "Dr. Clark"]) == (
-            "NuVance Health"
+        assert checks.known_payee("Nuence Health", ["NuVence Health", "Dr. Molar"]) == (
+            "NuVence Health"
         )
-        assert checks.known_payee("Holly Cow", ["NuVance Health"]) == "Holly Cow"
+        assert checks.known_payee("Sweat Scoop", ["NuVence Health"]) == "Sweat Scoop"
 
 
 class TestSplittingTheDownload:
@@ -236,7 +236,7 @@ async def _rows(db: AsyncSession) -> dict[str, int]:
         assert row.id is not None
         ids[number] = row.id
     # 1524 already has its payee: OCR's match is enough, no model call.
-    named = await svc.create_merchant("Jolene Plant", owner_user_id=1)
+    named = await svc.create_merchant("Pat Plant", owner_user_id=1)
     row = await db.get(FinanceTransaction, ids["1524"])
     assert row is not None
     row.merchant_id = named.id
@@ -288,7 +288,7 @@ class TestProposingTheCards:
             if c.change_type == checks.CHECK
         }
         assert set(cards) == {ids["1524"], ids["1802"]}
-        assert cards[ids["1802"]]["payee"] == "Dr. Clark"
+        assert cards[ids["1802"]]["payee"] == "Dr. Molar"
         assert cards[ids["1524"]]["payee"] is None  # it has one
 
     @pytest.mark.asyncio
@@ -313,8 +313,8 @@ class TestProposingTheCards:
             "back_key": await store.put(
                 _jpeg(1800, 830, "gray"), content_type="image/jpeg"
             ),
-            "payee": "Dr. Clark",
-            "payee_because": "ORDER OF Dr. Clark",
+            "payee": "Dr. Molar",
+            "payee_because": "ORDER OF Dr. Molar",
         }
         card = await propose(
             async_db_session, checks.CHECK, payload, owner_user_id=None

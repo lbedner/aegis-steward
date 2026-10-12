@@ -4,7 +4,7 @@
 only reports documents that are ALREADY tagged. So the documents most
 in need of attention - the untagged ones, whose sender nobody has
 recorded - were the only ones she could not see (found 2026-09-18,
-when the letter carrying Dutchess County DSS's address could be read
+when the letter carrying Example County DSS's address could be read
 only because somebody read its id out of the database by hand).
 """
 
@@ -30,11 +30,11 @@ class TestTheShelf:
     ) -> None:
         from app.services.documents.domains.shelf import shelf
 
-        await _doc(async_db_session, "Bedner J Request.pdf")
+        await _doc(async_db_session, "Doe J Request.pdf")
         await _doc(async_db_session, "NYSLRS Monthly Statement.pdf")
 
         found = await shelf(async_db_session, q="request")
-        assert [d["title"] for d in found] == ["Bedner J Request.pdf"]
+        assert [d["title"] for d in found] == ["Doe J Request.pdf"]
 
     @pytest.mark.asyncio
     async def test_the_search_does_not_care_about_case(
@@ -42,8 +42,8 @@ class TestTheShelf:
     ) -> None:
         from app.services.documents.domains.shelf import shelf
 
-        await _doc(async_db_session, "Bedner J Request.pdf")
-        assert await shelf(async_db_session, q="BEDNER")
+        await _doc(async_db_session, "Doe J Request.pdf")
+        assert await shelf(async_db_session, q="DOE")
 
     @pytest.mark.asyncio
     async def test_it_can_show_only_what_nobody_has_attributed(
@@ -74,7 +74,7 @@ class TestTheShelf:
         from app.services.matters.service import PartyService
 
         sender = await PartyService(async_db_session).create(
-            name="Dutchess Testcase", kind="organization"
+            name="Example Testcase", kind="organization"
         )
         document = await _doc(async_db_session, "Request.pdf", kind="letter")
         async_db_session.add(
@@ -83,7 +83,7 @@ class TestTheShelf:
         await async_db_session.flush()
 
         row = (await shelf(async_db_session, q="request"))[0]
-        assert row["from"] == [{"party_id": sender.id, "name": "Dutchess Testcase"}]
+        assert row["from"] == [{"party_id": sender.id, "name": "Example Testcase"}]
         assert row["kind"] == "letter"
         assert row["id"] == document.id
 

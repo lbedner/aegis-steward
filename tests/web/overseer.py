@@ -10,9 +10,13 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 import pytest
 
+from app.components.backend.middleware import request_gate
 from app.components.web_frontend import overseer_nav
 from app.components.web_frontend.routes import overseer
+from app.core.config import settings
 from app.core.constants import ComponentName
+from app.models.user import User
+from app.services.auth.deps import get_optional_user
 from app.services.system.models import ComponentStatus, SystemStatus
 
 PREFIXES = ("/overseer", "/partials/overseer")
@@ -91,7 +95,7 @@ def sign_in(
     status: SystemStatus,
     *,
     admin: bool = True,
-) -> None:
+) -> User:
     """Serve Overseer pages from ``status`` to a signed-in user: an admin
     (on the allowlist, and the admin role under RBAC) unless ``admin`` is
     False, which signs in an ordinary member the Overseer refuses. Without
@@ -99,4 +103,16 @@ def sign_in(
     # Every Overseer route module that reads the snapshot sees this one.
     for module in (overseer, overseer_nav):
         monkeypatch.setattr(module, "last_system_status", lambda: status)
-    return None
+    user = User(id=1, email="ops@example.com", hashed_password="x", is_active=True)
+    if "role" in User.model_fields:  # RBAC: the viewer administers users
+        user.role = "admin" if admin else "user"
+    monkeypatch.setattr(settings, "AUTH_ENABLED", True)
+    monkeypatch.setattr(settings, "ADMIN_USER_EMAILS", [user.email] if admin else [])
+    app.dependency_overrides[get_optional_user] = lambda: user
+    # The app's gate reads the session itself, ahead of any route.
+    monkeypatch.setattr(request_gate, "signed_in", _signed_in)
+    return user
+
+
+async def _signed_in(_conn: object) -> bool:
+    return True

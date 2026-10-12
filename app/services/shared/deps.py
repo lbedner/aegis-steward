@@ -1,13 +1,20 @@
 """FastAPI dependencies more than one service injects.
 
-``get_owner_user_id`` centralizes owner scoping in one place: it resolves to
-the authenticated user's id when the auth service is present, else ``None``
-(single-user / standalone) - so route handlers stay auth-agnostic and never
-repeat the auth guard per endpoint. ``get_admin_actor`` does the same for
+``get_owner_user_id`` centralizes owner scoping in one place: it requires a
+signed-in user and scopes them to the household (``None``) - so route
+handlers stay auth-agnostic and never repeat the auth guard per endpoint. ``get_admin_actor`` does the same for
 an operator's change: an admin with auth, anyone without.
 """
 
 from dataclasses import dataclass
+
+from fastapi import Depends
+
+from app.models.user import User
+from app.services.auth.deps import (
+    get_current_active_user,
+    require_admin,
+)
 
 
 @dataclass(frozen=True)
@@ -25,21 +32,32 @@ class Actor:
         return self.email or "anonymous"
 
 
-def actor_of(user: None = None) -> Actor:
-    """Nobody signs in: a change is anyone's."""
-    return Actor()
+def actor_of(user: User | None) -> Actor:
+    """``user`` as the maker of a change."""
+    if user is None:
+        return Actor()
+    return Actor(user.id, user.email, user.display_name)
 
 
-async def get_admin_actor() -> Actor:
-    """No auth service: whoever reaches the app may make an operator's change."""
-    return Actor()
+async def get_admin_actor(admin: User = Depends(require_admin)) -> Actor:
+    """An operator's change: admins only (``require_admin``)."""
+    return actor_of(admin)
 
 
-async def get_owner_user_id() -> int | None:
-    """No auth service - single-user, so rows are unscoped."""
+async def get_owner_user_id(
+    _owner: User = Depends(get_current_active_user),
+) -> int | None:
+    """Owner scope: the household's, for whoever is signed in.
+
+    Steward has one owner and no open signup, and every row it kept before
+    sign-in carries no owner (NULL ``owner_user_id``, ``0`` where the column
+    is NOT NULL, chat and memory under ``"0"``). So the signed-in owner
+    scopes to ``None``, exactly what everyone saw before: sign-in decides
+    who may read, never which rows, and no row is migrated.
+    """
     return None
 
 
-# Nobody signs in, so a route that also serves anonymous callers scopes
-# the same way.
+# The app's gate (``middleware/request_gate``) admits nobody signed out, so
+# no route serves an anonymous caller: one scope either way.
 get_optional_owner_user_id = get_owner_user_id

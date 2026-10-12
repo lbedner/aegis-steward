@@ -25,7 +25,7 @@ def _policy(client: TestClient, insurer: int, covered: list[int]) -> int:
         data={
             "kind": "dental",
             "name": "Delta Dental PPO Premium Plan",
-            "member_id": "127396822501",
+            "member_id": "123456789012",
             "group_id": "18822-10007",
             "effective_on": "2026-08-01",
             "covered_sent": "1",
@@ -54,29 +54,29 @@ class TestThePoliciesCard:
         self, client: TestClient
     ) -> None:
         insurer = _contact(client, "Rows Dental", "organization")
-        marisa = _contact(client, "Rows Marisa", "person")
-        policy = _policy(client, insurer, [marisa])
+        alex = _contact(client, "Rows Alex", "person")
+        policy = _policy(client, insurer, [alex])
         block = client.get(f"/contacts/{insurer}/policies").text
         card = one(block, f'[data-policy="{policy}"]')
         said = {
             text(one(row, "dt")): text(one(row, "dd")) for row in select(card, "dl div")
         }
-        assert said["Member ID"] == "127396822501"
+        assert said["Member ID"] == "123456789012"
         assert said["Group ID"] == "18822-10007"
         assert said["Annual maximum"] == "$2,000 per member"
-        assert one(card, f'a[data-contact="{marisa}"]') is not None
+        assert one(card, f'a[data-contact="{alex}"]') is not None
         assert text(one(card, "[data-owes]")) == "$0.00"
 
     def test_a_person_sees_what_covers_them(self, client: TestClient) -> None:
         insurer = _contact(client, "Covering Dental", "organization")
-        leonard = _contact(client, "Covered Leonard", "person")
-        policy = _policy(client, insurer, [leonard])
-        page = client.get(f"/contacts/{leonard}").text
-        one(page, f'[hx-get="/contacts/{leonard}/policies"]')
-        block = client.get(f"/contacts/{leonard}/policies").text
+        sam = _contact(client, "Covered Sam", "person")
+        policy = _policy(client, insurer, [sam])
+        page = client.get(f"/contacts/{sam}").text
+        one(page, f'[hx-get="/contacts/{sam}/policies"]')
+        block = client.get(f"/contacts/{sam}/policies").text
         row = one(block, f'[data-covered-by="{policy}"]')
         assert one(row, f'a[href="/contacts/{insurer}"]') is not None
-        none(block, f'[hx-get="/contacts/{leonard}/policies/new"]')
+        none(block, f'[hx-get="/contacts/{sam}/policies/new"]')
 
     def test_a_kind_nobody_defined_is_a_422_with_the_form_back(
         self, client: TestClient
@@ -95,19 +95,19 @@ class TestAClaimOnThePage:
         self, client: TestClient
     ) -> None:
         insurer = _contact(client, "Claims Dental", "organization")
-        marisa = _contact(client, "Claims Marisa", "person")
+        alex = _contact(client, "Claims Alex", "person")
         dentist = _contact(client, "Claims Dentist", "person")
-        policy = _policy(client, insurer, [marisa])
+        policy = _policy(client, insurer, [alex])
         block = client.get(f"/contacts/{insurer}/policies").text
         one(block, f'[hx-get="/contacts/{insurer}/policies/{policy}/claims/new"]')
 
         answer = client.post(
             f"/contacts/{insurer}/policies/{policy}/claims/new",
             data={
-                "covered_party_id": str(marisa),
+                "covered_party_id": str(alex),
                 "service_on": "2026-08-12",
                 "provider_party_id": str(dentist),
-                "claim_number": "23548895152718",
+                "claim_number": "12345678901234",
                 "status": "processed",
                 "billed": "605.00",
                 "allowed": "356.00",
@@ -138,12 +138,12 @@ class TestAClaimOnThePage:
 
     def test_a_bad_amount_is_a_422(self, client: TestClient) -> None:
         insurer = _contact(client, "Bad Dental", "organization")
-        marisa = _contact(client, "Bad Marisa", "person")
-        policy = _policy(client, insurer, [marisa])
+        alex = _contact(client, "Bad Alex", "person")
+        policy = _policy(client, insurer, [alex])
         answer = client.post(
             f"/contacts/{insurer}/policies/{policy}/claims/new",
             data={
-                "covered_party_id": str(marisa),
+                "covered_party_id": str(alex),
                 "service_on": "2026-08-12",
                 "billed": "six hundred",
             },
@@ -189,12 +189,12 @@ class TestMarkingAClaimPaid:
         from tests.services._finance_factories import seed_account, seed_txn
 
         insurer = _contact(client, "Paid Dental", "organization")
-        marisa = _contact(client, "Paid Marisa", "person")
-        policy = _policy(client, insurer, [marisa])
+        alex = _contact(client, "Paid Alex", "person")
+        policy = _policy(client, insurer, [alex])
         client.post(
             f"/contacts/{insurer}/policies/{policy}/claims/new",
             data={
-                "covered_party_id": str(marisa),
+                "covered_party_id": str(alex),
                 "service_on": "2026-08-12",
                 "patient_owes": "146.00",
             },

@@ -38,13 +38,13 @@ from tests.services._finance_factories import seed_payee_txn as _txn
 
 # The descriptor from the live ledger that raised this: a ShopRite the
 # review reported as an unnamed, uncategorized payee.
-SHOPRITE = "SHPRTE NTH RD&WNSW GT XXX-XXX-6086 NY"
+SHOPRITE = "SHPRTE MAIN ST&ELM GT XXX-XXX-6086 NY"
 # Same store, different card and day - the variance the four-token prefix
 # exists to absorb.
-SHOPRITE_AGAIN = "SHPRTE NTH RD&WNSW GT POUGHKEEPSIE NYXX8683 07/22"
+SHOPRITE_AGAIN = "SHPRTE MAIN ST&ELM GT ANYTOWN NYXX8683 07/22"
 
 
-KEY = "SHPRTE NTH RD WNSW"  # what both descriptors above group under
+KEY = "SHPRTE MAIN ST ELM"  # what both descriptors above group under
 
 
 async def _stored(session: AsyncSession) -> list[FinanceMerchantAlias]:
@@ -315,15 +315,15 @@ class TestTheNextImportAlreadyKnows:
 
 # One store, 226 rows, a different card tail and date on every swipe.
 SHOPRITE_INSTORE = [
-    "SHPRTE NTH RD&WNSW GT XXX-XXX-6086 NY 06/28",
-    "SHPRTE NTH RD&WNSW GT POUGHKEEPSIE NYXX8683 07/22",
-    "SHPRTE NTH RD&WNSW GT XXX-XXX-4474 NY 08/03",
+    "SHPRTE MAIN ST&ELM GT XXX-XXX-6086 NY 06/28",
+    "SHPRTE MAIN ST&ELM GT ANYTOWN NYXX8683 07/22",
+    "SHPRTE MAIN ST&ELM GT XXX-XXX-4474 NY 08/03",
 ]
 # The same store through Apple Pay - a DIFFERENT key, and correctly so.
-SHOPRITE_APPLE_PAY = "AplPay SHOPRITE POUGPOUGHKEEPSI"
+SHOPRITE_APPLE_PAY = "AplPay SHOPRITE ANYTANYTOWN"
 
 # One prefix, four real payees: the ledger's worst case.
-ATM_HUDSON_VALLEY = "NON-CHASE ATM WITHDRAW XX4474 07/0125 OLD VI"
+ATM_RIVERBEND = "NON-CHASE ATM WITHDRAW XX4474 07/0125 OLD VI"
 ATM_CHASE = "NON-CHASE ATM WITHDRAW XX1593 01/1425 OLD VI"
 
 
@@ -363,25 +363,23 @@ class TestTheShapesTheLedgerActuallyHas:
     async def test_the_atm_prefix_stops_guessing_once_it_is_shown_two(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        """On the real ledger this one prefix covers Hudson Valley
+        """On the real ledger this one prefix covers Riverbend
         Grounded (59 rows), Chase - Non Atm Withdraw (152), Chase (3) and
-        Fenix Barbershop (1). Whichever was named last would otherwise
+        Corner Barbershop (1). Whichever was named last would otherwise
         claim every future withdrawal."""
         account = await _account(svc)
-        first = await _txn(
-            svc, account.id, ATM_HUDSON_VALLEY, date(2026, 7, 1), -20_000
-        )
+        first = await _txn(svc, account.id, ATM_RIVERBEND, date(2026, 7, 1), -20_000)
         second = await _txn(svc, account.id, ATM_CHASE, date(2026, 1, 22), -10_000)
-        hudson = await svc.create_merchant("Hudson Valley Grounded", owner_user_id=1)
+        riverbend = await svc.create_merchant("Riverbend Grounded", owner_user_id=1)
         chase = await svc.create_merchant("Chase", owner_user_id=1)
 
-        await svc.assign_merchant([first.id], hudson.id, owner_user_id=1)
+        await svc.assign_merchant([first.id], riverbend.id, owner_user_id=1)
         await svc.assign_merchant([second.id], chase.id, owner_user_id=1)
 
         assert await _ambiguous(async_db_session) == {"NON CHASE ATM WITHDRAW"}
         assert (
             await svc.resolve_merchant_aliases(
-                [ATM_HUDSON_VALLEY, ATM_CHASE], owner_user_id=1
+                [ATM_RIVERBEND, ATM_CHASE], owner_user_id=1
             )
             == {}
         )
@@ -443,7 +441,7 @@ class TestTheImportAsksOnce:
                     external_id=f"{label}-{i}",
                     external_id_source="fitid",
                     # Every descriptor distinct, as real swipes are.
-                    name=f"SHPRTE NTH RD&WNSW GT XXX-XXX-{i:04d} NY",
+                    name=f"SHPRTE MAIN ST&ELM GT XXX-XXX-{i:04d} NY",
                 )
                 for i in range(n)
             ]
@@ -512,10 +510,10 @@ class TestRebuildingTheMemoryFromWhatIsAlreadyNamed:
         the data, so the rebuild has to see it there rather than waiting
         to be taught twice."""
         account = await _account(svc)
-        hudson = await svc.create_merchant("Hudson Valley Grounded", owner_user_id=1)
+        riverbend = await svc.create_merchant("Riverbend Grounded", owner_user_id=1)
         chase = await svc.create_merchant("Chase", owner_user_id=1)
         for descriptor, merchant in (
-            (ATM_HUDSON_VALLEY, hudson),
+            (ATM_RIVERBEND, riverbend),
             (ATM_CHASE, chase),
         ):
             txn = await _txn(svc, account.id, descriptor, date(2026, 7, 1), -20_000)

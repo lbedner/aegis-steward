@@ -127,11 +127,11 @@ class TestRetiredGhostsDoNotBlockAMove:
         from datetime import UTC, datetime
 
         checking, savings = await _accounts(svc)
-        ghost = await _bill(svc, "Eleanor", savings.id)
+        ghost = await _bill(svc, "Maple", savings.id)
         ghost.deleted_at = datetime.now(UTC).replace(tzinfo=None)
         async_db_session.add(ghost)
         await async_db_session.flush()
-        live = await _bill(svc, "Eleanor", checking.id)
+        live = await _bill(svc, "Maple", checking.id)
 
         updated = await svc.update_recurring(
             live.id, owner_user_id=1, account_id=savings.id
@@ -147,8 +147,8 @@ class TestRetiredGhostsDoNotBlockAMove:
     @pytest.mark.asyncio
     async def test_a_live_row_still_refuses(self, svc: FinanceService) -> None:
         checking, savings = await _accounts(svc)
-        await _bill(svc, "Eleanor", savings.id)
-        live = await _bill(svc, "Eleanor", checking.id)
+        await _bill(svc, "Maple", savings.id)
+        live = await _bill(svc, "Maple", checking.id)
 
         with pytest.raises(ValueError):
             await svc.update_recurring(live.id, owner_user_id=1, account_id=savings.id)

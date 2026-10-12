@@ -38,14 +38,12 @@ import httpx
 from app.core import secrets
 from app.core.config import settings
 from app.core.log import logger
+from app.services.finance.adapters.providers.plaid import PLAID_WEBHOOK_PATH
 
 # The tunnel sidecar usually answers within ~2s of boot; the backend and
 # sidecar start concurrently, so poll briefly before giving up.
 _DISCOVERY_ATTEMPTS = 10
 _DISCOVERY_INTERVAL_SECONDS = 2.0
-
-# The one route the tunnel exists for, and the only one it lets through.
-PLAID_WEBHOOK_PATH = "/api/v1/finance/webhook/plaid"
 
 # Module-level so the task isn't garbage-collected mid-flight.
 _tunnel_task: asyncio.Task[None] | None = None

@@ -4,9 +4,9 @@
    JSON block (see the chart_panel macro); this file mounts Chart.js over
    every such canvas on load and after each htmx settle. Chart.js itself
    is fetched on first use, so pages without charts pay nothing and a
-   swap into a chart page still works. */
+   swap into a chart page still works. Its vendored URL (fingerprinted)
+   rides on this script's own tag as data-chart-js, from base.html. */
 
-const CHART_JS = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.js';
 const RAMP = 8; // --aegis-chart-1 .. -8 in tailwind.config.js; cycles past that
 
 // Colors come from the active theme's variables, read at mount time so a
@@ -28,7 +28,7 @@ function ensureChartJs() {
   if (!chartJsLoading) {
     chartJsLoading = new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = CHART_JS;
+      script.src = document.querySelector('script[data-chart-js]').dataset.chartJs;
       script.onload = () => resolve(window.Chart);
       script.onerror = reject;
       document.head.appendChild(script);

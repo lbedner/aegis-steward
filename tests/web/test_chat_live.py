@@ -175,21 +175,21 @@ class TestDoingTheWork:
     def test_her_own_agent_answers_through_the_typed_turns_path(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        turns = self._answers(monkeypatch, "## Vanessa\n\n- **$60** left this week.")
+        turns = self._answers(monkeypatch, "## Robin\n\n- **$60** left this week.")
         response = client.post(
             DELEGATIONS,
-            json={"text": "How much is left for Vanessa?", "conversation_id": "c-9"},
+            json={"text": "How much is left for Robin?", "conversation_id": "c-9"},
         )
 
         assert response.status_code == 200
-        assert turns[0]["message"] == "How much is left for Vanessa?"
+        assert turns[0]["message"] == "How much is left for Robin?"
         assert turns[0]["agent_slug"] == FINANCE_VOICE_AGENT_SLUG
         assert turns[0]["surface"] == "finance"
         assert turns[0]["user_id"] == STANDALONE_USER_ID
         assert turns[0]["conversation_id"] == "c-9"
         # What GPT-Live is handed to say: plain speech, within its limit.
         assert response.json() == {
-            "speak": "Vanessa. $60 left this week.",
+            "speak": "Robin. $60 left this week.",
             "conversation_id": "c-9",
         }
 

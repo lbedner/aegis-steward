@@ -117,6 +117,21 @@ class TestCoverage:
         assert "CHASE SAVINGS" in rendered
         assert "Bills & Utilities:Streaming" in rendered
 
+    def test_the_rest_is_counted_from_the_totals_the_job_keeps(self) -> None:
+        """The import job keeps only the capped lists (#494); "and N more"
+        counts from the full totals beside them."""
+        edit = PREVIEW["edits"][0]
+        preview = {
+            **PREVIEW,
+            "new_categories": [f"Category {n}" for n in range(10)],
+            "new_categories_total": 25,
+            "edits": [edit] * 10,
+            "rows_updated": 40,
+        }
+        rendered = " ".join(_texts(import_preview_body(preview, "export.csv")))
+        assert "and 15 more categories" in rendered
+        assert "and 30 more updates" in rendered
+
 
 class TestLedgerChangingCountsAreCards:
     def test_the_three_ledger_outcomes_are_metric_cards(self) -> None:

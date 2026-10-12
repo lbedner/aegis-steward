@@ -196,7 +196,7 @@ FINANCE_CHAT_TOOL_NAMES = (
     "withdraw",
     "withdraw_batch",
     # A misread on a pending card put right when the user says so
-    # ("it's Holy Cow"), across every card that has it (issue 420).
+    # ("it's Sweet Scoop"), across every card that has it (issue 420).
     "revise",
     # Durable extraction: what was read out of an ephemeral image must
     # be recorded before it is answered from - the recording is what
@@ -270,7 +270,7 @@ def finance_chat_agent_definition() -> dict[str, Any]:
 
 
 # None follows the active model, as the chat agent does. Timed on her real
-# context (2026-09-25, "How much is left in Vanessa's envelope?"): only
+# context (2026-09-25, "How much is left in Robin's envelope?"): only
 # gpt-5.6-luna (7-10s) and gpt-5-mini (12s) answered right. gpt-4.1-mini,
 # gpt-4.1-nano, gpt-5.4-mini and gpt-5.4-nano were 2-6s and all wrong - they
 # could not drive 31 tools in code mode, and said the envelope was missing

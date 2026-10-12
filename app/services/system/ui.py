@@ -69,12 +69,14 @@ def get_component_title(component_name: str) -> str:
         ComponentName.SCHEDULER: "Scheduler",
         ComponentName.OLLAMA: "Inference",
         "service_ai": "AI",
+        "service_auth": "Authentication",
         "service_comms": "Communications",
         "service_documents": "Documents",
         "service_rag": "RAG",
         # The job history the scheduler keeps, not the scheduler itself.
         "service_scheduler": "Scheduler history",
         "service_finance": "Finance",
+        ComponentName.INGRESS: "Ingress",
     }
     fallback = (
         component_name.removeprefix("service_").replace("_", " ").replace("-", " ")
@@ -95,9 +97,11 @@ def get_component_label(component_name: str) -> str:
         ComponentName.SCHEDULER: "APScheduler",
         ComponentName.OLLAMA: "Ollama",
         "service_ai": "LLM Provider",
+        "service_auth": "JWT Auth",
         "service_comms": "Resend + Twilio",
         "service_documents": "Document store",
         "service_finance": "Aggregator",
+        ComponentName.INGRESS: "Traefik",
     }
     return mapping.get(component_name, component_name.replace("_", " ").title())
 

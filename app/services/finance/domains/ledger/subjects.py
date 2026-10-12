@@ -139,7 +139,7 @@ async def subject_for_party(
 
     Nobody maintains a second list. A person becomes a subject the
     moment an account is put in their name, and the row is found by
-    party rather than by name - two people called Bedner are two
+    party rather than by name - two people called Doe are two
     subjects, which is the same call ``party`` itself makes.
     """
     found = (

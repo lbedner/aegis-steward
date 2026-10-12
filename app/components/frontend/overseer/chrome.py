@@ -21,6 +21,7 @@ from typing import Any
 import flet as ft
 from flet import PageDisconnectedException
 
+from app.components.frontend.auth.session import sign_out
 from app.core.log import logger
 
 from ..dashboard.cards.card_utils import create_health_status_indicator
@@ -90,6 +91,26 @@ def build_chrome(
         on_click=lambda _: DeploymentsPopup.open_on(page),
     )
 
+    async def handle_logout(_: Any) -> None:
+        """
+        Sign the current session out.
+
+        Calls ``/auth/logout`` (revokes server-side + drops the cookie),
+        then navigates to ``/login``. The router fires ``view.on_leave``
+        on this view (cancelling the refresh + SSE tasks tracked on
+        ``view._tasks``) before mounting ``LoginView``.
+        """
+        logger.info("auth.logout", session_id=page.session_id)
+        await sign_out(page)
+
+    logout_button = ft.IconButton(
+        icon=ft.Icons.LOGOUT,
+        tooltip="Sign out",
+        icon_size=24,
+        icon_color=Theme.Colors.TEXT_SECONDARY,
+        on_click=handle_logout,
+    )
+
     # Health status indicator with circular progress - create before header
     health_status_indicator = create_health_status_indicator(
         0, 0
@@ -142,6 +163,8 @@ def build_chrome(
                         ft.Container(content=theme_button, padding=10),
                         ft.Container(content=logs_button, padding=10),
                         ft.Container(content=deployment_button, padding=10),
+                        # Sign out
+                        ft.Container(content=logout_button, padding=10),
                     ],
                     alignment=ft.MainAxisAlignment.END,
                 ),

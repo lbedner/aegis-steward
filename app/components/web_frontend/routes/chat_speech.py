@@ -50,8 +50,8 @@ HINT_CHARS = 600
 
 async def transcription_hint() -> str:
     """Names the transcriber cannot guess, as the vocabulary it reads: hers
-    ("Illiana" came back "Ilyana") and the household's people ("Bedner"
-    came back "Bednar", Marisa "Marissa", #293). Its own short session:
+    ("Illiana" came back "Ilyana") and the household's people (their
+    surname and first names came back misspelled, #293). Its own short session:
     the routes that ask hold none."""
     async with get_async_session() as db:
         people = await PartyService(db).find(kind="person")
