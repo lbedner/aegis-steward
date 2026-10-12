@@ -1,0 +1,122 @@
+"""Auth dependencies for FastAPI route injection."""
+
+from fastapi import Cookie, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from app.core.config import settings
+from app.core.db import get_async_db
+from app.core.security import SESSION_COOKIE_NAME
+from app.models.user import User
+from app.services.auth.refresh_tokens import RefreshService
+from app.services.auth.service import get_current_user_from_token
+from app.services.auth.users import UserService
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
+
+
+async def get_session_token(
+    bearer_token: str | None = Depends(oauth2_scheme),
+    aegis_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> str | None:
+    """Extract the JWT from either the session cookie or a Bearer header.
+
+    Browser flows rely on the HttpOnly ``aegis_session`` cookie set by
+    ``/auth/token``, ``/auth/register``, and the OAuth callback. API
+    clients keep using ``Authorization: Bearer ...``. Cookie wins if
+    both are present, since browser flows are the primary path.
+    """
+    return aegis_session or bearer_token
+
+
+async def get_user_service(
+    db: AsyncSession = Depends(get_async_db),
+) -> UserService:
+    """Provide a UserService instance."""
+    return UserService(db)
+
+
+async def get_refresh_service(
+    db: AsyncSession = Depends(get_async_db),
+) -> RefreshService:
+    """Provide a RefreshService instance."""
+    return RefreshService(db)
+
+
+async def get_current_active_user(
+    token: str | None = Depends(get_session_token),
+    user_service: UserService = Depends(get_user_service),
+) -> User:
+    """Get the current authenticated user. Raises 401 if not authenticated."""
+    return await get_current_user_from_token(token, user_service)
+
+
+async def get_optional_user(
+    token: str | None = Depends(get_session_token),
+    user_service: UserService = Depends(get_user_service),
+) -> User | None:
+    """Resolve the session to a User if present, else return ``None``.
+
+    For routes that render differently for anon vs authed visitors
+    (e.g. a checkout page that shows a "sign in" prompt for anon and a
+    plan card for authed). Swallows the 401 ``get_current_user_from_token``
+    would raise so the route can branch on the result instead of
+    catching exceptions. With ``AUTH_ENABLED=False`` a request with no
+    session still resolves, to the synthetic dev user.
+    """
+    if not token and settings.AUTH_ENABLED:
+        return None
+    try:
+        return await get_current_user_from_token(token, user_service)
+    except HTTPException:
+        return None
+
+
+async def get_verified_user(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Get the current user, checking email verification where enabled.
+
+    Use this for routes that should be unreachable until the user
+    confirms their email. ``/auth/me``, ``/auth/logout``,
+    ``/auth/verify-email``, and ``/auth/resend-verification`` should
+    intentionally stay on ``get_current_active_user`` so an unverified
+    user can still see their own account state, request a new
+    verification email, and sign out.
+
+    Basic auth has no email delivery or verification step. The check is
+    also skipped when ``AUTH_ENABLED=False`` for the dev-mode user.
+    """
+    return current_user
+
+
+def is_admin(user: User) -> bool:
+    """Operator access to this deployment: the ``ADMIN_USER_EMAILS``
+    allowlist. Every user is one with
+    ``AUTH_ENABLED=False`` (dev), where the synthetic user stands in."""
+    if not settings.AUTH_ENABLED:
+        return True
+    return user.email in settings.ADMIN_USER_EMAILS
+
+
+async def require_admin(
+    current_user: User = Depends(get_verified_user),
+) -> User:
+    """Reject any user who is not an admin (``is_admin``).
+
+    Used to gate operator-only routes (refund actions, dispute review,
+    aggregate revenue charts). On single-tenant deploys you set your
+    own email in the allowlist; on multi-tenant deploys you keep the
+    list short and explicit.
+
+    When ``AUTH_ENABLED=False`` (dev mode) the synthetic user is
+    treated as admin so local development isn't gated. In production
+    with auth on, an empty allowlist 403s everyone — that's the safe
+    default before someone deliberately grants themselves admin.
+    """
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="admin_required",
+        )
+    return current_user

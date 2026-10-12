@@ -20,9 +20,9 @@ from tests._session import opens
 async def _insured(db: AsyncSession) -> tuple[int, int, int]:
     parties = PartyService(db)
     insurer = await parties.create(name="Delta Dental of New York", kind="organization")
-    marisa = await parties.create(name="Marisa Testcase", kind="person")
-    leonard = await parties.create(name="Leonard Testcase", kind="person")
-    return int(insurer.id), int(marisa.id), int(leonard.id)
+    alex = await parties.create(name="Alex Testcase", kind="person")
+    sam = await parties.create(name="Sam Testcase", kind="person")
+    return int(insurer.id), int(alex.id), int(sam.id)
 
 
 class TestAPolicy:
@@ -30,16 +30,16 @@ class TestAPolicy:
     async def test_it_holds_what_the_plan_documents_say(
         self, async_db_session: AsyncSession
     ) -> None:
-        insurer, marisa, leonard = await _insured(async_db_session)
+        insurer, alex, sam = await _insured(async_db_session)
         service = InsuranceService(async_db_session)
 
         policy = await service.create_policy(
             insurer_party_id=insurer,
-            covered_party_ids=[marisa, leonard],
+            covered_party_ids=[alex, sam],
             kind="dental",
             name="Delta Dental PPO Premium Plan",
             policy_number="6448960775",
-            member_id="127396822501",
+            member_id="123456789012",
             group_id="18822-10007",
             effective_on=date(2026, 8, 1),
             terms={
@@ -52,23 +52,23 @@ class TestAPolicy:
 
         found = await service.get_policy(policy.id)
         assert found is not None
-        assert found.covered_party_ids == [marisa, leonard]
+        assert found.covered_party_ids == [alex, sam]
         assert found.terms["Annual maximum"] == "$2,000 per member"
         assert found.premium_stream_id is None
 
         assert [p.id for p in await service.policies_of(insurer)] == [policy.id]
-        assert [p.id for p in await service.policies_covering(leonard)] == [policy.id]
+        assert [p.id for p in await service.policies_covering(sam)] == [policy.id]
         assert await service.policies_covering(insurer) == []
 
     @pytest.mark.asyncio
     async def test_a_kind_nobody_defined_is_refused(
         self, async_db_session: AsyncSession
     ) -> None:
-        insurer, marisa, _ = await _insured(async_db_session)
+        insurer, alex, _ = await _insured(async_db_session)
         with pytest.raises(ValueError, match="One of"):
             await InsuranceService(async_db_session).create_policy(
                 insurer_party_id=insurer,
-                covered_party_ids=[marisa],
+                covered_party_ids=[alex],
                 kind="pet",
                 name="Pet plan",
             )
@@ -83,21 +83,21 @@ class TestAClaim:
         """An EOB says billed, allowed, insurer paid, patient owes. The
         last is money owed to the PROVIDER, not the insurer, and the
         policy can say how much of that is outstanding."""
-        insurer, marisa, _ = await _insured(async_db_session)
+        insurer, alex, _ = await _insured(async_db_session)
         service = InsuranceService(async_db_session)
         dentist = await PartyService(async_db_session).create(
             name="Magdalena Goralczyk DDS", kind="person"
         )
         policy = await service.create_policy(
-            insurer_party_id=insurer, covered_party_ids=[marisa], kind="dental"
+            insurer_party_id=insurer, covered_party_ids=[alex], kind="dental"
         )
 
         claim = await service.record_claim(
             policy_id=policy.id,
-            covered_party_id=marisa,
+            covered_party_id=alex,
             service_on=date(2026, 8, 12),
             provider_party_id=int(dentist.id),
-            claim_number="23548895152718",
+            claim_number="12345678901234",
             status="processed",
             billed_cents=60500,
             allowed_cents=35600,
@@ -106,7 +106,7 @@ class TestAClaim:
         )
         second = await service.record_claim(
             policy_id=policy.id,
-            covered_party_id=marisa,
+            covered_party_id=alex,
             service_on=date(2026, 9, 2),
             billed_cents=12000,
             allowed_cents=9000,
@@ -125,15 +125,15 @@ class TestAClaim:
     async def test_a_status_nobody_defined_is_refused(
         self, async_db_session: AsyncSession
     ) -> None:
-        insurer, marisa, _ = await _insured(async_db_session)
+        insurer, alex, _ = await _insured(async_db_session)
         service = InsuranceService(async_db_session)
         policy = await service.create_policy(
-            insurer_party_id=insurer, covered_party_ids=[marisa], kind="dental"
+            insurer_party_id=insurer, covered_party_ids=[alex], kind="dental"
         )
         with pytest.raises(ValueError, match="One of"):
             await service.record_claim(
                 policy_id=policy.id,
-                covered_party_id=marisa,
+                covered_party_id=alex,
                 service_on=date(2026, 8, 12),
                 status="lost",
             )
@@ -143,10 +143,10 @@ class TestAClaim:
     async def test_a_claim_on_no_policy_is_refused(
         self, async_db_session: AsyncSession
     ) -> None:
-        insurer, marisa, _ = await _insured(async_db_session)
+        insurer, alex, _ = await _insured(async_db_session)
         with pytest.raises(ValueError, match="policy"):
             await InsuranceService(async_db_session).record_claim(
-                policy_id=999999, covered_party_id=marisa, service_on=date(2026, 8, 12)
+                policy_id=999999, covered_party_id=alex, service_on=date(2026, 8, 12)
             )
 
 
@@ -161,10 +161,10 @@ class TestThePlanProposesThePolicy:
             policy_create_execute,
         )
 
-        insurer, marisa, leonard = await _insured(async_db_session)
+        insurer, alex, sam = await _insured(async_db_session)
         payload = PolicyCreatePayload(
             insurer_party_id=insurer,
-            covered_party_ids=[marisa, leonard],
+            covered_party_ids=[alex, sam],
             kind="dental",
             name="Delta Dental PPO Premium Plan",
             group_id="18822-10007",
@@ -176,14 +176,14 @@ class TestThePlanProposesThePolicy:
             for r in await policy_create_describe(async_db_session, payload, None)
         }
         assert said["Insurer"] == "Delta Dental of New York"
-        assert said["Covers"] == "Marisa Testcase, Leonard Testcase"
+        assert said["Covers"] == "Alex Testcase, Sam Testcase"
         assert said["Group ID"] == "18822-10007"
         assert said["Annual maximum"] == "$2,000 per member"
 
         made = await policy_create_execute(async_db_session, payload, None)
         await async_db_session.commit()
         policy = await InsuranceService(async_db_session).get_policy(made["policy_id"])
-        assert policy.covered_party_ids == [marisa, leonard]
+        assert policy.covered_party_ids == [alex, sam]
 
     @pytest.mark.asyncio
     async def test_an_insurer_nobody_filed_is_refused(
@@ -217,11 +217,11 @@ class TestTheEobProposesTheClaim:
             claim_record_execute,
         )
 
-        insurer, marisa, _ = await _insured(async_db_session)
+        insurer, alex, _ = await _insured(async_db_session)
         service = InsuranceService(async_db_session)
         policy = await service.create_policy(
             insurer_party_id=insurer,
-            covered_party_ids=[marisa],
+            covered_party_ids=[alex],
             kind="dental",
             name="Delta Dental PPO Premium Plan",
         )
@@ -233,9 +233,9 @@ class TestTheEobProposesTheClaim:
         )
         payload = ClaimRecordPayload(
             policy_id=int(policy.id),
-            covered_party_id=marisa,
+            covered_party_id=alex,
             service_on=date(2026, 8, 12),
-            claim_number="23548895152718",
+            claim_number="12345678901234",
             billed_cents=60500,
             allowed_cents=35600,
             insurer_paid_cents=21000,
@@ -247,7 +247,7 @@ class TestTheEobProposesTheClaim:
             for r in await claim_record_describe(async_db_session, payload, None)
         }
         assert said["Policy"] == "Delta Dental PPO Premium Plan"
-        assert said["For"] == "Marisa Testcase"
+        assert said["For"] == "Alex Testcase"
         assert said["You owe the provider"] == "$146.00"
         assert said["EOB"] == "ClaimStatement.pdf"
 
@@ -281,14 +281,14 @@ class TestIllianaReadsPolicies:
         from app.services.insurance import ai_tools
 
         monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
-        insurer, marisa, _ = await _insured(async_db_session)
+        insurer, alex, _ = await _insured(async_db_session)
         service = InsuranceService(async_db_session)
         policy = await service.create_policy(
-            insurer_party_id=insurer, covered_party_ids=[marisa], kind="dental"
+            insurer_party_id=insurer, covered_party_ids=[alex], kind="dental"
         )
         await service.record_claim(
             policy_id=int(policy.id),
-            covered_party_id=marisa,
+            covered_party_id=alex,
             service_on=date(2026, 8, 12),
             patient_owes_cents=14600,
         )
@@ -317,14 +317,14 @@ class TestAClaimIsPaid:
     down when you pay."""
 
     async def _claim(self, db: AsyncSession) -> tuple[int, int]:
-        insurer, marisa, _ = await _insured(db)
+        insurer, alex, _ = await _insured(db)
         service = InsuranceService(db)
         policy = await service.create_policy(
-            insurer_party_id=insurer, covered_party_ids=[marisa], kind="dental"
+            insurer_party_id=insurer, covered_party_ids=[alex], kind="dental"
         )
         claim = await service.record_claim(
             policy_id=int(policy.id),
-            covered_party_id=marisa,
+            covered_party_id=alex,
             service_on=date(2026, 8, 12),
             patient_owes_cents=14600,
         )

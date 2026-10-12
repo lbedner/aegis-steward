@@ -315,6 +315,22 @@ class CacheService:
         self._store[key] = (True, time.time() + ttl)
         return True
 
+    async def hit(self, key: str, ttl: int) -> int:
+        """Count one more at ``key`` and return the count: a fixed window
+        that starts with the first hit and lasts ``ttl`` seconds."""
+        if self._redis is not None:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                pipe.incr(key)
+                pipe.expire(key, ttl, nx=True)
+                count, _ = await pipe.execute()
+            return int(count)
+        held = await self._lookup(key)
+        count = (held or 0) + 1
+        assert self._store is not None
+        expires_at = self._store[key][1] if held else time.time() + ttl
+        self._store[key] = (count, expires_at)
+        return count
+
     async def _keys(self, prefix: str) -> list[bytes]:
         """Every Redis key starting with ``prefix``: SCAN with MATCH, O(n)
         over the keyspace but never blocking the server, unlike KEYS."""

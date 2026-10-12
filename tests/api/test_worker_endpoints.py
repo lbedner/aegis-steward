@@ -19,13 +19,23 @@ class TestWorkerEndpoints:
     """Test worker API endpoints for task enqueuing."""
 
     @pytest.fixture
-    async def async_client(self) -> AsyncIterator[AsyncClient]:
+    async def async_client(self, async_db_session) -> AsyncIterator[AsyncClient]:
         """Async HTTP client for testing.
 
-        No auth or no DB in this stack, so no override needed — the
-        endpoints are reachable without a bearer token.
+        Overrides ``get_async_db`` with the in-memory ``async_db_session``
+        from conftest. Without that, the admin-gated routes look up the
+        bearer-token user against the real asyncpg pool, can't find the
+        test fixture user (created in SQLite), and return 401 — even
+        though ``auth_headers`` carries a valid JWT.
         """
+        from app.core.db import get_async_db
+
         app = create_integrated_app()
+
+        async def _get_test_async_db():
+            yield async_db_session
+
+        app.dependency_overrides[get_async_db] = _get_test_async_db
 
         # Manually trigger startup for health check registration
         from app.components.backend.hooks import backend_hooks
@@ -34,8 +44,12 @@ class TestWorkerEndpoints:
         await backend_hooks.execute_startup_hooks()
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
             yield client
+
+        app.dependency_overrides.clear()
 
     # These two enqueue tests patch arq's ``create_pool``; dramatiq and
     # taskiq pools expose a broker API instead and need their own tests.

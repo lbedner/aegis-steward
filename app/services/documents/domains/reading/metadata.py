@@ -78,7 +78,7 @@ HEADING_EXTRA_WORDS = 3
 _MARKER = re.compile(
     r"\b(" + "|".join(re.escape(m) for m, _ in KIND_MARKERS) + r")\b", re.I
 )
-# "Dear Mr. Bedner:" - the one thing only a letter does.
+# "Dear Mr. Doe:" - the one thing only a letter does.
 _SALUTATION = re.compile(r"^dear\b[^\n]{0,60}[:,]\s*$", re.I)
 
 # A kind is read from a HEADING, not from a field label: a short line

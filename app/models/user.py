@@ -1,0 +1,245 @@
+"""User data models."""
+
+from datetime import datetime
+from enum import StrEnum
+from typing import Literal
+
+from pydantic import EmailStr
+import sqlalchemy as sa
+from sqlalchemy import CheckConstraint, Column, String, UniqueConstraint
+from sqlmodel import Field, SQLModel
+
+from app.core.time import utcnow
+
+
+class OAuthProvider(StrEnum):
+    """Supported third-party identity providers. Add a new value here when
+    wiring another provider (Microsoft, Apple, etc.); no DB change needed."""
+
+    GITHUB = "github"
+    GOOGLE = "google"
+
+
+class UserOAuthIdentity(SQLModel, table=True):
+    """Links a User row to a third-party identity.
+
+    One user can have many identities (future: GitHub + Google for the same
+    account). A given (provider, provider_user_id) can only map to one user,
+    enforced by `uq_user_oauth_identity_provider_pid` — prevents a drive-by
+    attacker from hijacking someone's external identity.
+    """
+
+    __tablename__ = "user_oauth_identity"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "provider_user_id",
+            name="uq_user_oauth_identity_provider_pid",
+        ),
+        # Project convention: VARCHAR + CHECK constraint for enum-like
+        # columns instead of native PG enum types — keeps SQLite parity
+        # and makes adding/removing values a normal Alembic migration.
+        CheckConstraint(
+            "provider IN ('github', 'google')",
+            name="ck_user_oauth_identity_provider",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    provider: OAuthProvider = Field(
+        sa_column=Column("provider", String(32), nullable=False),
+    )
+    provider_user_id: str = Field(max_length=128)  # str to support int or uuid
+    provider_username: str | None = Field(default=None, max_length=128)
+    provider_email: str | None = Field(default=None, max_length=255)
+    avatar_url: str | None = Field(default=None, max_length=512)
+    created_at: datetime = Field(
+        default_factory=lambda: utcnow(),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: utcnow(),
+    )
+
+
+class PasswordResetToken(SQLModel, table=True):
+    """Token for password reset requests."""
+
+    __tablename__ = "password_reset_token"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    token: str = Field(unique=True, index=True)
+    created_at: datetime = Field(default_factory=lambda: utcnow())
+    used: bool = Field(default=False)
+
+
+class EmailVerificationToken(SQLModel, table=True):
+    """Token for email verification after registration."""
+
+    __tablename__ = "email_verification_token"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    token: str = Field(unique=True, index=True)
+    created_at: datetime = Field(default_factory=lambda: utcnow())
+    used: bool = Field(default=False)
+
+
+class EmailVerifyRequest(SQLModel):
+    """Request body for email verification endpoint."""
+
+    token: str
+
+
+class PasswordResetRequest(SQLModel):
+    """Request body for password reset request endpoint."""
+
+    email: str
+
+
+class PasswordResetConfirm(SQLModel):
+    """Request body for password reset confirmation endpoint."""
+
+    token: str
+    new_password: str = Field(min_length=8)
+
+
+class ChangePasswordRequest(SQLModel):
+    """Request body for the authenticated change-password endpoint."""
+
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+class StatusMessage(SQLModel):
+    """Generic side-effect response — single human-readable ``detail`` field.
+
+    Used by auth endpoints that don't return entity data
+    (``/password-reset/{request,confirm}``, ``/verify-email``, ``/logout``).
+    Wrapping these in a typed model means the OpenAPI schema describes
+    the response shape correctly and clients aren't guessing at the
+    JSON keys.
+    """
+
+    detail: str
+
+
+class TokenResponse(SQLModel):
+    """OAuth2-spec token response from ``/auth/token``.
+
+    Shape is fixed by RFC 6749 §5.1 — clients (and the OAuth2 lib) expect
+    these exact field names. We declare it as a model so OpenAPI describes
+    it accurately rather than as an untyped dict.
+    """
+
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+
+
+class ResendVerificationResponse(SQLModel):
+    """Response from ``/auth/resend-verification``.
+
+    ``status`` is one of:
+
+    - ``"sent"`` — a new verification email was queued for delivery.
+    - ``"already_verified"`` — the user's email is already verified;
+      no-op, no email sent.
+
+    Kept as a Literal so OpenAPI consumers can discriminate without
+    parsing free-form strings.
+    """
+
+    status: Literal["sent", "already_verified"]
+
+
+class UserBase(SQLModel):
+    """Base user model with shared fields."""
+
+    # No ``index=True`` here — the partial unique index declared in
+    # ``User.__table_args__`` already covers ``email`` lookups.
+    email: EmailStr
+    full_name: str | None = None
+    is_active: bool = Field(default=True)
+    is_verified: bool = Field(default=False)
+
+
+class User(UserBase, table=True):
+    """User database model."""
+
+    # Partial unique index on email — uniqueness only enforced for live
+    # rows, so re-registering after a soft delete reuses the same email.
+    __table_args__ = (
+        sa.Index(
+            "ix_user_email",
+            "email",
+            unique=True,
+            sqlite_where=sa.text("deleted_at IS NULL"),
+            postgresql_where=sa.text("deleted_at IS NULL"),
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    hashed_password: str
+    last_login: datetime | None = None
+    created_at: datetime = Field(default_factory=lambda: utcnow())
+    updated_at: datetime | None = None
+    deleted_at: datetime | None = Field(default=None, index=True)
+    failed_login_attempts: int = Field(default=0)
+    locked_until: datetime | None = None
+
+    @property
+    def display_name(self) -> str:
+        """The user as the app names them: their name, else their email."""
+        return self.full_name or self.email
+
+
+class UserCreate(SQLModel):
+    """User creation model.
+
+    Standalone (does NOT inherit from ``UserBase``) so the public
+    /register endpoint can only set ``email``, ``full_name``, and
+    ``password``. Pre-fix this inherited the full base — including
+    ``is_active``, ``is_verified``, and ``role`` — and the service then
+    pass-through ``is_active`` to the DB row. A signup POST could
+    therefore self-deactivate or (more concerning) any future refactor
+    that widened the service call would silently expose role/verified
+    to the wire. Admin-driven user creation, if it ever needs to set
+    those fields, should go through a dedicated model.
+    """
+
+    email: EmailStr = Field(unique=True, index=True)
+    full_name: str | None = None
+    password: str = Field(min_length=8)
+
+
+class UserLogin(SQLModel):
+    """User login model."""
+
+    email: str
+    password: str
+
+
+class UserResponse(UserBase):
+    """User response model (excludes sensitive data)."""
+
+    id: int
+    last_login: datetime | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+    # Whether the account has a local password set. Drives UI decisions like
+    # "can this user safely disconnect an OAuth provider without getting
+    # locked out?". Computed — not a DB column.
+    has_password: bool = False
+
+    @classmethod
+    def from_user(cls, user: User) -> UserResponse:
+        """Single constructor so every UserResponse across the API carries
+        the same computed fields. Keep API callers on this, not
+        `model_validate`, to avoid drift."""
+        return cls.model_validate(
+            {
+                **user.model_dump(),
+                "has_password": bool(user.hashed_password),
+            }
+        )

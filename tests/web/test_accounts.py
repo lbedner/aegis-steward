@@ -483,7 +483,7 @@ class TestTheInstitutionsSettingsTab:
             data={
                 "name": "Fidelity",
                 "url": "https://fidelity.com",
-                "phone": "800-343-3548",
+                "phone": "800-555-0160",
             },
         )
         assert "dialog:close" in triggers(response)
@@ -1136,7 +1136,7 @@ class TestTheValueLine:
 
         house = await seed_account(
             finance,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
         )
@@ -1189,7 +1189,7 @@ class TestTheValueWindow:
 
         house = await seed_account(
             finance,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
         )
@@ -1277,7 +1277,7 @@ class TestTheRunUpToBuyingIt:
 
         house = await seed_account(
             finance,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
         )
@@ -1383,7 +1383,7 @@ class TestALongHistoryScrollsInsideItsCard:
 
         house = await seed_account(
             finance,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
         )
@@ -1429,7 +1429,7 @@ class TestWhatIsLeftAfterTheMortgage:
 
         house = await seed_account(
             finance,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
         )

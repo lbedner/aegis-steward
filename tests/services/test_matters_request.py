@@ -27,7 +27,7 @@ ASKED = (
 
 async def _renewal(db: AsyncSession) -> tuple[int, int]:
     matter = await MatterService(db).open(
-        title="Medicaid renewal", reference="MA258760XX"
+        title="Medicaid renewal", reference="MA123456XX"
     )
     request = await RequestService(db).record(
         matter_id=matter.id,
@@ -318,7 +318,7 @@ class TestANewContact:
 
         payload = CreateContactPayload(
             name="Spouse Testcase",
-            address="3 Somewhere Cir, Poughkeepsie, NY 12601",
+            address="3 Somewhere Cir, Anytown, NY 12345",
             note="Wife of the subject",
         )
         said = {
@@ -333,7 +333,7 @@ class TestANewContact:
         await async_db_session.commit()
         party = await PartyService(async_db_session).get(made["party_id"])
         assert party.kind == "person"
-        assert party.contact == {"address": "3 Somewhere Cir, Poughkeepsie, NY 12601"}
+        assert party.contact == {"address": "3 Somewhere Cir, Anytown, NY 12345"}
         assert party.note == "Wife of the subject"
 
     def test_a_kind_nobody_defined_is_refused(self) -> None:
@@ -388,17 +388,17 @@ class TestAmendingAContact:
 
         parties = PartyService(async_db_session)
         party = await parties.create(
-            name="Leonard Testcase",
+            name="Sam Testcase",
             kind="person",
-            contact={"email": "leonard@example.com"},
+            contact={"email": "sam@example.com"},
             note="Head of household",
         )
         await amend_contact_execute(
             async_db_session,
             AmendContactPayload(
                 party_id=party.id,
-                address="3 Somewhere Cir, Poughkeepsie, NY 12601",
-                phone="845-430-1070",
+                address="3 Somewhere Cir, Anytown, NY 12345",
+                phone="555-555-0169",
             ),
             None,
         )
@@ -406,14 +406,14 @@ class TestAmendingAContact:
 
         again = await parties.get(party.id)
         assert again.contact == {
-            "email": "leonard@example.com",
-            "address": "3 Somewhere Cir, Poughkeepsie, NY 12601",
-            "phone": "845-430-1070",
+            "email": "sam@example.com",
+            "address": "3 Somewhere Cir, Anytown, NY 12345",
+            "phone": "555-555-0169",
         }
         # Untouched because unsent: a card that fills in a phone number
         # must not empty the note it said nothing about.
         assert again.note == "Head of household"
-        assert again.name == "Leonard Testcase"
+        assert again.name == "Sam Testcase"
 
     @pytest.mark.asyncio
     async def test_the_card_shows_before_and_after_with_its_source(
@@ -436,7 +436,7 @@ class TestAmendingAContact:
                 async_db_session,
                 AmendContactPayload(
                     party_id=party.id,
-                    phone="800-471-7091",
+                    phone="800-555-0170",
                     website="https://deltadental.example",
                     sources={"phone": "Document 12, page 1"},
                 ),
@@ -447,7 +447,7 @@ class TestAmendingAContact:
         # What it WAS is on the card: approving a correction blind is
         # how a good number gets overwritten by a worse one. Where it
         # came from is the row's note, drawn beneath the value.
-        assert rows["Phone"].value == "800-000-0000 → 800-471-7091"
+        assert rows["Phone"].value == "800-000-0000 → 800-555-0170"
         assert rows["Phone"].note == "Document 12, page 1"
         assert rows["Website"].value == "- → https://deltadental.example"
         assert rows["Website"].note is None
@@ -463,12 +463,12 @@ class TestAmendingAContact:
         from app.services.matters.service import PartyService
 
         party = await PartyService(async_db_session).create(
-            name="Nothing Testcase", kind="person", contact={"phone": "845-616-9084"}
+            name="Nothing Testcase", kind="person", contact={"phone": "555-555-0171"}
         )
         with pytest.raises(ValueError, match="nothing"):
             await amend_contact_describe(
                 async_db_session,
-                AmendContactPayload(party_id=party.id, phone="845-616-9084"),
+                AmendContactPayload(party_id=party.id, phone="555-555-0171"),
                 None,
             )
 
@@ -484,7 +484,7 @@ class TestAmendingAContact:
         with pytest.raises(ValueError, match="999999"):
             await amend_contact_execute(
                 async_db_session,
-                AmendContactPayload(party_id=999999, phone="845-430-1070"),
+                AmendContactPayload(party_id=999999, phone="555-555-0169"),
                 None,
             )
 
@@ -550,13 +550,13 @@ class TestAmendingAContact:
         party = await parties.create(
             name="Noted Testcase",
             kind="organization",
-            note="Phone 800-471-7091, deltadental.example",
+            note="Phone 800-555-0170, deltadental.example",
         )
         await amend_contact_execute(
             async_db_session,
             AmendContactPayload(
                 party_id=party.id,
-                phone="800-471-7091",
+                phone="800-555-0170",
                 website="https://deltadental.example",
                 note="",
             ),
@@ -565,14 +565,14 @@ class TestAmendingAContact:
         await async_db_session.commit()
         again = await parties.get(party.id)
         assert again.note is None
-        assert again.contact["phone"] == "800-471-7091"
+        assert again.contact["phone"] == "800-555-0170"
 
 
 class TestClearingAFieldThatShouldNotBeThere:
     """A reach field can be emptied, not only corrected.
 
     Live: a bad reading put a website of "state.ny.us" and a truncated
-    caseworker email onto Dutchess County DSS. Nothing could take them
+    caseworker email onto Example County DSS. Nothing could take them
     off again - an unset field meant "say nothing about this", so there
     was no way to say "this should be blank" (2026-09-18). A record you
     can fill and cannot empty accumulates every mistake ever made in it.
@@ -593,8 +593,8 @@ class TestClearingAFieldThatShouldNotBeThere:
             name="Wrong Testcase",
             kind="organization",
             contact={
-                "address": "60 Market St",
-                "phone": "(845) 486-3000",
+                "address": "10 Center St",
+                "phone": "(555) 555-0161",
                 "website": "state.ny.us",
             },
         )
@@ -608,8 +608,8 @@ class TestClearingAFieldThatShouldNotBeThere:
         again = await parties.get(party.id)
         assert "website" not in again.contact
         # Untouched, because unsent still means unsaid.
-        assert again.contact["phone"] == "(845) 486-3000"
-        assert again.contact["address"] == "60 Market St"
+        assert again.contact["phone"] == "(555) 555-0161"
+        assert again.contact["address"] == "10 Center St"
 
     @pytest.mark.asyncio
     async def test_the_card_says_it_is_being_emptied(
@@ -671,9 +671,9 @@ class TestARoutingNumberOnAContact:
 
         with pytest.raises(ValidationError, match="account.institution"):
             CreateContactPayload(
-                name="Hudson Valley Credit Union",
+                name="Riverbend Credit Union",
                 kind="organization",
-                also=[{"label": "Routing number", "value": "221979363"}],
+                also=[{"label": "Routing number", "value": "011000015"}],
             )
 
     def test_an_amendment_will_not_add_one(self) -> None:
@@ -683,7 +683,7 @@ class TestARoutingNumberOnAContact:
 
         with pytest.raises(ValidationError, match="account.institution"):
             AmendContactPayload(
-                party_id=1, also=[{"label": "ABA #", "value": "221979363"}]
+                party_id=1, also=[{"label": "ABA #", "value": "011000015"}]
             )
 
     def test_the_other_ways_it_is_printed_are_refused_too(self) -> None:
@@ -696,7 +696,7 @@ class TestARoutingNumberOnAContact:
                 CreateContactPayload(
                     name="X",
                     kind="organization",
-                    also=[{"label": label, "value": "221979363"}],
+                    also=[{"label": label, "value": "011000015"}],
                 )
 
     def test_a_fax_is_still_a_way_to_reach_somebody(self) -> None:
@@ -721,12 +721,12 @@ class TestARoutingNumberOnAContact:
         )
 
         note = (
-            "Federally insured by the NCUA. Routing number 221979363 will be "
+            "Federally insured by the NCUA. Routing number 011000015 will be "
             "attached to the account institution record, not the contact."
         )
         with pytest.raises(ValidationError, match="account.institution"):
             CreateContactPayload(
-                name="Hudson Valley Credit Union", kind="organization", note=note
+                name="Riverbend Credit Union", kind="organization", note=note
             )
         with pytest.raises(ValidationError, match="account.institution"):
             AmendContactPayload(party_id=1, note=note)
@@ -757,13 +757,13 @@ class TestALabelledLineThatRepeatsAField:
 
         with pytest.raises(ValidationError, match="Phone"):
             CreateContactPayload(
-                name="Hudson Valley Credit Union",
+                name="Riverbend Credit Union",
                 kind="organization",
-                phone="845.463.3011 / 800.468.3011",
+                phone="555.555.0172 / 800.555.0173",
                 also=[
                     {
                         "label": "International calls",
-                        "value": "845.463.3011 / 800.468.3011",
+                        "value": "555.555.0172 / 800.555.0173",
                     }
                 ],
             )
@@ -780,7 +780,7 @@ class TestALabelledLineThatRepeatsAField:
         payload = CreateContactPayload(
             name="X",
             kind="organization",
-            phone="845.463.3011",
-            also=[{"label": "TDD for Hearing Impaired", "value": "845.463.1709"}],
+            phone="555.555.0172",
+            also=[{"label": "TDD for Hearing Impaired", "value": "555.555.0174"}],
         )
-        assert payload.reach()["also"][0]["value"] == "845.463.1709"
+        assert payload.reach()["also"][0]["value"] == "555.555.0174"

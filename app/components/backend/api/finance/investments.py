@@ -3,6 +3,8 @@
 One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
+from typing import Any
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -19,14 +21,13 @@ from app.components.backend.api.finance.base import (
     _NOT_FOUND,
     read_upload,
 )
+from app.components.backend.api.finance.imports import park_import, start_import_job
 from app.services.finance.deps import get_finance_service
 from app.services.finance.domains.investments.securities import market_value_cents
 from app.services.finance.schemas import (
     HoldingCreate,
     HoldingListResponse,
     HoldingResponse,
-    InvestmentImportPreviewResponse,
-    InvestmentImportResultResponse,
     SecurityCreate,
     SecurityResponse,
     TradeListResponse,
@@ -94,48 +95,43 @@ async def list_account_holdings(
     )
 
 
-async def _read_investment_ledger(file: UploadFile, profile: str) -> list:
-    """Shared parse step for the investment preview and commit endpoints:
-    profile gate, size gate, then parse - with each failure mapped to the
-    HTTP status the register import uses for the same class of problem."""
-    from app.services.finance.domains.investments.optum import (
-        UnknownActivityTypeError,
-        parse_optum_settled_transactions,
-    )
-
+def _check_profile(profile: str) -> None:
+    """The one ledger layout the job reads; any other is refused before
+    the file is stored."""
     if profile not in _INVESTMENT_IMPORT_PROFILES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown profile {profile!r}. Known: {_INVESTMENT_IMPORT_PROFILES}.",
         )
-    data = await read_upload(file)
-    try:
-        return parse_optum_settled_transactions(data)
-    except UnknownActivityTypeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
 
 
-@router.post(
-    "/import-investments/preview",
-    response_model=InvestmentImportPreviewResponse,
-)
+@router.post("/import-investments/preview", status_code=status.HTTP_202_ACCEPTED)
 async def preview_import_investments(
     file: UploadFile = File(...),
     profile: str = "optum",
-) -> InvestmentImportPreviewResponse:
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> dict[str, str]:
     """Parse a custodian activity ledger and report what it carries -
     row count, date range, and the replayed ending positions - without
     touching the database. The dialog between file pick and commit runs
     on this, so the account choice is made looking at real numbers.
+
+    Parsed by the import job (#494): ``202 {"job_id": ...}``, and the
+    finished job's result is the ``InvestmentImportPreviewResponse``.
     """
-    from app.services.finance.domains.investments.activity import preview_ledger
+    _check_profile(profile)
+    job_id = await start_import_job(
+        file,
+        account_id=None,
+        kind="investments-preview",
+        service=service,
+        owner_user_id=owner_user_id,
+    )
+    return {"job_id": job_id}
 
-    return preview_ledger(await _read_investment_ledger(file, profile))
 
-
-@router.post("/import-investments", response_model=InvestmentImportResultResponse)
+@router.post("/import-investments", status_code=status.HTTP_202_ACCEPTED)
 async def import_investments(
     file: UploadFile = File(...),
     account_id: int | None = None,
@@ -143,49 +139,73 @@ async def import_investments(
     profile: str = "optum",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
-) -> InvestmentImportResultResponse:
+) -> dict[str, Any]:
     """Upload a custodian activity ledger (trades/dividends/fees) into a
     brokerage account. The investments counterpart to ``/import``: writes
-    ``FinanceTrade``/``FinanceHolding`` rows, not cash transactions, and
-    (unlike the register import) runs synchronously - a ledger like this is
-    a few hundred rows at most, not a multi-year bank statement.
+    ``FinanceTrade``/``FinanceHolding`` rows, not cash transactions.
 
     Target: an existing ``account_id``, or an ``account_name`` to create a
     manual brokerage account on the spot - the same courtesy the register
     import extends when an OFX file names an account that doesn't exist yet.
-    """
-    from app.services.finance.domains.investments.loader import load_ledger
 
-    if account_id is None and not (account_name or "").strip():
+    Loaded by the import job (#494): ``202 {"job_id", "account_id",
+    "account_created"}``, and the finished job's result is the
+    ``InvestmentImportResultResponse``. An account made here is made by
+    this request, so this answer is the one that says so.
+    """
+    _check_profile(profile)
+    name = (account_name or "").strip()
+    if account_id is None and not name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Provide an account_id, or an account_name to create one.",
         )
-    activities = await _read_investment_ledger(file, profile)
-    account_created = False
     if account_id is not None:
-        account = await service.get_account(account_id, owner_user_id=owner_user_id)
-        if account is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=_NOT_FOUND
-            )
-    else:
-        account = await service.create_manual_account(
+        job_id = await start_import_job(
+            file,
+            account_id=account_id,
+            kind="investments",
+            service=service,
             owner_user_id=owner_user_id,
-            name=account_name.strip(),
-            account_type="brokerage",
-            classification="asset",
         )
-        account_created = True
-    result = await load_ledger(
-        service.db,
+        return {"job_id": job_id, "account_id": account_id, "account_created": False}
+    # The size check first: a refused file must not leave an empty account.
+    data = await read_upload(file)
+    account_id, created = await _brokerage_named(service, name, owner_user_id)
+    job_id = await park_import(
+        data,
+        file,
+        account_id=account_id,
+        kind="investments",
         owner_user_id=owner_user_id,
-        account=account,
-        activities=activities,
-        account_created=account_created,
     )
+    return {"job_id": job_id, "account_id": account_id, "account_created": created}
+
+
+async def _brokerage_named(
+    service: FinanceService, name: str, owner_user_id: int | None
+) -> tuple[int, bool]:
+    """The caller's live brokerage account called ``name``, made if there
+    is none: ``(id, created)``. The account is made before its job runs,
+    so a retry after a failed job finds it rather than making a second."""
+    from app.services.finance.adapters.importers.queries import (
+        live_account_id_by_name,
+    )
+
+    existing_id = await live_account_id_by_name(
+        service.db, name=name, owner_user_id=owner_user_id, account_type="brokerage"
+    )
+    if existing_id is not None:
+        return existing_id, False
+    account = await service.create_manual_account(
+        owner_user_id=owner_user_id,
+        name=name,
+        account_type="brokerage",
+        classification="asset",
+    )
+    # Committed before the job runs: it reads the account in its own session.
     await service.db.commit()
-    return result
+    return account.id, True
 
 
 @router.get("/accounts/{account_id}/trades", response_model=TradeListResponse)

@@ -94,7 +94,7 @@ def _amount(cents: int) -> str:
 # context. An insight row freezes its figures on the day it is raised, so
 # feeding the model both produced a note whose headline quoted the stale
 # trigger while its own facts bullet named the live one (confirmed on a
-# real note: "$216.25 Anthropic" against "Central Hudson"). The projection
+# real note: "$216.25 Anthropic" against "Riverbend Power"). The projection
 # section owns the concept; the row stays in the UI but out of the prompt.
 _PROJECTION_OWNED_TYPES = frozenset({"cash_runway"})
 

@@ -213,7 +213,7 @@ class TestReconcileValuationRoute:
     ) -> None:
         account = await svc.create_manual_account(
             owner_user_id=1,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
         )

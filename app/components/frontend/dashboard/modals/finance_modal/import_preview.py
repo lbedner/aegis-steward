@@ -94,10 +94,12 @@ def _preview_creates(preview: dict[str, Any]) -> list[ft.Control]:
         _preview_tag_row("Category", name, Theme.Colors.TEXT_SECONDARY)
         for name in categories[:_PREVIEW_DETAIL_CAP]
     )
-    if len(categories) > _PREVIEW_DETAIL_CAP:
+    # The job keeps only the capped list, with the full count beside it.
+    total = preview.get("new_categories_total", len(categories))
+    if total > _PREVIEW_DETAIL_CAP:
         rows.append(
             SecondaryText(
-                f"and {len(categories) - _PREVIEW_DETAIL_CAP:,} more categories",
+                f"and {total - _PREVIEW_DETAIL_CAP:,} more categories",
                 size=Theme.Typography.BODY_SMALL,
             )
         )
@@ -156,10 +158,12 @@ def _preview_edits(preview: dict[str, Any]) -> list[ft.Control]:
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             )
         )
-    if len(edits) > _PREVIEW_DETAIL_CAP:
+    # Capped by the job as well; ``rows_updated`` is the full count.
+    total = preview.get("rows_updated", len(edits))
+    if total > _PREVIEW_DETAIL_CAP:
         rows.append(
             SecondaryText(
-                f"and {len(edits) - _PREVIEW_DETAIL_CAP:,} more updates",
+                f"and {total - _PREVIEW_DETAIL_CAP:,} more updates",
                 size=Theme.Typography.BODY_SMALL,
             )
         )

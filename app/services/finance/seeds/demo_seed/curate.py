@@ -129,7 +129,7 @@ async def _file_proposals(
         await propose(
             db,
             "transaction.assign_payee",
-            {"transaction_id": unnamed.id, "payee": "Hudson Valley Grounded"},
+            {"transaction_id": unnamed.id, "payee": "Riverbend Grounded"},
             owner_user_id=owner_user_id,
             proposed_by_agent="demo_seed",
         )

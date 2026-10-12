@@ -9,14 +9,22 @@ matching ``/health/``.
 
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.components.backend.middleware import traffic
 from app.core.config import settings
+from app.services.auth.deps import get_current_active_user
+
+# Operator-only - RBAC stacks gate on ``role=admin`` (DB column as source of
+# truth). Basic-auth stacks have no role concept, so fall back to "any authed
+# user." Stored at module level so tests can override via
+# ``app.dependency_overrides``.
+_require_admin = get_current_active_user
 
 router = APIRouter(
     prefix="/traffic",
     tags=["traffic"],
+    dependencies=[Depends(_require_admin)],
 )
 
 

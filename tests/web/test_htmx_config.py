@@ -79,6 +79,6 @@ class TestExtensions:
         """Pattern 5 needs ``hx-ext="sse"``; the extension registers itself
         against a global htmx must already have defined."""
         srcs = [s.get("src") or "" for s in select(page, "head script[src]")]
-        core = next(i for i, s in enumerate(srcs) if "htmx.org@" in s)
-        sse = next(i for i, s in enumerate(srcs) if "htmx-ext-sse@" in s)
+        core = next(i for i, s in enumerate(srcs) if "vendor/htmx-2" in s)
+        sse = next(i for i, s in enumerate(srcs) if "vendor/htmx-ext-sse-" in s)
         assert core < sse

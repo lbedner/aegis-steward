@@ -14,6 +14,7 @@ those rows from the scoped reads.
 """
 
 from datetime import date
+from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
@@ -159,7 +160,7 @@ async def test_bulk_valuation_ingest_from_a_pasted_series(
     created = authenticated_client.post(
         "/api/v1/finance/accounts",
         json={
-            "name": "House Bedner",
+            "name": "House Doe",
             "account_type": "property",
             "classification": "asset",
         },
@@ -222,7 +223,7 @@ async def test_property_details_round_trip(
     created = authenticated_client.post(
         "/api/v1/finance/accounts",
         json={
-            "name": "House Bedner",
+            "name": "House Doe",
             "account_type": "property",
             "classification": "asset",
         },
@@ -237,7 +238,7 @@ async def test_property_details_round_trip(
             "down_payment": 57_000_00,
             "valuation_source": "user",
             "valuation_as_of": "2026-08-01",
-            "address_label": "House Bedner",
+            "address_label": "House Doe",
         },
     )
 
@@ -583,6 +584,7 @@ async def test_upload_qif(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
+    job_session: None,
 ) -> None:
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
@@ -591,8 +593,7 @@ async def test_upload_qif(
         files={"file": ("sample_quicken.qif", data, "text/plain")},
         params={"account_id": account_id},
     )
-    assert response.status_code == 200
-    body = response.json()
+    body = _job_result(authenticated_client, response)
     assert body["rows_inserted"] == 8
 
     # transactions read API returns them, newest first, deduped rows excluded
@@ -606,10 +607,12 @@ async def test_upload_qif(
 
 
 @pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=3)  # the same file imported twice, by design
 async def test_upload_reupload_short_circuits(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
+    job_session: None,
 ) -> None:
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     data = (_FIXTURES / "sample_chase.qfx").read_bytes()
@@ -617,13 +620,13 @@ async def test_upload_reupload_short_circuits(
     first = authenticated_client.post(
         "/api/v1/finance/import", files=files, params={"account_id": account_id}
     )
-    assert first.json()["rows_inserted"] == 6
+    assert _job_result(authenticated_client, first)["rows_inserted"] == 6
     second = authenticated_client.post(
         "/api/v1/finance/import",
         files={"file": ("sample_chase.qfx", data, "application/octet-stream")},
         params={"account_id": account_id},
     )
-    body = second.json()
+    body = _job_result(authenticated_client, second)
     assert body["rows_inserted"] == 0
     assert body["rows_duplicate"] == body["rows_total"] == 6
 
@@ -633,18 +636,22 @@ async def test_upload_reupload_short_circuits(
 
 
 @pytest.mark.asyncio
-async def test_upload_unknown_extension_415(
+async def test_upload_unknown_extension_fails_the_job(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
+    job_session: None,
 ) -> None:
+    """The file is only read on the job, so that is where it is refused."""
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     response = authenticated_client.post(
         "/api/v1/finance/import",
         files={"file": ("statement.pdf", b"%PDF-1.4", "application/pdf")},
         params={"account_id": account_id},
     )
-    assert response.status_code == 415
+    body = _job_outcome(authenticated_client, response)
+    assert body["status"] == "failed"
+    assert ".pdf" in body["error"]
 
 
 @pytest.mark.asyncio
@@ -676,29 +683,20 @@ async def test_upload_oversized_413(
 
 
 @pytest.mark.asyncio
-async def test_background_import_runs_as_a_job(
+async def test_an_import_always_runs_as_a_job(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
-    monkeypatch,
+    job_session: None,
 ) -> None:
-    """``background=true``: 202 + job id, terminal event carries the counts."""
-    from contextlib import asynccontextmanager
-
-    from app.services.finance.domains import imports_job
-
-    @asynccontextmanager
-    async def _session():
-        yield async_db_session
-
-    monkeypatch.setattr(imports_job, "get_async_session", _session)
-
+    """202 + job id, terminal event carries the counts. The retired
+    ``background`` flag is ignored by a caller that still sends it."""
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
     response = authenticated_client.post(
         "/api/v1/finance/import",
         files={"file": ("sample_quicken.qif", data, "text/plain")},
-        params={"account_id": account_id, "background": "true"},
+        params={"account_id": account_id, "background": "false"},
     )
 
     assert response.status_code == 202
@@ -715,29 +713,16 @@ async def test_background_import_runs_as_a_job(
 
 
 @pytest.mark.asyncio
-async def test_background_import_failure_lands_in_the_job_error(
+async def test_import_failure_lands_in_the_job_error(
     authenticated_client: TestClient,
-    async_db_session: AsyncSession,
-    acting_owner_user_id: int | None,
-    monkeypatch,
+    job_session: None,
 ) -> None:
     """A QIF without a target account fails INSIDE the job; the error text
     reaches the subscriber instead of dying in a log."""
-    from contextlib import asynccontextmanager
-
-    from app.services.finance.domains import imports_job
-
-    @asynccontextmanager
-    async def _session():
-        yield async_db_session
-
-    monkeypatch.setattr(imports_job, "get_async_session", _session)
-
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
     response = authenticated_client.post(
         "/api/v1/finance/import",
         files={"file": ("sample_quicken.qif", data, "text/plain")},
-        params={"background": "true"},
     )
 
     assert response.status_code == 202
@@ -759,27 +744,18 @@ async def test_job_events_stream_ends_with_the_terminal_snapshot(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
-    monkeypatch,
+    job_session: None,
 ) -> None:
     """The SSE contract the LoadingOverlay consumes: status frames, then a
     terminal frame, then the stream closes itself."""
-    from contextlib import asynccontextmanager
     import json as jsonlib
-
-    from app.services.finance.domains import imports_job
-
-    @asynccontextmanager
-    async def _session():
-        yield async_db_session
-
-    monkeypatch.setattr(imports_job, "get_async_session", _session)
 
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
     job_id = authenticated_client.post(
         "/api/v1/finance/import",
         files={"file": ("sample_quicken.qif", data, "text/plain")},
-        params={"account_id": account_id, "background": "true"},
+        params={"account_id": account_id},
     ).json()["job_id"]
     await_job(authenticated_client, job_id)  # let it finish first
 
@@ -1258,8 +1234,8 @@ async def test_top_payees_uses_the_name_you_gave_the_payee(
     description never aggregates and never reaches this list: the live
     ledger had seven Shop Rite charges under seven descriptors, so the
     card showed a single $566 car payment instead. It also read
-    "Recurring Withdrawal Debit Card CK *Eleanor Nu..." where the
-    register read "Eleanor Nursing Care" - the same transaction, called
+    "Recurring Withdrawal Debit Card CK *Maple Nu..." where the
+    register read "Maple Nursing Care" - the same transaction, called
     two different things on two pages.
     """
     service = FinanceService(async_db_session)
@@ -1274,7 +1250,7 @@ async def test_top_payees_uses_the_name_you_gave_the_payee(
     )
     # One payee, three descriptors - the shape a real import arrives in.
     for descriptor, amount in (
-        ("SHOPRITE S0123 POUGHKEEPSIE NY", -4_000),
+        ("SHOPRITE S0123 ANYTOWN NY", -4_000),
         ("SHOPRITE #445 APPLE PAY 8821", -3_000),
         ("TST* SHOP RITE 0099", -2_000),
     ):
@@ -1294,7 +1270,7 @@ async def test_top_payees_uses_the_name_you_gave_the_payee(
         account_id=account.id,
         amount=-7_500,
         txn_date=current_date(),
-        name="CENTRALHUDSON UTILITY XXX4968 WEB ID:",
+        name="RIVERBENDPOWER UTILITY XXX4968 WEB ID:",
     )
     await async_db_session.commit()
 
@@ -1309,7 +1285,7 @@ async def test_top_payees_uses_the_name_you_gave_the_payee(
     # Named, it outranks the single charge that would otherwise lead.
     assert [item["payee"] for item in items][0] == "Shop Rite"
     # Nothing named it, so the descriptor is still the best name there is.
-    assert "CENTRALHUDSON UTILITY XXX4968 WEB ID:" in by_payee
+    assert "RIVERBENDPOWER UTILITY XXX4968 WEB ID:" in by_payee
 
 
 @pytest.mark.asyncio
@@ -2074,14 +2050,29 @@ class TestDeleteTransactions:
         assert response.json() == {"deleted": 0}
 
 
+def _job_outcome(client: TestClient, response: Any) -> dict[str, Any]:
+    """An upload endpoint answers 202 with a job id at once (#494); the
+    finished job's record."""
+    assert response.status_code == 202, response.text
+    return await_job(client, response.json()["job_id"])
+
+
+def _job_result(client: TestClient, response: Any) -> dict[str, Any]:
+    body = _job_outcome(client, response)
+    assert body["status"] == "done", body
+    return body["result"]
+
+
 @pytest.mark.asyncio
 async def test_import_preview_is_a_pure_read_then_commit_matches(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
+    job_session: None,
 ) -> None:
     """FIN-33: POST /import/preview classifies without writing; the commit
-    then reports the same counts."""
+    then reports the same counts. The plan runs as a job and its record
+    holds the capped review the dialog shows (#494)."""
     account_id = await _checking_account(async_db_session, acting_owner_user_id)
     data = (_FIXTURES / "sample_quicken.qif").read_bytes()
     files = {"file": ("sample_quicken.qif", data, "text/plain")}
@@ -2090,8 +2081,8 @@ async def test_import_preview_is_a_pure_read_then_commit_matches(
         files=files,
         params={"account_id": account_id},
     )
-    assert preview.status_code == 200
-    body = preview.json()
+    body = _job_result(authenticated_client, preview)
+    assert "new_categories_total" in body
     assert body["identical_batch_id"] is None
     assert body["rows_inserted"] == 8
     assert body["rows_updated"] == body["rows_error"] == 0
@@ -2107,8 +2098,8 @@ async def test_import_preview_is_a_pure_read_then_commit_matches(
         files={"file": ("sample_quicken.qif", data, "text/plain")},
         params={"account_id": account_id},
     )
-    assert committed.status_code == 200
-    assert committed.json()["rows_inserted"] == body["rows_inserted"]
+    committed_body = _job_result(authenticated_client, committed)
+    assert committed_body["rows_inserted"] == body["rows_inserted"]
 
     # An identical-file preview now short-circuits instead of re-planning.
     again = authenticated_client.post(
@@ -2116,8 +2107,25 @@ async def test_import_preview_is_a_pure_read_then_commit_matches(
         files={"file": ("sample_quicken.qif", data, "text/plain")},
         params={"account_id": account_id},
     )
-    assert again.status_code == 200
-    assert again.json()["identical_batch_id"] is not None
+    assert _job_result(authenticated_client, again)["identical_batch_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_import_preview_without_a_target_says_so_in_the_job(
+    authenticated_client: TestClient, job_session: None
+) -> None:
+    """A single-account file with no account: the job's error is the one
+    a client keys its account picker on."""
+    from app.services.finance.domains.imports_job import NEEDS_ACCOUNT
+
+    data = (_FIXTURES / "sample_quicken.qif").read_bytes()
+    preview = authenticated_client.post(
+        "/api/v1/finance/import/preview",
+        files={"file": ("sample_quicken.qif", data, "text/plain")},
+    )
+    body = _job_outcome(authenticated_client, preview)
+    assert body["status"] == "failed"
+    assert body["error"] == NEEDS_ACCOUNT
 
 
 @pytest.mark.asyncio
@@ -2125,6 +2133,7 @@ async def test_preview_splits_out_rows_for_removed_accounts(
     authenticated_client: TestClient,
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
+    job_session: None,
 ) -> None:
     """Deleting an account is a standing decision: a re-import preview
     reports its rows as ignored (named, counted) instead of offering to
@@ -2153,8 +2162,7 @@ async def test_preview_splits_out_rows_for_removed_accounts(
         files={"file": ("sample_quicken_all.csv", data, "text/csv")},
     )
 
-    assert preview.status_code == 200
-    body = preview.json()
+    body = _job_result(authenticated_client, preview)
     # The three AMEX CARD rows are ignored - not skipped, not landing anywhere.
     assert body["rows_ignored"] == 3
     assert body["rows_skipped"] == 0
@@ -2276,19 +2284,19 @@ async def _brokerage_account(session: AsyncSession, owner_user_id: int | None) -
 
 
 class TestImportInvestmentsPreview:
-    """Parse-only look at a ledger, before any account exists or is chosen."""
+    """Parse-only look at a ledger, before any account exists or is chosen.
+    Parsed by the import job, never in the request (#494)."""
 
     @pytest.mark.asyncio
     async def test_preview_reports_positions_without_writing(
-        self, authenticated_client: TestClient
+        self, authenticated_client: TestClient, job_session: None
     ) -> None:
         data = (_FIXTURES / "optum_hsa_sample.tsv").read_bytes()
         response = authenticated_client.post(
             "/api/v1/finance/import-investments/preview",
             files={"file": ("optum_hsa_sample.tsv", data, "text/tab-separated-values")},
         )
-        assert response.status_code == 200
-        body = response.json()
+        body = _job_result(authenticated_client, response)
         assert body["activities_parsed"] == 7
         assert body["first_date"] == "2022-02-17"
         assert body["last_date"] == "2024-12-13"
@@ -2310,8 +2318,8 @@ class TestImportInvestmentsPreview:
         assert accounts.json()["total"] == 0
 
     @pytest.mark.asyncio
-    async def test_unrecognized_activity_type_is_422(
-        self, authenticated_client: TestClient
+    async def test_an_unrecognized_activity_type_fails_the_job(
+        self, authenticated_client: TestClient, job_session: None
     ) -> None:
         bogus = (
             "Settled Transactions 01/01/2020 to 08/10/2026\n"
@@ -2322,12 +2330,27 @@ class TestImportInvestmentsPreview:
             "/api/v1/finance/import-investments/preview",
             files={"file": ("bogus.tsv", bogus.encode(), "text/tab-separated-values")},
         )
-        assert response.status_code == 422
+        body = _job_outcome(authenticated_client, response)
+        assert body["status"] == "failed"
+        assert "MYSTERY MEAT" in body["error"]
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_profile_is_400_before_anything_is_stored(
+        self, authenticated_client: TestClient
+    ) -> None:
+        data = (_FIXTURES / "optum_hsa_sample.tsv").read_bytes()
+        response = authenticated_client.post(
+            "/api/v1/finance/import-investments/preview",
+            files={"file": ("optum_hsa_sample.tsv", data, "text/tab-separated-values")},
+            params={"profile": "schwab"},
+        )
+        assert response.status_code == 400
 
 
 class TestImportInvestments:
     """The Import menu's investment lane: /import-investments commits into an
-    existing account, or creates one - the same courtesy OFX ingest extends."""
+    existing account, or creates one - the same courtesy OFX ingest extends.
+    The ledger is parsed and loaded by the import job (#494)."""
 
     @pytest.mark.asyncio
     async def test_imports_into_an_existing_account(
@@ -2335,6 +2358,7 @@ class TestImportInvestments:
         authenticated_client: TestClient,
         async_db_session: AsyncSession,
         acting_owner_user_id: int | None,
+        job_session: None,
     ) -> None:
         account_id = await _brokerage_account(async_db_session, acting_owner_user_id)
         data = (_FIXTURES / "optum_hsa_sample.tsv").read_bytes()
@@ -2343,13 +2367,12 @@ class TestImportInvestments:
             files={"file": ("optum_hsa_sample.tsv", data, "text/tab-separated-values")},
             params={"account_id": account_id},
         )
-        assert response.status_code == 200
-        body = response.json()
+        assert response.json()["account_created"] is False
+        body = _job_result(authenticated_client, response)
         assert body["activities_parsed"] == 7
         assert body["trades_inserted"] == 7
         assert body["securities_created"] == 3
         assert body["account_id"] == account_id
-        assert body["account_created"] is False
 
         holdings = authenticated_client.get(
             f"/api/v1/finance/accounts/{account_id}/holdings"
@@ -2361,17 +2384,20 @@ class TestImportInvestments:
 
     @pytest.mark.asyncio
     async def test_creates_the_account_when_given_a_name(
-        self, authenticated_client: TestClient
+        self, authenticated_client: TestClient, job_session: None
     ) -> None:
+        """The account is made by the request, which says so; the job
+        loads the ledger into it."""
         data = (_FIXTURES / "optum_hsa_sample.tsv").read_bytes()
         response = authenticated_client.post(
             "/api/v1/finance/import-investments",
             files={"file": ("optum_hsa_sample.tsv", data, "text/tab-separated-values")},
             params={"account_name": "HSA Investments"},
         )
-        assert response.status_code == 200
-        body = response.json()
-        assert body["account_created"] is True
+        started = response.json()
+        assert started["account_created"] is True
+        body = _job_result(authenticated_client, response)
+        assert body["account_id"] == started["account_id"]
         assert body["account_name"] == "HSA Investments"
         assert body["trades_inserted"] == 7
 
@@ -2379,6 +2405,47 @@ class TestImportInvestments:
         account = next(a for a in accounts["items"] if a["id"] == body["account_id"])
         assert account["account_type"] == "brokerage"
         assert account["classification"] == "asset"
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=4)  # three imports by name, by design
+    async def test_a_retry_by_name_reuses_the_account_it_made(
+        self,
+        authenticated_client: TestClient,
+        async_db_session: AsyncSession,
+        acting_owner_user_id: int | None,
+        job_session: None,
+    ) -> None:
+        """The account is made before the job runs, so a retry after a
+        failed job names one that already exists: it is reused, not
+        duplicated. A same-named account of another type is not a target."""
+        await _checking_account(async_db_session, acting_owner_user_id)
+        data = (_FIXTURES / "optum_hsa_sample.tsv").read_bytes()
+
+        def post(name: str) -> Any:
+            return authenticated_client.post(
+                "/api/v1/finance/import-investments",
+                files={"file": ("optum.tsv", data, "text/tab-separated-values")},
+                params={"account_name": name},
+            )
+
+        first = post("HSA Investments")
+        _job_result(authenticated_client, first)
+        retry = post("HSA Investments")
+        _job_result(authenticated_client, retry)
+        beside_checking = post("Chase Checking")
+        _job_result(authenticated_client, beside_checking)
+
+        assert retry.json()["account_id"] == first.json()["account_id"]
+        assert retry.json()["account_created"] is False
+        assert beside_checking.json()["account_created"] is True
+        names = [
+            a["name"]
+            for a in authenticated_client.get("/api/v1/finance/accounts").json()[
+                "items"
+            ]
+        ]
+        assert names.count("HSA Investments") == 1
+        assert names.count("Chase Checking") == 2
 
     @pytest.mark.asyncio
     async def test_no_target_at_all_is_400(
@@ -3277,7 +3344,7 @@ async def test_secured_debt_link_round_trip(
     house = authenticated_client.post(
         "/api/v1/finance/accounts",
         json={
-            "name": "House Bedner",
+            "name": "House Doe",
             "account_type": "property",
             "classification": "asset",
         },

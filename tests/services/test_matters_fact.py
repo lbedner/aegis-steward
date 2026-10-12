@@ -16,7 +16,7 @@ from app.services.matters.service import PartyService
 
 
 async def _james(db: AsyncSession) -> int:
-    party = await PartyService(db).create(name="James Bedner", kind="person")
+    party = await PartyService(db).create(name="James Doe", kind="person")
     await db.commit()
     assert party.id is not None
     return party.id
@@ -74,7 +74,7 @@ class TestAFact:
         first = await facts.record(
             subject_party_id=subject,
             attribute="account_balance",
-            label="Eleanor incidental",
+            label="Maple incidental",
             value_cents=41200,
             as_of=date(2026, 8, 1),
         )
@@ -170,7 +170,7 @@ class TestAFactAsAProposal:
         card = await record_fact_describe(async_db_session, payload, None)
         said = {row.label: row.value for row in card}
 
-        assert said["About"] == "James Bedner"
+        assert said["About"] == "James Doe"
         assert said["Gross income"] == "IBEW pension"
         # The rate as quoted, and our arithmetic marked as ours.
         assert said["Figure"] == "$50.00 a day (about $1,521.88 a month)"

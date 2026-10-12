@@ -7,8 +7,10 @@ never waits on the network (DB hit serves, miss schedules a background
 fill and returns nothing).
 """
 
+import base64
 from datetime import timedelta
 
+import httpx
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -16,6 +18,7 @@ from app.core.time import utcnow
 from app.services.finance.domains.ledger import merchant_icon
 from app.services.finance.domains.ledger.merchant_icon import merchant_icon_domain
 from app.services.finance.models import FinanceIcon
+from tests._fake_dns import answering, resolving_to
 
 
 class TestMerchantIconDomain:
@@ -195,3 +198,42 @@ class TestIconStore:
         async with get_async_session() as db:
             icons = await merchant_icon.icons_for_names(db, ["Late Blooming"])
         assert icons == {"Late Blooming": "found-at-last"}
+
+
+class TestLogoFetchStaysPublic:
+    """A Plaid logo URL is someone else's choice: fetched only on the
+    public internet, every redirect hop checked again (#493)."""
+
+    LOGO = "https://logos.example/brand.png"
+
+    async def test_a_logo_on_a_private_address_is_a_miss(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        resolving_to(monkeypatch, ["127.0.0.1"])
+        sent = answering(monkeypatch, httpx.Response(200, content=b"png"))
+
+        assert await merchant_icon._fetch_domains([self.LOGO]) == {self.LOGO: None}
+        assert sent == []
+
+    async def test_a_redirect_to_a_private_address_is_a_miss(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        resolving_to(monkeypatch, ["93.184.216.34"], ["10.0.0.5"])
+        sent = answering(
+            monkeypatch,
+            httpx.Response(302, headers={"location": "http://inside.example/"}),
+            httpx.Response(200, content=b"png"),
+        )
+
+        assert await merchant_icon._fetch_domains([self.LOGO]) == {self.LOGO: None}
+        assert len(sent) == 1
+
+    async def test_a_public_logo_is_stored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        resolving_to(monkeypatch, ["93.184.216.34"])
+        answering(monkeypatch, httpx.Response(200, content=b"png"))
+
+        assert await merchant_icon._fetch_domains([self.LOGO]) == {
+            self.LOGO: base64.b64encode(b"png").decode()
+        }

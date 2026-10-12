@@ -17,7 +17,7 @@ NYSLRS = """IN002L 09/2024
 As of 09/16/2026
 This document serves as proof of income from the New York State and Local
 Retirement System (NYSLRS).
-Recipient's Name: James Bedner
+Recipient's Name: James Doe
 Monthly Pension Benefit:
 Base Benefit: $1089.47
 """
@@ -28,10 +28,10 @@ Statement Date: March 3, 2026
 Account Number: ****4419
 """
 
-LETTER = """DUTCHESS COUNTY DEPARTMENT OF COMMUNITY & FAMILY SERVICES
+LETTER = """EXAMPLE COUNTY DEPARTMENT OF COMMUNITY & FAMILY SERVICES
 August 24, 2026
 
-Dear Mr. Bedner:
+Dear Mr. Doe:
 
 You must return the enclosed renewal form by September 8, 2026.
 """

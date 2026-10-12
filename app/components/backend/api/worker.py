@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.components.backend.api.models import (
     TaskListResponse,
@@ -17,10 +17,19 @@ from app.components.worker.pools import get_queue_pool
 from app.components.worker.tasks import get_task_by_name, list_available_tasks
 from app.core.config import get_default_queue
 from app.core.log import logger
+from app.services.auth.deps import require_admin
+
+# Operator-only surface: enqueue, load-test, status/result lookups all
+# expose worker internals (task names, args, broker state) that can leak
+# user data or burn capacity if reachable by anonymous callers. Admins
+# only (``ADMIN_USER_EMAILS``).
+# Module level so tests can override it via ``app.dependency_overrides``.
+_require_admin = require_admin
 
 router = APIRouter(
     prefix="/tasks",
     tags=["worker"],
+    dependencies=[Depends(_require_admin)],
 )
 
 

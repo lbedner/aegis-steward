@@ -410,7 +410,7 @@ class TestRunAnalystNote:
 
 
 class TestSchedulerRegistration:
-    """No nightly note (Leonard, 2026-09-22: "remove all the analyst notes
+    """No nightly note (the owner, 2026-09-22: "remove all the analyst notes
     ... yes, stop it"). Forty-six of them had piled up unread. The note is
     still written on request; nothing writes one on a schedule."""
 

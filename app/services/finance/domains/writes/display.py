@@ -28,7 +28,7 @@ async def txn_subject(
     ``merchant_name or name`` - the SOURCE's merchant and then the
     descriptor, with the payee the user named skipped entirely. So a
     card proposing a change to a renamed row asked about
-    "GREENSKY WEB PAY GREE NSKY WEB ID: 2274797123" and the register
+    "GREENSKY WEB PAY GREE NSKY WEB ID: 1234567809" and the register
     two clicks away called the same row GreenSky. ``payee_label`` is the
     one rule and this is the last surface that was not using it.
     """

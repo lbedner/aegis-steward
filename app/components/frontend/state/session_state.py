@@ -39,7 +39,8 @@ class SessionState:
     page: ft.Page
     api_client: APIClient
     theme_manager: ThemeManager | None = None
-
+    current_user: dict[str, Any] | None = None
+    """The currently signed-in user payload, or ``None`` until login."""
     _data: dict[str, Any] = field(default_factory=dict)
     """Bag for ad-hoc session-scoped values keyed by string."""
 

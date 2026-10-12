@@ -192,7 +192,7 @@ class TestStatDetails:
     def test_a_renamed_row_shows_the_name_it_was_given(
         self, client: TestClient, hx: TestClient, budget: Budget, ledger: Ledger
     ) -> None:
-        """Live: the drill-down listed "SHPRTE NTH RD&WNSW GT
+        """Live: the drill-down listed "SHPRTE MAIN ST&ELM GT
         XXX-XXX-6086 NY 09/11" for a row long since named Shop Rite.
         It read ``name``, the raw descriptor, where every other
         transaction list reads ``payee_label`` - whose own docstring

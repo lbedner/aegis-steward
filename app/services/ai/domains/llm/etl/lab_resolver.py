@@ -17,6 +17,7 @@ import httpx
 from sqlmodel import Session
 
 from app.core.log import logger
+from app.core.safe_fetch import BlockedAddressError, fetch_image
 from app.services.ai.domains.llm.etl import queries
 from app.services.ai.models.llm import (
     ROLE_MAKER,
@@ -28,7 +29,6 @@ _SEARCH_URL = "https://huggingface.co/api/models"
 _ORG_URL = "https://huggingface.co/api/organizations/{slug}/overview"
 _TIMEOUT = 8.0
 _CANDIDATES = 5
-_MAX_ICON_BYTES = 200_000
 
 
 @dataclass(frozen=True)
@@ -92,18 +92,19 @@ def pick_repo(candidates: list[dict[str, Any]], name: str) -> str | None:
 
 async def _org_avatar(client: httpx.AsyncClient, url: str | None) -> str | None:
     """The org's own logo as base64 - the same currency vendor and payee
-    icons already speak, so the UI needs no second image path."""
+    icons already speak, so the UI needs no second image path.
+
+    The URL is the registry's choice, not ours, so it goes through the
+    guarded fetch: public addresses only, every redirect checked (#493).
+    """
     if not url:
         return None
     try:
-        response = await client.get(url)
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
+        image = await fetch_image(client, url)
+    except (httpx.HTTPError, BlockedAddressError) as exc:
         logger.warning(f"Lab avatar fetch failed for {url}: {exc}")
         return None
-    if len(response.content) > _MAX_ICON_BYTES:
-        return None
-    return base64.b64encode(response.content).decode()
+    return base64.b64encode(image).decode() if image else None
 
 
 async def resolve_lab(model_id: str) -> LabInfo | None:

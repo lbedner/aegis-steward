@@ -13,10 +13,11 @@ which httpcore also uses to verify the certificate) stay the original
 host's, so virtual hosting and certificate checks behave as if the name
 had been dialled.
 
-Redirect policy is the caller's: ``guarded_get`` never follows one, and a
-caller that does sends the next URL back through here, so the target is
-resolved and checked again. The body is the caller's to judge too, and
-is never read past ``MAX_BODY_BYTES``.
+``guarded_get`` never follows a redirect, whatever the client says.
+``guarded_follow`` is the one place hops are taken: each next URL goes
+back through ``guarded_get``, so every target is resolved and checked
+again. The body is the caller's to judge, and is never read past a cap:
+``MAX_BODY_BYTES`` for text, ``MAX_IMAGE_BYTES`` for ``fetch_image``.
 """
 
 from __future__ import annotations
@@ -32,6 +33,10 @@ import httpx
 # The most of a body any caller reads. A contact page is tens of KB; a
 # host the model chose can answer with an endless one.
 MAX_BODY_BYTES = 2 * 1024 * 1024
+# The most of an image kept: a logo or an avatar is tens of KB (#493).
+MAX_IMAGE_BYTES = 200_000
+
+REDIRECTS = (301, 302, 303, 307, 308)
 
 # NAT64's well-known prefix carries an IPv4 address in its last 32 bits,
 # and a cloud NAT64 gateway will route it to a private one.
@@ -96,23 +101,68 @@ async def guarded_get(
         headers={"Host": target.netloc.decode("ascii")},
         extensions=extensions,
     )
-    response = await client.send(request, stream=True)
+    # A client built to follow redirects would chase one here, unchecked.
+    response = await client.send(request, stream=True, follow_redirects=False)
     try:
         yield response
     finally:
         await response.aclose()
 
 
-async def read_capped(response: httpx.Response, limit: int = MAX_BODY_BYTES) -> str:
-    """The text of a streamed body, read no further than ``limit`` bytes.
-
-    Counted after content-decoding, so a small gzip bomb is cut off too.
+@asynccontextmanager
+async def guarded_follow(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    redirects: int,
+    same_host: str | None = None,
+) -> AsyncIterator[httpx.Response]:
+    """``guarded_get``, taking up to ``redirects`` hops, each one resolved
+    and checked again. A redirect not taken is the answer: one past the
+    budget, one with no location, and with ``same_host`` one onto any
+    other host. Raises ``BlockedAddressError`` as ``guarded_get`` does.
     """
+    for hop in range(redirects + 1):
+        async with guarded_get(client, url) as response:
+            location = response.headers.get("location")
+            if hop < redirects and response.status_code in REDIRECTS and location:
+                # Joined onto the URL asked for: the response's own URL
+                # carries the IP it was dialled at, not the host.
+                target = httpx.URL(url).join(location)
+                if same_host is None or target.host == same_host:
+                    url = str(target)
+                    continue
+            yield response
+            return
+
+
+async def fetch_image(
+    client: httpx.AsyncClient, url: str, *, redirects: int = 3
+) -> bytes | None:
+    """The image at a URL someone else chose: a 200's body, or None for
+    any other answer and for a body past ``MAX_IMAGE_BYTES`` (a cut image
+    is a broken one). Raises ``BlockedAddressError`` as ``guarded_get``
+    does."""
+    async with guarded_follow(client, url, redirects=redirects) as response:
+        if response.status_code != 200:
+            return None
+        body = await _read_bytes(response, MAX_IMAGE_BYTES + 1)
+    return body if len(body) <= MAX_IMAGE_BYTES else None
+
+
+async def _read_bytes(response: httpx.Response, limit: int) -> bytes:
+    """A streamed body, read no further than ``limit`` bytes. Counted
+    after content-decoding, so a small gzip bomb is cut off too."""
     body = bytearray()
     async for chunk in response.aiter_bytes():
         body += chunk
         if len(body) >= limit:
             break
-    return bytes(body[:limit]).decode(
+    return bytes(body[:limit])
+
+
+async def read_capped(response: httpx.Response, limit: int = MAX_BODY_BYTES) -> str:
+    """The text of a streamed body, read no further than ``limit`` bytes."""
+    return (await _read_bytes(response, limit)).decode(
         response.charset_encoding or "utf-8", errors="replace"
     )

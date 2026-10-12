@@ -2,8 +2,8 @@
 
 SimpleFIN's Chase rows arrived with no payee and no category: a synced
 row took only the provider's category, and the payee memory had been
-taught Quicken's renamed payees ("Fairacre"), never the bank's wording
-("ADAMS FAIRACRE FARMS 845-454-4330 NY"). Every charge both feeds bring
+taught Quicken's renamed payees ("Greenacre"), never the bank's wording
+("GREENACRE FARMS 555-555-0175 NY"). Every charge both feeds bring
 now teaches the memory that wording, and a synced row is named by it -
 else by the provider's own name for it, when that is one of your payees
 - and filed where the payee is filed. Nothing is guessed: a payee whose
@@ -30,7 +30,7 @@ from app.services.finance.service import FinanceService
 from tests.services.test_finance_plaid import _ACCOUNTS, FakePlaidClient, _connect
 from tests.services.test_two_feeds import _quicken, _rows, _sync, _txn
 
-BANK_WORDING = "ADAMS FAIRACRE FARMS 845-454-4330 NY 09/02"
+BANK_WORDING = "GREENACRE FARMS 555-555-0175 NY 09/02"
 
 
 async def _category(db: AsyncSession, name: str) -> FinanceCategory:
@@ -84,7 +84,7 @@ class TestAPairTeaches:
         self, async_db_session: AsyncSession
     ) -> None:
         account, connection = await _linked(async_db_session)
-        farm = await _payee(async_db_session, "Fairacre")
+        farm = await _payee(async_db_session, "Greenacre")
         exported = await _filed(async_db_session, account, farm, None, day=1)
         exported.date_ = date(2026, 9, 1)
         async_db_session.add(exported)
@@ -95,9 +95,9 @@ class TestAPairTeaches:
 
         assert await payee_aliases.resolve_merchant_aliases(
             async_db_session,
-            ["ADAMS FAIRACRE FARMS 845-555-0000 NY 10/03"],
+            ["GREENACRE FARMS 555-555-0000 NY 10/03"],
             owner_user_id=1,
-        ) == {"ADAMS FAIRACRE FARMS 845-555-0000 NY 10/03": farm.id}
+        ) == {"GREENACRE FARMS 555-555-0000 NY 10/03": farm.id}
 
     @pytest.mark.asyncio
     async def test_a_rebuilt_memory_keeps_what_pairs_taught(
@@ -106,7 +106,7 @@ class TestAPairTeaches:
         """The memory answers to the ledger: rebuilt, it reads the pairs
         again rather than forgetting the bank's wording."""
         account, connection = await _linked(async_db_session)
-        farm = await _payee(async_db_session, "Fairacre")
+        farm = await _payee(async_db_session, "Greenacre")
         exported = await _filed(async_db_session, account, farm, None, day=1)
         exported.date_ = date(2026, 9, 1)
         async_db_session.add(exported)
@@ -128,7 +128,7 @@ class TestASyncedRow:
     ) -> None:
         _account, connection = await _linked(async_db_session)
         groceries = await _category(async_db_session, "Groceries")
-        farm = await _payee(async_db_session, "Fairacre", default=groceries)
+        farm = await _payee(async_db_session, "Greenacre", default=groceries)
         await payee_aliases.remember_payee_keys(
             async_db_session,
             [
@@ -227,7 +227,7 @@ class TestASyncedRow:
         the next sync names and files them, rather than leaving them."""
         _account, connection = await _linked(async_db_session)
         groceries = await _category(async_db_session, "Groceries")
-        farm = await _payee(async_db_session, "Fairacre", default=groceries)
+        farm = await _payee(async_db_session, "Greenacre", default=groceries)
         unfiled = [
             _txn("p_farm", "10", 10.0, BANK_WORDING, personal_finance_category={})
         ]

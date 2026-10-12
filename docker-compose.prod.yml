@@ -1,1 +1,65 @@
+# Production overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile prod up -d
+#
+# Key differences from dev:
+#   - No code volume mounts (code is baked into the image)
+#   - Only essential ports exposed (80, 443)
+#   - No debug ports (no dashboard, no direct DB access)
+#
+# `aegis deploy` copies .env.deploy to the server as .env, which fills every
+# ${...} below; the ones marked :? refuse to start without it.
 
+services:
+  webserver:
+    labels:
+      # Public router (HTTPS)
+      - "traefik.http.routers.webserver.rule=Host(`${DOMAIN:?set DOMAIN in .env.deploy}`)"
+      - "traefik.http.routers.webserver.entrypoints=websecure"
+      - "traefik.http.routers.webserver.tls.certresolver=letsencrypt"
+      # Uploads: refused with a 413 at the proxy past a little over the app's
+      # largest cap (MAIL_IMPORT_MAX_BYTES, 100 MiB). Only multipart bodies,
+      # because the buffering middleware holds the whole response as well and
+      # would stall every streamed one (chat, the live pages). Wins over the
+      # public router by its longer rule.
+      - "traefik.http.routers.webserver-upload.rule=Host(`${DOMAIN}`) && HeaderRegexp(`Content-Type`, `(?i)^multipart/`)"
+      - "traefik.http.routers.webserver-upload.entrypoints=websecure"
+      - "traefik.http.routers.webserver-upload.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.webserver-upload.service=webserver"
+      - "traefik.http.routers.webserver-upload.middlewares=upload-limit"
+      - "traefik.http.middlewares.upload-limit.buffering.maxRequestBodyBytes=110100480"
+      # Admin paths - IP restricted
+      - "traefik.http.routers.webserver-admin.rule=Host(`${DOMAIN}`) && (PathPrefix(`/dashboard`) || PathPrefix(`/docs`) || PathPrefix(`/redoc`) || PathPrefix(`/openapi.json`) || PathPrefix(`/health/detailed`))"
+      - "traefik.http.routers.webserver-admin.entrypoints=websecure"
+      - "traefik.http.routers.webserver-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.webserver-admin.service=webserver"
+      - "traefik.http.routers.webserver-admin.middlewares=admin-ipallowlist"
+      - "traefik.http.middlewares.admin-ipallowlist.ipallowlist.sourcerange=${ADMIN_IP_ALLOWLIST:-127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}"
+
+  redis:
+    environment:
+      # The base command adds --requirepass from the same variable; the
+      # health check's redis-cli signs in with this.
+      - REDISCLI_AUTH=${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.deploy}
+
+  traefik:
+    ports:
+      - "80:80"
+      - "443:443"
+      # No 8080 dashboard port exposed in production
+    environment:
+      - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL in .env.deploy}
+    # Traefik's static file cannot read the environment, and the Let's
+    # Encrypt address stays out of this public repo: it is written into a
+    # copy of traefik/traefik.yml as the container starts.
+    entrypoint:
+      - sh
+      - -c
+      - sed "s|__ACME_EMAIL__|$$ACME_EMAIL|" /etc/traefik/traefik.yml > /tmp/traefik.yml && exec traefik --configFile=/tmp/traefik.yml
+
+# Pinned so TRUSTED_PROXIES (.env.deploy) can name it: the app believes
+# X-Forwarded-For from this network, Traefik's, and nowhere else.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24

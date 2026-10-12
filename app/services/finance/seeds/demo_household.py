@@ -114,7 +114,7 @@ _PRICE_HIKE = ("Netflix", -2_054, 2)
 # two slices and an "Other".
 _CARD_MERCHANTS: tuple[tuple[str, str, tuple[int, int], int, float], ...] = (
     ("Starbucks", "FOOD_AND_DRINK", (9, 13), -685, 0.35),
-    ("Hudson Valley Grounded", "FOOD_AND_DRINK", (5, 8), -742, 0.30),
+    ("Riverbend Grounded", "FOOD_AND_DRINK", (5, 8), -742, 0.30),
     ("Whole Foods Market", "FOOD_AND_DRINK", (3, 5), -7_200, 0.40),
     ("Trader Joe's", "FOOD_AND_DRINK", (3, 4), -5_100, 0.35),
     ("Chipotle", "FOOD_AND_DRINK", (4, 6), -2_240, 0.30),

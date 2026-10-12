@@ -16,54 +16,124 @@ Without auth, Overseer is open: whoever reaches the app may use it, its
 writes included, like any route a stack serves without auth.
 """
 
+from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocketException,
+    status,
+)
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_async_db
+from app.core.security import SESSION_COOKIE_NAME, verify_token
+from app.models.user import User
+from app.services.auth.deps import get_optional_user, get_user_service, is_admin
+from app.services.auth.service import session_id_of
+from app.services.auth.users import UserService
 from app.services.shared.deps import Actor, actor_of
+
+from .rendering import is_htmx, templates
 
 # A page's database session: the request's own (``get_async_db``), so a
 # section reading on it never waits on a second one's lock.
 Db = AsyncSession
 overseer_db = get_async_db
 
-Viewer = None
+Viewer = User | None
+# The signed-in user, None signed out (the gate has already sent them away).
+viewer = get_optional_user
+
+PREFIXES = ("/overseer", "/partials/overseer")
+# Reachable signed out: the way in.
+PUBLIC = frozenset({"/overseer/login"})
+LOGIN = "/overseer/login"
+REFUSED = "Admins only. Add your email to ADMIN_USER_EMAILS."
 
 
-async def viewer() -> None:
-    """Nobody signs in."""
-    return None
+class AdminOnlyError(Exception):
+    """A signed-in non-admin asked for an Overseer page."""
 
 
-async def overseer_gate() -> None:
-    """No auth service: everyone may use Overseer."""
-    return None
+def _is_page(request: Request) -> bool:
+    """A page the browser navigates to, as opposed to a fragment or stream."""
+    path = request.url.path
+    return (
+        request.method == "GET"
+        and path.startswith("/overseer")
+        and not path.startswith("/overseer/events")
+    )
 
 
-async def overseer_socket_gate() -> None:
-    """No auth service: a live call's socket is open, as every route is."""
-    return None
+async def overseer_gate(
+    request: Request, user: User | None = Depends(get_optional_user)
+) -> None:
+    """Let admins through every Overseer route; send everyone else away."""
+    path = request.url.path
+    if not path.startswith(PREFIXES) or path in PUBLIC:
+        return
+    if user is None:
+        if _is_page(request) and not is_htmx(request):
+            # Back to this page once signed in, or renewed (auth.js).
+            back = f"{LOGIN}?next={quote(path)}"
+            raise HTTPException(status.HTTP_303_SEE_OTHER, headers={"Location": back})
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED)
+    if is_admin(user):
+        return
+    if _is_page(request):
+        raise AdminOnlyError
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail=REFUSED)
 
 
-def session_id(request: Request) -> None:
-    """No sign-in, so no session."""
-    return None
+async def admin_only_page(request: Request, exc: Exception) -> Response:
+    """The refusal page: who is signed in, and how an admin is made."""
+    return templates.TemplateResponse(
+        request, "pages/overseer/forbidden.html", status_code=403
+    )
 
 
-def session_expires(request: Request) -> None:
-    """No sign-in, so no session cookie."""
-    return None
+def session_id(request: Request) -> str | None:
+    """The viewer's own sign-in session (the access token's ``sid``)."""
+    return session_id_of(request.cookies.get(SESSION_COOKIE_NAME))
+
+
+def session_expires(request: Request) -> datetime | None:
+    """When the viewer's session cookie (its access token) runs out and has
+    to renew from the refresh token."""
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    payload = verify_token(token) if token else None
+    expires = payload.get("exp") if payload else None
+    return datetime.fromtimestamp(expires, UTC) if isinstance(expires, int) else None
+
+
+async def overseer_socket_gate(
+    session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    user_service: UserService = Depends(get_user_service),
+) -> None:
+    """The gate's rule for a socket (a live call): admins only. A socket
+    carries the session cookie, never a bearer header, and has no HTTP
+    request for ``overseer_gate`` to read."""
+    user = await get_optional_user(session, user_service)
+    if user is None or not is_admin(user):
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
 
 
 def add_refusal_page(app: FastAPI) -> None:
-    """No auth service: nobody is refused."""
+    """A signed-in non-admin's page renders the refusal, not JSON."""
+    app.add_exception_handler(AdminOnlyError, admin_only_page)
 
 
 async def user_names(db: Any, ids: list[str]) -> dict[str, str]:
-    """No auth service, so no users to name."""
-    return {}
+    """``{id: name}`` for the ids (as text) that are this app's users."""
+    known = await UserService(db).get_users_by_ids([int(i) for i in ids if i.isdigit()])
+    return {str(uid): user.display_name for uid, user in known.items()}
 
 
 async def overseer_actor(user: Viewer = Depends(viewer)) -> Actor:

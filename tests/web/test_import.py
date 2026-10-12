@@ -1,12 +1,10 @@
 """File import (pattern 5): preview, then a background job followed over
 SSE, with the job's frames re-emitted as rendered HTML."""
 
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 import pytest
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tests.web.conftest import HX, Ledger, follow
 from tests.web.dom import none, one, select, stat, text
@@ -40,20 +38,6 @@ def review(client: TestClient, upload: tuple, **data: str) -> str:
     )
     assert response.status_code == 200
     return follow(client, response.text)[1]
-
-
-@pytest.fixture
-def job_session(
-    async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The import job opens its own session; point it at the test's."""
-    from app.services.finance.domains import imports_job
-
-    @asynccontextmanager
-    async def _session():  # noqa: ANN202
-        yield async_db_session
-
-    monkeypatch.setattr(imports_job, "get_async_session", _session)
 
 
 class TestDialog:

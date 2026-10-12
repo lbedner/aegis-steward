@@ -35,10 +35,9 @@ from typing import Any
 CANDIDATE_BUDGET = 4
 TIMEOUT_SECONDS = 4.0
 # Who is asking, said plainly. Sites block the bare python-httpx agent:
-# Eleanor's page answered 403 to it and 200 to this (2026-09-23). Never
+# Maple's page answered 403 to it and 200 to this (2026-09-23). Never
 # a browser's string - a lookup that disguises itself is a scraper.
 USER_AGENT = "AegisSteward/1.0 (household records; contact lookup)"
-_REDIRECTS = (301, 302, 303, 307, 308)
 
 # Where an organization puts its contact details, in the order worth
 # trying. A site that hides them behind a search form is a site this
@@ -87,43 +86,33 @@ def _host_of(candidate: str) -> str:
 async def _read(url: str, host: str) -> str | None:
     """The text at a URL, or None. Follows ONE redirect, on-host only.
 
-    ``follow_redirects=False`` and the hop taken by hand, because the
-    rule is not "how many" but "where to": a 301 onto another company's
-    server would otherwise be fetched and its page read as evidence
-    about this name.
+    The rule is not "how many" but "where to": a 301 onto another
+    company's server would otherwise be fetched and its page read as
+    evidence about this name, so a redirect off ``host`` is not taken
+    and reads as no page.
 
-    Both hops go through ``guarded_get`` (#485): the host is the model's
-    choice, so it is resolved, checked public and dialled at the checked
-    address, and the redirect is resolved and checked again.
+    Both hops go through the guarded fetch (#485): the host is the
+    model's choice, so it is resolved, checked public and dialled at the
+    checked address, and the redirect is resolved and checked again.
     """
     import httpx
 
-    from app.core.safe_fetch import guarded_get, read_capped
+    from app.core.safe_fetch import guarded_follow, read_capped
 
     try:
         async with httpx.AsyncClient(
-            timeout=TIMEOUT_SECONDS,
-            follow_redirects=False,
-            headers={"User-Agent": USER_AGENT},
+            timeout=TIMEOUT_SECONDS, headers={"User-Agent": USER_AGENT}
         ) as client:
-            for hop in range(2):
-                async with guarded_get(client, url) as response:
-                    if hop == 0 and response.status_code in _REDIRECTS:
-                        location = response.headers.get("location", "")
-                        if not location or _host_of(location) not in ("", host):
-                            return None
-                        # Joined onto the URL asked for: the response's own
-                        # URL carries the IP it was dialled at, not the host.
-                        url = str(httpx.URL(url).join(location))
-                        continue
-                    if response.status_code != 200:
-                        return None
-                    # Text only, judged before a byte of the body is read.
-                    # A PDF or an image proves nothing about the name.
-                    if "text" not in response.headers.get("content-type", "text/html"):
-                        return None
-                    return await read_capped(response)
-            return None
+            async with guarded_follow(
+                client, url, redirects=1, same_host=host
+            ) as response:
+                if response.status_code != 200:
+                    return None
+                # Text only, judged before a byte of the body is read.
+                # A PDF or an image proves nothing about the name.
+                if "text" not in response.headers.get("content-type", "text/html"):
+                    return None
+                return await read_capped(response)
     except Exception:
         # A dead host, a typo, no network: all the same answer. A lookup
         # is a convenience and must never be an outage.
@@ -134,7 +123,7 @@ def _known_marks(known: set[str] | None) -> set[str]:
     """Known details reduced to something a page can be searched for.
 
     A postcode as printed, and a phone as DIGITS - the record may hold
-    "1-888-282-8784" where the site prints "(888) 282-8784", and those
+    "1-888-555-0162" where the site prints "(888) 555-0162", and those
     are one number written two ways.
     """
     marks: set[str] = set()
@@ -154,7 +143,7 @@ def corroborates(page: str, known: set[str] | None) -> bool:
     """Whether a page carries something we ALREADY hold about them.
 
     The name alone proves a page MENTIONS an organization, not that it
-    belongs to it: there is more than one "Eleanor Nursing Care Center"
+    belongs to it: there is more than one "Maple Nursing Care Center"
     in the country, and a directory listing carries the name more
     prominently than a home page does. Either confirms on the name
     alone, and then somebody else's phone number is filed under your

@@ -7,7 +7,7 @@ written by the task_history module.
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 import redis.asyncio as aioredis
 
 from app.components.backend.api.models import (
@@ -21,10 +21,18 @@ from app.components.worker.task_history import (
 )
 from app.core.config import settings
 from app.core.log import logger
+from app.services.auth.deps import get_current_active_user
+
+# Operator-only: task records can contain serialized arguments with
+# user IDs, emails, or PII. Plus the clear-queue action is destructive.
+# RBAC stacks gate on ``role=admin``; basic-auth stacks have no role
+# concept, so fall back to "any authed user."
+_require_admin = get_current_active_user
 
 router = APIRouter(
     prefix="/tasks/history",
     tags=["task-history"],
+    dependencies=[Depends(_require_admin)],
 )
 
 # Lazy-initialized Redis client

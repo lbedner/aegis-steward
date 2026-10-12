@@ -8,7 +8,7 @@ cleanup, which unlinked it, and the rule's only idea of "recurring" was a
 live stream link; this month's charge had not even been given a merchant
 yet. Measured on the real ledger 2026-09-22: 27 of 42 open large-charge
 alerts were a payee charging what it always charges - the mortgage,
-Central Hudson, Claude, ChatGPT, the Acura payment.
+Riverbend Power, Claude, ChatGPT, the Acura payment.
 
 So a payee's own history answers first: the same merchant on any
 account, or the same description on this account (a description is not

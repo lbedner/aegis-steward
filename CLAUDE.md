@@ -18,9 +18,12 @@ Selected capabilities:
 - Worker (arq): background job processing.
 - Scheduler (sqlite): periodic and scheduled jobs.
 - Redis: cache and message broker.
+- Auth (basic): user accounts and protected endpoints.
 - AI (pydantic-ai): chat and LLM capabilities.
 - Finance: account and transaction tracking.
 - Comms: email, SMS, and voice.
+- Deploy (compose): the socket-proxy service gives `app.core.runtime` read-only Docker access.
+- Ingress: reverse proxy and TLS.
 
 ## Daily commands
 
@@ -97,6 +100,15 @@ work instead of blocking a request. See the `add-background-job` skill.
 
 Periodic and scheduled jobs run on the sqlite backend, and
 execution history is recorded. See the `add-scheduled-job` skill.
+
+## Authentication
+
+Every route, socket and mount is behind one gate
+(`app/components/backend/middleware/request_gate.py`): signed out, only its
+public list answers, so a new route needs nothing to be protected. Never add
+to that list beyond the way in. Admin-only work (sends, enqueue, run-now)
+takes `require_admin`. Owner scope is `get_owner_user_id`: the household's
+rows (`None`) for whoever is signed in. See the `protect-an-endpoint` skill.
 
 ## Skills
 

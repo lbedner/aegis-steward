@@ -65,8 +65,8 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/rendering.py": 637,
     "services/ai/domains/llm/queries.py": 556,
     "components/web_frontend/filters.py": 531,
-    "core/formatting.py": 505,
-    "core/config.py": 776,  # #481 upload caps, #482 encryption-key guard, #486 code mode limits
+    "core/formatting.py": 510,
+    "core/config.py": 814,  # #481 upload caps, #482 encryption-key guard, #486 code mode limits, #479 hosts + auth-off guard, #488 Traefik API
 }
 
 

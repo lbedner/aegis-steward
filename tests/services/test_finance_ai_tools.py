@@ -117,7 +117,7 @@ async def test_ledger_transactions_use_the_curated_payee(
     txn = await seed_txn(
         svc, account.id, -108_50, today, name="NON-CHASE ATM WITHDRAW XX2488"
     )
-    merchant = await svc.create_merchant("Hudson Valley Grounded", owner_user_id=1)
+    merchant = await svc.create_merchant("Riverbend Grounded", owner_user_id=1)
     txn.merchant_id = merchant.id
     session.add(txn)
     await session.commit()
@@ -125,7 +125,7 @@ async def test_ledger_transactions_use_the_curated_payee(
     result = await ai_tools.ledger(months=1, detail="transactions")
 
     payees = [t["payee"] for t in result["transactions"]]
-    assert payees == ["Hudson Valley Grounded"]
+    assert payees == ["Riverbend Grounded"]
 
 
 async def test_ledger_rejects_unknown_detail() -> None:
@@ -185,7 +185,7 @@ async def test_accounts_carries_property_provenance(
     of August 2026" instead of stating a guess as fact."""
     house = await seed_account(
         svc,
-        name="House Bedner",
+        name="House Doe",
         account_type="property",
         current_balance=711_200_00,
     )
@@ -201,7 +201,7 @@ async def test_accounts_carries_property_provenance(
 
     result = await ai_tools.accounts()
 
-    entry = {a["name"]: a for a in result["accounts"]}["House Bedner"]
+    entry = {a["name"]: a for a in result["accounts"]}["House Doe"]
     assert entry["property"]["valuation_source"] == "user"
     assert entry["property"]["valuation_as_of"] == "2026-08-01"
     assert entry["property"]["purchase_price_cents"] == 285_000_00
@@ -215,7 +215,7 @@ async def test_the_valuation_row_outranks_the_typed_provenance(
     number came from. Reporting the metadata's label while the balance comes
     from a Zestimate is how a model ends up calling an estimate an appraisal.
     """
-    house = await seed_account(svc, name="House Bedner", account_type="property")
+    house = await seed_account(svc, name="House Doe", account_type="property")
     house.metadata_ = set_property_metadata(
         house.metadata_, valuation_source="appraisal", valuation_as_of=date(2024, 1, 1)
     )
@@ -232,7 +232,7 @@ async def test_the_valuation_row_outranks_the_typed_provenance(
 
     result = await ai_tools.accounts()
 
-    entry = {a["name"]: a for a in result["accounts"]}["House Bedner"]
+    entry = {a["name"]: a for a in result["accounts"]}["House Doe"]
     assert entry["property"]["valuation_source"] == "zillow"
     assert entry["property"]["valuation_as_of"] == "2026-08-01"
     assert entry["property"]["is_estimate"] is True
@@ -273,7 +273,7 @@ async def test_accounts_carries_upcoming_scheduled_flows(
     checking = await seed_account(svc)
     await seed_stream(
         svc,
-        name="Eleanor Care",
+        name="Maple Care",
         expected_amount=2_200_00,
         next_expected_date=current_date() + timedelta(days=9),
         account_id=checking.id,
@@ -293,7 +293,7 @@ async def test_accounts_carries_upcoming_scheduled_flows(
     entry = next(a for a in result["accounts"] if a["name"] == "Checking")
     assert entry["upcoming"] == [
         {
-            "name": "Eleanor Care",
+            "name": "Maple Care",
             "date": (current_date() + timedelta(days=9)).isoformat(),
             "amount_cents": -2_200_00,
         }
@@ -411,7 +411,7 @@ async def test_a_linked_property_reports_equity_and_ltv(
     entry names what it secures."""
     house = await seed_account(
         svc,
-        name="House Bedner",
+        name="House Doe",
         account_type="property",
         current_balance=71_120_000,
     )
@@ -435,7 +435,7 @@ async def test_a_linked_property_reports_equity_and_ltv(
 
     result = await ai_tools.accounts()
 
-    entry = next(a for a in result["accounts"] if a["name"] == "House Bedner")
+    entry = next(a for a in result["accounts"] if a["name"] == "House Doe")
     assert entry["property"]["equity_cents"] == 52_420_000
     assert entry["property"]["ltv_bps"] == 2629
     assert entry["property"]["liens"] == [
@@ -450,7 +450,7 @@ async def test_an_unlinked_property_shows_no_lending_figures(
     """The gate's unlink case: no link, no equity/LTV keys at all."""
     house = await seed_account(
         svc,
-        name="House Bedner",
+        name="House Doe",
         account_type="property",
         current_balance=71_120_000,
     )
@@ -459,7 +459,7 @@ async def test_an_unlinked_property_shows_no_lending_figures(
 
     result = await ai_tools.accounts()
 
-    entry = next(a for a in result["accounts"] if a["name"] == "House Bedner")
+    entry = next(a for a in result["accounts"] if a["name"] == "House Doe")
     assert "equity_cents" not in entry["property"]
     assert "ltv_bps" not in entry["property"]
     assert "liens" not in entry["property"]
@@ -899,7 +899,7 @@ async def test_bills_lists_the_recurring_surface(
     live stream, both directions, with the ids proposals need."""
     await seed_stream(
         svc,
-        name="Eleanor Nursing Care",
+        name="Maple Nursing Care",
         expected_amount=100_000,
         next_expected_date=date(2026, 7, 31),
     )
@@ -916,13 +916,13 @@ async def test_bills_lists_the_recurring_surface(
     result = await ai_tools.bills()
 
     rows = {b["name"]: b for b in result["bills"]}
-    eleanor = rows["Eleanor Nursing Care"]
-    assert eleanor["direction"] == "outflow"
-    assert eleanor["frequency"] == "monthly"
-    assert eleanor["amount_cents"] == 100_000
-    assert eleanor["amount_is_declared"] is True
-    assert eleanor["next_expected_date"] == "2026-07-31"
-    assert isinstance(eleanor["id"], int)
+    maple = rows["Maple Nursing Care"]
+    assert maple["direction"] == "outflow"
+    assert maple["frequency"] == "monthly"
+    assert maple["amount_cents"] == 100_000
+    assert maple["amount_is_declared"] is True
+    assert maple["next_expected_date"] == "2026-07-31"
+    assert isinstance(maple["id"], int)
     assert rows["Paycheck"]["direction"] == "inflow"
 
 
@@ -1030,7 +1030,7 @@ async def test_bill_candidates_returns_the_ranked_shortlist(
     account = await seed_account(svc)
     stream = await seed_stream(
         svc,
-        name="Eleanor Nursing Care",
+        name="Maple Nursing Care",
         expected_amount=100_000,
         next_expected_date=date(2026, 7, 31),
     )
@@ -1041,7 +1041,7 @@ async def test_bill_candidates_returns_the_ranked_shortlist(
         account.id,
         -100_000,
         date(2026, 7, 31),
-        name="Recurring Withdrawal CK *Eleanor Nursing Ca",
+        name="Recurring Withdrawal CK *Maple Nursing Ca",
         owner_user_id=None,
     )
     await seed_txn(  # wrong direction: never a candidate

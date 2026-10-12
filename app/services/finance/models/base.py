@@ -39,7 +39,8 @@ _SCHEMA: str | None = None
 # is a redundant-condition diagnostic on SQLite stacks.
 _FK = ""
 
-# Finance can exist without auth; owner IDs remain plain nullable integers.
+# Owner IDs remain plain nullable integers, with auth too: steward has one
+# owner, whose rows carry none (``shared.deps.get_owner_user_id``).
 _OWNER_FK: str | None = None
 
 

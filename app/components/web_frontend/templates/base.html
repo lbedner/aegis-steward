@@ -41,15 +41,17 @@
      a 422 carries a re-rendered form and must swap; other 4xx/5xx never
      swap and raise htmx:responseError, which app.js turns into a toast. #}
   <meta name="htmx-config" content='{"historyCacheSize": 0, "refreshOnHistoryMiss": true, "attributesToSettle": [], "responseHandling": [{"code": "204", "swap": false}, {"code": "[23]..", "swap": true}, {"code": "422", "swap": true}, {"code": "[45]..", "swap": false, "error": true}, {"code": "...", "swap": true}]}'>
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  {# Third-party scripts are vendored under static/vendor (the version in
+     each name), never a CDN: the script policy allows this origin only. #}
+  <script src="{{ static('vendor/htmx-2.0.4.min.js') }}"></script>
   {# SSE extension for job progress (pattern 5); registers against the
      global htmx, so it must follow core. #}
-  <script src="https://unpkg.com/htmx-ext-sse@2.2.3/sse.js"></script>
+  <script src="{{ static('vendor/htmx-ext-sse-2.2.3.js') }}"></script>
 
   {# Alpine.js — the collapse plugin MUST load before core so its directive
      is registered when Alpine inits. Both deferred, plugin first. #}
-  <script src="https://unpkg.com/@alpinejs/collapse@3.14.8/dist/cdn.min.js" defer></script>
-  <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+  <script src="{{ static('vendor/alpinejs-collapse-3.14.8.min.js') }}" defer></script>
+  <script src="{{ static('vendor/alpinejs-3.14.8.min.js') }}" defer></script>
 
   {# Custom styles #}
   <link rel="stylesheet" href="{{ static('css/app.css') }}">
@@ -79,7 +81,7 @@
   {{ toast_region() }}
 
   <script src="{{ static('js/app.js') }}"></script>
-  <script src="{{ static('js/charts.js') }}"></script>
+  <script src="{{ static('js/charts.js') }}" data-chart-js="{{ static('vendor/chart.js-4.4.7.umd.js') }}"></script>
   <script src="{{ static('js/chat.js') }}"></script>
   <script src="{{ static('js/call-state.js') }}"></script>
   <script src="{{ static('js/voice.js') }}"></script>

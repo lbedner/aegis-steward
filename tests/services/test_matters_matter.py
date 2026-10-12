@@ -1,7 +1,7 @@
 """The matter: the case a document belongs to.
 
 ST-03's gate is the Medicaid case - it exists once with its real case
-number, names James as subject, DSS as agency, Eleanor as facility and
+number, names James as subject, DSS as agency, Maple as facility and
 the owner as representative, and a SECOND letter from the same agency
 lands on the same matter rather than starting a new one.
 """
@@ -18,16 +18,14 @@ from app.services.matters.service import PartyService
 async def _cast(db: AsyncSession) -> dict[str, int]:
     parties = PartyService(db)
     return {
-        "james": (await parties.create(name="James Bedner", kind="person")).id,
+        "james": (await parties.create(name="James Doe", kind="person")).id,
         "dss": (
-            await parties.create(name="Dutchess County DSS", kind="organization")
+            await parties.create(name="Example County DSS", kind="organization")
         ).id,
-        "eleanor": (
-            await parties.create(
-                name="Eleanor Nursing Care Center", kind="organization"
-            )
+        "maple": (
+            await parties.create(name="Maple Nursing Care Center", kind="organization")
         ).id,
-        "leonard": (await parties.create(name="Leonard Bedner", kind="person")).id,
+        "sam": (await parties.create(name="Sam Doe", kind="person")).id,
     }
 
 
@@ -40,7 +38,7 @@ class TestAMatter:
         case = await matters.open(
             title="Medicaid renewal",
             kind="medicaid",
-            reference="MA258760XX",
+            reference="MA123456XX",
             subject_party_id=cast["james"],
             counterpart_party_id=cast["dss"],
             opened_on=date(2026, 8, 20),
@@ -48,20 +46,20 @@ class TestAMatter:
         # the subject and the agency joined as the case opened; the rest
         # are added
         for party, role in (
-            ("eleanor", "facility"),
-            ("leonard", "representative"),
+            ("maple", "facility"),
+            ("sam", "representative"),
         ):
             await matters.add_participant(case.id, cast[party], role)
         await async_db_session.commit()
 
         drawn = await summarised(async_db_session, case)
-        assert drawn["reference"] == "MA258760XX"
+        assert drawn["reference"] == "MA123456XX"
         assert drawn["status"] == "open"
         assert {(p["role"], p["party"]) for p in drawn["participants"]} == {
-            ("subject", "James Bedner"),
-            ("agency", "Dutchess County DSS"),
-            ("facility", "Eleanor Nursing Care Center"),
-            ("representative", "Leonard Bedner"),
+            ("subject", "James Doe"),
+            ("agency", "Example County DSS"),
+            ("facility", "Maple Nursing Care Center"),
+            ("representative", "Sam Doe"),
         }
 
     @pytest.mark.asyncio
@@ -71,10 +69,10 @@ class TestAMatter:
         """The agency's own case number is the one thing two letters
         agree about, which is why it is what we look a matter up by."""
         matters = MatterService(async_db_session)
-        first = await matters.open(title="Medicaid renewal", reference="MA258760XX")
+        first = await matters.open(title="Medicaid renewal", reference="MA123456XX")
         await async_db_session.commit()
 
-        found = await matters.by_reference(" MA258760XX ")
+        found = await matters.by_reference(" MA123456XX ")
 
         assert found is not None and found.id == first.id
         assert await matters.by_reference("MA000000XX") is None
@@ -83,15 +81,15 @@ class TestAMatter:
     async def test_a_role_is_per_matter_not_per_party(
         self, async_db_session: AsyncSession
     ) -> None:
-        """Eleanor is the facility in this case and a payee in the
+        """Maple is the facility in this case and a payee in the
         ledger. Neither fact belongs to the other, which is why ST-01
         left the role off the party."""
         cast = await _cast(async_db_session)
         matters = MatterService(async_db_session)
         renewal = await matters.open(title="Medicaid renewal")
         estate = await matters.open(title="Estate")
-        await matters.add_participant(renewal.id, cast["eleanor"], "facility")
-        await matters.add_participant(estate.id, cast["eleanor"], "other")
+        await matters.add_participant(renewal.id, cast["maple"], "facility")
+        await matters.add_participant(estate.id, cast["maple"], "other")
         await async_db_session.commit()
 
         assert [
@@ -112,8 +110,8 @@ class TestAMatter:
         cast = await _cast(async_db_session)
         matters = MatterService(async_db_session)
         case = await matters.open(title="Medicaid renewal")
-        await matters.add_participant(case.id, cast["leonard"], "representative")
-        await matters.add_participant(case.id, cast["leonard"], "other")
+        await matters.add_participant(case.id, cast["sam"], "representative")
+        await matters.add_participant(case.id, cast["sam"], "other")
         await async_db_session.commit()
 
         roles = [
@@ -138,8 +136,8 @@ class TestAMatter:
             (role, party.name) for role, party in await matters.document_parties(7)
         )
         assert named == {
-            "sender": "Dutchess County DSS",
-            "subject": "James Bedner",
+            "sender": "Example County DSS",
+            "subject": "James Doe",
         }
 
     @pytest.mark.asyncio

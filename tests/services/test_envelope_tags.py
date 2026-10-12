@@ -1,8 +1,8 @@
 """An envelope that follows a tag: what the household buys for her, she
 pays for from her envelope.
 
-Vanessa's allowance is virtual, but the Roblox codes and the rest are
-real charges on real cards. Tagging one "Vanessa" spends it from her
+Robin's allowance is virtual, but the Roblox codes and the rest are
+real charges on real cards. Tagging one "Robin" spends it from her
 envelope; untagging gives it back (#240). The envelope settles against
 the ledger, so re-reading, re-importing or re-tagging never counts a
 charge twice.
@@ -28,10 +28,10 @@ async def _setup(db: AsyncSession) -> dict[str, Any]:
     svc = FinanceService(db)
     card = await seed_account(svc, name="Household card", account_type="credit_card")
     envelope = await svc.create_envelope(
-        owner_user_id=1, name="Vanessa's", monthly_credit=1_000, cadence="weekly"
+        owner_user_id=1, name="Robin's", monthly_credit=1_000, cadence="weekly"
     )
     await svc.credit_envelope(envelope.id, amount=6_000, owner_user_id=1)
-    await follow_tag(db, envelope.id, "Vanessa", owner_user_id=1, since=TODAY)
+    await follow_tag(db, envelope.id, "Robin", owner_user_id=1, since=TODAY)
     return {"svc": svc, "card": card, "envelope": envelope}
 
 
@@ -50,7 +50,7 @@ class TestSpendingFromATag:
             made["svc"], made["card"].id, -540, TODAY, name="ROBLOX"
         )
 
-        await made["svc"].tag_transactions([roblox.id], "Vanessa", owner_user_id=1)
+        await made["svc"].tag_transactions([roblox.id], "Robin", owner_user_id=1)
 
         assert await _balance(async_db_session, made["envelope"]) == 6_000 - 540
 
@@ -62,9 +62,7 @@ class TestSpendingFromATag:
         roblox = await seed_txn(
             made["svc"], made["card"].id, -540, TODAY, name="ROBLOX"
         )
-        tag = await made["svc"].tag_transactions(
-            [roblox.id], "Vanessa", owner_user_id=1
-        )
+        tag = await made["svc"].tag_transactions([roblox.id], "Robin", owner_user_id=1)
 
         await made["svc"].untag_transactions([roblox.id], tag.id, owner_user_id=1)
 
@@ -80,7 +78,7 @@ class TestSpendingFromATag:
         roblox = await seed_txn(
             made["svc"], made["card"].id, -540, TODAY, name="ROBLOX"
         )
-        await made["svc"].tag_transactions([roblox.id], "Vanessa", owner_user_id=1)
+        await made["svc"].tag_transactions([roblox.id], "Robin", owner_user_id=1)
 
         await settle(async_db_session, owner_user_id=1)
         await settle(async_db_session, owner_user_id=1)
@@ -91,7 +89,7 @@ class TestSpendingFromATag:
     async def test_what_was_tagged_before_it_followed_the_tag_is_history(
         self, async_db_session: AsyncSession
     ) -> None:
-        """The real "Vanessa" tag has 42 charges on it back to 2019; an
+        """The real "Robin" tag has 42 charges on it back to 2019; an
         envelope pointed at it today must not spend all of them."""
         from app.services.finance.domains.planning.envelope_tags import settle
 
@@ -103,7 +101,7 @@ class TestSpendingFromATag:
             TODAY - timedelta(days=400),
             name="ROBLOX",
         )
-        await made["svc"].tag_transactions([old.id], "Vanessa", owner_user_id=1)
+        await made["svc"].tag_transactions([old.id], "Robin", owner_user_id=1)
         await settle(async_db_session, owner_user_id=1)
 
         assert await _balance(async_db_session, made["envelope"]) == 6_000
@@ -118,7 +116,7 @@ class TestSpendingFromATag:
         async_db_session.add(sent)
         await async_db_session.flush()
 
-        await made["svc"].tag_transactions([sent.id], "Vanessa", owner_user_id=1)
+        await made["svc"].tag_transactions([sent.id], "Robin", owner_user_id=1)
 
         assert await _balance(async_db_session, made["envelope"]) == 6_000
 
@@ -137,17 +135,15 @@ class TestTheCardCanPointItAtATag:
         from app.services.finance.service import FinanceService
 
         envelope = await FinanceService(async_db_session).create_envelope(
-            owner_user_id=1, name="Vanessa's", monthly_credit=1_000, cadence="weekly"
+            owner_user_id=1, name="Robin's", monthly_credit=1_000, cadence="weekly"
         )
-        payload = EnvelopeUpdatePayload(account_id=envelope.id, tag="Vanessa")
+        payload = EnvelopeUpdatePayload(account_id=envelope.id, tag="Robin")
 
         said = {
             row.label: row.value
             for row in await envelope_update_describe(async_db_session, payload, None)
         }
-        assert (
-            said["Pays for"] == f"- → what is tagged Vanessa, from {TODAY.isoformat()}"
-        )
+        assert said["Pays for"] == f"- → what is tagged Robin, from {TODAY.isoformat()}"
 
         await envelope_update_execute(async_db_session, payload, None)
         await async_db_session.refresh(envelope)
@@ -161,7 +157,7 @@ class TestCountingFrom:
     async def test_moving_the_start_back_counts_what_it_now_covers(
         self, async_db_session: AsyncSession
     ) -> None:
-        """Live: two August Dark Side Records charges were tagged Vanessa
+        """Live: two August Spinning Disc Records charges were tagged Robin
         and her envelope did not move, because counting starts the day the
         tag is set (2026-09-23). The start is the person's to choose."""
         from app.services.finance.domains.planning.envelope_tags import retag
@@ -174,13 +170,13 @@ class TestCountingFrom:
             TODAY - timedelta(days=30),
             name="ROBLOX",
         )
-        await made["svc"].tag_transactions([older.id], "Vanessa", owner_user_id=1)
+        await made["svc"].tag_transactions([older.id], "Robin", owner_user_id=1)
         assert await _balance(async_db_session, made["envelope"]) == 6_000
 
         await retag(
             async_db_session,
             made["envelope"].id,
-            "Vanessa",
+            "Robin",
             owner_user_id=1,
             since=TODAY - timedelta(days=60),
         )
@@ -201,11 +197,11 @@ class TestCountingFrom:
             TODAY - timedelta(days=30),
             name="ROBLOX",
         )
-        await made["svc"].tag_transactions([older.id], "Vanessa", owner_user_id=1)
+        await made["svc"].tag_transactions([older.id], "Robin", owner_user_id=1)
         await retag(
             async_db_session,
             made["envelope"].id,
-            "Vanessa",
+            "Robin",
             owner_user_id=1,
             since=TODAY - timedelta(days=60),
         )
@@ -213,7 +209,7 @@ class TestCountingFrom:
         await retag(
             async_db_session,
             made["envelope"].id,
-            "Vanessa",
+            "Robin",
             owner_user_id=1,
             since=TODAY,
         )
@@ -233,13 +229,13 @@ class TestCountingFrom:
         await retag(
             async_db_session,
             made["envelope"].id,
-            "Vanessa",
+            "Robin",
             owner_user_id=1,
             since=start,
         )
 
         changed = await retag(
-            async_db_session, made["envelope"].id, "Vanessa", owner_user_id=1
+            async_db_session, made["envelope"].id, "Robin", owner_user_id=1
         )
 
         await async_db_session.refresh(made["envelope"])

@@ -345,9 +345,9 @@ async def revise(
 ) -> dict[str, Any]:
     """Put right what a pending card got wrong, before the user approves
     it - any card awaiting them whose type can be edited, not only your
-    own. Use it when the user corrects a reading: "it's Holy Cow, not
-    Holly Cow" is revise({"payee": "Holy Cow"}, about="Holly Cow"), and
-    every pending card that says Holly Cow is fixed. Name the cards by
+    own. Use it when the user corrects a reading: "it's Sweet Scoop, not
+    Sweat Scoop" is revise({"payee": "Sweet Scoop"}, about="Sweat Scoop"), and
+    every pending card that says Sweat Scoop is fixed. Name the cards by
     ``pending_change_ids``, or by ``about`` (text the card's payload
     contains). ``fields`` are only the ones to change; the rest of each
     card stays. Returns {"revised": [ids]} and, per card it could not

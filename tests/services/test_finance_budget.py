@@ -997,14 +997,14 @@ class TestMonthOutlook:
     @pytest.mark.asyncio
     async def test_muted_and_paused_stay_out(self, svc: FinanceService) -> None:
         account_id = await self._base(svc)
-        eleanor = await seed_stream(
+        maple = await seed_stream(
             svc,
-            name="Eleanor",
+            name="Maple",
             expected_amount=220_000,
             next_expected_date=date(2026, 9, 1),
             account_id=account_id,
         )
-        await svc.pause_recurring(eleanor.id, until=PAUSE_INDEFINITE, owner_user_id=1)
+        await svc.pause_recurring(maple.id, until=PAUSE_INDEFINITE, owner_user_id=1)
 
         outlook = await svc.budget_month_outlook(
             owner_user_id=1, months=3, today=date(2026, 8, 10)

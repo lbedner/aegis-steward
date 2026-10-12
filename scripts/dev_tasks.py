@@ -27,7 +27,14 @@ _COMPOSE_DEV = [
     "-f",
     "docker-compose.dev.yml",
 ]
-_COMPOSE_PROD = ["docker", "compose", "-f", "docker-compose.yml"]
+_COMPOSE_PROD = [
+    "docker",
+    "compose",
+    "-f",
+    "docker-compose.yml",
+    "-f",
+    "docker-compose.prod.yml",
+]
 
 # The project's .env, which compose also reads for its own variables.
 _DOTENV = Path(".env")
@@ -57,7 +64,7 @@ def serve(*, detach: bool = False) -> None:
         else "Starting services... (Press Ctrl+C to stop)"
     )
     ports = resolve_ports(
-        ingress=False,
+        ingress=True,
         postgres=False,
         redis=True,
         ollama=False,

@@ -1,0 +1,153 @@
+"""Security utilities for authentication and authorization."""
+
+from datetime import UTC, datetime, timedelta
+import secrets
+from typing import Any
+
+import bcrypt
+from fastapi import Response
+from jose import JWTError, jwt
+
+from app.core.config import settings
+
+# Cookie name used to carry the JWT for all browser-side auth flows
+# (login, register, OAuth callback, logout). HttpOnly + SameSite=Lax;
+# Secure flag is environment-aware (off in dev, on otherwise).
+SESSION_COOKIE_NAME = "aegis_session"
+
+# Cookie name used to carry the opaque refresh token. Sent only on
+# ``/api/v1/auth/refresh`` (``path`` is scoped accordingly) and on
+# logout. SameSite=Strict because no first-party flow ever needs to
+# include this cookie cross-site.
+REFRESH_COOKIE_NAME = "aegis_refresh"
+REFRESH_COOKIE_PATH = "/api/v1/auth"
+
+
+def _truncate_password(password: str) -> str:
+    """Truncate password to 72 bytes for bcrypt compatibility.
+
+    bcrypt has a 72-byte limit. We explicitly truncate here rather than
+    rely on library defaults for clarity and consistency.
+    """
+    return password[:72]
+
+
+def access_token_minutes() -> int:
+    """``ACCESS_TOKEN_EXPIRE_MINUTES``, scaled up in dev.
+
+    Dev iteration is annoying when the session expires every 15 min, so
+    ``APP_ENV == "dev"`` multiplies by ``DEV_TOKEN_EXPIRE_MULTIPLIER``
+    (default 4 → 1h). Prod / staging are unchanged.
+    """
+    minutes = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    if settings.APP_ENV == "dev":
+        minutes *= settings.DEV_TOKEN_EXPIRE_MULTIPLIER
+    return minutes
+
+
+def create_access_token(
+    data: dict[str, Any], expires_delta: timedelta | None = None
+) -> str:
+    """Create a JWT access token with a unique jti claim for revocation support."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(UTC) + expires_delta
+    else:
+        expire = datetime.now(UTC) + timedelta(minutes=access_token_minutes())
+
+    to_encode.update({"exp": expire, "jti": secrets.token_urlsafe(16)})
+    encoded_jwt = jwt.encode(
+        to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    )
+    return encoded_jwt
+
+
+def verify_token(token: str) -> dict[str, Any] | None:
+    """Verify and decode a JWT token."""
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        )
+        return payload
+    except JWTError:
+        return None
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password using bcrypt."""
+    truncated = _truncate_password(password)
+    return bcrypt.hashpw(truncated.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash."""
+    truncated = _truncate_password(plain_password)
+    return bcrypt.checkpw(truncated.encode("utf-8"), hashed_password.encode("utf-8"))
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    """Attach the JWT to the response as an HttpOnly session cookie.
+
+    Used by every auth surface that should leave the caller signed in:
+    ``/auth/token`` (password login), ``/auth/register`` (auto-sign-in
+    on successful registration), and the OAuth callback's 303 redirect.
+
+    Secure-flag policy:
+    - If ``SESSION_COOKIE_SECURE`` is explicitly set, honor it.
+    - Otherwise, infer from ``settings.is_dev``: off in dev (so the cookie works
+      over plain ``http://localhost``), on everywhere else.
+    Setting ``SESSION_COOKIE_SECURE=false`` in a non-dev env is the
+    escape hatch for running prod over HTTP without TLS — browsers
+    refuse Secure cookies on insecure origins, which otherwise breaks
+    sign-in.
+    """
+    secure = (
+        settings.SESSION_COOKIE_SECURE
+        if settings.SESSION_COOKIE_SECURE is not None
+        else not settings.is_dev
+    )
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        max_age=access_token_minutes() * 60,
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    """Drop the session cookie. Used by ``/auth/logout``."""
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+
+
+def set_refresh_cookie(response: Response, token: str) -> None:
+    """Attach the opaque refresh token as an HttpOnly cookie.
+
+    Scoped to ``/api/v1/auth`` so the cookie only rides on auth
+    endpoints — never leaks to API calls. ``SameSite=Strict`` because
+    no first-party flow ever needs to include this cookie cross-site,
+    and refresh tokens are higher-value than the short-lived access
+    token. ``max_age`` mirrors ``REFRESH_TOKEN_EXPIRE_DAYS`` so the
+    browser drops the cookie if the row expires server-side.
+    """
+    secure = (
+        settings.SESSION_COOKIE_SECURE
+        if settings.SESSION_COOKIE_SECURE is not None
+        else not settings.is_dev
+    )
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        token,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        httponly=True,
+        samesite="strict",
+        secure=secure,
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
+def clear_refresh_cookie(response: Response) -> None:
+    """Drop the refresh cookie. Used by ``/auth/logout``."""
+    response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)

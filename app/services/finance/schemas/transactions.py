@@ -70,7 +70,7 @@ class TransactionResponse(BaseModel):
         it, so a surface listing transactions cannot reach for ``name``
         and undo a rename on screen. The budget limit's drill-down did
         exactly that: renamed rows came back as
-        "SHPRTE NTH RD&WNSW GT XXX-XXX-6086 NY 09/11".
+        "SHPRTE MAIN ST&ELM GT XXX-XXX-6086 NY 09/11".
         """
         from app.core.formatting import payee_label
 

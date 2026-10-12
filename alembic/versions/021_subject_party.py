@@ -5,8 +5,8 @@ Revises: 020
 Create Date: 2026-09-15 06:00:00.000000
 
 ``finance_subject`` says whose money a row describes; ``party`` says who
-somebody is. They were the same person twice - James Bedner the subject
-of a Medicaid renewal and James Bedner whose pension account this is -
+somebody is. They were the same person twice - James Doe the subject
+of a Medicaid renewal and James Doe whose pension account this is -
 and a pick-list that offers both is a pick-list nobody can answer.
 
 So the subject points at the party. Creating it stays the app's job: a

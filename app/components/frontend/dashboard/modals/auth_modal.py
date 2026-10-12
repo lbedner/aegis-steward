@@ -1,0 +1,268 @@
+"""
+Auth Service Detail Modal
+
+Displays comprehensive auth service information including security configuration,
+user statistics, JWT settings, and user management.
+"""
+
+from typing import Any
+
+import flet as ft
+
+from app.components.frontend.controls import (
+    BodyText,
+    H3Text,
+    SecondaryText,
+    Tag,
+)
+from app.components.frontend.controls.tabs import PulseTabs
+from app.components.frontend.theme import AegisTheme as Theme
+from app.services.system import ui_auth
+from app.services.system.models import ComponentStatus
+from app.services.system.ui import get_component_subtitle, get_component_title
+
+from ..cards.card_utils import get_status_detail
+from .auth_sessions_tab import AuthSessionsTab
+from .auth_users_tab import AuthUsersTab
+from .base_detail_popup import BaseDetailPopup
+from .modal_sections import MetricCard
+
+
+class OverviewSection(ft.Container):
+    """Overview section showing key auth service metrics."""
+
+    def __init__(self, component_data: ComponentStatus) -> None:
+        """
+        Initialize overview section.
+
+        Args:
+            component_data: Complete component status information
+        """
+        super().__init__()
+
+        metadata = component_data.metadata or {}
+        user_count_display = metadata.get("user_count_display", "0")
+        token_expiry_display = metadata.get("token_expiry_display", "Unknown")
+        jwt_algorithm = metadata.get("jwt_algorithm", "Unknown")
+
+        self.content = ft.Row(
+            [
+                MetricCard(
+                    "Total Users",
+                    user_count_display,
+                    Theme.Colors.PRIMARY,
+                ),
+                MetricCard(
+                    "JWT Algorithm",
+                    jwt_algorithm,
+                    Theme.Colors.INFO,
+                ),
+                MetricCard(
+                    "Token Expiry",
+                    token_expiry_display,
+                    Theme.Colors.SUCCESS,
+                ),
+            ],
+            spacing=Theme.Spacing.MD,
+        )
+        self.padding = Theme.Spacing.MD
+
+
+class ConfigurationSection(ft.Container):
+    """Configuration section showing security settings."""
+
+    def __init__(self, metadata: dict[str, Any]) -> None:
+        """
+        Initialize configuration section.
+
+        Args:
+            metadata: Component metadata containing auth configuration
+        """
+        super().__init__()
+
+        secret_key_configured = metadata.get("secret_key_configured", False)
+        secret_key_length = metadata.get("secret_key_length", 0)
+
+        key_strength, strength_name = ui_auth.key_strength(secret_key_length)
+        key_strength_color = Theme.Colors.semantic(strength_name)
+
+        # Build configuration rows
+        config_rows = []
+
+        # Secret Key Status row
+        secret_key_status = "Configured" if secret_key_configured else "Not Configured"
+        config_rows.append(
+            ft.Row(
+                [
+                    SecondaryText(
+                        "Secret Key:",
+                        weight=Theme.Typography.WEIGHT_SEMIBOLD,
+                        width=200,
+                    ),
+                    BodyText(secret_key_status),
+                ],
+                spacing=Theme.Spacing.MD,
+            )
+        )
+
+        # Secret Key Strength row (only if configured)
+        if secret_key_configured:
+            config_rows.append(
+                ft.Row(
+                    [
+                        SecondaryText(
+                            "Key Strength:",
+                            weight=Theme.Typography.WEIGHT_SEMIBOLD,
+                            width=200,
+                        ),
+                        Tag(
+                            text=f"{key_strength} ({secret_key_length} chars)",
+                            color=key_strength_color,
+                        ),
+                    ],
+                    spacing=Theme.Spacing.MD,
+                )
+            )
+
+        self.content = ft.Column(
+            [
+                H3Text("Configuration"),
+                ft.Container(height=Theme.Spacing.SM),
+                ft.Column(config_rows, spacing=Theme.Spacing.SM),
+            ],
+            spacing=0,
+        )
+        self.padding = Theme.Spacing.MD
+
+
+class SecuritySection(ft.Container):
+    """Security section showing security analysis and recommendations."""
+
+    def __init__(self, metadata: dict[str, Any]) -> None:
+        """
+        Initialize security section.
+
+        Args:
+            metadata: Component metadata containing security information
+        """
+        super().__init__()
+
+        configuration_issues = metadata.get("configuration_issues", [])
+
+        security_level, security_description, level_name = ui_auth.security_level(
+            metadata
+        )
+        security_color = Theme.Colors.semantic(level_name)
+
+        security_rows = []
+
+        # Security Level row with badge
+        security_rows.append(
+            ft.Row(
+                [
+                    SecondaryText(
+                        "Security Level:",
+                        weight=Theme.Typography.WEIGHT_SEMIBOLD,
+                        width=200,
+                    ),
+                    Tag(text=security_level.upper(), color=security_color),
+                ],
+                spacing=Theme.Spacing.MD,
+            )
+        )
+
+        # Security description
+        security_rows.append(
+            ft.Container(
+                content=BodyText(security_description),
+                padding=ft.padding.only(left=200, top=Theme.Spacing.XS),
+            )
+        )
+
+        # Configuration issues (if any)
+        if configuration_issues:
+            security_rows.append(ft.Container(height=Theme.Spacing.SM))
+            security_rows.append(
+                SecondaryText(
+                    "Configuration Issues:",
+                    weight=Theme.Typography.WEIGHT_SEMIBOLD,
+                )
+            )
+            for issue in configuration_issues:
+                security_rows.append(BodyText(f"  • {issue}"))
+
+        self.content = ft.Column(
+            [
+                H3Text("Security"),
+                ft.Container(height=Theme.Spacing.SM),
+                ft.Column(security_rows, spacing=Theme.Spacing.SM),
+            ],
+            spacing=0,
+        )
+        self.padding = Theme.Spacing.MD
+
+
+class OverviewTab(ft.Container):
+    """Overview tab combining existing config and security sections."""
+
+    def __init__(self, component_data: ComponentStatus) -> None:
+        super().__init__()
+
+        metadata = component_data.metadata or {}
+
+        self.content = ft.Column(
+            [
+                OverviewSection(component_data),
+                ConfigurationSection(metadata),
+                ft.Divider(height=20, color=ft.Colors.OUTLINE_VARIANT),
+                SecuritySection(metadata),
+            ],
+            spacing=0,
+            scroll=ft.ScrollMode.AUTO,
+        )
+        self.expand = True
+
+
+class AuthDetailDialog(BaseDetailPopup):
+    """
+    Auth service detail popup dialog with tabbed interface.
+
+    Displays comprehensive auth service information including security configuration,
+    user statistics, JWT settings, and user management.
+    """
+
+    def __init__(self, component_data: ComponentStatus, page: ft.Page) -> None:
+        """
+        Initialize the auth service details popup.
+
+        Args:
+            component_data: ComponentStatus containing component health and metrics
+            page: Flet page instance
+        """
+        metadata: dict[str, Any] = component_data.metadata or {}
+
+        # Build tabs list
+        tabs_list = [
+            ft.Tab(text="Overview", content=OverviewTab(component_data)),
+            ft.Tab(text="Users", content=AuthUsersTab(metadata=metadata)),
+            ft.Tab(text="Sessions", content=AuthSessionsTab(metadata=metadata)),
+        ]
+
+        # Create tabbed interface
+        tabs = PulseTabs(
+            selected_index=0,
+            tabs=tabs_list,
+            expand=True,
+        )
+
+        # Initialize base popup with tabs
+        # (non-scrollable - tabs handle their own scrolling)
+        super().__init__(
+            page=page,
+            component_data=component_data,
+            title_text=get_component_title("service_auth"),
+            subtitle_text=get_component_subtitle("service_auth", metadata),
+            sections=[tabs],
+            scrollable=False,
+            status_detail=get_status_detail(component_data),
+        )

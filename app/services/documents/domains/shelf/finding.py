@@ -6,7 +6,7 @@ documents most in need of attention - the ones nobody has attributed,
 whose sender is the thing missing - were the only ones an agent could
 not see.
 
-That surfaced the day a letter carrying Dutchess County DSS's own
+That surfaced the day a letter carrying Example County DSS's own
 street address sat on the shelf attached to nobody, and the only way to
 read it was for a person to look its id out of the database by hand
 (2026-09-18). A shelf you can only address by number is a shelf whose

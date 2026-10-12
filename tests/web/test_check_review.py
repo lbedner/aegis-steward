@@ -51,8 +51,8 @@ async def check_card(
             "number": "1801",
             "front_key": key,
             "back_key": None,
-            "payee": "Holly Cow",
-            "payee_because": "ORDER OF Holly Cow",
+            "payee": "Sweat Scoop",
+            "payee_because": "ORDER OF Sweat Scoop",
         },
         owner_user_id=None,
         proposed_by_agent="reading",
@@ -60,7 +60,11 @@ async def check_card(
     if request.param == "cited":
         change.payload = {
             **{k: v for k, v in change.payload.items() if k != "payee_because"},
-            "payee": {"value": "Holly Cow", "page": 2, "because": "ORDER OF Holly Cow"},
+            "payee": {
+                "value": "Sweat Scoop",
+                "page": 2,
+                "because": "ORDER OF Sweat Scoop",
+            },
         }
         async_db_session.add(change)
     await async_db_session.commit()
@@ -94,7 +98,7 @@ class TestFixingThePayee:
         self, client: TestClient, check_card: int
     ) -> None:
         dialog = client.get(f"/review/changes/{check_card}/edit").text
-        assert one(dialog, 'input[name="payee"]').get("value") == "Holly Cow"
+        assert one(dialog, 'input[name="payee"]').get("value") == "Sweat Scoop"
         none(dialog, 'input[name="front_key"]')
         none(dialog, 'input[name="number"]')
 
@@ -102,11 +106,11 @@ class TestFixingThePayee:
     def test_saving_it_changes_only_the_payee(
         self, client: TestClient, check_card: int
     ) -> None:
-        client.post(f"/review/changes/{check_card}/edit", data={"payee": "Holy Cow"})
+        client.post(f"/review/changes/{check_card}/edit", data={"payee": "Sweet Scoop"})
         card = one(client.get("/review").text, f"#change-{check_card}")
-        assert "Holy Cow" in card.text_content()
+        assert "Sweet Scoop" in card.text_content()
         # The line it was read from stays, whichever shape it was filed in.
-        assert "ORDER OF Holly Cow" in card.text_content()
+        assert "ORDER OF Sweat Scoop" in card.text_content()
         one(card, "img[data-scan]")
 
 

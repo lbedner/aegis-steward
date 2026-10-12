@@ -360,7 +360,10 @@ class TestTheRangeIsRemembered:
     def test_a_pick_comes_back_on_the_next_visit(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        start, end = current_date() - timedelta(days=9), current_date() - timedelta(days=2)
+        start, end = (
+            current_date() - timedelta(days=9),
+            current_date() - timedelta(days=2),
+        )
         client.get(f"/overview?from={start}&to={end}")
 
         assert self._dates(client, "/overview") == (str(start), str(end))
@@ -404,7 +407,7 @@ class TestSpendingDrilldown:
 
 class TestPendingChangesBanner:
     def test_sits_above_the_page_header(self, client: TestClient) -> None:
-        """First thing in the content area, before the title: Leonard
+        """First thing in the content area, before the title: the owner
         wants a pending change to be the first thing read."""
         content = one(client.get("/overview").text, "#app-content")
         assert content.getchildren()[0].get("id") == "pending-changes"

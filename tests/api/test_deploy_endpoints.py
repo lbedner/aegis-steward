@@ -1,0 +1,85 @@
+"""Overseer's write actions through the socket proxy: an admin (anyone,
+without auth) restarts one of this app's containers, and every attempt is
+audited (who, what, when, and how it went)."""
+
+from fastapi.testclient import TestClient
+import pytest
+
+from app.core import runtime
+from tests._audit import ADMIN, Recorded, as_admin, recording
+from tests._fake_runtime import REDIS, SERVER, FakeRuntime, use_runtime
+
+URL = "/api/v1/runtime/containers/{name}/restart"
+
+
+@pytest.fixture
+def audit(client: TestClient) -> Recorded:
+    return recording(client)
+
+
+@pytest.fixture
+def admin(client: TestClient, audit: Recorded) -> TestClient:
+    return as_admin(client)
+
+
+def test_an_admin_restarts_a_container_and_it_is_audited(
+    admin: TestClient, audit: Recorded, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = use_runtime(monkeypatch, FakeRuntime(REDIS))
+    response = admin.post(URL.format(name=REDIS.name))
+    assert response.status_code == 200
+    assert response.json() == {"restarted": REDIS.name, "own": False}
+    assert fake.restarted == [REDIS.name]
+    (event,) = audit.events
+    assert event["event_type"] == "runtime.container_restart"
+    assert (event["actor_email"], event["container"], event["outcome"]) == (
+        ADMIN.email,
+        REDIS.name,
+        "restarted",
+    )
+
+
+def test_the_audit_names_the_client_behind_the_proxy(
+    admin: TestClient, audit: Recorded, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The client's address, as every audited route reads it (``get_client_ip``):
+    behind a trusted proxy, the forwarded one, not the proxy's."""
+    from app.core.config import settings
+
+    use_runtime(monkeypatch, FakeRuntime(REDIS))
+    monkeypatch.setattr(settings, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(settings, "TRUSTED_PROXIES", ["testclient"])
+    admin.post(URL.format(name=REDIS.name), headers={"X-Forwarded-For": "203.0.113.9"})
+    assert audit.events[0]["ip_address"] == "203.0.113.9"
+
+
+def test_a_container_that_is_not_this_apps_is_404_and_audited(
+    admin: TestClient, audit: Recorded, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = use_runtime(monkeypatch, FakeRuntime(REDIS))
+    response = admin.post(URL.format(name="someone-elses-db-1"))
+    assert response.status_code == 404
+    assert fake.restarted == []
+    assert audit.events[0]["outcome"] == "refused"
+
+
+def test_restarting_the_server_that_answers_answers_first(
+    admin: TestClient, audit: Recorded, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its own container's restart ends this process: the answer goes out
+    first (and the audit says it is restarting), then the restart."""
+    fake = use_runtime(monkeypatch, FakeRuntime(SERVER, REDIS))
+    monkeypatch.setattr(runtime.socket, "gethostname", lambda: SERVER.id)
+    response = admin.post(URL.format(name=SERVER.name))
+    assert response.status_code == 200
+    assert response.json() == {"restarted": SERVER.name, "own": True}
+    assert audit.events[0]["outcome"] == "restarting"
+    assert fake.restarted == [SERVER.name]  # after the answer
+
+
+def test_a_runtime_that_cannot_restart_is_503(
+    admin: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_runtime(monkeypatch, FakeRuntime(REDIS, fail=True))
+    response = admin.post(URL.format(name=REDIS.name))
+    assert response.status_code == 503

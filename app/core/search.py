@@ -159,8 +159,8 @@ def candidates(hits: list[SearchHit]) -> list[str]:
     """What ``domain_lookup.confirm`` should try: each hit's host and path,
     ``www.`` and any query dropped, in rank order, directories left out.
 
-    The PAGE that matched, not only its host. Eleanor's page is
-    hudsonwidehealthcare.com/eleanor/ - the parent company's page for the
+    The PAGE that matched, not only its host. Maple's page is
+    examplehealthcare.com/maple/ - the parent company's page for the
     facility - and cut to the host, confirm() checked the parent's home
     page, which is not theirs (2026-09-23).
     """

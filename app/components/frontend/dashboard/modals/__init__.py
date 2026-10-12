@@ -6,6 +6,7 @@ Each modal inherits from ft.AlertDialog and uses component composition.
 """
 
 from app.components.frontend.dashboard.modals.ai_modal import AIDetailDialog
+from app.components.frontend.dashboard.modals.auth_modal import AuthDetailDialog
 from app.components.frontend.dashboard.modals.comms_modal import CommsDetailDialog
 from app.components.frontend.dashboard.modals.documents_modal import (
     DocumentsDetailDialog,
@@ -15,6 +16,7 @@ from app.components.frontend.dashboard.modals.finance_modal import FinanceDetail
 from .backend_modal import BackendDetailDialog
 from .database_modal import DatabaseDetailDialog
 from .frontend_modal import FrontendDetailDialog
+from .ingress_modal import IngressDetailDialog
 from .ollama_modal import OllamaDetailDialog
 from .redis_modal import RedisDetailDialog
 from .scheduler_modal import SchedulerDetailDialog
@@ -22,12 +24,14 @@ from .worker_modal import WorkerDetailDialog
 
 __all__ = [
     "AIDetailDialog",
+    "AuthDetailDialog",
     "CommsDetailDialog",
     "DocumentsDetailDialog",
     "FinanceDetailDialog",
     "BackendDetailDialog",
     "DatabaseDetailDialog",
     "FrontendDetailDialog",
+    "IngressDetailDialog",
     "OllamaDetailDialog",
     "RedisDetailDialog",
     "SchedulerDetailDialog",

@@ -67,7 +67,12 @@ class Settings(
         Configurable(
             "service_auth", "Whether anyone can sign up; off, an admin makes accounts"
         ),
-    ] = True
+    ] = False
+
+    # Hosts this app answers to (``TrustedHostMiddleware``), as a JSON list in
+    # ``.env``. A server deploy adds its own domain; ``testserver`` is the
+    # in-process load test's.
+    ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1", "testserver"]
 
     # Log level for the application
     LOG_LEVEL: Annotated[
@@ -226,9 +231,9 @@ class Settings(
     ] = False
 
     # Authentication settings
-    # Without the auth service (or set false in .env) a dev user is synthesized
-    AUTH_ENABLED: bool = False
-    AUTH_LEVEL: str = "none"
+    # Set false in .env (dev only) and a dev user is synthesized
+    AUTH_ENABLED: bool = True
+    AUTH_LEVEL: str = "basic"
     DEV_USER_ROLE: str = "admin"  # Role for synthetic dev user when AUTH_ENABLED=false
     # Email allowlist for ``require_admin`` — gates operator-only routes
     # (refund actions, dispute review, aggregate revenue charts, etc.).
@@ -596,6 +601,13 @@ class Settings(
         ),
     ] = "UTC"
 
+    # Traefik Ingress settings
+    TRAEFIK_API_URL: str = "http://traefik:8080"  # Docker service name
+    TRAEFIK_API_URL_LOCAL: str | None = None  # Manual override for local CLI usage
+    # Host publish port chosen by `make serve` (loaded from .env.ports).
+    # None = use the container port. See `localhost_url`.
+    INGRESS_DASHBOARD_PORT: int | None = None
+
     @staticmethod
     def _localhost_url(
         url: str, docker_hostnames: set[str], host_port: int | None = None
@@ -641,6 +653,21 @@ class Settings(
             )
         return self.OLLAMA_BASE_URL
 
+    @property
+    def traefik_api_url_effective(self) -> str:
+        """
+        Get effective Traefik API URL.
+
+        Prefers local override when not in Docker.
+        """
+        if self.TRAEFIK_API_URL_LOCAL and not self.is_docker:
+            return self.TRAEFIK_API_URL_LOCAL
+        if not self.is_docker:
+            return self._localhost_url(
+                self.TRAEFIK_API_URL, {"traefik"}, self.INGRESS_DASHBOARD_PORT
+            )
+        return self.TRAEFIK_API_URL
+
     # ``.env.ports`` carries the host publish ports `make serve` chose for
     # this run (gitignored, regenerated each run). Listed after ``.env`` so
     # its values win for the keys it defines; both are optional at load time.
@@ -675,6 +702,17 @@ class Settings(
                 "random value (e.g. `python -c 'import secrets;"
                 " print(secrets.token_urlsafe(64))'`) and set it via the "
                 "SECRET_KEY env var before booting outside dev."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _guard_auth_off_in_prod(self) -> Settings:
+        """Outside dev (``is_dev``) sign-in stays on: ``AUTH_ENABLED=false``
+        lets every request in as the synthetic admin."""
+        if not self.is_dev and not self.AUTH_ENABLED:
+            raise ValueError(
+                "AUTH_ENABLED=false lets anyone in as an admin. Remove it "
+                "from .env before booting outside dev."
             )
         return self
 

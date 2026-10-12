@@ -124,6 +124,24 @@
     },
     {
       "kind": "repeated_statement",
+      "label": "SELECT ... FROM \"user\" WHERE \"user\".email = :email_1 AND \"user\".deleted_at IS NULL",
+      "file": "app/services/auth/users.py",
+      "function": "get_user_by_email"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM \"user\" WHERE \"user\".id = :id_1",
+      "file": "app/services/auth/user_deletion.py",
+      "function": "hard_delete_user"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM \"user\" WHERE \"user\".id = :id_1",
+      "file": "app/services/auth/user_deletion.py",
+      "function": "restore_user"
+    },
+    {
+      "kind": "repeated_statement",
       "label": "SELECT ... FROM agent AS agent_1 JOIN agent_tool AS agent_tool_1 ON agent_1.id = agent_tool_1.agent_id JOIN tool ON tool.id = agent_tool_1.tool_id WHERE agent_1.id IN (__[POSTCOMPILE_primary_keys])",
       "file": "app/services/ai/domains/chat/queries.py",
       "function": "agent_by_slug"
@@ -313,6 +331,18 @@
       "label": "SELECT ... FROM document_tag WHERE document_tag.document_id IN (__[POSTCOMPILE_document_id_1]) ORDER BY document_tag.document_id, document_tag.label",
       "file": "app/services/documents/queries.py",
       "function": "tags_for_many"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM email_verification_token WHERE email_verification_token.token = :token_1",
+      "file": "tests/services/test_auth_integration.py",
+      "function": "test_resend_marks_prior_token_used"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM email_verification_token WHERE email_verification_token.user_id = :user_id_1 AND email_verification_token.used = false",
+      "file": "app/services/auth/user_verification.py",
+      "function": "_invalidate_prior_email_verification_tokens"
     },
     {
       "kind": "repeated_statement",
@@ -2293,6 +2323,30 @@
       "label": "SELECT ... FROM party WHERE party.id IN (__[POSTCOMPILE_id_1])",
       "file": "app/services/mail/arrivals.py",
       "function": "arrivals"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM refresh_token WHERE refresh_token.family_id = :family_id_1 AND refresh_token.revoked_at IS NULL AND refresh_token.expires_at > :expires_at_1 LIMIT :param_1",
+      "file": "app/services/auth/refresh_tokens.py",
+      "function": "is_live_session"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM refresh_token WHERE refresh_token.token = :pk_1",
+      "file": "app/services/auth/refresh_tokens.py",
+      "function": "row_of"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM refresh_token WHERE refresh_token.token = :pk_1",
+      "file": "tests/services/test_refresh_service.py",
+      "function": "test_the_table_never_keeps_a_token_itself"
+    },
+    {
+      "kind": "repeated_statement",
+      "label": "SELECT ... FROM refresh_token WHERE refresh_token.user_id = :user_id_1 AND refresh_token.revoked_at IS NULL AND refresh_token.expires_at > :expires_at_1",
+      "file": "app/services/auth/refresh_tokens.py",
+      "function": "list_active_for_user"
     },
     {
       "kind": "repeated_statement",

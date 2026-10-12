@@ -1,0 +1,315 @@
+"""The refresh-token family: staying signed in, and signing out."""
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
+
+from app.components.backend.api.auth.admin import require_user_admin
+from app.components.backend.security.rate_limit import (
+    get_session_metadata,
+)
+from app.core.audit import AuditEmitter, get_audit
+from app.core.security import (
+    REFRESH_COOKIE_NAME,
+    clear_refresh_cookie,
+    clear_session_cookie,
+    set_refresh_cookie,
+    set_session_cookie,
+)
+from app.models.refresh_token import RefreshToken, SessionResponse
+from app.models.user import (
+    StatusMessage,
+    TokenResponse,
+    User,
+)
+from app.services.auth.deps import (
+    get_refresh_service,
+    get_session_token,
+    get_user_service,
+)
+from app.services.auth.refresh_tokens import RefreshService, access_token
+from app.services.auth.service import get_current_user_from_token, session_id_of
+from app.services.auth.users import UserService
+
+router = APIRouter()
+
+
+async def sign_in_metadata(
+    request: Request, refresh_service: RefreshService
+) -> dict[str, str | None]:
+    """``get_session_metadata`` plus the session the browser's refresh cookie
+    belongs to (``replaces``), so a sign-in ends the session it replaces.
+    The cookie rides only on the auth API, so a page form's sign-in has none."""
+    cookie = request.cookies.get(REFRESH_COOKIE_NAME)
+    replaces = await refresh_service.family_of(cookie) if cookie else None
+    return get_session_metadata(request) | {"replaces": replaces}
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(
+    request: Request,
+    response: Response,
+    user_service: UserService = Depends(get_user_service),
+    refresh_service: RefreshService = Depends(get_refresh_service),
+    audit: AuditEmitter = Depends(get_audit),
+):
+    """Rotate the refresh token and mint a fresh access token.
+
+    Reads the ``aegis_refresh`` cookie, validates the row, revokes it,
+    inserts a new one in the same family, and sets both cookies.
+    Returns the access token in the body for API clients (bearer flow).
+
+    Reuse detection: if the inbound token is already revoked, the
+    service nukes the whole family — this call returns 401 and the
+    user is forced to re-auth on the next request.
+    """
+    refresh_cookie = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not refresh_cookie:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 401-with-cookie-clear paths build their own JSONResponse instead
+    # of raising HTTPException. FastAPI's injected ``Response`` parameter
+    # is bypassed when the handler raises, which would silently drop the
+    # cookie-deletion headers — leaving the browser stuck retrying with
+    # a stale refresh cookie. Same pattern as ``/auth/logout``'s failure
+    # branch.
+    result = await refresh_service.rotate(
+        refresh_cookie, **get_session_metadata(request)
+    )
+    if result is None:
+        await audit.emit("auth.refresh_failed")
+        failure = JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Invalid refresh token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        clear_session_cookie(failure)
+        clear_refresh_cookie(failure)
+        return failure
+
+    user = await user_service.get_user_by_id(result.user_id)
+    if user is None or not user.is_active:
+        failure = JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "User unavailable"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        clear_session_cookie(failure)
+        clear_refresh_cookie(failure)
+        return failure
+
+    token = access_token(user, result.family_id)
+    set_session_cookie(response, token)
+    set_refresh_cookie(response, result.token)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/logout", response_model=StatusMessage)
+async def logout(
+    request: Request,
+    response: Response,
+    token: str | None = Depends(get_session_token),
+    user_service: UserService = Depends(get_user_service),
+    refresh_service: RefreshService = Depends(get_refresh_service),
+    audit: AuditEmitter = Depends(get_audit),
+):
+    """Logout by dropping both cookies and revoking the refresh token.
+
+    Both cookies are dropped on every response — success OR failure.
+    Browsers that arrive with a stale cookie must be able to log out and
+    end up in a clean state, otherwise the user is stuck. The session is
+    revoked on the success path, which ends its access tokens too.
+
+    On the failure path we build a ``JSONResponse`` ourselves and attach
+    the cookie removal to it. FastAPI's injected ``Response`` parameter
+    is bypassed when the handler raises ``HTTPException``, so we can't
+    just modify it and rely on the framework to carry it through.
+    """
+    # Auth gate. If invalid, build the 401 response ourselves so the
+    # cookie-removal headers actually ride on the wire.
+    try:
+        current_user = await get_current_user_from_token(token, user_service)
+    except HTTPException as exc:
+        failure = JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None) or {},
+        )
+        clear_session_cookie(failure)
+        clear_refresh_cookie(failure)
+        return failure
+
+    # Success path. The injected Response *does* carry through here.
+    clear_session_cookie(response)
+    clear_refresh_cookie(response)
+
+    session_id = await _current_session_family(request, token, refresh_service)
+    if session_id:
+        await refresh_service.revoke_family(session_id)
+
+    await audit.emit("auth.logout", actor_id=current_user.id)
+    return StatusMessage(detail="Logged out")
+
+
+async def _current_session_family(
+    request: Request, token: str | None, refresh_service: RefreshService
+) -> str | None:
+    """The caller's session: its access token's ``sid``, else the family
+    of its refresh cookie (an access token from before the claim). Flags
+    the ``is_current`` row in ``GET /sessions``, scopes ``DELETE
+    /sessions``, and is what ``/logout`` revokes."""
+    if sid := session_id_of(token):
+        return sid
+    cookie = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not cookie:
+        return None
+    return await refresh_service.family_of(cookie)
+
+
+@router.get("/sessions", response_model=list[SessionResponse])
+async def list_sessions(
+    request: Request,
+    token: str | None = Depends(get_session_token),
+    user_service: UserService = Depends(get_user_service),
+    refresh_service: RefreshService = Depends(get_refresh_service),
+) -> list[SessionResponse]:
+    """List the caller's active sessions (one per device).
+
+    Each entry is the most recent live row in its ``family_id``. The
+    family id is exposed as the public session ``id`` for
+    ``DELETE /sessions/{id}``; the underlying refresh token is never
+    returned.
+    """
+    current_user = await get_current_user_from_token(token, user_service)
+    current_family = await _current_session_family(request, token, refresh_service)
+    rows = await refresh_service.list_sessions(current_user.id)
+    return session_responses(rows, current_family)
+
+
+def session_responses(
+    rows: list[RefreshToken], current_family: str | None
+) -> list[SessionResponse]:
+    """The public view of each session row."""
+    return [
+        SessionResponse(
+            id=row.family_id,
+            source=row.source,
+            user_agent=row.user_agent,
+            ip=row.ip,
+            created_at=row.created_at,
+            last_used_at=row.last_used_at,
+            expires_at=row.expires_at,
+            is_current=(row.family_id == current_family),
+        )
+        for row in rows
+    ]
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    session_id: str,
+    token: str | None = Depends(get_session_token),
+    user_service: UserService = Depends(get_user_service),
+    refresh_service: RefreshService = Depends(get_refresh_service),
+    audit: AuditEmitter = Depends(get_audit),
+) -> None:
+    """Revoke a single session by id. 404 if the caller doesn't own
+    that session (or it doesn't exist / already revoked).
+
+    The session's access tokens stop working on their next request.
+    """
+    current_user = await get_current_user_from_token(token, user_service)
+    await _revoke_one(
+        refresh_service, audit, current_user.id, current_user.id, session_id
+    )
+
+
+@router.delete("/sessions")
+async def revoke_other_sessions(
+    request: Request,
+    token: str | None = Depends(get_session_token),
+    user_service: UserService = Depends(get_user_service),
+    refresh_service: RefreshService = Depends(get_refresh_service),
+    audit: AuditEmitter = Depends(get_audit),
+) -> dict[str, int]:
+    """Revoke every session for the caller except the current one
+    (the one this request's access token belongs to). Returns
+    ``{"revoked": N}``.
+
+    A caller with no session (a token minted outside a sign-in) revokes
+    everything. Returns 401 if the caller isn't authenticated via the
+    access token.
+    """
+    current_user = await get_current_user_from_token(token, user_service)
+    current_family = await _current_session_family(request, token, refresh_service)
+    revoked = await refresh_service.revoke_other_sessions(
+        current_family or "", current_user.id
+    )
+    await audit.emit(
+        "auth.session_revoked",
+        actor_id=current_user.id,
+        target_type="session",
+        count=revoked,
+    )
+    return {"revoked": revoked}
+
+
+# An administrator ending someone else's sessions: one (a stolen or
+# forgotten device) or all of them. Scoped to the user named in the path,
+# so a session id alone never reaches another account's.
+@router.delete(
+    "/users/{user_id}/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def revoke_user_session(
+    user_id: int,
+    session_id: str,
+    current_user: User = Depends(require_user_admin),
+    refresh_service: RefreshService = Depends(get_refresh_service),
+    audit: AuditEmitter = Depends(get_audit),
+) -> None:
+    """Sign out one of ``user_id``'s sessions. 404 when it is not theirs,
+    or already over."""
+    await _revoke_one(refresh_service, audit, current_user.id, user_id, session_id)
+
+
+async def _revoke_one(
+    refresh_service: RefreshService,
+    audit: AuditEmitter,
+    actor_id: int,
+    user_id: int,
+    session_id: str,
+) -> None:
+    """End ``user_id``'s session ``session_id`` (404 when it is not theirs
+    or already over), audited as ``actor_id``'s doing."""
+    if not await refresh_service.revoke_session(session_id, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
+    await audit.emit(
+        "auth.session_revoked",
+        actor_id=actor_id,
+        target_type="session",
+        target_id=session_id,  # type: ignore[arg-type]
+    )
+
+
+@router.delete("/users/{user_id}/sessions")
+async def revoke_user_sessions(
+    user_id: int,
+    current_user: User = Depends(require_user_admin),
+    refresh_service: RefreshService = Depends(get_refresh_service),
+    audit: AuditEmitter = Depends(get_audit),
+) -> dict[str, int]:
+    """Sign ``user_id`` out everywhere. Returns ``{"revoked": N}``."""
+    revoked = await refresh_service.revoke_other_sessions("", user_id)
+    await audit.emit(
+        "auth.session_revoked",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=user_id,
+        count=revoked,
+    )
+    return {"revoked": revoked}

@@ -292,7 +292,7 @@ class TestWhoSentIt:
     Metadata shipped title, kind and date; the sender was the fourth
     field the ticket named and the one that makes the shelf searchable
     by WHO. Without it, four parties ended up tagged to the same
-    statement and the letter carrying Dutchess County DSS's own address
+    statement and the letter carrying Example County DSS's own address
     was attached to nobody (found 2026-09-18).
     """
 
@@ -310,7 +310,7 @@ class TestWhoSentIt:
         from app.services.matters.service import PartyService
 
         sender = await PartyService(async_db_session).create(
-            name="Dutchess Testcase", kind="organization"
+            name="Example Testcase", kind="organization"
         )
         document = await _a_document(async_db_session, "Request.pdf")
 
@@ -321,7 +321,7 @@ class TestWhoSentIt:
                 sender=ReadValue(
                     value=str(sender.id),
                     page=1,
-                    because="DUTCHESS COUNTY DEPARTMENT OF COMMUNITY AND FAMILY SERVICES",
+                    because="EXAMPLE COUNTY DEPARTMENT OF COMMUNITY AND FAMILY SERVICES",
                 ),
             ),
             None,

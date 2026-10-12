@@ -2,7 +2,7 @@
 had no card.
 
 She was asked twice - "can you create a case for this? ... a matter",
-then "let's create a matter, and call it Marisa's Root Canals" - and
+then "let's create a matter, and call it Alex's Root Canals" - and
 twice could only say she could not. Its own module because
 ``changes`` is at its size budget.
 """
@@ -20,7 +20,7 @@ from app.services.finance.schemas import ChangeDisplayRow
 
 class OpenMatterPayload(BaseModel):
     """A case opened from a conversation (#284): "let's create a matter,
-    and call it Marisa's Root Canals". Who it is about and who it is with
+    and call it Alex's Root Canals". Who it is about and who it is with
     are people already on file (parties()); somebody new is a
     contact.create first."""
 

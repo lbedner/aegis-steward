@@ -31,8 +31,8 @@ def _tools_use_test_session(
 
 async def _renewal(db: AsyncSession) -> tuple[int, int]:
     parties = PartyService(db)
-    james = await parties.create(name="James Bedner", kind="person")
-    county = await parties.create(name="Dutchess County DSS", kind="organization")
+    james = await parties.create(name="James Doe", kind="person")
+    county = await parties.create(name="Example County DSS", kind="organization")
     matters = MatterService(db)
     matter = await matters.open(
         title="Medicaid renewal",
@@ -67,7 +67,7 @@ async def test_matters_reports_the_case_and_what_is_outstanding(
     case = next(row for row in rows if row["id"] == matter_id)
 
     assert case["reference"] == "MA-TOOLS-1"
-    assert case["subject"] == "James Bedner"
+    assert case["subject"] == "James Doe"
     assert case["requests"]["open"] == 1
     # Overdue is read off the clock here too, so the tool and the page
     # cannot disagree about whether a deadline has passed.
@@ -93,7 +93,7 @@ async def test_requests_says_what_is_answered_and_what_is_missing(
     assert rows[0]["overdue"] is True
     # The letter behind the asks, by the id `paper` reads.
     assert rows[0]["letter_document_id"] == letter_id
-    assert rows[0]["letter"] == "Bedner J Request.pdf"
+    assert rows[0]["letter"] == "Doe J Request.pdf"
     assert rows[0]["settled"] == 1
     answered = {item["asked"]: item["document_id"] for item in rows[0]["items"]}
     assert answered["A copy of the power of attorney"] == 99
@@ -107,7 +107,7 @@ async def test_facts_carry_their_source_and_the_rate_read_as_a_month(
     and a daily rate is not a monthly answer until somebody multiplies."""
     matter_id, _request = await _renewal(async_db_session)
     subject = (await ai_tools.parties())["parties"]
-    james = next(p for p in subject if p["name"] == "James Bedner")
+    james = next(p for p in subject if p["name"] == "James Doe")
     await FactService(async_db_session).record(
         subject_party_id=james["id"],
         matter_id=matter_id,
@@ -259,7 +259,7 @@ async def _on_file(db: AsyncSession, *, pages: list[str] | None) -> int:
 
     document = await DocumentService(db).ingest(
         b"%PDF-1.4 not really",
-        title="Bedner J Request.pdf",
+        title="Doe J Request.pdf",
         media_type="application/pdf",
     )
     for number, text in enumerate(pages or [], start=1):
@@ -293,7 +293,7 @@ async def test_paper_returns_a_read_document_without_reading_it_again(
     found = await ai_tools.paper(document_id)
 
     assert found["read"] is True
-    assert found["title"] == "Bedner J Request.pdf"
+    assert found["title"] == "Doe J Request.pdf"
     assert "--- page 1 ---" in found["text"] and "--- page 2 ---" in found["text"]
     assert "Provide proof of income" in found["text"]
     assert calls == []  # already read: no second pass

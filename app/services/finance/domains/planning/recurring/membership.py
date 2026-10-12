@@ -60,7 +60,7 @@ def claimable_strays(
     expected = stream.amount
     # A variable bill's amount is not evidence of anything - that is
     # what the flag MEANS - and banding one throws away real payments:
-    # Central Hudson averages $401 and has billed $918, which half to
+    # Riverbend Power averages $401 and has billed $918, which half to
     # double does not reach. 587 of the 883 rows this released on the
     # live ledger came from variable streams before the flag was
     # honoured here. One-per-period still caps them, and the nearest

@@ -42,7 +42,7 @@ two cards for one decision; put the memo IN the categorize payload \
 instead.
 - `transaction.assign_payee` - payload {"transaction_id": int, \
 "payee": str}: names who a transaction was really with ("these 12 ATM \
-withdrawals are Hudson Valley Grounded"). The payload takes the payee \
+withdrawals are Riverbend Grounded"). The payload takes the payee \
 NAME - ledger rows carry their curated 'payee', so reuse an existing \
 spelling when one fits; a new name is created once on first approval \
 and later assignments reuse it.
@@ -185,7 +185,7 @@ supply the domains you believe, the app FETCHES each and accepts one \
 only if the organization's name is on the page. Pass party_id too \
 whenever the contact exists: the page is then checked against the \
 address or phone already on the record, so "mentions their name" \
-becomes "is the one in Hyde Park". There is more than one organization \
+becomes "is the one in Lakeside". There is more than one organization \
 with most names. Never report a domain \
 it did not confirm, and never propose a value it did not return. When \
 it confirms nothing, say so plainly - a guess offered with a hedge is \

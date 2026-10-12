@@ -330,29 +330,28 @@ async def _fetch_domains(domains: list[str]) -> dict[str, str | None]:
     error."""
     import httpx
 
+    from app.core.safe_fetch import fetch_image
+
     semaphore = asyncio.Semaphore(CONCURRENCY)
     results: dict[str, str | None] = {}
 
     async def one(client: httpx.AsyncClient, domain: str) -> None:
         async with semaphore:
             try:
-                # follow_redirects: the service answers 301 to its real
-                # asset host and httpx (unlike urllib) does not follow by
-                # default - without this every icon misses on a redirect
-                # it should have chased.
+                # A logo URL is the aggregator's choice, so every key goes
+                # through the guarded fetch (#493): public addresses only,
+                # each redirect checked again. The favicon service's 301 to
+                # its asset host is one of those hops.
                 url, params = upstream_request(domain)
-                response = await client.get(url, params=params)
-                payload = response.content if response.status_code == 200 else b""
+                payload = await fetch_image(client, str(httpx.URL(url, params=params)))
             except Exception:
-                # Includes having no network at all. An icon is never
-                # worth failing the page it decorates.
-                payload = b""
+                # Includes having no network at all, and a refused host.
+                # An icon is never worth failing the page it decorates.
+                payload = None
         results[domain] = base64.b64encode(payload).decode() if payload else None
 
     try:
-        async with httpx.AsyncClient(
-            timeout=TIMEOUT_SECONDS, follow_redirects=True
-        ) as client:
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
             await asyncio.gather(*(one(client, d) for d in domains))
     except Exception:
         # No network at all: report every domain as a miss so the negative

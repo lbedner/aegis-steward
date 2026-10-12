@@ -115,8 +115,8 @@ def _hit(known: Known, line: str) -> bool:
         )
     if known.how == "phone":
         # Compared on digits, and on the last ten of them: a letterhead
-        # writes 1-845-486-3000 where the address book wrote
-        # (845) 486-3000, and both are one telephone.
+        # writes 1-555-555-0161 where the address book wrote
+        # (555) 555-0161, and both are one telephone.
         wanted = _digits(known.value)[-10:]
         return bool(wanted) and wanted in _digits(line)
     if known.how == "routing":

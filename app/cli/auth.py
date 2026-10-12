@@ -1,0 +1,263 @@
+"""
+Authentication CLI commands.
+
+Command-line interface for auth service management tasks.
+"""
+
+import asyncio
+import secrets
+import string
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
+
+from rich.table import Table
+import typer
+
+from app.cli import theme
+from app.core.db import get_async_session
+from app.i18n import lazy_t, t
+from app.models.user import UserCreate
+from app.services.auth.users import UserService
+
+app = typer.Typer(help=lazy_t("auth.help"))
+console = theme.console()
+
+
+def generate_password(length: int = 12) -> str:
+    """Generate a secure random password."""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+async def find_next_available_email(
+    user_service: UserService, prefix: str = "test", domain: str = "example.com"
+) -> str:
+    """Find the next available email with auto-increment."""
+    # Get existing emails with this prefix
+    existing_emails = await user_service.find_existing_emails_with_prefix(
+        prefix, domain
+    )
+
+    if not existing_emails:
+        # No existing emails, start with prefix@domain
+        return f"{prefix}@{domain}"
+
+    # Extract numbers from existing emails
+    used_numbers = set()
+    for email in existing_emails:
+        # Extract the part before @
+        local_part = email.split("@")[0]
+
+        # Check if it matches our pattern (prefix + optional number)
+        if local_part == prefix:
+            used_numbers.add(0)  # Base email without number
+        elif local_part.startswith(prefix):
+            suffix = local_part[len(prefix) :]
+            if suffix.isdigit():
+                used_numbers.add(int(suffix))
+
+    # Find the next available number
+    counter = 0
+    while counter in used_numbers:
+        counter += 1
+
+    # Return the email with the next number
+    if counter == 0:
+        return f"{prefix}@{domain}"
+    else:
+        return f"{prefix}{counter}@{domain}"
+
+
+@app.command(help=lazy_t("auth.help_create_test_user"))
+def create_test_user(
+    email: str | None = typer.Option(
+        None,
+        help=lazy_t("auth.opt_email"),
+    ),
+    password: str | None = typer.Option(None, help=lazy_t("auth.opt_password")),
+    full_name: str | None = typer.Option(None, help=lazy_t("auth.opt_full_name")),
+    prefix: str = typer.Option("test", help=lazy_t("auth.opt_prefix")),
+    domain: str = typer.Option("example.com", help=lazy_t("auth.opt_domain")),
+) -> None:
+    asyncio.run(_create_test_user(email, password, full_name, prefix, domain))
+
+
+async def _create_test_user(
+    email: str | None,
+    password: str | None,
+    full_name: str | None,
+    prefix: str,
+    domain: str,
+) -> None:
+    """Async implementation of create_test_user."""
+    # Generate password if not provided
+    if password is None:
+        password = generate_password()
+        generated_password = True
+    else:
+        generated_password = False
+
+    try:
+        async with get_async_session() as session:
+            user_service = UserService(session)
+
+            # Auto-generate email if not provided
+            if email is None:
+                email = await find_next_available_email(user_service, prefix, domain)
+                theme.label(t("auth.auto_generated_email", email=email))
+
+            # Check if user already exists
+            existing_user = await user_service.get_user_by_email(email)
+            if existing_user:
+                theme.bad(t("auth.user_already_exists", email=email))
+                raise typer.Exit(1)
+
+            # Create user data
+            user_data = UserCreate(
+                email=email,
+                password=password,
+                full_name=full_name,
+            )
+
+            # Create the user
+            user = await user_service.create_user(user_data)
+
+            # Display success message
+            theme.good(t("auth.user_created"), bold=True)
+
+            # Show user details in a table
+            table = Table(
+                title=t("auth.user_details_title"), show_header=False, width=50
+            )
+            table.add_column("Field", style="dim")
+            table.add_column("Value")
+            table.add_row(t("auth.email_label"), user.email)
+            table.add_row(t("auth.password_label"), password)
+            if user.full_name:
+                table.add_row(t("auth.name_label"), user.full_name)
+            table.add_row(t("auth.user_id_label"), str(user.id))
+            console.print(table)
+
+            if generated_password:
+                theme.warn(t("auth.password_auto_generated"))
+
+            theme.label(t("auth.ready_to_test"))
+
+    except Exception as e:
+        theme.bad(t("auth.create_user_failed", error=str(e)))
+        raise typer.Exit(1)
+
+
+@app.command(help=lazy_t("auth.help_create_test_users"))
+def create_test_users(
+    count: int = typer.Option(5, help=lazy_t("auth.opt_count")),
+    prefix: str = typer.Option("test", help=lazy_t("auth.opt_prefix")),
+    domain: str = typer.Option("example.com", help=lazy_t("auth.opt_domain")),
+    password: str | None = typer.Option(None, help=lazy_t("auth.opt_shared_password")),
+) -> None:
+    asyncio.run(_create_test_users(count, prefix, domain, password))
+
+
+async def _create_test_users(
+    count: int, prefix: str, domain: str, password: str | None
+) -> None:
+    """Async implementation of create_test_users."""
+    # Generate password if not provided
+    if password is None:
+        password = generate_password()
+        generated_password = True
+    else:
+        generated_password = False
+
+    if count <= 0:
+        theme.bad(t("auth.count_must_be_positive"))
+        raise typer.Exit(1)
+
+    try:
+        async with get_async_session() as session:
+            user_service = UserService(session)
+            created_users = []
+
+            theme.title(t("auth.creating_users", count=count, prefix=prefix))
+
+            for i in range(count):
+                # Find next available email
+                email = await find_next_available_email(user_service, prefix, domain)
+
+                # Create user data
+                user_data = UserCreate(
+                    email=email,
+                    password=password,
+                    full_name=f"Test User {email.split('@')[0].capitalize()}",
+                )
+
+                # Create the user
+                user = await user_service.create_user(user_data)
+                created_users.append(user)
+
+                typer.echo(
+                    f"{theme.good_text(t('auth.created_label'))} "
+                    f"{user.email} {theme.label_text(f'(ID: {user.id})')}"
+                )
+
+            # Display summary
+            typer.echo()
+            theme.good(t("auth.users_created", count=len(created_users)), bold=True)
+            pwd_label = theme.label_text(t("auth.shared_password"))
+            typer.echo(f"{pwd_label} {password}")
+
+            if generated_password:
+                theme.warn(t("auth.password_auto_generated"))
+
+            theme.label(t("auth.ready_to_test"))
+
+    except Exception as e:
+        theme.bad(t("auth.create_users_failed", error=str(e)))
+        raise typer.Exit(1)
+
+
+@app.command(help=lazy_t("auth.help_list_users"))
+def list_users() -> None:
+    asyncio.run(_list_users())
+
+
+async def _list_users() -> None:
+    """Async implementation of list_users."""
+    try:
+        async with get_async_session() as session:
+            user_service = UserService(session)
+            users = await user_service.list_users()
+
+            if not users:
+                theme.warn(t("auth.no_users_found"))
+                return
+
+            theme.title(t("auth.found_users", count=len(users)))
+
+            table = Table(
+                title=t("auth.users_title"), show_header=True, header_style="bold"
+            )
+            table.add_column("ID", no_wrap=True)
+            table.add_column(t("auth.email_label"))
+            table.add_column(t("auth.name_label"))
+            table.add_column(t("auth.created_column"), style="dim")
+
+            for user in users:
+                table.add_row(
+                    str(user.id),
+                    user.email,
+                    user.full_name or "-",
+                    str(user.created_at)[:19] if user.created_at else "-",
+                )
+
+            console.print(table)
+
+    except Exception as e:
+        theme.bad(t("auth.list_users_failed", error=str(e)))
+        raise typer.Exit(1)
+
+
+if __name__ == "__main__":
+    app()

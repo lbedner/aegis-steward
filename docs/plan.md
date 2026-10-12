@@ -74,7 +74,7 @@ empty state (`empty_state` macro).
 - **P0.1** Generate. The empty dir must go first (`--force` would delete it
   anyway):
   ```bash
-  cd ~/Workspace/house_bedner && rmdir aegis-steward
+  cd ~/Workspace/<parent> && rmdir aegis-steward
   aegis init aegis-steward --blueprint finance --no-interactive
   cd aegis-steward && aegis add htmx && aegis add-service comms
   ```

@@ -117,7 +117,7 @@ def transaction_payee_key(
     ``normalize_payee`` only folds case/accents/punctuation - it doesn't know
     a bank-generated descriptor's trailing tokens (a masked card ref,
     city/state, or date) vary per swipe even for the exact same merchant
-    ("SHPRTE NTH RD&WNSW GT XXX-XXX-6086 NY 06/28" vs "...GT POUGHKEEPSIE
+    ("SHPRTE MAIN ST&ELM GT XXX-XXX-6086 NY 06/28" vs "...GT ANYTOWN
     NYXX8683 07/22" - same store, different card/day). The merchant name is
     reliably at the START of these descriptors; the noise is reliably
     appended at the END, so a first-N-token prefix groups them without a

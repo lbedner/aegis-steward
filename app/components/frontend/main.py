@@ -13,12 +13,23 @@ from functools import partial
 
 import flet as ft
 
+from app.components.frontend.auth.login_view import LoginView
+from app.components.frontend.auth.register_view import RegisterView
+from app.components.frontend.auth.session import (
+    is_authenticated,
+    persist_refresh_token,
+    sign_out,
+)
 from app.components.frontend.controls.views.base import BaseView
 from app.components.frontend.controls.views.legacy_dashboard import (
     LegacyDashboardView,
 )
 from app.components.frontend.core import events as frontend_events
-from app.components.frontend.core.routes import DASHBOARD_ROUTE
+from app.components.frontend.core.routes import (
+    DASHBOARD_ROUTE,
+    LOGIN_ROUTE,
+    REGISTER_ROUTE,
+)
 from app.components.frontend.core.routing import (
     register_route,
     route_change,
@@ -139,7 +150,17 @@ def create_frontend_app() -> Callable[[ft.Page], Awaitable[None]]:
         # The HttpOnly ``aegis_session`` cookie rides on the underlying
         # httpx cookie jar — there is no manual token plumbing in Python.
         # A 401 from any call routes the user back to /login.
-        api_client = APIClient()
+        async def _on_unauthorized() -> None:
+            # A 401 is a stale session, not a logout: keep the persisted
+            # token so the next check can resume with it.
+            await sign_out(page, forget_token=False)
+
+        api_client = APIClient(
+            on_unauthorized=_on_unauthorized,
+            # The jar dies with the process; the newest refresh token is
+            # the one value that outlives it.
+            on_session_rotated=lambda token: persist_refresh_token(page, token),
+        )
 
         # SessionState: per-session shared resources. Owns ``page``.
         init_session_state(page, api_client=api_client)
@@ -147,6 +168,8 @@ def create_frontend_app() -> Callable[[ft.Page], Awaitable[None]]:
         # Register routes. Order doesn't matter; route_change picks the
         # right view by string match.
         register_route(DASHBOARD_ROUTE, LegacyDashboardView)
+        register_route(LOGIN_ROUTE, LoginView)
+        register_route(REGISTER_ROUTE, RegisterView)
 
         # Wire page event handlers. ``async`` Flet handlers are dispatched
         # via ``page.run_task`` under the hood.
@@ -164,7 +187,7 @@ def create_frontend_app() -> Callable[[ft.Page], Awaitable[None]]:
         page.on_resize = frontend_events.on_resize
 
         # Initial navigation. Router's auth guard handles redirects.
-        initial = DASHBOARD_ROUTE
+        initial = LOGIN_ROUTE if not await is_authenticated(page) else DASHBOARD_ROUTE
         page.go(initial)
 
     return flet_main

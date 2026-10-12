@@ -620,7 +620,7 @@ class TestRecordingWhatAnAssetWasWorth:
         )
 
         house = await seed_account(
-            svc, name="House Bedner", account_type="property", classification="asset"
+            svc, name="House Doe", account_type="property", classification="asset"
         )
         await valuation_execute(
             async_db_session,
@@ -717,7 +717,7 @@ class TestRecordingWhatAnAssetWasWorth:
         )
 
         house = await seed_account(
-            svc, name="House Bedner", account_type="property", classification="asset"
+            svc, name="House Doe", account_type="property", classification="asset"
         )
 
         rows = await valuation_describe(
@@ -741,7 +741,7 @@ class TestRecordingWhatAnAssetWasWorth:
             1,
         )
 
-        assert rows[0].value == "House Bedner"
+        assert rows[0].value == "House Doe"
         assert rows[1].note == "Sold"
         assert "$285,000.00" in rows[1].value
         assert "(estimate)" in rows[2].value

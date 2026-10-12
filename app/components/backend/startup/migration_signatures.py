@@ -114,4 +114,5 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
         "secured_by_account_id",
     ),
     "scheduler": ("table", "scheduler.job_execution"),
+    "deploy": ("table", "deployment"),
 }

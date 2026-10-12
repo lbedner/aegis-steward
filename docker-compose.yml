@@ -46,6 +46,7 @@ x-app: &app
     # container recreation and the deploy's rsync; on the anchor, since a
     # service-level volumes list REPLACES this one.
     - backup-data:/var/backups/app
+    - docker-proxy:/var/run/docker-proxy
   labels:
     logging: "aegis-stack"
 
@@ -56,11 +57,6 @@ services:
     <<: *app
     command:
       - webserver
-    ports:
-      # Host port auto-selected by `make serve` (WEBSERVER_HOST_PORT);
-      # falls back to PORT for a raw `docker compose up`. Loopback only:
-      # the app has no login (tests/test_published_ports_stay_local.py).
-      - "127.0.0.1:${WEBSERVER_HOST_PORT:-${PORT:-8000}}:${PORT:-8000}"
     depends_on:
       redis:
         condition: service_healthy
@@ -96,6 +92,12 @@ services:
           # all of it at once. 16 cores on the host; this costs nothing
           # until it is needed.
           cpus: '${WEBSERVER_CPUS:-2.0}'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.webserver.loadbalancer.server.port=${PORT:-8000}"
+      # Retry middleware — retries WebSocket upgrade during uvicorn hot-reload
+      - "traefik.http.middlewares.webserver-retry.retry.attempts=5"
+      - "traefik.http.middlewares.webserver-retry.retry.initialinterval=2s"
     profiles:
       - dev
       - prod
@@ -161,9 +163,9 @@ services:
           # so lowering this reclaimed nothing. It would only throttle the
           # harness during the load test it exists to run.
           cpus: '1.0'
+    # Not on the server: a load test is something run against dev.
     profiles:
       - dev
-      - prod
 
 
   # System Worker (maintenance and administrative tasks)
@@ -214,7 +216,9 @@ services:
   redis:
     image: redis:7-alpine
     hostname: redis
-    command: redis-server --maxmemory 64mb --maxmemory-policy volatile-lru
+    # A password only where one is set: the server's .env sets it and the
+    # prod overlay refuses to start without it; dev stays as it was.
+    command: redis-server --maxmemory 64mb --maxmemory-policy volatile-lru ${REDIS_PASSWORD:+--requirepass} ${REDIS_PASSWORD:-}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -230,6 +234,63 @@ services:
           cpus: '0.25'
     profiles:
       - dev
+      - prod
+  # TRAEFIK REVERSE PROXY
+
+  traefik:
+    image: traefik:v3.6
+    hostname: traefik
+    environment:
+      - DOCKER_API_VERSION=1.44
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - traefik-letsencrypt:/letsencrypt
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+    profiles:
+      - prod
+  socket-proxy:
+    image: wollomatic/socket-proxy:1.13.1
+    user: "0:0"
+    command:
+      - "-proxysocketendpoint=/var/run/docker-proxy/docker.sock"
+      - '-allowGET=(/v1\.[0-9]+)?/(containers/json|containers/[a-zA-Z0-9_.-]+/(stats|logs)|info|system/df)'
+      - '-allowPOST=(/v1\.[0-9]+)?/containers/[a-zA-Z0-9_.-]+/restart'
+      - "-allowhealthcheck"
+      - "-shutdowngracetime=5"
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - docker-proxy:/var/run/docker-proxy
+    healthcheck:
+      test: ["CMD", "/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+    profiles:
       - prod
 
   # TEST PROFILE
@@ -247,3 +308,5 @@ volumes:
   aegis-data:
   storage-data:
   backup-data:
+  traefik-letsencrypt:
+  docker-proxy:

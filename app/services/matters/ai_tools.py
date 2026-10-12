@@ -398,7 +398,7 @@ async def look_up_contact(
     ALWAYS pass party_id when the contact exists. The page is then
     checked against the address or phone already on the record - a
     postcode, a number - so "mentions their name" becomes "is the one in
-    Hyde Park". There is more than one organization with most names, and
+    Lakeside". There is more than one organization with most names, and
     a directory listing carries a name more prominently than a home page
     does. With an empty record there is nothing to check against and the
     weaker name test stands; say so when that happens.

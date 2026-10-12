@@ -132,14 +132,14 @@ class TestPayload:
             valuation_source="user",
             valuation_as_of=date(2026, 8, 1),
             include_in_net_worth=True,
-            address_label="House Bedner",
+            address_label="House Doe",
         )
 
         assert payload["purchase_price"] == 285_000_00
         assert payload["down_payment"] == 57_000_00
         assert payload["purchase_date"] == "2016-08-01"
         assert payload["valuation_as_of"] == "2026-08-01"
-        assert payload["address_label"] == "House Bedner"
+        assert payload["address_label"] == "House Doe"
 
     def test_blank_money_fields_are_omitted_not_zeroed(self) -> None:
         """A blank purchase price means unknown. Sending 0 would claim the

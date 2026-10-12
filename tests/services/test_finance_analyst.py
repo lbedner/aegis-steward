@@ -320,7 +320,7 @@ class TestSnapshotDetailSections:
         await self._checking(svc)
         house = await svc.create_manual_account(
             owner_user_id=OWNER,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
             current_balance=71_120_000,
@@ -349,7 +349,7 @@ class TestSnapshotDetailSections:
         )
 
         assert snapshot is not None
-        assert "secures House Bedner (lien 1)" in snapshot
+        assert "secures House Doe (lien 1)" in snapshot
         assert "equity $524,200.00" in snapshot
         assert "LTV 26.29%" in snapshot
 
@@ -366,7 +366,7 @@ class TestSnapshotDetailSections:
         await self._checking(svc)
         house = await svc.create_manual_account(
             owner_user_id=OWNER,
-            name="House Bedner",
+            name="House Doe",
             account_type="property",
             classification="asset",
             current_balance=71_120_000,
@@ -884,7 +884,7 @@ class TestFormulaicReport:
             cash_today=256_346,
             projection_end=(date_(2026, 9, 27), -1_164_722),
             projection_low=(date_(2026, 9, 5), -1_499_419),
-            first_negative=(date_(2026, 8, 1), "Eleanor"),
+            first_negative=(date_(2026, 8, 1), "Maple"),
             credit_lines=["- Amex Gold (credit_card): $44,296.51 owed, APR 29.99%"],
             spending=[("Groceries", 83_934, 104_424)],
             portfolio_total=20_090_756,
@@ -913,7 +913,7 @@ class TestFormulaicReport:
         assert "cash on hand $2,563.46" in report
         assert "projected -$11,647.22 by 2026-09-27" in report
         assert "lowest -$14,994.19 on 2026-09-05" in report
-        assert "goes below zero on 2026-08-01 (Eleanor)" in report
+        assert "goes below zero on 2026-08-01 (Maple)" in report
         assert "$44,296.51 owed" in report
         assert "- Groceries: $839.34, typical $1,044.24" in report
         assert "net worth $855,770.23 (+$41,929.25 vs 30 days ago)" in report
@@ -1014,7 +1014,7 @@ class TestTheSnapshotTable:
             cash_today=256_346,
             projection_end=(date(2026, 9, 27), -1_164_722),
             projection_low=(date(2026, 9, 5), -1_499_419),
-            first_negative=(date(2026, 8, 1), "Eleanor"),
+            first_negative=(date(2026, 8, 1), "Maple"),
             portfolio_total=20_090_756,
             positions=10,
             open_critical=2,
@@ -1165,7 +1165,7 @@ class TestTheDelta:
         cash_today=100_000,
         projection_end=(date(2026, 9, 27), -100_000),
         projection_low=(date(2026, 9, 5), -200_000),
-        first_negative=(date(2026, 8, 12), "Central Hudson"),
+        first_negative=(date(2026, 8, 12), "Riverbend Power"),
         open_critical=16,
         open_warning=59,
     )
@@ -1192,12 +1192,12 @@ class TestTheDelta:
         """The single most useful line: the date your cash runs out moved,
         and which way. Days are computed here so the model never does date
         arithmetic."""
-        later = self._lines(first_negative=(date(2026, 8, 15), "Central Hudson"))
+        later = self._lines(first_negative=(date(2026, 8, 15), "Riverbend Power"))
         assert "2026-08-15" in later
         assert "2026-08-12" in later
         assert "3 days later" in later
 
-        earlier = self._lines(first_negative=(date(2026, 8, 9), "Central Hudson"))
+        earlier = self._lines(first_negative=(date(2026, 8, 9), "Riverbend Power"))
         assert "3 days earlier" in earlier
 
     def test_the_runway_clearing_is_reported(self) -> None:
@@ -1530,7 +1530,7 @@ class TestContextHygiene:
         it was raised; CASH PROJECTION is recomputed live on every build.
         Feeding both produced a note whose headline quoted a stale trigger
         while its own bullet named the live one (confirmed on a real note:
-        "$216.25 Anthropic" vs "Central Hudson"). One concept, one owner.
+        "$216.25 Anthropic" vs "Riverbend Power"). One concept, one owner.
         """
         await svc.create_manual_account(
             name="Checking",

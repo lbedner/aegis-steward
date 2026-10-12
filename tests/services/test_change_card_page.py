@@ -147,5 +147,5 @@ class TestTheCardShowsWhatItCites:
     def test_a_row_about_nothing_on_paper_cites_no_page(self) -> None:
         from app.services.finance.schemas import ChangeDisplayRow
 
-        row = ChangeDisplayRow(label="Contact", value="Hudson Valley Credit Union")
+        row = ChangeDisplayRow(label="Contact", value="Riverbend Credit Union")
         assert row.document_id is None and row.page is None

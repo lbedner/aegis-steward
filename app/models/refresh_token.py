@@ -1,0 +1,93 @@
+"""Refresh-token model for the rotating refresh-token auth scheme.
+
+The token itself is an opaque, server-issued 32-byte random string
+(``secrets.token_urlsafe(32)``); the primary key is its SHA-256 hex digest
+(``refresh_tokens.token_digest``), never the token, so the table holds
+nothing a reader could sign in with. Lookup is O(1) on the PK so
+per-request validation stays cheap. Rotation works
+by inserting a new row with the same ``family_id`` and marking the
+inbound row as revoked. A refresh arriving with an already-revoked
+token in any family is treated as a replay attempt — the service
+revokes every other row sharing that ``family_id`` and forces re-auth.
+"""
+
+from datetime import datetime
+from enum import StrEnum
+
+from pydantic import BaseModel
+from sqlmodel import Field, SQLModel
+
+from app.core.time import utcnow
+
+
+class RefreshToken(SQLModel, table=True):
+    """Server-side row backing one issued refresh token.
+
+    ``family_id`` groups all tokens that descend from a single original
+    sign-in — the user-facing "session" is exactly one family. Rotation
+    preserves the family; reuse detection revokes it.
+
+    The metadata columns (``source``, ``user_agent``, ``ip``,
+    ``last_used_at``) back the active-sessions UI (issue #633). They
+    are nullable because rows minted before they were captured (or by
+    paths that don't have the request context) still need to be valid.
+    """
+
+    __tablename__ = "refresh_token"
+
+    token: str = Field(primary_key=True, max_length=64)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    family_id: str = Field(index=True, max_length=36)
+    expires_at: datetime
+    revoked_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=lambda: utcnow())
+    source: str | None = Field(default=None, max_length=32, index=True)
+    user_agent: str | None = Field(default=None, max_length=512)
+    ip: str | None = Field(default=None, max_length=64)
+    last_used_at: datetime | None = Field(default=None)
+
+
+class SessionResponse(BaseModel):
+    """Public view of a session (one row per ``family_id``).
+
+    Never carries the raw refresh token. ``id`` is the ``family_id``;
+    clients pass it back on ``DELETE /auth/sessions/{id}`` to revoke
+    that device. ``is_current`` is set for the caller's own session
+    (its access token's ``sid``).
+    """
+
+    id: str
+    source: str | None
+    user_agent: str | None
+    ip: str | None
+    created_at: datetime
+    last_used_at: datetime | None
+    expires_at: datetime
+    is_current: bool
+
+
+class SessionEnd(StrEnum):
+    """How a sign-in ended: its refresh token ran out, or was revoked (a
+    sign-out, here or elsewhere, or a replay caught). The table records the
+    revocation, not why."""
+
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class SessionHistory(BaseModel):
+    """One sign-in (a ``family_id``) across its tokens, as the table still
+    keeps them: when it began, each renewal, and whether it lives or how it
+    ended. Never carries a raw token."""
+
+    id: str
+    user_id: int
+    source: str | None
+    user_agent: str | None
+    ip: str | None
+    signed_in: datetime  # its first token still kept
+    renewals: list[datetime]  # each later token's creation, oldest first
+    last_used_at: datetime | None
+    expires_at: datetime
+    ended: SessionEnd | None = None
+    ended_at: datetime | None = None

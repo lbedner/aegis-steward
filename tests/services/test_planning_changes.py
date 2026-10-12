@@ -28,7 +28,7 @@ async def _envelope(db: AsyncSession) -> Any:
     from app.services.finance.service import FinanceService
 
     return await FinanceService(db).create_envelope(
-        owner_user_id=None, name="Vanessa's", monthly_credit=1_000, cadence="weekly"
+        owner_user_id=None, name="Robin's", monthly_credit=1_000, cadence="weekly"
     )
 
 
@@ -192,7 +192,7 @@ class TestEnvelopes:
         payload = EnvelopeUpdatePayload(account_id=envelope.id, allowance_cents=1_500)
 
         said = await _said(envelope_update_describe, async_db_session, payload)
-        assert said["Envelope"] == "Vanessa's"
+        assert said["Envelope"] == "Robin's"
         assert said["Allowance"] == "$10.00 → $15.00 a week (about $65.22 a month)"
         assert said["Money"] == "moves none: it is what the plan allows, not a transfer"
 
@@ -220,7 +220,7 @@ class TestEnvelopes:
             envelope.id, amount=6_000, owner_user_id=None
         )
         payload = EnvelopeBalancePayload(
-            account_id=envelope.id, balance_cents=1_000, note="Vanessa says $10"
+            account_id=envelope.id, balance_cents=1_000, note="Robin says $10"
         )
 
         said = await _said(envelope_balance_describe, async_db_session, payload)

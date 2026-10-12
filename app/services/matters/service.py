@@ -33,7 +33,7 @@ class PartyService:
     ) -> Party:
         """A new party.
 
-        Never deduplicated by name: identity is the row. Two "Bedner"
+        Never deduplicated by name: identity is the row. Two "Doe"
         parties are two people until somebody says otherwise, and a
         merge is a decision rather than something that happens to them.
         """

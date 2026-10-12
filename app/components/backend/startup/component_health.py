@@ -69,6 +69,11 @@ async def startup_hook() -> None:
 
     register_health_check(ComponentName.OLLAMA, check_ollama_health)
     logger.info("Ollama component health check registered")
+    # Register ingress health check (Traefik reverse proxy)
+    from app.services.system.health import check_ingress_health
+
+    register_health_check(ComponentName.INGRESS, check_ingress_health)
+    logger.info("Ingress component health check registered")
 
     logger.info("Component health detection complete")
 
@@ -79,6 +84,11 @@ async def startup_hook() -> None:
     from app.services.system.health import register_service_health_check
 
     logger.info("Registering service health checks...")
+    # Register auth service health check
+    from app.services.auth.health import check_auth_service_health
+
+    register_service_health_check("auth", check_auth_service_health)
+    logger.info("Auth service health check registered")
     # Register AI service health check
     from app.services.ai.health import check_ai_service_health
 

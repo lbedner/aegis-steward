@@ -12,7 +12,7 @@
 <form {{ hx_dialog_post(post) }} class="space-y-4">
   {% call field("About") %}{{ pick_or_add("subject_party_id", subjects, typed.subject_party_id, blank="Nobody yet", new_field="new_subject", hint="or name whose money this is") }}{% endcall %}
   {% call field("What kind of claim") %}{{ select("attribute", attributes|as_options, typed.attribute or "gross_income", blank=None, block=True) }}{% endcall %}
-  {% call field("What the source calls it") %}{{ text_input("label", typed.label, placeholder="IBEW pension, Eleanor incidental") }}{% endcall %}
+  {% call field("What the source calls it") %}{{ text_input("label", typed.label, placeholder="IBEW pension, Maple incidental") }}{% endcall %}
   <div class="grid grid-cols-2 gap-3">
     {% call field("Amount") %}{{ money_input("amount", typed.amount) }}{% endcall %}
     {% call field("Per") %}{{ select("period", periods|as_options, typed.period or "month", blank=None, block=True) }}{% endcall %}

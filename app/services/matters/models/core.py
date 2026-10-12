@@ -15,7 +15,7 @@ here and a payer somewhere else. A role belongs to a relationship, the
 way ``llm_org_role`` records what an organization is to a model rather
 than baking it into the organization.
 
-Identity is the row, never the name. Two "Bedner" parties are two
+Identity is the row, never the name. Two "Doe" parties are two
 people, and merging them is a deliberate act rather than something a
 normalizer does by accident on a Tuesday.
 """
@@ -56,10 +56,10 @@ class Party(SQLModel, table=True):
     owner_user_id: int | None = Field(default=None)
 
     kind: str = Field(max_length=16)
-    # What to call them on screen: "Eleanor Nursing Care Center",
-    # "James Bedner". Written as a person would write it.
+    # What to call them on screen: "Maple Nursing Care Center",
+    # "James Doe". Written as a person would write it.
     name: str = Field(max_length=255)
-    # What to sort them by, which is not the same string: "Bedner, James"
+    # What to sort them by, which is not the same string: "Doe, James"
     # files where a reader looks for it. Derived on write when nobody
     # says otherwise, never derived on READ - a list that sorts by a
     # value it computed cannot be searched by that value.
@@ -83,7 +83,7 @@ def sort_name_for(name: str, kind: str) -> str:
     """Where this party files, when nobody has said.
 
     A person files under their last name and an organization under its
-    own, so "James Bedner" becomes "Bedner, James" and "Dutchess County
+    own, so "James Doe" becomes "Doe, James" and "Example County
     DSS" stays put. One rule, and a guess a human can overrule - the
     column is stored, not computed, precisely so they can.
     """
@@ -135,7 +135,7 @@ class Matter(SQLModel, table=True):
     Letters from an agency are not one-offs. Without something to attach
     them to, the next one is an orphan and the last one is unfindable.
 
-    ``reference`` is the agency's OWN number (MA258760XX), not ours: it
+    ``reference`` is the agency's OWN number (MA123456XX), not ours: it
     is how the case is named in every letter, on the phone, and on the
     form - so it is what somebody will search for.
 
@@ -187,7 +187,7 @@ class MatterParticipant(SQLModel, table=True):
     """A party's role in ONE matter.
 
     The role lives here and not on the party, which is the whole reason
-    ST-01 left it off: Eleanor Nursing Care is the facility in this case
+    ST-01 left it off: Maple Nursing Care is the facility in this case
     and a payee in the ledger, and neither fact belongs to the other.
     """
 
@@ -349,7 +349,7 @@ class Fact(SQLModel, table=True):
     # pays. A plain column, like every other reference here.
     account_id: int | None = Field(default=None)
     attribute: str = Field(max_length=40)
-    # What the source calls it - "IBEW pension", "Eleanor incidental".
+    # What the source calls it - "IBEW pension", "Maple incidental".
     # The slug says what KIND of claim it is; this says which one.
     label: str | None = Field(default=None, max_length=120)
     value_cents: int | None = Field(default=None)

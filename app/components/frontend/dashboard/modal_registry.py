@@ -20,6 +20,7 @@ def modal_registry() -> dict[str, type[ft.Container]]:
     # Service modal imports (in-tree + plugins) — absolute paths so
     # external plugins use the same shape as in-tree services.
     from app.components.frontend.dashboard.modals.ai_modal import AIDetailDialog
+    from app.components.frontend.dashboard.modals.auth_modal import AuthDetailDialog
 
     # Component / always-present modal imports.
     from app.components.frontend.dashboard.modals.backend_modal import (
@@ -38,6 +39,9 @@ def modal_registry() -> dict[str, type[ft.Container]]:
     from app.components.frontend.dashboard.modals.frontend_modal import (
         FrontendDetailDialog,
     )
+    from app.components.frontend.dashboard.modals.ingress_modal import (
+        IngressDetailDialog,
+    )
     from app.components.frontend.dashboard.modals.ollama_modal import OllamaDetailDialog
     from app.components.frontend.dashboard.modals.redis_modal import RedisDetailDialog
     from app.components.frontend.dashboard.modals.scheduler_modal import (
@@ -47,6 +51,7 @@ def modal_registry() -> dict[str, type[ft.Container]]:
 
     modal_map: dict[str, type[ft.Container]] = {
         "service_ai": AIDetailDialog,
+        "service_auth": AuthDetailDialog,
         "service_comms": CommsDetailDialog,
         DOCUMENTS_MODAL_ID: DocumentsDetailDialog,
         "service_finance": FinanceDetailDialog,
@@ -57,6 +62,7 @@ def modal_registry() -> dict[str, type[ft.Container]]:
         # open a modal by this key. Without it those clicks were dead.
         ComponentName.WEB_FRONTEND: FrontendDetailDialog,
         ComponentName.DATABASE: DatabaseDetailDialog,
+        ComponentName.INGRESS: IngressDetailDialog,
         ComponentName.OLLAMA: OllamaDetailDialog,
         ComponentName.CACHE: RedisDetailDialog,
         ComponentName.SCHEDULER: SchedulerDetailDialog,

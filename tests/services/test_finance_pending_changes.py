@@ -497,7 +497,7 @@ class TestMatchExecutor:
         account = await _account(svc)
         stream = await _stream(
             svc,
-            name="Eleanor Nursing Care",
+            name="Maple Nursing Care",
             expected_amount=100_000,
             next_expected_date=date(2026, 7, 31),
         )
@@ -506,7 +506,7 @@ class TestMatchExecutor:
             account.id,
             -100_000,
             date(2026, 7, 31),
-            name="Recurring Withdrawal CK *Eleanor Nursing Ca",
+            name="Recurring Withdrawal CK *Maple Nursing Ca",
         )
         return stream, txn
 
@@ -550,7 +550,7 @@ class TestMatchExecutor:
 
         assert "$1,000.00" in display["Payment"]
         assert "Jul 31, 2026" in display["Payment"]
-        assert display["Bill"] == "Unmatched \u2192 Eleanor Nursing Care"
+        assert display["Bill"] == "Unmatched \u2192 Maple Nursing Care"
 
     @pytest.mark.asyncio
     async def test_a_malformed_match_payload_is_refused_at_propose(
@@ -588,7 +588,7 @@ class TestMatchExecutor:
 
 
 class TestAssignPayeeExecutor:
-    """FW-06's second half: 'these withdrawals are Hudson Valley
+    """FW-06's second half: 'these withdrawals are Riverbend
     Grounded' as a proposal. Approval find-or-creates the payee by
     normalized name and points the rows at it - the same service verbs
     the register UI calls, no new mutation path."""
@@ -603,12 +603,12 @@ class TestAssignPayeeExecutor:
 
         first = await svc.propose_change(
             "transaction.assign_payee",
-            {"transaction_id": one.id, "payee": "Hudson Valley Grounded"},
+            {"transaction_id": one.id, "payee": "Riverbend Grounded"},
             owner_user_id=1,
         )
         second = await svc.propose_change(
             "transaction.assign_payee",
-            {"transaction_id": two.id, "payee": "hudson valley grounded"},
+            {"transaction_id": two.id, "payee": "riverbend grounded"},
             owner_user_id=1,
         )
         await svc.approve_change(first.id, owner_user_id=1)
@@ -621,7 +621,7 @@ class TestAssignPayeeExecutor:
         assert two.merchant_id == one.merchant_id
         rows = await svc.list_merchants(owner_user_id=1)
         names = [m.name for m in rows]
-        assert names.count("Hudson Valley Grounded") == 1
+        assert names.count("Riverbend Grounded") == 1
 
     @pytest.mark.asyncio
     async def test_propose_moves_nothing(
@@ -632,7 +632,7 @@ class TestAssignPayeeExecutor:
 
         await svc.propose_change(
             "transaction.assign_payee",
-            {"transaction_id": txn.id, "payee": "Hudson Valley Grounded"},
+            {"transaction_id": txn.id, "payee": "Riverbend Grounded"},
             owner_user_id=1,
         )
 
@@ -649,12 +649,12 @@ class TestAssignPayeeExecutor:
 
         row = await svc.propose_change(
             "transaction.assign_payee",
-            {"transaction_id": txn.id, "payee": "Hudson Valley Grounded"},
+            {"transaction_id": txn.id, "payee": "Riverbend Grounded"},
             owner_user_id=1,
         )
         display = {d.label: d.value for d in await svc.describe_pending_change(row)}
 
-        assert display["Payee"] == "Unassigned \u2192 Hudson Valley Grounded"
+        assert display["Payee"] == "Unassigned \u2192 Riverbend Grounded"
         assert "ATM 881" in display["Transaction"]
 
     @pytest.mark.asyncio
@@ -668,12 +668,12 @@ class TestAssignPayeeExecutor:
 
         row = await svc.propose_change(
             "transaction.assign_payee",
-            {"transaction_id": txn.id, "payee": "Hudson Valley Grounded"},
+            {"transaction_id": txn.id, "payee": "Riverbend Grounded"},
             owner_user_id=1,
         )
         display = {d.label: d.value for d in await svc.describe_pending_change(row)}
 
-        assert display["Payee"] == "Chase ATM \u2192 Hudson Valley Grounded"
+        assert display["Payee"] == "Chase ATM \u2192 Riverbend Grounded"
 
     @pytest.mark.asyncio
     async def test_a_blank_payee_is_refused_at_propose(
@@ -697,7 +697,7 @@ class TestAssignPayeeExecutor:
         txn = await _txn(svc, account.id, -2_500, date(2026, 8, 3), name="ATM 881")
         row = await svc.propose_change(
             "transaction.assign_payee",
-            {"transaction_id": txn.id, "payee": "Hudson Valley Grounded"},
+            {"transaction_id": txn.id, "payee": "Riverbend Grounded"},
             owner_user_id=1,
         )
         await svc.soft_delete_transactions([txn.id], owner_user_id=1)
@@ -789,8 +789,8 @@ class TestTagExecutors:
     async def test_one_card_swaps_a_tag(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        """Live: "With Vanessa" to "Vanessa" took two cards, and the second
-        previewed "With Vanessa -> none" because it could not see the
+        """Live: "With Robin" to "Robin" took two cards, and the second
+        previewed "With Robin -> none" because it could not see the
         first. Confusing (2026-09-23). A swap is one change."""
         from app.services.finance.domains.ledger.transactions import (
             tag_transactions,
@@ -799,20 +799,20 @@ class TestTagExecutors:
 
         txn = await self._fixture(svc, async_db_session)
         await tag_transactions(
-            async_db_session, [txn.id], "With Vanessa", owner_user_id=1
+            async_db_session, [txn.id], "With Robin", owner_user_id=1
         )
         row = await svc.propose_change(
             "transaction.tag",
-            {"transaction_id": txn.id, "tag": "Vanessa", "replaces": "With Vanessa"},
+            {"transaction_id": txn.id, "tag": "Robin", "replaces": "With Robin"},
             owner_user_id=1,
         )
         display = {d.label: d.value for d in await svc.describe_pending_change(row)}
-        assert display["Tags"] == "With Vanessa \u2192 Vanessa"
+        assert display["Tags"] == "With Robin \u2192 Robin"
 
         await svc.approve_change(row.id, owner_user_id=1)
 
         tags = await transaction_tags(async_db_session, [txn.id])
-        assert [t.name for t in tags[txn.id]] == ["Vanessa"]
+        assert [t.name for t in tags[txn.id]] == ["Robin"]
 
     @pytest.mark.asyncio
     async def test_an_untagged_transaction_reads_none(

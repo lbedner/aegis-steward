@@ -121,11 +121,11 @@ def test_activity_rows_name_the_document_and_read_like_a_sentence() -> None:
         },
         {"job_id": "d", "name": "finance-import:x.csv", "status": "done", "result": {}},
     ]
-    titles = {1: "Executed POA", 2: "Bedner J Request"}
+    titles = {1: "Executed POA", 2: "Doe J Request"}
 
     rows = activity_rows(jobs, titles)
 
-    assert [r.title for r in rows] == ["Bedner J Request", "Executed POA", "Document 7"]
+    assert [r.title for r in rows] == ["Doe J Request", "Executed POA", "Document 7"]
     assert rows[0].detail == "Reading page 3 of 10..." and rows[0].running
     assert rows[1].detail == "10 pages extracted" and not rows[1].running
     assert rows[2].detail == "model not found" and rows[2].failed

@@ -56,9 +56,9 @@ class TestOnTheForm:
                 "kind": "organization",
                 "sort_name": "",
                 "note": "",
-                "phone": "1-800-935-9935",
+                "phone": "1-800-555-0176",
                 "line_label": ["Español", "From abroad", ""],
-                "line_value": ["1-877-312-4273", "1-713-262-1679", "ignored"],
+                "line_value": ["1-877-555-0177", "1-713-555-0178", "ignored"],
             },
         )
         assert saved.status_code == 200
@@ -66,11 +66,11 @@ class TestOnTheForm:
         form = client.get(f"/contacts/{party_id}/edit").text
         labels = [el.get("value") for el in select(form, 'input[name="line_label"]')]
         values = [el.get("value") for el in select(form, 'input[name="line_value"]')]
-        assert "Español" in labels and "1-713-262-1679" in values
+        assert "Español" in labels and "1-713-555-0178" in values
         # A blank row is a row somebody left alone, not a line.
         assert "ignored" not in values
         # And the one the app asks questions of is still its own field.
-        assert one(form, 'input[name="phone"]').get("value") == "1-800-935-9935"
+        assert one(form, 'input[name="phone"]').get("value") == "1-800-555-0176"
 
     def test_a_routing_number_is_refused_here_too(self, client: TestClient) -> None:
         """The form is the THIRD writer of the contact block, beside the
@@ -88,14 +88,14 @@ class TestOnTheForm:
             data={
                 **said,
                 "line_label": ["Routing number"],
-                "line_value": ["221979363"],
+                "line_value": ["011000015"],
             },
         )
         assert refused.status_code == 422
         assert "account.institution" in refused.text
 
         page = client.get(f"/contacts/{party_id}").text
-        assert "221979363" not in page
+        assert "011000015" not in page
 
     def test_emptying_a_line_removes_it(self, client: TestClient) -> None:
         party_id = _contact(client, "Emptied Bank", "organization")
@@ -129,16 +129,16 @@ class TestOnThePage:
                 "kind": "organization",
                 "sort_name": "",
                 "note": "",
-                "phone": "1-800-935-9935",
+                "phone": "1-800-555-0176",
                 "line_label": ["Español"],
-                "line_value": ["1-877-312-4273"],
+                "line_value": ["1-877-555-0177"],
             },
         )
 
         page = client.get(f"/contacts/{party_id}").text
         reach = one(page, "[data-reach]")
         assert "Español" in text(reach)
-        assert "1-877-312-4273" in text(reach)
+        assert "1-877-555-0177" in text(reach)
 
     def test_a_contact_with_no_extras_draws_none(self, client: TestClient) -> None:
         party_id = _contact(client, "Plain Bank", "organization")
@@ -160,23 +160,23 @@ class TestWhatIllianaCanPropose:
         payload = CreateContactPayload(
             name="JPMorgan Chase Bank, N.A.",
             kind="organization",
-            phone="1-800-935-9935",
+            phone="1-800-555-0176",
             also=[
-                {"label": "Español", "value": "1-877-312-4273"},
-                {"label": "From abroad", "value": "1-713-262-1679"},
+                {"label": "Español", "value": "1-877-555-0177"},
+                {"label": "From abroad", "value": "1-713-555-0178"},
             ],
         )
         said = {
             r.label: r.value
             for r in await create_contact_describe(async_db_session, payload, None)
         }
-        assert said["Español"] == "1-877-312-4273"
+        assert said["Español"] == "1-877-555-0177"
 
         made = await create_contact_execute(async_db_session, payload, None)
         await async_db_session.commit()
 
         party = await PartyService(async_db_session).get(made["party_id"])
         assert reach_lines(party.contact) == [
-            ("Español", "1-877-312-4273"),
-            ("From abroad", "1-713-262-1679"),
+            ("Español", "1-877-555-0177"),
+            ("From abroad", "1-713-555-0178"),
         ]

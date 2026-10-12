@@ -11,7 +11,7 @@
   {{ error_banner(errors) }}
   {% call field("Name") %}{{ text_input("name", institution.name, required=True, autofocus=True) }}{% endcall %}
   {% call field("Website") %}{{ text_input("url", institution.url, placeholder="https://fidelity.com") }}{% endcall %}
-  {% call field("Phone") %}{{ text_input("phone", institution.phone, placeholder="800-343-3548") }}{% endcall %}
+  {% call field("Phone") %}{{ text_input("phone", institution.phone, placeholder="800-555-0160") }}{% endcall %}
   <p class="text-xxs text-aegis-muted">
     {{ institution.account_count }} account{{ "" if institution.account_count == 1 else "s" }} held here.
     The website is also where the logo comes from.

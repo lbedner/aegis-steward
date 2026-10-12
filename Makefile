@@ -2,7 +2,7 @@
 # Developer-friendly commands for Docker workflow
 
 COMPOSE_DEV = docker compose -f docker-compose.yml -f docker-compose.dev.yml
-COMPOSE_PROD = docker compose -f docker-compose.yml
+COMPOSE_PROD = docker compose -f docker-compose.yml -f docker-compose.prod.yml
 # Biome's scope. Pointing it at the project root would reformat every .js in
 # the repo (docs scripts included) the first time anyone runs `make fix`.
 WEB_JS_DIR = app/components/web_frontend/static/js

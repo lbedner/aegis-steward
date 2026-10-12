@@ -34,9 +34,9 @@ class TestThePeoplePage:
         """A person, an agency and a facility - the ticket's own gate,
         through the form a person would actually use."""
         for name, kind in (
-            ("James Bedner", "person"),
-            ("Dutchess County DSS", "organization"),
-            ("Eleanor Nursing Care Center", "organization"),
+            ("James Doe", "person"),
+            ("Example County DSS", "organization"),
+            ("Maple Nursing Care Center", "organization"),
         ):
             client.post(
                 "/contacts/new",
@@ -45,15 +45,15 @@ class TestThePeoplePage:
 
         page = client.get("/contacts").text
         rows = [text(cell) for cell in select(page, "#contacts tbody td")]
-        assert "James Bedner" in rows
-        assert "Dutchess County DSS" in rows
+        assert "James Doe" in rows
+        assert "Example County DSS" in rows
         # Filed where a reader looks: the person files under B.
-        assert "Bedner, James" in rows
+        assert "Doe, James" in rows
 
     def test_the_guess_is_shown_so_it_can_be_overruled(
         self, client: TestClient
     ) -> None:
-        """The app files "James Bedner" under "Bedner, James". A guess
+        """The app files "James Doe" under "Doe, James". A guess
         the reader cannot see is a guess they cannot correct.
 
         Found by search rather than by being the only row: the workers
@@ -226,7 +226,7 @@ class TestLookingItUpByHand:
                 "offers": [
                     {
                         "field": "phone",
-                        "value": "(845) 555-0142",
+                        "value": "(555) 555-0142",
                         "url": "https://example.org/x/",
                         "source": "found by web search; read at https://example.org/x/",
                     }
@@ -294,7 +294,7 @@ def test_a_rows_note_is_drawn_under_it(add_template) -> None:
     html = templates.get_template("probe_note.html").render(
         change={
             "display": [
-                {"label": "Contact", "value": "Eleanor"},
+                {"label": "Contact", "value": "Maple"},
                 {"label": "Phone", "value": "- → 555", "note": "read at https://x"},
             ]
         }

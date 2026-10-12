@@ -48,6 +48,9 @@
        sits above its button so it opens upward from the sidebar's foot. #}
     <div x-show="open" x-cloak x-collapse class="rail-none px-3 pt-1 pb-2 space-y-2">
       {{ appearance_fields() }}
+      {#- Every page in this shell is signed in (the request gate), so the
+          way out sits here, as in the Overseer's viewer menu. -#}
+      {% if auth_enabled %}<div class="border-t border-aegis-border pt-3"><a href="/logout" data-sign-out class="text-xs text-aegis-muted hover:text-aegis-text">Sign out</a></div>{% endif %}
     </div>
     <button type="button" data-appearance aria-label="Appearance" :aria-expanded="open" @click="open = !open"
             class="rail-row w-full flex items-center gap-3 px-3 py-2 text-sm rounded text-aegis-muted hover:text-aegis-text hover:bg-aegis-border/20 transition-colors">

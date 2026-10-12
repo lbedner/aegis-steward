@@ -21,7 +21,7 @@ async def seed_project_for_collector(
     *,
     slug: str = "test-collector-project",
     name: str = "Test Collector Project",
-    github_owner: str | None = "lbedner",
+    github_owner: str | None = "ldoe",
     github_repo: str | None = "aegis-stack",
     github_token: str | None = None,
     pypi_package: str | None = "aegis-stack",

@@ -1,7 +1,7 @@
 """How to reach somebody, read off the paper already on the shelf.
 
 The address, the phone and the website were printed on the letterhead
-before anybody asked for them. Dutchess County DSS puts its street
+before anybody asked for them. Example County DSS puts its street
 address and its switchboard at the top of every letter it sends; Delta
 Dental prints a claims number and a contact URL on every invoice. The
 workflow files that paper first, so the shelf is the cheapest lookup
@@ -34,15 +34,15 @@ from app.services.matters.reach import CONTACT_FIELDS, CONTACT_LINES
 OPENING_PAGES = 2
 
 # A phone number as paper prints it, and NOT a case number: the run has
-# to be grouped the way a person writes a phone, because "23548895152718"
-# and "MA258760XX" are on the same letters and neither is a way to reach
+# to be grouped the way a person writes a phone, because "12345678901234"
+# and "MA123456XX" are on the same letters and neither is a way to reach
 # anyone. Requires the 3-3-4 shape with real separators or parentheses.
 _PHONE = re.compile(
     r"(?<![\w-])(?:\+?1[.\s-])?(?:\(\d{3}\)\s?|\d{3}[.\s-])\d{3}[.\s-]\d{4}(?![\w-])"
 )
 
 # A host with a real TLD, optionally with a path. Bare enough to catch
-# "www.dutchessny.gov/dcfs" and "deltadentalins.com" without swallowing a
+# "www.example.gov/dcfs" and "deltadentalins.com" without swallowing a
 # sentence, and an email is excluded by the lookbehind.
 _URL = re.compile(
     r"(?<![@\w])(?:https?://)?(?:www\.)?"
@@ -53,20 +53,20 @@ _URL = re.compile(
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
-# The last line of a US postal address: "POUGHKEEPSIE, NY 12601". The
+# The last line of a US postal address: "ANYTOWN, NY 12345". The
 # anchor for an address, because the CITY, ST ZIP line is the only part
 # with a shape worth trusting; the street is taken from above it.
 _CITY_STATE_ZIP = re.compile(
     r"^\s*([A-Za-z][A-Za-z.\s'-]{1,40}),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\s*$"
 )
 
-# A street line: a number, then words. "60 MARKET STREET", "419 N.
-# Quaker Lane". Deliberately not trying to know every suffix - a line
+# A street line: a number, then words. "10 CENTER STREET", "419 N.
+# Orchard Lane". Deliberately not trying to know every suffix - a line
 # that starts with a house number and sits directly above a CITY, ST ZIP
 # is an address by position, which is more reliable than a word list.
 _STREET = re.compile(
     r"^\s*(?:"
-    # A house number then words: "60 MARKET STREET", "419 N. Quaker Lane".
+    # A house number then words: "10 CENTER STREET", "100 N. Orchard Lane".
     r"\d+[A-Za-z]?\s+[A-Za-z0-9.\s'#-]{3,60}"
     # Or a box, which is what large organizations actually print:
     # "P.O. Box 660138" (Delta Dental), "P.O. Box 44959" (Chase). Every
@@ -86,7 +86,7 @@ def _host(url: str) -> str:
 
 
 def _registrable(domain: str) -> str:
-    """The last two labels: ``mail.dutchessny.gov`` -> ``dutchessny.gov``.
+    """The last two labels: ``mail.example.gov`` -> ``example.gov``.
 
     Crude on purpose. A real public-suffix list is a dependency and a
     cache for a check whose only job is to refuse a stranger's gmail.
@@ -139,7 +139,7 @@ def found_in(text: str) -> dict[str, str]:
 
     # Take the emails OUT before looking for a website. An address
     # carries a domain inside it, and a lookbehind does not save you:
-    # "Traver@dfa.state.ny.us" matched from "state.ny.us" onwards,
+    # "Examiner@dfa.state.ny.us" matched from "state.ny.us" onwards,
     # because the character before it is a dot. That produced a website
     # of "state.ny.us" which then corroborated the very email it had
     # been cut from - two wrong fields propping each other up, both
@@ -175,8 +175,8 @@ def found_in(text: str) -> dict[str, str]:
     return {key: value for key, value in found.items() if key in known and value}
 
 
-# A label and the rest of its line: "SSPA-45 fax: 845-486-3301" gives
-# ("fax", "845-486-3301"). The label is the WORD before the colon, not
+# A label and the rest of its line: "SSPA-45 fax: 555-555-0163" gives
+# ("fax", "555-555-0163"). The label is the WORD before the colon, not
 # the whole prefix, because forms carry a form number in front of it.
 _LABELLED = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z ]{0,20}?)\s*:\s*(\S.*)$")
 
@@ -192,7 +192,7 @@ def lines_in(text: str, besides: set[str] | None = None) -> list[tuple[str, str]
 
     The value is the rest of the line, VERBATIM. A person reads these and
     nothing parses them, so an OCR artifact shows as printed rather than
-    being quietly closed up - "Melissa. Traver@..." is a reading somebody
+    being quietly closed up - "Jordan. Examiner@..." is a reading somebody
     can see is imperfect, and repairing it here would be a guess wearing
     a citation.
 
@@ -219,7 +219,7 @@ def lines_in(text: str, besides: set[str] | None = None) -> list[tuple[str, str]
 
 
 def _digits(value: str) -> str:
-    """Just the digits, so "(845) 486-3000" and "845-486-3000" are the
+    """Just the digits, so "(555) 555-0161" and "555-555-0161" are the
     same number printed two ways."""
     return re.sub(r"\D", "", value)
 
@@ -272,8 +272,8 @@ async def contact_details(db: AsyncSession, party_id: int) -> list[dict[str, Any
     from app.services.matters.reach import reach_lines
 
     # What the record already prints, so a line is not offered twice.
-    # Compared on digits as well as text: "(845) 486-3000" and
-    # "845-486-3000" are one number written two ways.
+    # Compared on digits as well as text: "(555) 555-0161" and
+    # "555-555-0161" are one number written two ways.
     already = {value for _label, value in reach_lines(party.contact)}
     already_digits = {_digits(one) for one in already if _digits(one)}
 

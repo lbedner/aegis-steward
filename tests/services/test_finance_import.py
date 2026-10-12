@@ -748,7 +748,7 @@ class TestInferAccountKind:
         assert infer_account_kind("CHASE SAVINGS") == ("savings", "asset")
         assert infer_account_kind("TOTAL CHECKING (CHASE)") == ("checking", "asset")
         # "checking" wins over "house" (rule order), so this is a checking asset.
-        assert infer_account_kind("House Bedner Checking") == ("checking", "asset")
+        assert infer_account_kind("House Doe Checking") == ("checking", "asset")
         assert infer_account_kind("Citizens Bank Mortgage") == ("loan", "liability")
         assert infer_account_kind("READI CASH LOC FLUCTUATING PMT") == (
             "loan",
@@ -760,7 +760,7 @@ class TestInferAccountKind:
             "liability",
         )
         assert infer_account_kind("IHEART MEDIA 401K") == ("investment", "asset")
-        assert infer_account_kind("House Bedner") == ("property", "asset")
+        assert infer_account_kind("House Doe") == ("property", "asset")
         # A conventional mortgage is a loan/liability.
         assert infer_account_kind("CONVENTIONAL") == ("loan", "liability")
         # Unrecognized -> generic asset for the user to reclassify.

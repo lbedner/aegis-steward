@@ -1,0 +1,176 @@
+"""
+Auth service health check functions.
+
+Health monitoring for authentication and authorization service functionality.
+Checks JWT configuration, database connectivity, and service-specific metrics.
+"""
+
+from app.core.config import settings
+from app.core.formatting import counted
+from app.core.log import logger
+from app.core.security import access_token_minutes
+from app.services.system.models import ComponentStatus, ComponentStatusType
+
+
+async def check_auth_service_health() -> ComponentStatus:
+    """
+    Check auth service health including JWT configuration and dependencies.
+
+    Returns:
+        ComponentStatus indicating auth service health
+    """
+    try:
+        # Check JWT configuration
+        jwt_errors = []
+
+        # Verify JWT secret key is configured
+        # Note: 32 characters = 256 bits, which is secure for HS256 HMAC-SHA256 signing
+        if not hasattr(settings, "SECRET_KEY") or not settings.SECRET_KEY:
+            jwt_errors.append("SECRET_KEY not configured")
+        elif len(settings.SECRET_KEY) < 32:
+            jwt_errors.append("SECRET_KEY too short (minimum 32 characters for HS256)")
+
+        # Verify JWT algorithm is supported
+        algorithm = getattr(settings, "ALGORITHM", "HS256")
+        supported_algorithms = ["HS256", "HS384", "HS512", "RS256", "RS384", "RS512"]
+        if algorithm not in supported_algorithms:
+            jwt_errors.append(f"Unsupported JWT algorithm: {algorithm}")
+
+        # Verify token expiration is configured
+        access_token_expire = getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", None)
+        if access_token_expire is None or access_token_expire <= 0:
+            jwt_errors.append("ACCESS_TOKEN_EXPIRE_MINUTES not properly configured")
+
+        # Check database dependency for user storage
+        database_available = True
+        try:
+            from sqlalchemy import text
+
+            from app.core.db import db_session
+
+            with db_session() as session:
+                # Test database connectivity with a simple query
+                session.execute(text("SELECT 1"))
+        except ImportError:
+            database_available = False
+            jwt_errors.append("Database module not available for user storage")
+        except Exception as e:
+            database_available = False
+            jwt_errors.append(f"Database connectivity issue: {str(e)}")
+
+        # Determine service status
+        if jwt_errors:
+            if not database_available:
+                status = ComponentStatusType.UNHEALTHY
+                message = f"Auth service misconfigured: {'; '.join(jwt_errors)}"
+            else:
+                # Some JWT config issues but database is available
+                status = ComponentStatusType.WARNING
+                message = (
+                    f"Auth service has configuration warnings: {'; '.join(jwt_errors)}"
+                )
+        else:
+            status = ComponentStatusType.HEALTHY
+            message = "Auth service configured and ready"
+
+        # Get user count for display
+        user_count = 0
+        user_count_display = "0"
+        verified_user_count = 0
+        if database_available:
+            try:
+                import sqlalchemy as sa
+                from sqlalchemy import func
+                from sqlmodel import select
+
+                from app.core.db import db_session
+                from app.models.user import User
+
+                with db_session() as session:
+                    # Single query for total and verified counts
+                    row = session.execute(
+                        select(
+                            func.count().label("total"),
+                            func.sum(
+                                sa.case((User.is_verified == True, 1), else_=0)  # noqa: E712
+                            ).label("verified"),
+                        ).select_from(User)
+                    ).one()
+                    user_count = row.total
+                    verified_user_count = row.verified or 0
+
+                    user_count_display = "100+" if user_count > 100 else str(user_count)
+            except Exception:
+                # If user counting fails, leave as 0
+                pass
+
+        # Format token expiry for display: what a session cookie lasts here
+        # (longer in dev), the figure Overseer's Sessions page shows too.
+        token_expiry_display = "30 min"  # Default
+        if access_token_expire:
+            minutes = access_token_minutes()
+            token_expiry_display = (
+                counted(minutes // 60, "hour") if minutes >= 60 else f"{minutes} min"
+            )
+
+        # Determine security level based on configuration
+        security_level = "standard"
+        if jwt_errors:
+            security_level = "basic"
+        elif (
+            hasattr(settings, "SECRET_KEY")
+            and settings.SECRET_KEY
+            and len(settings.SECRET_KEY) >= 64
+            and algorithm in ["RS256", "RS384", "RS512"]
+        ):
+            security_level = "high"
+
+        # Collect metadata
+        metadata = {
+            "service_type": "auth",
+            "jwt_algorithm": algorithm,
+            "token_expiry_minutes": access_token_expire,
+            "token_expiry_display": token_expiry_display,
+            "database_available": database_available,
+            "secret_key_configured": hasattr(settings, "SECRET_KEY")
+            and bool(settings.SECRET_KEY),
+            "secret_key_length": len(getattr(settings, "SECRET_KEY", ""))
+            if hasattr(settings, "SECRET_KEY")
+            else 0,
+            "user_count": user_count,
+            "user_count_display": user_count_display,
+            "verified_user_count": verified_user_count,
+            "security_level": security_level,
+        }
+
+        # Add configuration issues to metadata if any
+        if jwt_errors:
+            metadata["configuration_issues"] = jwt_errors
+
+        # Add dependency status
+        metadata["dependencies"] = {
+            "database": "available" if database_available else "unavailable",
+            "backend": "required",  # Auth service always requires backend
+        }
+
+        return ComponentStatus(
+            name="auth",
+            status=status,
+            message=message,
+            response_time_ms=None,  # Will be set by caller
+            metadata=metadata,
+        )
+
+    except Exception as e:
+        logger.error(f"Auth service health check failed: {e}")
+        return ComponentStatus(
+            name="auth",
+            status=ComponentStatusType.UNHEALTHY,
+            message=f"Auth service health check failed: {str(e)}",
+            response_time_ms=None,
+            metadata={
+                "service_type": "auth",
+                "error": str(e),
+                "error_type": "health_check_failure",
+            },
+        )

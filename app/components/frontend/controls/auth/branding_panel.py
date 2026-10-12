@@ -1,0 +1,122 @@
+"""
+Right-side branding panel for the login surface.
+
+Composes a centered Overseer logo over a faint Pulse-style grid, with
+the project name + tagline beneath. The logo is loaded from
+``assets/overseer.png`` via base64 (same approach as the dashboard
+header) so it works regardless of Flet's ``assets_dir`` config.
+"""
+
+from __future__ import annotations
+
+import base64
+from pathlib import Path
+
+import flet as ft
+
+from app.components.frontend.controls.text import DisplayText, H2Text, SecondaryText
+from app.components.frontend.styles import PulseColors
+from app.core.log import logger
+
+_GRID_SPAN = 1600
+_GRID_STEP = 56
+_DEFAULT_LOGO_SIZE = 220
+
+
+def _load_logo_base64() -> str:
+    """Read ``<project>/assets/overseer.png`` and return base64."""
+    try:
+        # branding_panel.py -> auth -> controls -> frontend -> components -> app -> project
+        logo_path = (
+            Path(__file__).parent.parent.parent.parent.parent.parent
+            / "assets"
+            / "overseer.png"
+        )
+        with open(logo_path, "rb") as fh:
+            return base64.b64encode(fh.read()).decode()
+    except Exception as exc:
+        logger.warning("auth.branding_panel.logo_load_failed", error=str(exc))
+        return ""
+
+
+class BrandingPanel(ft.Container):
+    """Right-side panel: grid background + logo + wordmark + tagline."""
+
+    def __init__(
+        self,
+        *,
+        project_name: str,
+        tagline: str,
+        logo_size: int = _DEFAULT_LOGO_SIZE,
+    ) -> None:
+        super().__init__()
+
+        # Grid background — many positioned 1px containers in a Stack
+        line_color = ft.Colors.with_opacity(0.06, PulseColors.TEAL)
+        grid_lines: list[ft.Control] = []
+        for x in range(0, _GRID_SPAN, _GRID_STEP):
+            grid_lines.append(
+                ft.Container(
+                    left=x, top=0, width=1, height=_GRID_SPAN, bgcolor=line_color
+                )
+            )
+        for y in range(0, _GRID_SPAN, _GRID_STEP):
+            grid_lines.append(
+                ft.Container(
+                    left=0, top=y, width=_GRID_SPAN, height=1, bgcolor=line_color
+                )
+            )
+
+        logo_b64 = _load_logo_base64()
+        if logo_b64:
+            logo: ft.Control = ft.Image(
+                src_base64=logo_b64,
+                width=logo_size,
+                height=logo_size,
+                fit=ft.ImageFit.CONTAIN,
+            )
+        else:
+            logo = DisplayText("OVERSEER", color=PulseColors.TEAL)
+
+        glow = ft.Container(
+            content=logo,
+            padding=ft.padding.all(48),
+            border_radius=320,
+            bgcolor=ft.Colors.with_opacity(0.05, PulseColors.TEAL),
+        )
+
+        center = ft.Container(
+            content=ft.Column(
+                controls=[
+                    glow,
+                    ft.Container(height=32),
+                    H2Text(project_name, color=PulseColors.TEXT),
+                    SecondaryText(tagline, color=PulseColors.MUTED),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+                expand=True,
+            ),
+            gradient=ft.RadialGradient(
+                center=ft.alignment.center,
+                radius=1.2,
+                colors=[
+                    ft.Colors.with_opacity(0.10, PulseColors.TEAL),
+                    ft.Colors.TRANSPARENT,
+                ],
+            ),
+            expand=True,
+            alignment=ft.alignment.center,
+        )
+
+        self.content = ft.Stack(
+            controls=[*grid_lines, center],
+            expand=True,
+        )
+        self.border = ft.border.only(
+            left=ft.BorderSide(width=1, color=PulseColors.BORDER)
+        )
+        self.bgcolor = PulseColors.BG
+        self.expand = True
+        self.alignment = ft.alignment.center
+        self.clip_behavior = ft.ClipBehavior.HARD_EDGE

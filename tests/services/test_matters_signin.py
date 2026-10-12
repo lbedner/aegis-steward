@@ -14,7 +14,7 @@ from app.services.matters.signins import SignInService
 
 
 async def _party(db: AsyncSession) -> int:
-    party = await PartyService(db).create(name="James Bedner", kind="person")
+    party = await PartyService(db).create(name="James Doe", kind="person")
     await db.commit()
     assert party.id is not None
     return party.id
@@ -33,7 +33,7 @@ class TestASignIn:
             party_id=party_id,
             label="IBEW pension portal",
             url="pensionportal.example.com",
-            username="jbedner",
+            username="jdoe",
             secret="correct horse battery staple",
         )
         await async_db_session.commit()

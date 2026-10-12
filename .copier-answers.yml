@@ -1,3 +1,4 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
 _commit: 5390ab4dffbf8b3cda2533b1d6adbb0509f312fc
 _src_path: git+file:///Users/leonardbedner/Workspace/worktrees/aegis-stack/steward-update-source
 _template_version: 0.13.0
@@ -17,7 +18,7 @@ finance_plaid: true
 finance_snaptrade: true
 github_username: your-username
 include_ai: true
-include_auth: false
+include_auth: true
 include_auth_org: false
 include_auth_rbac: false
 include_blog: false
@@ -27,7 +28,7 @@ include_database: true
 include_documents: true
 include_finance: true
 include_htmx: true
-include_ingress: false
+include_ingress: true
 include_insights: false
 include_oauth: false
 include_observability: false
@@ -56,6 +57,9 @@ worker_backend: arq
 include_inference: true
 inference_placement: host
 include_secrets: false
-include_deploy: false
+include_deploy: true
 include_mcp: false
 include_research: false
+deploy_target: compose
+ingress_tls: true
+ingress_domain: ''

@@ -78,6 +78,13 @@ def get_component_display_info(
             get_component_subtitle(f"service_{FINANCE_COMPONENT_NAME}", metadata),
         )
 
+    elif component_name == ComponentName.INGRESS:
+        version = metadata.get("version", "")
+        subtitle = (
+            f"Traefik {version}" if version and version != "unknown" else "Traefik"
+        )
+        return ("Ingress", subtitle)
+
     elif component_name == ComponentName.FRONTEND:
         return ("Frontend", "Flet")
 
@@ -182,10 +189,12 @@ class StatusOverviewPanel(ft.Container):
             ComponentName.CACHE,
             ComponentName.WORKER,
             ComponentName.SCHEDULER,
+            "service_auth",
             "service_ai",
             "service_comms",
             DOCUMENTS_MODAL_ID,
             f"service_{FINANCE_COMPONENT_NAME}",
+            ComponentName.INGRESS,
         ]
 
         # Build rows in order

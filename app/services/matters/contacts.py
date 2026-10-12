@@ -33,7 +33,7 @@ from app.services.matters.relations import RELATIONS, relate, unrelate
 
 class CreateContactPayload(BaseModel):
     """A person or an organization named for the first time, with how
-    to reach them. Never deduplicated by name: two "Bedner"s are two
+    to reach them. Never deduplicated by name: two "Doe"s are two
     people until somebody says otherwise."""
 
     model_config = ConfigDict(extra="forbid")

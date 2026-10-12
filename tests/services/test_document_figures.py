@@ -136,7 +136,7 @@ class TestItReachesTheQueue:
         )
         document = await self._statement(
             async_db_session,
-            "HUDSON VALLEY CREDIT UNION",
+            "RIVERBEND CREDIT UNION",
             "Account ending 3639",
             "Ending balance as of 08/01/26: $3,137.44",
         )

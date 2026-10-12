@@ -96,13 +96,13 @@ class TestHearing:
     async def test_the_households_names_are_spelled_for_the_transcriber(
         self, client: TestClient, speech: FakeSpeech
     ) -> None:
-        """ "Bedner" came back "Bednar" and Marisa "Marissa" (#293): the
+        """The household's surname and first names came back misspelled (#293): the
         people the household knows are the vocabulary it hears. Seeded
         where the route reads them, its own session's database, and
         removed after: that database lives for the whole run."""
         async with get_async_session() as db:
             people = PartyService(db)
-            marisa = await people.create(name="Marisa Bedner", kind="person")
+            alex = await people.create(name="Alex Doe", kind="person")
             bank = await people.create(name="Citizens Bank", kind="organization")
             await db.commit()
         try:
@@ -110,12 +110,12 @@ class TestHearing:
         finally:
             async with get_async_session() as db:
                 await db.exec(
-                    delete(Party).where(col(Party.id).in_([marisa.id, bank.id]))
+                    delete(Party).where(col(Party.id).in_([alex.id, bank.id]))
                 )
                 await db.commit()
 
         prompt = speech.transcribe.call_args.args[0].prompt
-        assert "Marisa Bedner" in prompt
+        assert "Alex Doe" in prompt
         assert "Citizens Bank" not in prompt  # people, the names it misspells
 
     def test_the_recordings_length_rides_along(
@@ -237,7 +237,7 @@ class TestSpeakingAsSheWrites:
         self, client: TestClient, speech: FakeSpeech
     ) -> None:
         response = client.get(
-            SAY, params={"text": "- **$60** left in *Vanessa's* envelope."}
+            SAY, params={"text": "- **$60** left in *Robin's* envelope."}
         )
 
         assert response.status_code == 200
@@ -245,7 +245,7 @@ class TestSpeakingAsSheWrites:
         assert response.content == b"ID3mp3"
         assert response.headers["cache-control"] == "no-store"
         said, user_id = speech.spoken[0]
-        assert said == "$60 left in Vanessa's envelope."
+        assert said == "$60 left in Robin's envelope."
         assert user_id == str(STANDALONE_USER_ID)
 
     @pytest.mark.parametrize("text", ["", "   ", "**", "x" * 2001])

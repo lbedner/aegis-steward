@@ -13,7 +13,7 @@ from app.services.ai.service.trace import steps_line
 
 # The real turn, as tool_trace stored it.
 DARKSIDE_TRACE = [
-    {"tool": "pending", "args": '{"about": "With Vanessa", "draw": false}'},
+    {"tool": "pending", "args": '{"about": "With Robin", "draw": false}'},
     {
         "tool": "run_code",
         "code": 'ts = await transactions(payee="DARKSIDE RECORDS", limit=50)\nprint(ts)',
@@ -29,8 +29,8 @@ DARKSIDE_TRACE = [
     {
         "tool": "propose_many",
         "args": '{"change_type": "transaction.untag", "payloads": '
-        '[{"transaction_id": 54820, "tag": "With Vanessa"}, '
-        '{"transaction_id": 54939, "tag": "With Vanessa"}]}',
+        '[{"transaction_id": 54820, "tag": "With Robin"}, '
+        '{"transaction_id": 54939, "tag": "With Robin"}]}',
         "result": '{"batch_id": "b-1", "count": 2}',
         "component": {"kind": "pending_change_batch", "batch_id": "b-1"},
     },
@@ -45,10 +45,10 @@ def _build(conversation: Conversation, budget: int = 24_000) -> str:
 
 def _thread(trace: list[dict]) -> Conversation:
     conversation = Conversation(id="c1", provider=AIProvider.OLLAMA, model="test-model")
-    conversation.add_message(MessageRole.USER, "swap With Vanessa for Vanessa")
+    conversation.add_message(MessageRole.USER, "swap With Robin for Robin")
     conversation.add_message(
         MessageRole.ASSISTANT,
-        "I proposed replacing it on both Dark Side Records transactions.",
+        "I proposed replacing it on both Spinning Disc Records transactions.",
         metadata={"tool_trace": trace},
     )
     conversation.add_message(MessageRole.USER, "try again")
@@ -85,10 +85,10 @@ class TestTheStepsLine:
         propose = {
             "tool": "propose_many",
             "args": '{"change_type": "transaction.tag", "payloads": [{"transaction_id": 54820, '
-            '"tag": "Vanessa", "replaces": "With Vanessa"}]}',
+            '"tag": "Robin", "replaces": "With Robin"}]}',
         }
         line = steps_line([wordy, wordy, wordy, propose])
-        assert '"replaces": "With Vanessa"}]}' in line
+        assert '"replaces": "With Robin"}]}' in line
 
     def test_no_trace_no_line(self) -> None:
         assert steps_line([]) == ""
@@ -106,8 +106,8 @@ class TestTheHistoryCarriesIt:
         """What she SAID outranks what she did: the steps are the first
         thing to go, never the conversation."""
         conversation = _thread(DARKSIDE_TRACE)
-        words = len("User: swap With Vanessa for Vanessa") + len(
-            "Assistant: I proposed replacing it on both Dark Side Records transactions."
+        words = len("User: swap With Robin for Robin") + len(
+            "Assistant: I proposed replacing it on both Spinning Disc Records transactions."
         )
         context = _build(conversation, budget=words + 10)
         assert "Assistant: I proposed replacing it" in context

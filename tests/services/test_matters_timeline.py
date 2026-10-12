@@ -211,7 +211,7 @@ class TestSheCanRecordWhatHappened:
 
         matter_id = await _matter(async_db_session, "TL-8")
         dss = await PartyService(async_db_session).create(
-            name="Dutchess County DSS", kind="organization"
+            name="Example County DSS", kind="organization"
         )
         await async_db_session.flush()
         payload = RecordEventPayload(
@@ -228,7 +228,7 @@ class TestSheCanRecordWhatHappened:
         }
         assert said["Matter"] == "Medicaid renewal"
         assert said["What"] == "Called DSS, confirmed they have the packet"
-        assert said["With"] == "Dutchess County DSS"
+        assert said["With"] == "Example County DSS"
 
         await record_event_execute(async_db_session, payload, None)
         await async_db_session.commit()

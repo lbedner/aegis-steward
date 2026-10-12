@@ -21,8 +21,8 @@ from tests.web.dom import one, select, text
 async def family() -> AsyncIterator[tuple[int, int]]:
     async with get_async_session() as db:
         people = PartyService(db)
-        parent = await people.create(name="Leonard Family-Test", kind="person")
-        child = await people.create(name="Vanessa Family-Test", kind="person")
+        parent = await people.create(name="Sam Family-Test", kind="person")
+        child = await people.create(name="Robin Family-Test", kind="person")
         await db.flush()
         ids = (int(parent.id or 0), int(child.id or 0))
         await relations.relate(db, *ids, "parent")
@@ -44,8 +44,8 @@ def test_both_sides_say_it(client: TestClient, family: tuple[int, int]) -> None:
     on_child = one(client.get(f"/contacts/{child}").text, "#contact-family")
 
     assert [text(r) for r in select(on_parent, "[data-relation]")] == [
-        "parent of Vanessa Family-Test"
+        "parent of Robin Family-Test"
     ]
     assert [text(r) for r in select(on_child, "[data-relation]")] == [
-        "child of Leonard Family-Test"
+        "child of Sam Family-Test"
     ]

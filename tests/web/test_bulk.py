@@ -501,7 +501,7 @@ class TestTheCategoryHalfOfTheFollowUp:
     def test_apply_closes_the_dialog(
         self, client: TestClient, ledger: Ledger, merchant: int
     ) -> None:
-        """What Leonard saw: the categories changed behind the dialog and
+        """What the owner saw: the categories changed behind the dialog and
         the dialog stayed, re-rendering the same question. The offer is
         re-asked whenever the payee still argues with itself, so a filing
         that misses rows can never close it."""

@@ -1,0 +1,326 @@
+"""Active Sessions Tab
+
+Lists the caller's active refresh-token sessions (one per device) and
+exposes per-session revoke + "sign out everywhere else" controls. The
+underlying refresh token is never displayed; sessions are identified
+by the opaque ``family_id`` the API returns as ``id``.
+
+Reuses the same control primitives as ``AuthUsersTab``: ``DataTable``
+for the row layout, ``Tag`` for badges, ``ActionMenu`` for per-row
+actions, ``ConfirmDialog`` for confirmation, and theme-driven colours.
+"""
+
+from typing import Any
+
+import flet as ft
+
+from app.components.frontend.controls import (
+    ActionMenu,
+    ActionMenuItem,
+    ConfirmDialog,
+    DataTable,
+    DataTableColumn,
+    H3Text,
+    SecondaryText,
+    Tag,
+)
+from app.components.frontend.controls.snack_bar import (
+    ErrorSnackBar,
+    SuccessSnackBar,
+)
+from app.components.frontend.state.session_state import get_session_state
+from app.components.frontend.theme import AegisTheme as Theme
+from app.core.formatting import format_relative_time
+from app.services.system import ui_auth
+
+
+def _source_label(source: str | None) -> tuple[str, str]:
+    """How the session signed in, as (label, theme color)."""
+    label, color = ui_auth.session_source(source)
+    return label, Theme.Colors.semantic(color)
+
+
+class SessionsTableSection(ft.Container):
+    """Sessions table with per-row revoke action."""
+
+    def __init__(
+        self,
+        sessions: list[dict[str, Any]],
+        on_revoke: Any,
+    ) -> None:
+        super().__init__()
+
+        columns = [
+            DataTableColumn("Source", width=80, style=None),
+            DataTableColumn("Device", style="secondary"),
+            DataTableColumn("IP", width=110, style="secondary"),
+            DataTableColumn("Last used", width=90, style="secondary"),
+            DataTableColumn("Status", width=70, style=None),
+            DataTableColumn("Actions", width=60, alignment="right", style=None),
+        ]
+
+        rows: list[list[Any]] = []
+        for session in sessions:
+            label, color = _source_label(session.get("source"))
+            source_tag = Tag(text=label, color=color)
+
+            is_current = session.get("is_current", False)
+            status_tag = (
+                Tag(text="Current", color=Theme.Colors.SUCCESS)
+                if is_current
+                else Tag(text="Active", color=Theme.Colors.INFO)
+            )
+
+            # Revoke is hidden for the current session — the user would
+            # immediately sign themselves out of the page they're on,
+            # which is confusing. They can use "Sign out" from the
+            # header for that.
+            if is_current:
+                actions: Any = ft.Container(width=0, height=0)
+            else:
+                actions = ActionMenu(
+                    items=[
+                        ActionMenuItem(
+                            label="Sign out this device",
+                            icon=ft.Icons.LOGOUT,
+                            on_click=lambda e, s=session: on_revoke(s),
+                            destructive=True,
+                        ),
+                    ]
+                )
+
+            ua_display = ui_auth.device_label(session.get("user_agent"))
+
+            rows.append(
+                [
+                    source_tag,
+                    ua_display,
+                    session.get("ip") or "-",
+                    format_relative_time(
+                        session.get("last_used_at") or session.get("created_at")
+                    ),
+                    status_tag,
+                    actions,
+                ]
+            )
+
+        table = DataTable(
+            columns=columns,
+            rows=rows,
+            empty_message="No active sessions",
+            scroll_height=400,
+        )
+
+        self.content = table
+        self.padding = Theme.Spacing.MD
+
+
+class AuthSessionsTab(ft.Container):
+    """Active-sessions tab for the Auth Service modal.
+
+    Pulls ``/api/v1/auth/sessions`` and renders one row per refresh
+    family. Per-row Revoke kills that session (uses up to one access-
+    token lifetime to fully kick in). Header "Sign out everywhere
+    else" bulk-revokes via ``DELETE /api/v1/auth/sessions``.
+    """
+
+    def __init__(self, metadata: dict[str, Any] | None = None) -> None:
+        super().__init__()
+        self._metadata = metadata or {}
+        self._content_column = ft.Column(
+            [
+                ft.Container(
+                    content=ft.ProgressRing(width=32, height=32),
+                    alignment=ft.alignment.center,
+                    padding=Theme.Spacing.XL,
+                ),
+                ft.Container(
+                    content=SecondaryText("Loading sessions..."),
+                    alignment=ft.alignment.center,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=Theme.Spacing.MD,
+        )
+        self.content = self._content_column
+
+    def did_mount(self) -> None:
+        # The sessions list relies on the refresh-token table, which
+        # only exists when the DB is up — gate the network call on
+        # the same flag the Users tab uses.
+        if not self._metadata.get("database_available", False):
+            self._render_unavailable()
+        else:
+            self.page.run_task(self._load_sessions)
+
+    async def _load_sessions(self) -> None:
+        api = get_session_state(self.page).api_client
+        sessions = await api.get("/api/v1/auth/sessions")
+        if sessions is None:
+            self._render_error("Could not load sessions.")
+            return
+        if not isinstance(sessions, list):
+            self._render_error("Unexpected response shape from /auth/sessions.")
+            return
+        self._render_sessions(sessions)
+
+    def _render_header(self, sessions: list[dict[str, Any]]) -> ft.Row:
+        """Trailing-aligned action cluster: refresh + "sign out
+        everywhere else." The bulk-revoke button is enabled only when
+        there is at least one revocable (non-current) session."""
+        others = [s for s in sessions if not s.get("is_current", False)]
+        return ft.Row(
+            [
+                ft.Container(expand=True),
+                ft.TextButton(
+                    text="Sign out everywhere else",
+                    icon=ft.Icons.LOGOUT,
+                    on_click=self._on_revoke_others_click,
+                    disabled=not others,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH,
+                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                    tooltip="Refresh sessions",
+                    on_click=self._on_refresh_click,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.END,
+            spacing=Theme.Spacing.SM,
+        )
+
+    def _render_sessions(self, sessions: list[dict[str, Any]]) -> None:
+        self._content_column.controls = [
+            self._render_header(sessions),
+            SessionsTableSection(sessions, on_revoke=self._on_revoke_session),
+        ]
+        self._content_column.scroll = ft.ScrollMode.AUTO
+        self._content_column.spacing = 0
+        self.update()
+
+    def _render_error(self, message: str) -> None:
+        self._content_column.controls = [
+            ft.Container(
+                content=ft.Icon(
+                    ft.Icons.ERROR_OUTLINE,
+                    size=48,
+                    color=Theme.Colors.ERROR,
+                ),
+                alignment=ft.alignment.center,
+                padding=Theme.Spacing.MD,
+            ),
+            ft.Container(
+                content=H3Text("Failed to load sessions"),
+                alignment=ft.alignment.center,
+            ),
+            ft.Container(
+                content=SecondaryText(message),
+                alignment=ft.alignment.center,
+            ),
+        ]
+        self._content_column.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        self.update()
+
+    def _render_unavailable(self) -> None:
+        self._content_column.controls = [
+            ft.Container(height=40),
+            ft.Icon(
+                ft.Icons.DEVICES_OTHER,
+                size=64,
+                color=ft.Colors.OUTLINE,
+            ),
+            ft.Container(height=Theme.Spacing.MD),
+            H3Text("Active Sessions Unavailable"),
+            ft.Container(height=Theme.Spacing.SM),
+            SecondaryText("Database backend required for session listing."),
+        ]
+        self._content_column.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        self._content_column.alignment = ft.MainAxisAlignment.START
+        self.update()
+
+    async def _on_refresh_click(self, e: ft.ControlEvent) -> None:
+        self._content_column.controls = [
+            ft.Container(
+                content=ft.ProgressRing(width=32, height=32),
+                alignment=ft.alignment.center,
+                padding=Theme.Spacing.XL,
+            ),
+            ft.Container(
+                content=SecondaryText("Refreshing..."),
+                alignment=ft.alignment.center,
+            ),
+        ]
+        self._content_column.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        self._content_column.spacing = Theme.Spacing.MD
+        self.update()
+        await self._load_sessions()
+
+    def _on_revoke_session(self, session: dict[str, Any]) -> None:
+        page = self.page
+        if not page:
+            return
+
+        session_id = session["id"]
+        title, body = ui_auth.revoke_session_confirmation(session.get("user_agent"))
+
+        async def do_revoke() -> None:
+            await self._revoke_session(session_id)
+
+        ConfirmDialog(
+            page=page,
+            title=title,
+            message=body,
+            confirm_text="Sign out",
+            on_confirm=do_revoke,
+            destructive=True,
+        ).show()
+
+    def _on_revoke_others_click(self, e: ft.ControlEvent) -> None:
+        page = self.page
+        if not page:
+            return
+
+        async def do_revoke_all() -> None:
+            await self._revoke_other_sessions()
+
+        ConfirmDialog(
+            page=page,
+            title="Sign out everywhere else",
+            message=(
+                "Sign out all other devices? Each is signed out on its next request."
+            ),
+            confirm_text="Sign out others",
+            on_confirm=do_revoke_all,
+            destructive=True,
+        ).show()
+
+    async def _revoke_session(self, session_id: str) -> None:
+        api = get_session_state(self.page).api_client
+        status, body = await api.request_with_status(
+            "DELETE", f"/api/v1/auth/sessions/{session_id}"
+        )
+        if status == 204:
+            SuccessSnackBar("Device signed out").launch(self.page)
+            await self._load_sessions()
+        else:
+            detail = (
+                body.get("detail")
+                if isinstance(body, dict) and body.get("detail")
+                else f"status {status}"
+            )
+            ErrorSnackBar(f"Sign out failed: {detail}").launch(self.page)
+
+    async def _revoke_other_sessions(self) -> None:
+        api = get_session_state(self.page).api_client
+        status, body = await api.request_with_status("DELETE", "/api/v1/auth/sessions")
+        if status == 200 and isinstance(body, dict):
+            count = body.get("revoked", 0)
+            SuccessSnackBar(f"Signed out {count} other device(s)").launch(self.page)
+            await self._load_sessions()
+        else:
+            detail = (
+                body.get("detail")
+                if isinstance(body, dict) and body.get("detail")
+                else f"status {status}"
+            )
+            ErrorSnackBar(f"Sign out failed: {detail}").launch(self.page)
