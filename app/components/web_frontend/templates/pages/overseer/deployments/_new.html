@@ -1,0 +1,57 @@
+{# Overseer > Deployments > New server (overseer_deployments._steps_context): the
+   steps to a server, each read from what is true (the agent's heartbeat,
+   a token, the records): done ones in a line, the one at hand (and the
+   optional Domain, whose provider can change) open. A
+   deployed server, or a project with a server already, says where to go
+   instead. #}
+{% from "components/macros/layout.html" import badge, card %}
+{% from "pages/overseer/deployments/_macros.html" import agent_note, by_hand, deployed_card, job_panel, note, picker, step %}
+{% from "pages/overseer/secrets/_macros.html" import row_actions with context %}
+{# One provider's keys, each as Overseer > Secrets shows it (held or not,
+   set here through its dialog, which comes back, or changed in .env); a
+   cloud the deploy agent holds a token for says so. #}
+{% macro keys(attr, d) %}
+<div data-{{ attr }}="{{ d.key }}" class="space-y-2">
+  {% for k in d.secrets %}
+  {% set held = k.held or d.elsewhere %}
+  <p data-key="{{ k.name }}" class="flex flex-wrap items-center gap-2 text-sm">{{ badge("set" if held else "not set", "ok" if held else "muted") }}<code class="font-mono text-aegis-text">{{ k.name }}</code>{% if d.elsewhere and not k.held %}<span class="text-xs text-aegis-muted">where the deploy agent runs</span>{% elif not writable and not held %}<span class="text-xs text-aegis-muted">in <code class="font-mono">.env</code>, or where the deploy agent runs</span>{% elif k.url %}{{ row_actions(k) }}{% endif %}</p>
+  {% endfor %}
+</div>
+{% endmacro %}
+{% if actions.view == "deployed" %}
+{{ deployed_card(actions) }}
+{% elif actions.view == "has-server" %}
+{% call card("Put it on a server", id="card-deploy") %}
+<p data-deploy-state="has-server" class="{{ note() }}">This project deploys to {{ actions.server.name }} already: deploy, back up and roll back it from the <a href="{{ overview_url }}" {{ hx_replace(overview_url, "#overseer-main") }} class="text-aegis-teal hover:underline">Overview</a>.</p>
+{% endcall %}
+{% else %}
+{% call card("Put it on a server", id="card-deploy") %}
+<ol data-steps x-data="{ cloud: '{{ actions.cloud_choice }}', dns: '{{ actions.dns_choice }}' }" class="space-y-5">
+  {% for s in actions.steps %}
+  {% call step(loop.index, s) %}
+  {% if s.key == "agent" %}
+  {{ agent_note(actions.agent) }}
+  {% elif s.key == "domain" %}
+  <p class="{{ note() }}">A name of your own (like <code class="font-mono text-aegis-text">app.example.com</code>) needs the DNS provider that holds the domain, and its keys, so the server's record is made for you. Without one, it gets an sslip.io name.</p>
+  {{ picker("DNS provider", "dns", actions.dns, actions.dns_choice, nothing="None (an sslip.io name)") }}
+  {{ by_hand(actions.dns, "dns", model="dns") }}
+  {% for d in actions.dns %}<div x-show="dns === '{{ d.key }}'">{{ keys("dns", d) }}</div>{% endfor %}
+  {% elif s.key == "server" %}
+  {{ picker("Cloud", "cloud", actions.clouds, actions.cloud_choice) }}
+  {{ by_hand(actions.clouds, "cloud", model="cloud") }}
+  {% for d in actions.clouds %}
+  <div data-for="{{ d.key }}" x-show="cloud === '{{ d.key }}'" class="space-y-3">
+    {{ keys("cloud", d) }}
+    {% if d.form %}{% with p = d.form %}{% include "pages/overseer/deployments/_provision.html" %}{% endwith %}
+    {% elif d.held %}<p class="{{ note() }}">Start the deploy agent (the first step) to create a server on {{ d.name }}.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <p class="text-xs text-aegis-muted">Creating it also deploys the app there, with HTTPS.</p>
+  {{ job_panel(actions) }}
+  {% endif %}
+  {% endcall %}
+  {% endfor %}
+</ol>
+{% endcall %}
+{% endif %}

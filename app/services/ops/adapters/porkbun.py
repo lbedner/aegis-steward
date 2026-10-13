@@ -32,12 +32,14 @@ from app.services.ops.types import (
     ForwardingRule,
     RetrievedRecord,
 )
+from app.services.system import hosting
 
 logger = logging.getLogger(__name__)
 
 PORKBUN_BASE_URL = "https://api.porkbun.com/api/json/v3"
 PORKBUN_TIMEOUT_S = 30.0
-PORKBUN_KEYS = ("PORKBUN_API_KEY", "PORKBUN_SECRET_KEY")
+# Its key pair, as the provider table names it (``providers.json``).
+PORKBUN_KEYS = hosting.BY_KEY["porkbun"].keys
 
 
 # ----------------------------------------------------------------------
