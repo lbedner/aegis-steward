@@ -31,6 +31,7 @@ from app.components.deploy.protocol import (
     RefusedError,
     checked_token,
     kept_key,
+    record_dns_provider,
     token_provider,
     validate,
 )
@@ -109,15 +110,16 @@ def _verify(url: str) -> Callable[[str], Awaitable[None]]:
     return verify
 
 
-# What this module reads (``app.core.secrets``): each provider's API token.
+# What this module reads (``app.core.secrets``): each provider's API token,
+# a cloud's or a DNS provider's (Porkbun's pair is ``porkbun_keys``).
 SECRETS = tuple(
     Secret(
         p.token,
-        owner="Deploy",
+        owner=f"DNS ({p.name})" if "DNS" in p.can else "Deploy",
         label=f"{p.name} API token",
         verify=_verify(p.check) if p.check else None,
     )
-    for p in hosting.PROVISIONABLE
+    for p in hosting.PROVIDERS
     if p.token
 )
 
@@ -167,10 +169,27 @@ async def _token(action: str, args: dict[str, str]) -> str | None:
     agent will check it; None where it needs none or the app has none."""
     record = hosting.deploy_config().get("provision") or {}
     key = token_provider(action, args, record)
-    provider = next((p for p in hosting.PROVISIONABLE if p.key == key), None)
-    if provider is None or provider.token is None:
+    found = hosting.provider(key)
+    if found is None or found not in hosting.PROVISIONABLE or found.token is None:
         return None
-    return checked_token(action, await secrets.get(provider.token))
+    return checked_token(action, await secrets.get(found.token))
+
+
+async def _dns_keys(action: str, args: dict[str, str]) -> dict[str, str]:
+    """The DNS provider's keys ``action`` carries: the provider a provision
+    on a domain names (``dns``), else the one the provisioned server's
+    record was made at; nothing for an action that needs none (a provision
+    with no domain), or keys the app lacks."""
+    if not PROTOCOL["actions"][action].get("dns"):
+        return {}
+    if action == "provision" and not args.get("domain"):
+        return {}
+    record = hosting.deploy_config().get("provision") or {}
+    found = hosting.provider(args.get("dns") or record_dns_provider(record))
+    if found is None or found not in hosting.DNS:
+        return {}
+    held = await secrets.get_many(*found.secrets)
+    return {name: value for name in found.secrets if (value := held.get(name))}
 
 
 async def enqueue(action: str, args: dict[str, str], by: str) -> str:
@@ -189,6 +208,8 @@ async def enqueue(action: str, args: dict[str, str], by: str) -> str:
     }
     if token := await _token(action, args):
         request["token"] = token
+    if dns := await _dns_keys(action, args):
+        request["dns_keys"] = dns
     async with _redis() as client:
         await RedisJobStore(client).create(job_id, f"{JOB_PREFIX}{action}", WAITING)
         await client.rpush(REQUESTS, json.dumps(request))
@@ -208,8 +229,11 @@ async def agent() -> dict[str, Any] | None:
 
 def stale(beat: dict[str, Any]) -> bool:
     """Whether the listening agent (``beat``) is older than this app: it
-    does not name an action the app asks for."""
-    return not set(PROTOCOL["actions"]) <= set(beat.get("actions") or ())
+    does not name an action the app asks for, or speaks an older revision
+    of the protocol."""
+    return beat.get("revision", 1) < PROTOCOL["revision"] or not set(
+        PROTOCOL["actions"]
+    ) <= set(beat.get("actions") or ())
 
 
 async def _kept(key: str) -> dict[str, Any] | None:

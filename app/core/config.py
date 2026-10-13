@@ -502,7 +502,6 @@ class Settings(
 
     # Operations / registrar configuration (always present — the `dns` CLI and the
     # ops/ adapters ride alongside any component selection).
-    #
     # Porkbun registrar API keys — used by the `dns` CLI and by ``app/services/ops/``
     # to read and write DNS records. Grab them at porkbun.com/account/api. Strongly
     # recommend the per-domain "API ACCESS" toggle inside each domain's detail page
@@ -518,6 +517,7 @@ class Settings(
 
     HCLOUD_TOKEN: str | None = None  # aegis deploy-agent's, one per provider
     DIGITALOCEAN_TOKEN: str | None = None
+    CLOUDFLARE_API_TOKEN: str | None = None  # names a server by DNS
 
     # Communications Service Configuration
     # Email (Resend) - Sign up at https://resend.com (free: 100 emails/day)
