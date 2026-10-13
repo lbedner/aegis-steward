@@ -33,6 +33,8 @@ def serve_kwargs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, A
     monkeypatch.delenv("AEGIS_STACK_ENV_FILE", raising=False)
     monkeypatch.delenv("ENGINE", raising=False)
     monkeypatch.delenv("WEBSERVER_ENGINE", raising=False)
+    # No aegis CLI unless a test puts one there: never a real deploy agent.
+    monkeypatch.setattr(dev_tasks.shutil, "which", lambda _: None)
     return captured
 
 
@@ -108,3 +110,64 @@ class TestThePlaidTunnel:
 
         expected = ["dev", "plaid"] if tunnel else ["dev"]
         assert self._profiles(serve_kwargs["cmd"]) == expected
+
+
+class TestTheDeployAgent:
+    """``make serve`` runs ``aegis deploy-agent`` beside the stack, so
+    Overseer > Deployments can act with nothing else to start; it stops
+    with the stack."""
+
+    class _Agent:
+        def __init__(self, cmd: list[str], env: dict[str, str]) -> None:
+            self.cmd, self.env, self.stopped = cmd, env, False
+
+        def terminate(self) -> None:
+            self.stopped = True
+
+        def wait(self) -> int:
+            return 0
+
+    def _started(self, monkeypatch: pytest.MonkeyPatch) -> list[_Agent]:
+        started: list[TestTheDeployAgent._Agent] = []
+
+        def popen(cmd: list[str], env: dict[str, str]) -> TestTheDeployAgent._Agent:
+            started.append(self._Agent(cmd, env))
+            return started[-1]
+
+        monkeypatch.setattr(dev_tasks.subprocess, "Popen", popen)
+        return started
+
+    def test_serve_runs_it_and_stops_it_with_the_stack(
+        self, serve_kwargs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(dev_tasks.shutil, "which", lambda _: "/bin/aegis")
+        started = self._started(monkeypatch)
+
+        dev_tasks.serve()
+
+        assert [a.cmd for a in started] == [["/bin/aegis", "deploy-agent"]]
+        assert started[0].env == serve_kwargs["env"]
+        assert started[0].stopped
+
+    def test_without_the_cli_serve_says_how_to_get_it(
+        self,
+        serve_kwargs: dict[str, Any],
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        started = self._started(monkeypatch)
+
+        dev_tasks.serve()
+
+        assert not started
+        assert "aegis" in capsys.readouterr().out
+
+    def test_in_the_background_it_is_left_to_you(
+        self, serve_kwargs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(dev_tasks.shutil, "which", lambda _: "/bin/aegis")
+        started = self._started(monkeypatch)
+
+        dev_tasks.serve(detach=True)
+
+        assert not started

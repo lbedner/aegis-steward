@@ -12,8 +12,11 @@ shared with the route's, so it costs no query; the session it opens closes
 when the handler returns, before a stream's body is sent (FastAPI 0.116,
 pinned in pyproject), so a stream holds no connection.
 
-Without auth, Overseer is open: whoever reaches the app may use it, its
-writes included, like any route a stack serves without auth.
+Without auth, Overseer is open to read: whoever reaches the app may use
+it, like any route a stack serves without auth. Its writes (every method
+but a read, ``overseer_gate``; ``overseer_actor`` and the API's
+``get_admin_actor`` too) are made only on the local dev build
+(``operator_refusal``), and their controls hidden elsewhere.
 """
 
 from datetime import UTC, datetime
@@ -138,5 +141,6 @@ async def user_names(db: Any, ids: list[str]) -> dict[str, str]:
 
 async def overseer_actor(user: Viewer = Depends(viewer)) -> Actor:
     """Who makes an Overseer change (a secret set, a post written): the
-    page-side twin of the API's ``get_admin_actor``."""
+    page-side twin of the API's ``get_admin_actor`` (the gate has already
+    let only admins through), reading the viewer the gate read."""
     return actor_of(user)

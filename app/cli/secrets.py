@@ -14,11 +14,9 @@ import typer
 
 from app.cli import theme
 
-secrets_app = typer.Typer(help="The key that protects stored secrets")
 console = theme.console()
 
 
-@secrets_app.command("rekey")
 def rekey(
     from_secret_key: bool = typer.Option(
         False,

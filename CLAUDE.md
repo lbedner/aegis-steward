@@ -22,6 +22,7 @@ Selected capabilities:
 - AI (pydantic-ai): chat and LLM capabilities.
 - Finance: account and transaction tracking.
 - Comms: email, SMS, and voice.
+- Secrets: encrypted credential store; read keys with `await secrets.get(name)`.
 - Deploy (compose): the socket-proxy service gives `app.core.runtime` read-only Docker access.
 - Ingress: reverse proxy and TLS.
 

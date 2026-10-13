@@ -74,6 +74,11 @@ async def startup_hook() -> None:
 
     register_health_check(ComponentName.INGRESS, check_ingress_health)
     logger.info("Ingress component health check registered")
+    # Register secrets component health check (store installed, counts)
+    from app.components.secrets.health import check_secrets_health
+
+    register_health_check(ComponentName.SECRETS, check_secrets_health)
+    logger.info("Secrets component health check registered")
 
     logger.info("Component health detection complete")
 

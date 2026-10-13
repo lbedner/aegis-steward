@@ -57,6 +57,18 @@ def _plaid_configured() -> bool:
     return env_file.exists() and bool(dotenv_values(env_file).get("PLAID_CLIENT_ID"))
 
 
+def _start_deploy_agent(env: dict[str, str]) -> subprocess.Popen[bytes] | None:
+    """``aegis deploy-agent`` beside the stack, so Overseer > Deployments can
+    act: it runs the deploy commands here, where the cloud token and SSH key
+    are, and waits for Redis on its own. None, saying how to get it, when
+    the aegis CLI is not installed."""
+    aegis = shutil.which("aegis")
+    if aegis is None:
+        print("Overseer deploys need the aegis CLI: uv tool install aegis-stack")
+        return None
+    return subprocess.Popen([aegis, "deploy-agent"], env=env)
+
+
 def serve(*, detach: bool = False) -> None:
     print(
         "Starting services in background..."
@@ -81,7 +93,13 @@ def serve(*, detach: bool = False) -> None:
     cmd = [*_COMPOSE_DEV, *profiles, "up", "--remove-orphans"]
     if detach:
         cmd.append("-d")
-    subprocess.run(cmd, env=env, check=True)
+    agent = None if detach else _start_deploy_agent(env)
+    try:
+        subprocess.run(cmd, env=env, check=True)
+    finally:
+        if agent is not None:
+            agent.terminate()
+            agent.wait()
 
 
 def serve_bg() -> None:

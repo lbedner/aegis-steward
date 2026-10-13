@@ -31,6 +31,7 @@ OWNERS = (
     "app.components.worker.runtime",
     "app.services.load_test.worker.runs",
     "app.services.system.errors.store",
+    "app.components.deploy.agent",
     # Last: the shared cache claims whatever is left in its database.
     "app.services.system.ui_cache",
 )
@@ -248,6 +249,8 @@ async def peek(index: int) -> dict[str, Any] | None:
     if not 0 <= index < len(declared):
         return None
     family = declared[index]
+    if not family.peek:
+        return {"key": None, "columns": list(family.columns), "rows": []}
     client = redis_client(int(getattr(settings, family.db, 0)))
     try:
         keys = await _scan(client, family.pattern)

@@ -28,6 +28,8 @@ class TestSchedulerEndpoints:
         actually live) instead of the real asyncpg pool.
         """
         from app.core.db import get_async_db
+        from app.services.shared.deps import get_admin_actor
+        from tests._audit import ADMIN
 
         app = create_integrated_app()
 
@@ -35,6 +37,8 @@ class TestSchedulerEndpoints:
             yield async_db_session
 
         app.dependency_overrides[get_async_db] = _get_test_async_db
+        # Run-now is an operator's change: admins only.
+        app.dependency_overrides[get_admin_actor] = lambda: ADMIN
 
         # Manually trigger startup for component registration
         from app.components.backend.hooks import backend_hooks

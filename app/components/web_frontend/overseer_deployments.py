@@ -1,14 +1,16 @@
-"""Overseer > Deployments: where it runs (the provider, ``hosting``) and
-where it can, what is live (build, commit, when it went live, health), the
+"""Overseer > Deployments: where it runs (the provider, ``hosting``),
+what is live (build, commit, when it went live, health), the
 host it runs on, and the database backups beside it, from
-``ui_deployments``. Read-only; the deploy history joins it with deploy
-records."""
+``ui_deployments``; the deploy history joins it with deploy records. Its
+actions (a new server, deploy, back up, roll back, destroy) are
+``overseer_deploy_actions``."""
 
 from typing import Any
 
 from app.services.system import hosting, ui_deployments
 from app.services.system.models import ComponentStatus
 
+from . import overseer_deploy_actions
 from .overseer_nav import NavItem, SectionRequest
 from .rendering import columns, status_cell
 
@@ -56,14 +58,10 @@ async def section_context(
             "backups": ui_deployments.backups(),
             "backup_columns": BACKUP_COLUMNS,
         }
-    running = await hosting.running_on()
-    target = hosting.deploys_to()
-    current = running["key"] or (target or {}).get("key")
     return {
-        "section_subtitle": "What is live, and where it runs.",
-        "running": running,
-        "target": target,
-        "providers": hosting.providers(current),
+        "section_subtitle": "What is live, where it runs, and how to put it on a server.",
+        "running": await hosting.running_on(),
         "now": await ui_deployments.now(),
         "host": await ui_deployments.host(),
+        "actions": await overseer_deploy_actions.context(),
     }

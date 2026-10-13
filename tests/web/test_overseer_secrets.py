@@ -104,6 +104,18 @@ def test_it_says_how_values_change(page: str) -> None:
     assert "restart" in text(one(page, "#secrets-backend")).lower()
 
 
+def test_without_a_store_it_says_how_to_get_one(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its own line, in the body's colour, not the note's muted one."""
+    monkeypatch.setattr(secrets, "_store", None)
+    monkeypatch.setattr(secrets, "_discovered", True)
+    sign_in(app, monkeypatch, status_with(SECRETS_ENTRY))
+    page = TestClient(app).get("/overseer/secrets").text
+    line = text(one(page, "#secrets-backend [data-add-store]"))
+    assert line == "Add the secrets component to set them here instead."
+
+
 @pytest.fixture
 def writable(
     app: FastAPI, monkeypatch: pytest.MonkeyPatch
@@ -124,9 +136,8 @@ def test_a_settable_secret_offers_set_and_one_in_env_does_not(
 ) -> None:
     client, _ = writable
     html = client.get("/overseer/secrets").text
-    assert (
-        one(html, f'#secrets button[hx-get="{PARTIALS}/ANTHROPIC_API_KEY"]') is not None
-    )
+    setter = one(html, f'#secrets button[hx-get="{PARTIALS}/ANTHROPIC_API_KEY"]')
+    assert setter.get("data-write") is not None  # ``operator_refusal``
     assert not select(html, f'#secrets button[hx-get="{PARTIALS}/OPENAI_API_KEY"]')
     assert "change it in .env" in _row(html, "OPENAI_API_KEY").lower()
 

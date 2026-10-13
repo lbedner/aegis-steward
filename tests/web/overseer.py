@@ -99,7 +99,9 @@ def sign_in(
     """Serve Overseer pages from ``status`` to a signed-in user: an admin
     (on the allowlist, and the admin role under RBAC) unless ``admin`` is
     False, which signs in an ordinary member the Overseer refuses. Without
-    auth there is nobody to sign in."""
+    auth there is nobody to sign in: the viewer is the local dev build's
+    operator, whose writes the gate and ``get_admin_actor`` let through;
+    ``admin=False`` leaves them to the real rule (``operator_refusal``)."""
     # Every Overseer route module that reads the snapshot sees this one.
     for module in (overseer, overseer_nav):
         monkeypatch.setattr(module, "last_system_status", lambda: status)

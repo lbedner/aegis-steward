@@ -30,6 +30,7 @@ from app.components.web_frontend.nav import NAV, section
 from app.core import series
 from app.core.config import settings
 from app.services.finance.constants import account_sections
+from app.services.shared.deps import operator_refusal
 from app.services.system import topology, ui_runtime
 
 templates = Jinja2Templates(directory=str(COMPONENT_DIR / "templates"))
@@ -58,9 +59,8 @@ from app.services.finance.constants import ACCOUNT_THINGS  # noqa: E402
 
 templates.env.globals["named"] = ACCOUNT_THINGS
 templates.env.globals["project_description"] = settings.PROJECT_DESCRIPTION
-# Whether the auth service is wired up. Templates gate sign-in affordances
-# on this at render time. AUTH_ENABLED is False when the service was not
-# selected.
+# Whether the auth service is wired up. Templates gate sign-in affordances on this at
+# render time. AUTH_ENABLED is False when the service was not selected.
 templates.env.globals["auth_enabled"] = settings.AUTH_ENABLED
 
 
@@ -71,11 +71,12 @@ def registration_enabled() -> bool:
 
 
 templates.env.globals["registration_enabled"] = registration_enabled
+# Why a request may not make an operator's change; the Overseer hides its writes by it.
+templates.env.globals["operator_refusal"] = operator_refusal
 templates.env.globals["email_flows_enabled"] = (
     settings.AUTH_ENABLED and settings.AUTH_LEVEL != "basic"
 )
-# A container's live figures by name (CPU, Memory...), as Flet and the
-# charts name them.
+# A container's live figures by name (CPU, Memory...), as Flet and the charts name them.
 templates.env.globals["figure_names"] = ui_runtime.FIGURES
 # What each map node is (a store, the queue, an outside provider), by name.
 templates.env.globals["map_roles"] = topology.Role
@@ -105,9 +106,8 @@ templates.env.globals["account_glyph"] = account_glyph
 templates.env.globals["file_badge"] = file_badge
 templates.env.globals["file_badge_table"] = file_badge_table
 
-# The matters vocabulary: every string those pages say comes from one
-# module, so a status spelled in a template cannot drift from the same
-# status spelled in another.
+# The matters vocabulary: every string those pages say comes from one module, so a
+# status spelled in a template cannot drift from the same status spelled in another.
 from app.services.matters.words import (  # noqa: E402
     fact_attributes,
     item_status,

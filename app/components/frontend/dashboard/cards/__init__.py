@@ -11,6 +11,7 @@ from .ingress_card import IngressCard
 from .ollama_card import OllamaCard
 from .redis_card import RedisCard
 from .scheduler_card import SchedulerCard
+from .secrets_card import SecretsCard
 from .server_card import ServerCard
 from .services_card import ServicesCard
 from .worker_card import WorkerCard
@@ -25,6 +26,7 @@ __all__ = [
     "ServicesCard",
     "DatabaseCard",
     "IngressCard",
+    "SecretsCard",
     "OllamaCard",
     "RedisCard",
     "SchedulerCard",

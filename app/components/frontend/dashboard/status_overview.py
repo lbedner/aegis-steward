@@ -85,6 +85,9 @@ def get_component_display_info(
         )
         return ("Ingress", subtitle)
 
+    elif component_name == ComponentName.SECRETS:
+        return ("Secrets", get_component_subtitle(ComponentName.SECRETS, metadata))
+
     elif component_name == ComponentName.FRONTEND:
         return ("Frontend", "Flet")
 
@@ -195,6 +198,7 @@ class StatusOverviewPanel(ft.Container):
             DOCUMENTS_MODAL_ID,
             f"service_{FINANCE_COMPONENT_NAME}",
             ComponentName.INGRESS,
+            ComponentName.SECRETS,
         ]
 
         # Build rows in order

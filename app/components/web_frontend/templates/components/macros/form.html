@@ -374,9 +374,9 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 </div>
 {% endmacro %}
 
-{% macro text_input(name, value=None, placeholder="", required=False, autofocus=False, type="text", remember=True) %}
+{% macro text_input(name, value=None, placeholder="", required=False, autofocus=False, type="text", remember=True, pattern=None) %}
 <input type="{{ type }}" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}"
-       {% if required %}required{% endif %} {% if autofocus %}autofocus{% endif %} {% if not remember %}autocomplete="off"{% endif %}
+       {% if required %}required{% endif %} {% if autofocus %}autofocus{% endif %} {% if not remember %}autocomplete="off"{% endif %} {% if pattern %}pattern="{{ pattern }}"{% endif %}
        class="{{ control("input") }} w-full mt-1">
 {% endmacro %}
 

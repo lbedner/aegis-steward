@@ -13,7 +13,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.backend.api.ai.router import ai_service
-from app.components.web_frontend.filters import markdown
+from app.components.web_frontend.markup import markdown
 from app.components.web_frontend.routes import chat
 from app.core.chat_transcript import (
     IMAGE_TYPES,

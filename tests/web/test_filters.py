@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import FastAPI
 import pytest
 
+from app.components.web_frontend.filters import exactly
 from app.components.web_frontend.rendering import templates
 from app.services.system.models import ComponentStatus
 from tests.web.dom import select, text
@@ -179,7 +180,7 @@ def test_a_message_sets_the_settings_and_secrets_it_names_as_code() -> None:
     """A health message naming a setting or secret (``BUILD_ID``, ships
     with every stack) shows it as a docstring shows a literal; an upper-case
     word nothing declares is left alone, and the rest is escaped."""
-    from app.components.web_frontend.filters import message
+    from app.components.web_frontend.markup import message
 
     html = f"<p>{message('BUILD_ID not set, OK <now>')}</p>"
     assert [text(code) for code in select(html, "code")] == ["BUILD_ID"]  # not OK
@@ -189,7 +190,7 @@ def test_a_message_sets_the_settings_and_secrets_it_names_as_code() -> None:
 def test_a_message_keeps_its_own_lines() -> None:
     """A driver's error is several lines (the statement it ran apart): each
     stays one, wherever the message shows."""
-    from app.components.web_frontend.filters import message
+    from app.components.web_frontend.markup import message
 
     found = message("database is locked\n[SQL: BEGIN]")
     html = f"<p>{found}</p>"
@@ -212,3 +213,11 @@ def test_every_health_message_on_overseer_shows_the_names_it_mentions(
     ):
         html = page_html(TestClient(app), path)
         assert "BUILD_ID" in [text(code) for code in select(html, "code")], path
+
+
+def test_exactly_is_a_pattern_for_that_text_alone() -> None:
+    """Regex syntax escaped, nothing else: the browser compiles a pattern
+    with the v flag, where a needless escape (``\\-``) is an error that
+    drops the check."""
+    assert exactly("12.00") == r"12\.00"
+    assert exactly("my-app (1)") == r"my-app \(1\)"
