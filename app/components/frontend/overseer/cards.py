@@ -28,6 +28,7 @@ from ..dashboard.cards import (
     OllamaCard,
     RedisCard,
     SchedulerCard,
+    SecretsCard,
     ServerCard,
     ServicesCard,
     WorkerCard,
@@ -125,6 +126,9 @@ def create_component_card(component_name: str, component_data: Any) -> ft.Contai
 
         elif component_name == ComponentName.INGRESS:
             return IngressCard(component_data).build()
+
+        elif component_name == ComponentName.SECRETS:
+            return SecretsCard(component_data).build()
 
         elif component_name == ComponentName.OLLAMA:
             return OllamaCard(component_data).build()

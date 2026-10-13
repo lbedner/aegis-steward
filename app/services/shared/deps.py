@@ -2,13 +2,17 @@
 
 ``get_owner_user_id`` centralizes owner scoping in one place: it requires a
 signed-in user and scopes them to the household (``None``) - so route
-handlers stay auth-agnostic and never repeat the auth guard per endpoint. ``get_admin_actor`` does the same for
-an operator's change: an admin with auth, anyone without.
+handlers stay auth-agnostic and never repeat the auth guard per endpoint.
+``get_admin_actor`` does the same for an operator's change (a restart, a
+secret set, a deploy): an admin with auth; without it, only where
+``operator_refusal`` allows. Every write action depends on it (or on
+Overseer's page-side twin, ``overseer_actor``), and a UI hides its write
+controls where ``operator_refusal`` says why not.
 """
 
 from dataclasses import dataclass
 
-from fastapi import Depends
+from fastapi import Depends, Request
 
 from app.models.user import User
 from app.services.auth.deps import (
@@ -16,11 +20,17 @@ from app.services.auth.deps import (
     require_admin,
 )
 
+NO_AUTH_REFUSAL = (
+    "Read only: with no auth service, operator changes are made only on the "
+    "local dev build, at localhost. Add auth (aegis add auth) to make them "
+    "here as an admin."
+)
+
 
 @dataclass(frozen=True)
 class Actor:
     """Who made a change: the signed-in user with the auth service; nobody
-    in particular without it, since whoever reaches the app may make it."""
+    in particular without it (the local dev build's own operator)."""
 
     id: int | None = None
     email: str | None = None
@@ -32,11 +42,25 @@ class Actor:
         return self.email or "anonymous"
 
 
+def operator_refusal(request: Request) -> str | None:
+    """Why ``request`` may not make an operator's change, None when it may
+    (``refusal_at`` the address it was sent to, from its page's
+    ``Origin``). A page hides its write controls with this line; the
+    write itself is refused by ``get_admin_actor``."""
+    return refusal_at(str(request.url), request.headers.get("origin"))
+
+
 def actor_of(user: User | None) -> Actor:
     """``user`` as the maker of a change."""
     if user is None:
         return Actor()
     return Actor(user.id, user.email, user.display_name)
+
+
+def refusal_at(url: str, origin: str | None = None) -> str | None:
+    """With auth, an operator's change is an admin's wherever they are
+    (``require_admin``): nothing is refused here."""
+    return None
 
 
 async def get_admin_actor(admin: User = Depends(require_admin)) -> Actor:

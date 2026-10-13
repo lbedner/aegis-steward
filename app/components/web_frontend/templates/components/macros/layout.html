@@ -146,13 +146,14 @@
 {% endmacro %}
 
 
-{# A thin native progress bar; ``tone`` colours it (see badge). #}
+{# A thin native progress bar; ``tone`` colours it (see badge). No
+   ``ratio`` is work under way for as long as it takes: a band sweeps it. #}
 {# The tone travels as TEXT colour: the bar's fill is painted from
    ``currentColor`` (see input.css), because Chrome renders a
    ``<progress>`` its own green whatever ``accent-color`` says - which is
    how every budget limit came out the same shade, the 84% one included. #}
 {% macro progress(ratio, tone="ok", label=None, size="h-1") %}
-<progress value="{{ [1, [0, ratio]|max]|min }}" max="1" {% if label %}aria-label="{{ label }}"{% endif %} data-tone="{{ tone }}" class="w-full {{ size }} {{ TONE_TEXT.get(tone, TONE_TEXT["ok"]) }}"></progress>
+<progress {% if ratio is not none %}value="{{ [1, [0, ratio]|max]|min }}" {% endif %}max="1" {% if label %}aria-label="{{ label }}"{% endif %} data-tone="{{ tone }}" class="w-full {{ size }} {{ TONE_TEXT.get(tone, TONE_TEXT["ok"]) }}"></progress>
 {% endmacro %}
 
 

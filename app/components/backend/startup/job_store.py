@@ -1,4 +1,5 @@
-"""Point the job API at the shared store the worker writes to."""
+"""Point the job API at the shared store the worker and the deploy agent
+write to."""
 
 from app.core.log import logger
 from app.services.system.job_store import RedisJobStore

@@ -1,6 +1,6 @@
-"""Overseer's write actions through the socket proxy: an admin (anyone,
-without auth) restarts one of this app's containers, and every attempt is
-audited (who, what, when, and how it went)."""
+"""Overseer's write actions through the socket proxy: an admin (without
+auth, the local dev build: ``operator_refusal``) restarts one of this app's
+containers, and every attempt is audited (who, what, when, and how it went)."""
 
 from fastapi.testclient import TestClient
 import pytest

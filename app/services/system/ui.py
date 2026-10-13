@@ -102,6 +102,7 @@ def get_component_label(component_name: str) -> str:
         "service_documents": "Document store",
         "service_finance": "Aggregator",
         ComponentName.INGRESS: "Traefik",
+        ComponentName.SECRETS: "Encrypted store",
     }
     return mapping.get(component_name, component_name.replace("_", " ").title())
 

@@ -1,0 +1,142 @@
+"""The deploy agent's protocol: the Redis keys, the actions it runs and
+each argument's pattern, and the one check a request must pass.
+
+An action that ``kept`` answers rather than runs a command: the agent
+keeps what it found under that key (``kept_key``) for ``seconds``, for the
+Overseer to read (a provider's ``catalog``, what it sells where; its
+``account``, what runs there now and what it has cost this month; the
+stack's ``footprint``, what its production services take). It is asked
+in the background: not the newest job the Overseer shows (``last``), and
+never from its buttons. An action that acts on an account (``token``) and
+runs a command changes what it runs, so the agent forgets the kept
+``account`` after it.
+
+An action marked ``token`` acts on a cloud provider's account (the one it
+names, or the provisioned server's), and its request may carry the app's
+token for it (``app.core.secrets``) as its own field, never in ``args``,
+which are audited and echoed. The agent prefers it to its own environment's.
+
+The app (``agent.py``) checks a request before queueing it and ``aegis
+deploy-agent`` checks it again before running it; both use this module,
+which the CLI loads out of the template it ships. So it imports nothing
+but the standard library.
+"""
+
+import re
+from typing import Any
+
+PROTOCOL: dict[str, Any] = {
+    "requests": "deploy:requests",
+    "heartbeat": "deploy:agent",
+    "last": "deploy:last",
+    "beat_seconds": 10,
+    "stale_seconds": 300,
+    # A provider API token: its own characters only, so it can travel in an
+    # environment variable and nothing else rides along with it.
+    "token": r"[A-Za-z0-9._~+/=:-]{8,512}",
+    "args": {
+        "provider": "[a-z0-9][a-z0-9-]{0,31}",
+        "size": "[a-z0-9][a-z0-9-]{0,39}",
+        "region": "[a-z0-9][a-z0-9-]{0,31}",
+        "domain": r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}",
+        "email": r"[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}",
+        "price": r"\d{1,6}\.\d{2}",
+        "backup": r"\d{4}-\d{2}-\d{2}_\d{6}",
+        "confirm": "[a-z0-9][a-z0-9-]{0,62}",
+    },
+    "actions": {
+        "catalog": {
+            "token": True,
+            "required": ["provider"],
+            "kept": "deploy:catalog:{provider}",
+            "seconds": 3600,
+        },
+        "account": {
+            "token": True,
+            "required": ["provider"],
+            "kept": "deploy:account:{provider}",
+            "seconds": 300,
+        },
+        "footprint": {
+            "kept": "deploy:footprint",
+            "seconds": 600,
+        },
+        "provision": {
+            "command": ["deploy-provision", "--yes"],
+            "token": True,
+            "required": ["provider", "size", "region", "price"],
+            "optional": ["domain", "email"],
+        },
+        "deploy": {
+            "command": ["deploy"],
+        },
+        "backup": {
+            "command": ["deploy-backup"],
+        },
+        "backups": {
+            "command": ["deploy-backups"],
+        },
+        "rollback": {
+            "command": ["deploy-rollback"],
+            "optional": ["backup"],
+        },
+        "destroy": {
+            "command": ["deploy-destroy"],
+            "token": True,
+            "required": ["confirm"],
+        },
+    },
+}
+
+
+class RefusedError(ValueError):
+    """A request that will not be run; the message says why."""
+
+
+def validate(action: Any, args: Any) -> dict[str, str]:
+    """``args`` without its empty values, if ``action`` takes exactly them
+    and each matches its pattern; RefusedError otherwise."""
+    spec = PROTOCOL["actions"].get(action) if isinstance(action, str) else None
+    if spec is None or not isinstance(args, dict):
+        raise RefusedError(f"Not an action the deploy agent runs: {action}")
+    required = set(spec.get("required", ()))
+    given = {k: v for k, v in args.items() if v not in (None, "")}
+    wrong = (set(given) - required - set(spec.get("optional", ()))) | (
+        required - set(given)
+    )
+    if wrong:
+        names = ", ".join(sorted(map(str, wrong)))
+        raise RefusedError(f"{action} refused: unexpected or missing {names}")
+    for key, value in given.items():
+        if not isinstance(value, str) or not re.fullmatch(PROTOCOL["args"][key], value):
+            raise RefusedError(f"Refused: {key} is not a valid value.")
+    return given
+
+
+def checked_token(action: str, token: Any) -> str | None:
+    """A request's provider token, None when it carries none; RefusedError
+    for one ``action`` does not take, or anything but a token. The message
+    never repeats it."""
+    if token is None:
+        return None
+    if not PROTOCOL["actions"][action].get("token"):
+        raise RefusedError(f"{action} refused: it takes no provider token.")
+    if not isinstance(token, str) or not re.fullmatch(PROTOCOL["token"], token):
+        raise RefusedError("Refused: the provider token is not a valid token.")
+    return token
+
+
+def kept_key(action: str, args: dict[str, str]) -> str:
+    """Where the agent keeps what a ``kept`` action found."""
+    return PROTOCOL["actions"][action]["kept"].format(**args)
+
+
+def token_provider(
+    action: str, args: dict[str, str], record: dict[str, Any]
+) -> str | None:
+    """Whose token ``action`` needs: the provider it names, else the one
+    the provisioned server is on (``record``, the provision record in
+    ``.aegis/deploy.yml``); None for an action that needs none."""
+    if not PROTOCOL["actions"][action].get("token"):
+        return None
+    return args.get("provider") or record.get("provider")

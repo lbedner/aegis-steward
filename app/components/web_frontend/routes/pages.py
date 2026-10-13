@@ -32,6 +32,9 @@ from app.components.web_frontend.routes.partials import (
     overseer_database as overseer_database_partials,
 )
 from app.components.web_frontend.routes.partials import (
+    overseer_deployments as overseer_deployments_partials,
+)
+from app.components.web_frontend.routes.partials import (
     overseer_documents as overseer_documents_partials,
 )
 from app.components.web_frontend.routes.partials import (
@@ -120,6 +123,7 @@ router.include_router(overseer_comms_partials.router)
 router.include_router(overseer_ai_partials.router)
 router.include_router(overseer_inference_partials.router)
 router.include_router(overseer_worker_partials.router)
+router.include_router(overseer_deployments_partials.router)
 router.include_router(overseer_errors_partials.router)
 router.include_router(overseer_code_partials.router)
 router.include_router(overseer_routes.router)

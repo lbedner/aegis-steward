@@ -20,6 +20,7 @@ from .ingress_modal import IngressDetailDialog
 from .ollama_modal import OllamaDetailDialog
 from .redis_modal import RedisDetailDialog
 from .scheduler_modal import SchedulerDetailDialog
+from .secrets_modal import SecretsDetailDialog
 from .worker_modal import WorkerDetailDialog
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "DatabaseDetailDialog",
     "FrontendDetailDialog",
     "IngressDetailDialog",
+    "SecretsDetailDialog",
     "OllamaDetailDialog",
     "RedisDetailDialog",
     "SchedulerDetailDialog",

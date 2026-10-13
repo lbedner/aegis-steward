@@ -8,7 +8,9 @@ move); nothing answering is ``Local`` before any deploy, ``Self-hosted``
 after. ``deploys_to()``: where this project deploys to, from ``aegis
 deploy-provision``'s record in ``.aegis/deploy.yml``, which stays on the
 machine you deploy from (it is never synced to the server). ``providers()``:
-the providers ``aegis`` knows, and what it can do on each. No UI framework
+the providers ``aegis`` knows, and what it can do on each, from
+``providers.json`` beside this file: the one provider table, which the
+``aegis`` CLI reads too, out of the template it ships. No UI framework
 imports.
 """
 
@@ -39,28 +41,24 @@ class Provider:
     can: tuple[str, ...]  # what aegis does there: Detect, Deploy, Provision
     command: str
     token: str | None = None  # the environment variable the command reads
+    check: str | None = None  # a cheap authenticated GET that tells a token works
+    size: str | None = None  # deploy-provision's default, where it provisions
+    region: str | None = None
+    currency: str | None = None  # what its prices are in
+
+    @property
+    def logo(self) -> str | None:
+        """Its mark (``domain``'s favicon); None draws its initial."""
+        return favicon_url(self.domain) if self.domain else None
 
 
-PROVIDERS = (
-    Provider(
-        "hetzner",
-        "Hetzner Cloud",
-        "hetzner.com",
-        ("Detect", "Deploy", "Provision"),
-        "aegis deploy-provision --provider hetzner",
-        "HCLOUD_TOKEN",
-    ),
-    Provider(
-        "digitalocean",
-        "DigitalOcean",
-        "digitalocean.com",
-        ("Detect", "Deploy"),
-        "aegis deploy",
-    ),
-    Provider("aws", "AWS", "aws.amazon.com", ("Detect", "Deploy"), "aegis deploy"),
-    Provider("server", "Any server", None, ("Deploy",), "aegis deploy"),
+PROVIDERS = tuple(
+    Provider(**{**p, "can": tuple(p["can"])})
+    for p in json.loads(Path(__file__).with_name("providers.json").read_text())
 )
 _BY_KEY = {p.key: p for p in PROVIDERS}
+# Where aegis creates servers, each with the token it needs.
+PROVISIONABLE = tuple(p for p in PROVIDERS if "Provision" in p.can)
 
 _running: dict[str, Any] | None = None
 
@@ -72,7 +70,7 @@ def _where(
     return {
         "key": key,
         "name": name,
-        "logo": favicon_url(provider.domain) if provider and provider.domain else None,
+        "logo": provider.logo if provider else None,
         "facts": [
             (label, str(value)) for label, value in facts if value not in (None, "")
         ],
@@ -181,16 +179,26 @@ async def _detect(transport: httpx.AsyncBaseTransport | None) -> dict[str, Any]:
     return _where(None, name, [], None)
 
 
+def deploy_config(path: Path = DEPLOY_CONFIG) -> dict[str, Any]:
+    """``.aegis/deploy.yml`` (the server, the provision record), or nothing
+    where there is none (on the server, or before any deploy)."""
+    return (yaml.safe_load(path.read_text()) or {}) if path.is_file() else {}
+
+
 def deploys_to(path: Path = DEPLOY_CONFIG) -> dict[str, Any] | None:
-    """Where this project deploys to, from the provision record, or None
-    where there is no record (on the server, or before provisioning)."""
-    if not path.is_file():
-        return None
-    record = (yaml.safe_load(path.read_text()) or {}).get("provision") or {}
+    """Where this project deploys to: the provisioned server (its record),
+    else the server ``aegis deploy-init`` named, by its address; None where
+    there is neither (on the server, or before either)."""
+    config = deploy_config(path)
+    record = config.get("provision") or {}
     key = record.get("provider")
     provider = _BY_KEY.get(key or "")
     if provider is None:
-        return None
+        box = config.get("server") or {}
+        if not box.get("host"):
+            return None
+        facts = [("User", box.get("user")), ("Path", box.get("path"))]
+        return _where(None, box["host"], facts, None)
     return _where(
         key,
         provider.name,
@@ -212,7 +220,7 @@ def providers(current: str | None) -> list[dict[str, Any]]:
         {
             "key": p.key,
             "name": p.name,
-            "logo": favicon_url(p.domain) if p.domain else None,
+            "logo": p.logo,
             "can": list(p.can),
             "command": p.command,
             "token": p.token,

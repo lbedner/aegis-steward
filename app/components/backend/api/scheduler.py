@@ -17,6 +17,7 @@ from app.services.scheduler import (
     import_job_function,
     run_triggered_job,
 )
+from app.services.shared.deps import Actor, get_admin_actor
 
 # Operator-only: scheduled job names + recent stats leak internals
 # (job args may carry user IDs / emails); the run-now action is a
@@ -181,6 +182,8 @@ async def trigger_scheduled_job(
     job_id: str,
     background_tasks: BackgroundTasks,
     manager: ScheduledTaskManager = Depends(get_task_manager),
+    # An operator's change: admins with auth, the local dev build without.
+    _actor: Actor = Depends(get_admin_actor),
 ) -> TriggerJobResponse:
     """Manually trigger a scheduled job to run now, in the background.
 

@@ -1,0 +1,20 @@
+{# The newest deploy job (overseer_deploy_actions.job_context), streamed
+   while the page is open: what it is doing and its output's tail, then
+   how it ended. A provision that failed part way offers the destroy that
+   cleans up after it. #}
+{% from "pages/overseer/deployments/_macros.html" import destroy_form %}
+{% if job %}
+<div data-deploy-job="{{ job.action }}" data-status="{{ job.status }}" class="space-y-3">
+  <p class="text-sm flex flex-wrap items-baseline gap-2">
+    <span class="font-semibold text-aegis-text">{{ job.title }}</span>
+    {% if job.status == "running" %}<span class="text-aegis-muted">{{ job.label }}</span>
+    {% elif job.status == "failed" %}<span data-error class="text-error">{{ job.error }}</span>
+    {% else %}<span class="text-aegis-teal">Done</span>{% endif %}
+  </p>
+  {% if job.destroy %}
+  <p class="text-sm text-aegis-muted">What it created is still in your account, and billed. Ask for the server again to resume, or destroy it:</p>
+  {{ destroy_form(job.partials, job.destroy) }}
+  {% endif %}
+  {% if job.lines %}<pre data-lines class="text-xs font-mono text-aegis-muted bg-aegis-bg border border-aegis-border rounded p-3 max-h-80 overflow-auto whitespace-pre-wrap">{{ job.lines|join("\n") }}</pre>{% endif %}
+</div>
+{% endif %}

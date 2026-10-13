@@ -152,6 +152,12 @@ def portfolio_row(markup: Markup, name: str) -> HtmlElement:
     raise AssertionError(f"no portfolio row named {name!r}")
 
 
+def chosen(markup: Markup, select_css: str) -> str | None:
+    """The value of the option a select (``select_css``) has selected."""
+    picked = select(markup, f"{select_css} option[selected]")
+    return picked[0].get("value") if picked else None
+
+
 def checked(markup: Markup, css: str) -> list[str]:
     """The values of the checked inputs ``css`` finds: a radio row's pick,
     or the boxes ticked."""

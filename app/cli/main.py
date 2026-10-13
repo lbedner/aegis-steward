@@ -166,9 +166,11 @@ except ImportError:
     # Payment service not available, skip payment commands
     pass
 
-from app.cli.secrets import secrets_app  # noqa: E402
+from app.cli.secrets import rekey  # noqa: E402
 
-app.add_typer(secrets_app, name="secrets")
+# Steward's key rotation joins the component's ``secrets`` group: two groups
+# under one name, and the later would hide the other's commands.
+secrets_module.app.command("rekey")(rekey)
 
 # Conditionally register finance command if finance service is available
 try:

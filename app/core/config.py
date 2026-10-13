@@ -500,24 +500,24 @@ class Settings(
     AI_CODE_MODE_MAX_SECONDS: float = 10.0
     AI_CODE_MODE_MAX_MEMORY_BYTES: int = 64 * 1024 * 1024
 
-    # Operations / registrar configuration (always present — the `dns`
-    # CLI and the ops/ adapters ride alongside any component selection).
+    # Operations / registrar configuration (always present — the `dns` CLI and the
+    # ops/ adapters ride alongside any component selection).
     #
-    # Porkbun registrar API keys — used by the `dns` CLI and by
-    # ``app/services/ops/`` to read and write DNS records. Grab them
-    # at porkbun.com/account/api. Strongly recommend the per-domain
-    # "API ACCESS" toggle inside each domain's detail page
-    # (porkbun.com -> Domain Management -> click the domain -> toggle
-    # API ACCESS on) so the master key's blast radius is limited to
-    # the domains you've enabled.
+    # Porkbun registrar API keys — used by the `dns` CLI and by ``app/services/ops/``
+    # to read and write DNS records. Grab them at porkbun.com/account/api. Strongly
+    # recommend the per-domain "API ACCESS" toggle inside each domain's detail page
+    # (porkbun.com -> Domain Management -> click the domain -> toggle API ACCESS on)
+    # so the master key's blast radius is limited to the domains you've enabled.
     PORKBUN_API_KEY: str | None = None
     PORKBUN_SECRET_KEY: str | None = None
 
-    # Apex domain managed by the registrar adapter. Used by the `dns`
-    # CLI as the default -d/--domain so commands like `dns set app`
-    # know which registered domain to touch. Leave unset and the CLI
-    # errors with a clear message.
+    # Apex domain managed by the registrar adapter. Used by the `dns` CLI as the default
+    # -d/--domain so commands like `dns set app` know which registered domain to touch.
+    # Leave unset and the CLI errors with a clear message.
     BASE_DOMAIN: str | None = None
+
+    HCLOUD_TOKEN: str | None = None  # aegis deploy-agent's, one per provider
+    DIGITALOCEAN_TOKEN: str | None = None
 
     # Communications Service Configuration
     # Email (Resend) - Sign up at https://resend.com (free: 100 emails/day)
