@@ -15,6 +15,8 @@ whatever is producing it.
 """
 
 import asyncio
+import importlib.util
+import sys
 
 import pytest
 
@@ -180,6 +182,22 @@ class TestAPauseCanSayWhy:
         assert all(f.reason is None for f in out if isinstance(f, Waiting))
 
 
+class TestWithoutTheInferenceComponent:
+    @pytest.mark.asyncio
+    async def test_an_ollama_pause_goes_out_unexplained(self, monkeypatch) -> None:
+        """Ollama the provider outlives Ollama the component; the turn
+        must not fail asking a client that is not there."""
+        from app.services.ai.domains.llm.waiting import waiting_reason
+        from app.services.ai.models import AIProvider
+
+        monkeypatch.setitem(sys.modules, "app.components.inference.ollama", None)
+        assert await waiting_reason(AIProvider.OLLAMA, "deepseek-r1") is None
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("app.components.inference") is None,
+    reason="no inference component",
+)
 class TestTheOllamaReason:
     @pytest.mark.asyncio
     async def test_a_cold_model_is_named_as_loading(self, monkeypatch) -> None:
@@ -190,7 +208,7 @@ class TestTheOllamaReason:
             async def fetch_running_models(self):
                 return []
 
-        monkeypatch.setattr(waiting_module, "OllamaClient", _Client)
+        monkeypatch.setattr("app.components.inference.ollama.OllamaClient", _Client)
 
         reason = await waiting_module.waiting_reason(AIProvider.OLLAMA, "deepseek-r1")
 
@@ -218,7 +236,7 @@ class TestTheOllamaReason:
             async def fetch_running_models(self):
                 return [warm]
 
-        monkeypatch.setattr(waiting_module, "OllamaClient", _Client)
+        monkeypatch.setattr("app.components.inference.ollama.OllamaClient", _Client)
 
         assert (
             await waiting_module.waiting_reason(AIProvider.OLLAMA, "deepseek-r1")
@@ -236,7 +254,7 @@ class TestTheOllamaReason:
             async def fetch_running_models(self):
                 return [_running_model("llama3.2:3b")]
 
-        monkeypatch.setattr(waiting_module, "OllamaClient", _Client)
+        monkeypatch.setattr("app.components.inference.ollama.OllamaClient", _Client)
 
         assert (
             await waiting_module.waiting_reason(AIProvider.OLLAMA, "deepseek-r1")

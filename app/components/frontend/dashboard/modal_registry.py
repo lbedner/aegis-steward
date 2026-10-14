@@ -42,7 +42,6 @@ def modal_registry() -> dict[str, type[ft.Container]]:
     from app.components.frontend.dashboard.modals.ingress_modal import (
         IngressDetailDialog,
     )
-    from app.components.frontend.dashboard.modals.ollama_modal import OllamaDetailDialog
     from app.components.frontend.dashboard.modals.redis_modal import RedisDetailDialog
     from app.components.frontend.dashboard.modals.scheduler_modal import (
         SchedulerDetailDialog,
@@ -67,7 +66,6 @@ def modal_registry() -> dict[str, type[ft.Container]]:
         ComponentName.DATABASE: DatabaseDetailDialog,
         ComponentName.INGRESS: IngressDetailDialog,
         ComponentName.SECRETS: SecretsDetailDialog,
-        ComponentName.OLLAMA: OllamaDetailDialog,
         ComponentName.CACHE: RedisDetailDialog,
         ComponentName.SCHEDULER: SchedulerDetailDialog,
         ComponentName.WORKER: WorkerDetailDialog,

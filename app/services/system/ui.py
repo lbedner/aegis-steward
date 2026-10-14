@@ -67,7 +67,6 @@ def get_component_title(component_name: str) -> str:
         # Not a component: the worker's queue, on Overseer's map.
         QUEUE: "Queue",
         ComponentName.SCHEDULER: "Scheduler",
-        ComponentName.OLLAMA: "Inference",
         "service_ai": "AI",
         "service_auth": "Authentication",
         "service_comms": "Communications",
@@ -95,7 +94,6 @@ def get_component_label(component_name: str) -> str:
         ComponentName.CACHE: "Redis",
         ComponentName.WORKER: "arq",
         ComponentName.SCHEDULER: "APScheduler",
-        ComponentName.OLLAMA: "Ollama",
         "service_ai": "LLM Provider",
         "service_auth": "JWT Auth",
         "service_comms": "Resend + Twilio",

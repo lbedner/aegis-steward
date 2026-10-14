@@ -150,6 +150,19 @@ class TestAuthServiceIntegration:
         assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
+    async def test_the_finance_owner_placeholder_is_not_listed(
+        self, async_db_session: AsyncSession, user_factory
+    ) -> None:
+        """Row 0 is the finance owner placeholder a migration inserts, not a
+        person; its reserved-domain email fails ``UserResponse``, so listing
+        it broke the Users page."""
+        assert await async_db_session.get(User, 0) is not None
+        person = await user_factory()
+        listed = [u.id for u in await UserService(async_db_session).list_users()]
+        assert person.id in listed
+        assert 0 not in listed
+
+    @pytest.mark.asyncio
     async def test_soft_delete_user(self, async_db_session: AsyncSession, user_factory):
         """``delete_user`` sets ``deleted_at`` and hides the user from lookups."""
         user_service = UserService(async_db_session)

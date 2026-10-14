@@ -107,9 +107,8 @@ def test_the_deploy_env_template_is_a_server_behind_traefik() -> None:
         "true",
     )
     assert env["AI_PROVIDER"] == "openai"
-    assert env["PUBLIC_BASE_URL"] == f"https://{env['DOMAIN']}"
-    # localhost: the container's own health check asks for it.
-    assert json.loads(env["ALLOWED_HOSTS"]) == [env["DOMAIN"], "localhost"]
+    # Both follow DOMAIN in the app (``Settings._answer_on_the_domain``).
+    assert "PUBLIC_BASE_URL" not in env and "ALLOWED_HOSTS" not in env
     assert env["REDIS_URL"] == f"redis://:{env['REDIS_PASSWORD']}@redis:6379"
     (network,) = _compose("docker-compose.prod.yml")["networks"]["default"]["ipam"][
         "config"

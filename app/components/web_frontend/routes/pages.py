@@ -41,9 +41,6 @@ from app.components.web_frontend.routes.partials import (
     overseer_errors as overseer_errors_partials,
 )
 from app.components.web_frontend.routes.partials import (
-    overseer_inference as overseer_inference_partials,
-)
-from app.components.web_frontend.routes.partials import (
     overseer_redis as overseer_redis_partials,
 )
 from app.components.web_frontend.routes.partials import (
@@ -121,7 +118,6 @@ router.include_router(overseer_database_partials.router)
 router.include_router(overseer_documents_partials.router)
 router.include_router(overseer_comms_partials.router)
 router.include_router(overseer_ai_partials.router)
-router.include_router(overseer_inference_partials.router)
 router.include_router(overseer_worker_partials.router)
 router.include_router(overseer_deployments_partials.router)
 router.include_router(overseer_errors_partials.router)

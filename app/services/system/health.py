@@ -429,5 +429,4 @@ async def check_system_status() -> None:
 # mirroring health_db); existing import sites keep working unchanged.
 from app.services.system.health_cache import check_cache_health  # noqa: E402, F401
 from app.services.system.health_ingress import check_ingress_health  # noqa: E402, F401
-from app.services.system.health_ollama import check_ollama_health  # noqa: E402, F401
 from app.services.system.health_worker import check_worker_health  # noqa: E402, F401

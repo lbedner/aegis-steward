@@ -115,10 +115,11 @@ class UserService(
         return await self.update_user(user_id, is_active=True)
 
     async def list_users(self) -> list[User]:
-        """List all users in the system asynchronously. Skips soft-deleted users."""
+        """List all users in the system asynchronously. Skips soft-deleted
+        users and row 0, the finance owner placeholder, which is no person."""
         statement = (
             select(User)
-            .where(User.deleted_at.is_(None))
+            .where(User.deleted_at.is_(None), User.id != 0)
             .order_by(User.created_at.desc())
         )
         result = await self.db.exec(statement)
