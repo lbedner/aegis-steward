@@ -196,7 +196,10 @@ exclude = [".venv", "venv", ".tox", "build", "dist"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 # Parallel by default; loadgroup keeps xdist_group-marked tests together.
-addopts = "-n auto --dist=loadgroup"
+# One worker per CPU. ``logical``, not ``auto``: with psutil installed (it is,
+# for the runtime probes) ``auto`` counts physical cores, which is half a
+# GitHub runner. loadgroup keeps an ``xdist_group`` on one worker.
+addopts = "-n logical --dist=loadgroup"
 
 # Windows-compatible mirror of the Makefile: `uv run poe <target>` means the
 # same thing as `make <target>` on any OS, since `make` isn't a native

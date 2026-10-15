@@ -140,6 +140,12 @@ import_all_models()
 # column does not turn every known entry into a new one.
 from tests import _queryspy_shape  # noqa: E402
 
+# ``--shard K/N`` for CI's parallel test jobs; importing the hooks registers them.
+from tests._shard import (  # noqa: E402, F401
+    pytest_addoption,
+    pytest_collection_modifyitems,
+)
+
 
 def pytest_sessionstart(session: pytest.Session) -> None:
     # After every plugin's pytest_configure, so queryspy has read the file.
