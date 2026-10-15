@@ -58,7 +58,7 @@ def commit() -> str | None:
 async def now() -> list[tuple[str, str]]:
     """The live build as ``(label, value)`` facts."""
     build = settings.BUILD_ID
-    facts = [("Build", f"{build}, not deployed" if build == LOCAL else build)]
+    facts = [("Build", f"{build}, this machine" if build == LOCAL else build)]
     if live := commit():
         facts.append(("Commit", live))
     if by := await _deployed_by(build):
@@ -176,6 +176,12 @@ async def history() -> dict[str, Any]:
     except SQLAlchemyError as exc:  # a build that adds the table, not migrated
         return {"rows": [], "note": f"Deploy history could not be read: {exc}"}
     return history_rows([row.model_dump() for row in records])
+
+
+def live_facts(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """The newest of the History table's ``rows`` (what is live) as facts,
+    by its first columns: the build, when, by whom, from where, its health."""
+    return [(label, row[k]) for row in rows[:1] for k, label in HISTORY_COLUMNS[:5]]
 
 
 def history_rows(records: list[dict[str, Any]]) -> dict[str, Any]:
