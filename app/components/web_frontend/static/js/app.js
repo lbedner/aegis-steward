@@ -800,3 +800,13 @@ document.body.addEventListener('htmx:afterSwap', () => {
 
 // For the node tests (tests/web/test_app_js.py).
 if (typeof module !== 'undefined') module.exports = { outsideClick, dismiss, navigates, markCurrent, rangeUrl, spanned, inView, splitMatches, mapFocus, sourceColumn };
+
+// A home-screen iPhone app's status bar wears base.html's theme-color.
+// It is read from the page's own background, so the bar follows the
+// theme without a second copy of any theme's color.
+const paintStatusBar = () => {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = getComputedStyle(document.body).backgroundColor;
+};
+document.addEventListener('theme-changed', paintStatusBar);
+window.addEventListener('load', paintStatusBar);

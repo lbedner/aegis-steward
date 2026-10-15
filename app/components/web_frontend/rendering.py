@@ -26,14 +26,14 @@ from app.components.web_frontend.glyphs import (
     file_badge,
     file_badge_table,
 )
-from app.components.web_frontend.nav import NAV, section
+from app.components.web_frontend.nav import NAV, native, section
 from app.core import series
 from app.core.config import settings
-from app.services.finance.constants import account_sections
+from app.services.finance.constants import ACCOUNT_THINGS, account_sections
 from app.services.shared.deps import operator_refusal
 from app.services.system import topology, ui_runtime
 
-templates = Jinja2Templates(directory=str(COMPONENT_DIR / "templates"))
+templates = Jinja2Templates(COMPONENT_DIR / "templates", context_processors=[native])
 templates.env.globals.update(static=static_url, csp_nonce=csp_nonce)
 
 
@@ -55,8 +55,6 @@ templates.env.globals["voice"] = voice
 templates.env.globals["project_name"] = settings.PROJECT_DISPLAY_NAME
 # What an account's things are CALLED, so a card title and the menu item
 # that edits it cannot drift apart (services.finance.constants).
-from app.services.finance.constants import ACCOUNT_THINGS  # noqa: E402
-
 templates.env.globals["named"] = ACCOUNT_THINGS
 templates.env.globals["project_description"] = settings.PROJECT_DESCRIPTION
 # Whether the auth service is wired up. Templates gate sign-in affordances on this at
