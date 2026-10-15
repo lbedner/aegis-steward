@@ -446,8 +446,8 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
    ``button_classes``; ``glyph`` draws an icon in place of the label,
    which then names it for a reader and on hover. The one recipe every
    compact button uses. #}
-{% macro action(label, attrs, tone="default", vals=None, glyph=None) %}
-<button type="button" {{ attrs|safe }} {% if vals is not none %}hx-vals='{{ vals|tojson }}'{% endif %} {% if glyph %}title="{{ label }}" {% endif %}class="action {{ button_classes(tone, "xs") }} whitespace-nowrap">{% if glyph %}{{ icon(glyph) }}<span class="sr-only">{{ label }}</span>{% else %}{{ label }}{% endif %}</button>
+{% macro action(label, attrs, tone="default", vals=None, glyph=None, type="button") %}
+<button type="{{ type }}" {{ attrs|safe }} {% if vals is not none %}hx-vals='{{ vals|tojson }}'{% endif %} {% if glyph %}title="{{ label }}" {% endif %}class="action {{ button_classes(tone, "xs") }} whitespace-nowrap">{% if glyph %}{{ icon(glyph) }}<span class="sr-only">{{ label }}</span>{% else %}{{ label }}{% endif %}</button>
 {% endmacro %}
 
 {# Which limit a form sets: a category, a payee key, or neither (the
