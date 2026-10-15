@@ -34,6 +34,8 @@
         empties (one instance of the surface at a time) and steps aside. #}
      @htmx:after-settle.window="settled()"
      class="min-h-dvh md:h-screen flex flex-col md:flex-row">
+  {# The native shells (mobile/) draw their own tab bar: no sidebar there. #}
+  {% if not native %}
   {% include "components/sidebar.html" %}
 
   {# Mobile scrim behind the open drawer; desktop never shows it. #}
@@ -41,8 +43,10 @@
        @click="mobileOpen = false"
        class="md:hidden fixed inset-0 z-30 bg-aegis-scrim/60 backdrop-blur-sm"
        aria-hidden="true"></div>
+  {% endif %}
 
   <div class="flex-1 min-w-0 flex flex-col md:h-screen">
+    {% if not native %}
     {# Top strip: hamburger on mobile, an empty border-aligned bar on
        desktop so content lines up with the sidebar's brand row. #}
     <div class="shrink-0 h-14 border-b border-aegis-border flex items-center px-4">
@@ -55,6 +59,7 @@
         {{ icon("bars", "w-5 h-5", 1.75) }}
       </button>
     </div>
+    {% endif %}
 
     {# A bank that needs you, on every page (issue 310): it loads itself, so no
        page's own render pays for it. #}

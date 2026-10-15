@@ -12,6 +12,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from starlette.requests import Request
+
+# What the native shells (mobile/) add to their User-Agent. Their own tab
+# bar is the navigation there, so the page they load draws no sidebar.
+NATIVE_AGENT = "AegisNative"
+
+
+def native(request: Request) -> dict[str, bool]:
+    """Every template's ``native``: whether a native shell, not a browser,
+    asked for this page. A context processor, so a response drawn without
+    ``render()`` knows it too."""
+    return {"native": NATIVE_AGENT in request.headers.get("user-agent", "")}
+
 
 @dataclass(frozen=True)
 class Section:

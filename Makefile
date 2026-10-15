@@ -20,6 +20,12 @@ build-static: ## Compile Tailwind CSS and fingerprint assets into static/dist
 	@npm run build
 	@uv run python -m app.components.web_frontend.build
 
+app-icon: ## Redraw the iOS home-screen icon from favicon.svg on the page ground (macOS)
+	@ground=$$(uv run python -c "from tests.web.test_phone import icon_ground; print(icon_ground()[1:])") && \
+	sips -s format png -z 126 126 app/components/web_frontend/static/favicon.svg --out /tmp/aegis-shield.png >/dev/null && \
+	sips --padToHeightWidth 180 180 --padColor $$ground /tmp/aegis-shield.png --out app/components/web_frontend/static/app-icon.png >/dev/null 2>&1 && \
+	echo "Redrawn on #$$ground; update FAVICON_DRAWN in tests/web/test_phone.py if favicon.svg changed"
+
 serve: build ## Run all services (ENGINE=granian swaps the ASGI server for this run)
 	@uv run python scripts/dev_tasks.py serve
 
@@ -269,7 +275,7 @@ help: ## Show this help message
 	@echo
 	@echo "TIP: Use 'make refresh' when everything is broken!"
 
-.PHONY: build build-static lint-frontend format-frontend serve serve-bg serve-prod stop-prod stop clean rebuild refresh restart logs logs-web logs-worker logs-redis logs-scheduler shell shell-worker ps redis-cli redis-stats redis-keys redis-reset health health-detailed health-json health-probe test test-verbose lint fix format typecheck check install deps-update clean-cache docs-serve docs-build migrate migrate-check migrate-history migrate-reset worker-test status help
+.PHONY: app-icon build build-static lint-frontend format-frontend serve serve-bg serve-prod stop-prod stop clean rebuild refresh restart logs logs-web logs-worker logs-redis logs-scheduler shell shell-worker ps redis-cli redis-stats redis-keys redis-reset health health-detailed health-json health-probe test test-verbose lint fix format typecheck check install deps-update clean-cache docs-serve docs-build migrate migrate-check migrate-history migrate-reset worker-test status help
 
 # Default target - show help
 .DEFAULT_GOAL := help

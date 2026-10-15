@@ -20,6 +20,14 @@
      bots that auto-request /favicon.ico will 404 — harmless. #}
   {% block favicon %}<link rel="icon" type="image/svg+xml" href="{{ static('favicon.svg') }}">{% endblock %}
 
+  {# Added to an iPhone's home screen: the icon (opaque, iOS fills
+     transparency with black), the name under it, and no Safari chrome.
+     theme-color is filled by app.js from the page's own background. #}
+  <link rel="apple-touch-icon" href="{{ static('app-icon.png') }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="{{ project_name }}">
+  <meta name="theme-color" content="">
+
   {# Tailwind + DaisyUI, precompiled — no runtime JIT, no CDN. Built into
      static/dist by the asset pipeline; static() returns the fingerprinted
      URL once a build exists and the raw source path before then. #}
