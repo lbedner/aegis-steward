@@ -22,13 +22,16 @@ provider that cannot say returns None and the wait goes out unexplained.
 
 from __future__ import annotations
 
-from app.components.inference.ollama import OllamaClient
 from app.services.ai.models import AIProvider
 
 
 async def waiting_reason(provider: AIProvider, model: str) -> str | None:
     """A short phrase for why nothing has arrived, or None."""
     if provider is not AIProvider.OLLAMA or not model:
+        return None
+    try:
+        from app.components.inference.ollama import OllamaClient
+    except ImportError:  # no inference component: nothing to ask
         return None
     running = await OllamaClient().fetch_running_models()
     # ``name`` and ``model`` are the two spellings /api/ps returns, and

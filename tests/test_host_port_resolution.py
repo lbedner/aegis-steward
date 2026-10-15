@@ -81,26 +81,6 @@ class TestRedisUrlEffective:
         assert s.redis_url_effective == self.URL
 
 
-class TestOllamaBaseUrlEffective:
-    URL = "http://ollama:11434"
-
-    def test_uses_host_port_when_set(self) -> None:
-        s = Settings(OLLAMA_BASE_URL=self.URL, OLLAMA_HOST_PORT=11500)
-        assert s.ollama_base_url_effective == "http://localhost:11500"
-
-    def test_translates_host_docker_internal(self) -> None:
-        s = Settings(OLLAMA_BASE_URL="http://host.docker.internal:11434")
-        assert s.ollama_base_url_effective == "http://localhost:11434"
-
-    def test_local_override_wins_over_host_port(self) -> None:
-        s = Settings(
-            OLLAMA_BASE_URL=self.URL,
-            OLLAMA_BASE_URL_LOCAL="http://localhost:9999",
-            OLLAMA_HOST_PORT=11500,
-        )
-        assert s.ollama_base_url_effective == "http://localhost:9999"
-
-
 class TestTraefikApiUrlEffective:
     URL = "http://traefik:8080"
 

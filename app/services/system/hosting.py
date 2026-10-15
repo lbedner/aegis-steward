@@ -69,6 +69,8 @@ BY_KEY = {p.key: p for p in PROVIDERS}
 def provider(key: str | None) -> Provider | None:
     """The provider the table names ``key``, or None."""
     return BY_KEY.get(key or "")
+
+
 # Where aegis creates servers, each with the token it needs; and where it
 # names them (a DNS record for a domain of your own).
 PROVISIONABLE = tuple(p for p in PROVIDERS if "Provision" in p.can)
@@ -197,6 +199,11 @@ def deploy_config(path: Path = DEPLOY_CONFIG) -> dict[str, Any]:
     """``.aegis/deploy.yml`` (the server, the provision record), or nothing
     where there is none (on the server, or before any deploy)."""
     return (yaml.safe_load(path.read_text()) or {}) if path.is_file() else {}
+
+
+def provision_record(path: Path = DEPLOY_CONFIG) -> dict[str, Any]:
+    """The provisioned server's record in ``.aegis/deploy.yml``, or nothing."""
+    return deploy_config(path).get("provision") or {}
 
 
 def deploys_to(path: Path = DEPLOY_CONFIG) -> dict[str, Any] | None:

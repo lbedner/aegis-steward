@@ -48,6 +48,21 @@ def test_the_hosts_default_to_this_machine(monkeypatch: pytest.MonkeyPatch) -> N
     ]
 
 
+def test_a_server_answers_on_the_domain_its_deploy_stamped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``aegis deploy`` stamps DOMAIN into the server's .env: the name it
+    is reached on, without a second setting to keep in step."""
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    loaded = _settings(monkeypatch, **_PROD, DOMAIN="app.example.com")
+    assert "app.example.com" in loaded.ALLOWED_HOSTS
+    assert loaded.PUBLIC_BASE_URL == "https://app.example.com"
+    named = _settings(
+        monkeypatch, **_PROD, DOMAIN="app.example.com", PUBLIC_BASE_URL="https://x.dev"
+    )
+    assert named.PUBLIC_BASE_URL == "https://x.dev"
+
+
 def _cookies() -> list[str]:
     response = Response()
     set_session_cookie(response, "token")

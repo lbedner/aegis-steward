@@ -64,11 +64,6 @@ async def startup_hook() -> None:
     register_health_check(ComponentName.DATABASE, check_database_health)
     logger.info("Database component health check registered")
 
-    # Register Ollama health check (local LLM infrastructure)
-    from app.services.system.health import check_ollama_health
-
-    register_health_check(ComponentName.OLLAMA, check_ollama_health)
-    logger.info("Ollama component health check registered")
     # Register ingress health check (Traefik reverse proxy)
     from app.services.system.health import check_ingress_health
 

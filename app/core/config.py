@@ -52,6 +52,10 @@ class Settings(
     # the localhost default keeps dev working without configuration.
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
+    # The name a server answers on, stamped into its .env by ``aegis
+    # deploy``: an allowed host, and the public URL unless one is set.
+    DOMAIN: str | None = None
+
     # Application environment: "dev" or "prod"
     APP_ENV: str = AppEnv.DEV
 
@@ -483,7 +487,7 @@ class Settings(
 
     # Ollama settings (local LLM inference)
 
-    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"  # Host mode default
+    OLLAMA_BASE_URL: str = "http://localhost:11434"  # Default for local testing
 
     OLLAMA_BASE_URL_LOCAL: str | None = None  # Manual override for local CLI usage
     # Host publish port chosen by `make serve` (loaded from .env.ports).
@@ -674,6 +678,16 @@ class Settings(
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.ports"), env_file_encoding="utf-8"
     )
+
+    @model_validator(mode="after")
+    def _answer_on_the_domain(self) -> Settings:
+        """The deployed server's own name, from the one stamp (``DOMAIN``)."""
+        if self.DOMAIN:
+            if self.DOMAIN not in self.ALLOWED_HOSTS:
+                self.ALLOWED_HOSTS = [*self.ALLOWED_HOSTS, self.DOMAIN]
+            if "PUBLIC_BASE_URL" not in self.model_fields_set:
+                self.PUBLIC_BASE_URL = f"https://{self.DOMAIN}"
+        return self
 
     @model_validator(mode="after")
     def _name_for_people(self) -> Settings:
