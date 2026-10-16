@@ -37,11 +37,11 @@ from app.core.config import settings
 from app.core.credential import CREDENTIAL
 from app.core.log import logger
 
-# Modules that declare ``SECRETS``. Absent ones (a service this stack does
-# not have) are skipped.
+# Modules that declare ``SECRETS``; absent ones (not in this stack) are skipped.
 OWNERS = (
     "app.services.ai.domains.llm.provider_management",
     "app.services.comms.email",
+    "app.services.comms.push",
     "app.services.comms.twilio",
     "app.services.payment.providers.stripe",
     "app.components.backend.api.auth.oauth",

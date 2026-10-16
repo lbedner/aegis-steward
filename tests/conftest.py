@@ -285,6 +285,13 @@ def _no_load_cost_measuring(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(load_cost, "_start", lambda: None)
 
 
+# The push key is read once per process (app.services.comms.push); each
+# test starts as a fresh process would, so its own store is the one read.
+@pytest.fixture(autouse=True)
+def _unread_push_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.comms.push._key", None)
+
+
 @pytest.fixture
 async def store() -> AsyncGenerator[Any]:
     """The error store's Lua against a real Redis, only when one is named:

@@ -8,8 +8,13 @@ including request/response models for email, SMS, and voice calls.
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from sqlalchemy import Column, DateTime, String
+import sqlmodel
+
+from app.core.time import utcnow
 
 
 class MessageStatus(str, Enum):
@@ -220,3 +225,56 @@ class CommsServiceStatus(BaseModel):
     twilio_credentials_set: bool = Field(
         default=False, description="Whether Twilio credentials are set"
     )
+
+
+# Web push
+
+
+class PushSubscription(sqlmodel.SQLModel, table=True):
+    """A device that turned notifications on: what its browser's
+    ``PushManager.subscribe`` returned. The household's, like every row."""
+
+    __tablename__ = "push_subscription"
+
+    id: int | None = sqlmodel.Field(default=None, primary_key=True)
+    endpoint: str = sqlmodel.Field(
+        sa_column=Column(String(1024), unique=True, nullable=False)
+    )
+    p256dh: str = sqlmodel.Field(sa_column=Column(String(255), nullable=False))
+    auth: str = sqlmodel.Field(sa_column=Column(String(255), nullable=False))
+    created_at: datetime = sqlmodel.Field(
+        default_factory=utcnow, sa_column=Column(DateTime, nullable=False)
+    )
+
+
+# Where browsers' push services live. The server POSTs to whatever endpoint
+# a device registers, so anything else (an internal address) is refused.
+PUSH_SERVICES = (
+    "push.apple.com",
+    "fcm.googleapis.com",
+    "push.services.mozilla.com",
+    "notify.windows.com",
+)
+
+
+class PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushRegistration(BaseModel):
+    """A subscription as ``PushSubscription.toJSON()`` writes it."""
+
+    endpoint: str = Field(..., max_length=1024)
+    keys: PushKeys
+
+    @field_validator("endpoint")
+    @classmethod
+    def _a_push_service(cls, endpoint: str) -> str:
+        url = urlsplit(endpoint)
+        host = url.hostname or ""
+        if url.scheme != "https" or not any(
+            host == service or host.endswith(f".{service}") for service in PUSH_SERVICES
+        ):
+            raise ValueError("not a browser push service")
+        return endpoint

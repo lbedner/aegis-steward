@@ -22,8 +22,11 @@
 
   {# Added to an iPhone's home screen: the icon (opaque, iOS fills
      transparency with black), the name under it, and no Safari chrome.
-     theme-color is filled by app.js from the page's own background. #}
-  <link rel="apple-touch-icon" href="{{ static('app-icon.png') }}">
+     theme-color is filled by app.js from the page's own background. The
+     manifest says standalone, which iOS asks before it offers
+     notifications; fetched with the session, since the gate covers it. #}
+  <link rel="manifest" href="{{ web_manifest }}" crossorigin="use-credentials">
+  <link rel="apple-touch-icon" href="{{ static(app_icon) }}">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="{{ project_name }}">
   <meta name="theme-color" content="">

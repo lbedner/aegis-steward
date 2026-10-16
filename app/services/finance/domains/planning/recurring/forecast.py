@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import counted
 from app.services.finance.constants import (
     CASH_ACCOUNT_TYPES,
     add_months,
@@ -55,6 +56,12 @@ _BUDGET_CARRY_NOTE = " (tightened by last month's overspend)"
 def _month_end(day: date) -> date:
     """The last day of ``day``'s month."""
     return date(day.year, day.month, calendar.monthrange(day.year, day.month)[1])
+
+
+def reminder_subject(bills: list[dict[str, Any]], days: int) -> str:
+    """The bill reminder's one line: the mail's subject, the notification's
+    title, and what Settings previews."""
+    return f"{counted(len(bills), 'bill')} due in the next {days} days"
 
 
 def upcoming_outflows(
