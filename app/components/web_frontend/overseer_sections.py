@@ -12,6 +12,7 @@ from typing import Any, NamedTuple
 
 from starlette.requests import Request
 
+from app.core.client_session import cookie_name
 from app.core.constants import ComponentName, ServiceName
 from app.services.system import ui_runtime
 from app.services.system.models import ComponentStatus
@@ -166,7 +167,6 @@ def rail() -> list[NavItem]:
     return [item for item in STANDALONE.values() if not hidden.get(item.name)]
 
 
-
 class Grouping(StrEnum):
     """How the sidebar groups its pages, the viewer's choice: by kind
     (Components, Services) or by concern (each page under the concern it
@@ -188,7 +188,7 @@ class MenuChoice(NamedTuple):
     chosen: str
 
 
-GROUPING_COOKIE = "overseer_grouping"
+GROUPING_COOKIE = cookie_name("overseer_grouping")
 GROUPINGS = ((Grouping.KIND, "By kind"), (Grouping.CONCERN, "By concern"))
 # Where an entry no concern names goes: a plugin's service, most likely.
 APP = "App"

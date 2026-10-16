@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.client_session import REFRESH_COOKIE, SESSION_COOKIE
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.models.refresh_token import RefreshToken
@@ -386,7 +387,7 @@ class TestSessionCookie:
     is no manual bearer plumbing in the Flet path. These tests verify the
     *backend* contract that flow depends on:
 
-    1. Successful login / register sets the ``aegis_session`` cookie with
+    1. Successful login / register sets the ``<project>_session`` cookie with
        the right flags (HttpOnly, SameSite=Lax, path=/).
     2. ``/auth/logout`` deletes the cookie.
     3. Protected routes accept the cookie alone — no Authorization header.
@@ -396,7 +397,7 @@ class TestSessionCookie:
     """
 
     @pytest.mark.asyncio
-    async def test_login_sets_aegis_session_cookie(
+    async def test_login_sets_session_cookie(
         self,
         async_client_with_db: TestClient,
         async_db_session: AsyncSession,
@@ -410,9 +411,9 @@ class TestSessionCookie:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert "aegis_session" in response.cookies
+        assert SESSION_COOKIE in response.cookies
         # Cookie value should be the same JWT returned in the body.
-        assert response.cookies["aegis_session"] == response.json()["access_token"]
+        assert response.cookies[SESSION_COOKIE] == response.json()["access_token"]
         # Verify cookie attributes via raw Set-Cookie header (TestClient
         # exposes cookie *values* on .cookies but not flags).
         set_cookie = response.headers.get("set-cookie", "")
@@ -422,7 +423,7 @@ class TestSessionCookie:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("registration_open")
-    async def test_register_sets_aegis_session_cookie(
+    async def test_register_sets_session_cookie(
         self, async_client_with_db: TestClient, async_db_session: AsyncSession
     ) -> None:
         response = async_client_with_db.post(
@@ -435,13 +436,13 @@ class TestSessionCookie:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert "aegis_session" in response.cookies
-        assert response.cookies["aegis_session"]
+        assert SESSION_COOKIE in response.cookies
+        assert response.cookies[SESSION_COOKIE]
         set_cookie = response.headers.get("set-cookie", "")
         assert "HttpOnly" in set_cookie
 
     @pytest.mark.asyncio
-    async def test_logout_clears_aegis_session_cookie(
+    async def test_logout_clears_session_cookie(
         self,
         async_client_with_db: TestClient,
         async_db_session: AsyncSession,
@@ -457,12 +458,12 @@ class TestSessionCookie:
         response = async_client_with_db.post("/api/v1/auth/logout")
 
         assert response.status_code == status.HTTP_200_OK
-        # FastAPI's delete_cookie emits ``Set-Cookie: aegis_session="";
+        # FastAPI's delete_cookie emits ``Set-Cookie: <project>_session="";
         # Max-Age=0`` — TestClient interprets that as a cookie removal,
         # so the jar drops it.
-        assert "aegis_session" not in async_client_with_db.cookies
+        assert SESSION_COOKIE not in async_client_with_db.cookies
         # And the raw header should explicitly mention the cookie name.
-        assert "aegis_session" in response.headers.get("set-cookie", "")
+        assert SESSION_COOKIE in response.headers.get("set-cookie", "")
 
     @pytest.mark.asyncio
     async def test_protected_route_accepts_session_cookie_alone(
@@ -493,7 +494,7 @@ class TestSessionCookie:
         user_factory,
     ) -> None:
         """
-        ``get_session_token`` returns ``aegis_session or bearer_token`` —
+        ``get_session_token`` returns ``session_cookie or bearer_token`` —
         cookie takes precedence so a stale bearer can't override a fresh
         cookie session.
         """
@@ -530,11 +531,11 @@ class TestSessionCookie:
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         set_cookie = response.headers.get("set-cookie", "")
-        assert "aegis_session" in set_cookie
+        assert SESSION_COOKIE in set_cookie
         assert "Max-Age=0" in set_cookie
 
     @pytest.mark.asyncio
-    async def test_login_sets_aegis_refresh_cookie(
+    async def test_login_sets_refresh_cookie(
         self,
         async_client_with_db: TestClient,
         async_db_session: AsyncSession,
@@ -547,10 +548,10 @@ class TestSessionCookie:
             data={"username": user.email, "password": _PASSWORD},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert "aegis_refresh" in response.cookies
+        assert REFRESH_COOKIE in response.cookies
         set_cookie = response.headers.get("set-cookie", "")
         # Refresh cookie is stricter than the access cookie.
-        assert "aegis_refresh" in set_cookie
+        assert REFRESH_COOKIE in set_cookie
         assert "samesite=strict" in set_cookie.lower()
         assert "Path=/api/v1/auth" in set_cookie
 
@@ -569,7 +570,7 @@ class TestSessionCookie:
             data={"username": user.email, "password": _PASSWORD},
         )
         assert login.status_code == status.HTTP_200_OK
-        original_refresh = async_client_with_db.cookies.get("aegis_refresh")
+        original_refresh = async_client_with_db.cookies.get(REFRESH_COOKIE)
         assert original_refresh
 
         response = async_client_with_db.post("/api/v1/auth/refresh")
@@ -578,7 +579,7 @@ class TestSessionCookie:
         assert body["token_type"] == "bearer"
         assert isinstance(body["access_token"], str)
 
-        rotated_refresh = async_client_with_db.cookies.get("aegis_refresh")
+        rotated_refresh = async_client_with_db.cookies.get(REFRESH_COOKIE)
         assert rotated_refresh is not None
         assert rotated_refresh != original_refresh
 
@@ -607,23 +608,23 @@ class TestSessionCookie:
             "/api/v1/auth/token",
             data={"username": user.email, "password": _PASSWORD},
         )
-        original_refresh = async_client_with_db.cookies.get("aegis_refresh")
+        original_refresh = async_client_with_db.cookies.get(REFRESH_COOKIE)
         assert original_refresh
 
         # First refresh rotates; cookie jar now holds the successor.
         first = async_client_with_db.post("/api/v1/auth/refresh")
         assert first.status_code == status.HTTP_200_OK
-        rotated_refresh = async_client_with_db.cookies.get("aegis_refresh")
+        rotated_refresh = async_client_with_db.cookies.get(REFRESH_COOKIE)
         assert rotated_refresh and rotated_refresh != original_refresh
 
         # Sibling request races in with the original (revoked seconds ago).
         async_client_with_db.cookies.clear()
         racer = async_client_with_db.post(
             "/api/v1/auth/refresh",
-            cookies={"aegis_refresh": original_refresh},
+            cookies={REFRESH_COOKIE: original_refresh},
         )
         assert racer.status_code == status.HTTP_200_OK
-        racer_refresh = async_client_with_db.cookies.get("aegis_refresh")
+        racer_refresh = async_client_with_db.cookies.get(REFRESH_COOKIE)
         assert racer_refresh and racer_refresh != rotated_refresh
         sessions = async_client_with_db.get("/api/v1/auth/sessions").json()
         assert len(sessions) == 1  # one session, both tokens in it
@@ -643,13 +644,13 @@ class TestSessionCookie:
             "/api/v1/auth/token",
             data={"username": user.email, "password": _PASSWORD},
         )
-        original_refresh = async_client_with_db.cookies.get("aegis_refresh")
+        original_refresh = async_client_with_db.cookies.get(REFRESH_COOKIE)
         assert original_refresh
 
         # First refresh succeeds; cookie jar now holds the rotated token.
         first = async_client_with_db.post("/api/v1/auth/refresh")
         assert first.status_code == status.HTTP_200_OK
-        rotated_refresh = async_client_with_db.cookies.get("aegis_refresh")
+        rotated_refresh = async_client_with_db.cookies.get(REFRESH_COOKIE)
         assert rotated_refresh and rotated_refresh != original_refresh
 
         # Age the revocation past the benign-race window so the replay
@@ -667,26 +668,26 @@ class TestSessionCookie:
         async_client_with_db.cookies.clear()
         replay = async_client_with_db.post(
             "/api/v1/auth/refresh",
-            cookies={"aegis_refresh": original_refresh},
+            cookies={REFRESH_COOKIE: original_refresh},
         )
         assert replay.status_code == status.HTTP_401_UNAUTHORIZED
         # Regression: the 401 response must carry cookie-clearing Set-Cookie
         # headers.
         replay_set_cookie = replay.headers.get("set-cookie", "")
-        assert "aegis_session" in replay_set_cookie
-        assert "aegis_refresh" in replay_set_cookie
+        assert SESSION_COOKIE in replay_set_cookie
+        assert REFRESH_COOKIE in replay_set_cookie
         assert replay_set_cookie.count("Max-Age=0") >= 2
 
         # The successor (rotated) is now revoked too — sending it
         # should also 401 because the family was nuked on reuse.
         third = async_client_with_db.post(
             "/api/v1/auth/refresh",
-            cookies={"aegis_refresh": rotated_refresh},
+            cookies={REFRESH_COOKIE: rotated_refresh},
         )
         assert third.status_code == status.HTTP_401_UNAUTHORIZED
 
     @pytest.mark.asyncio
-    async def test_logout_clears_aegis_refresh_cookie(
+    async def test_logout_clears_refresh_cookie(
         self,
         async_client_with_db: TestClient,
         async_db_session: AsyncSession,
@@ -700,7 +701,7 @@ class TestSessionCookie:
         response = async_client_with_db.post("/api/v1/auth/logout")
         assert response.status_code == status.HTTP_200_OK
         set_cookie = response.headers.get("set-cookie", "")
-        assert "aegis_refresh" in set_cookie
+        assert REFRESH_COOKIE in set_cookie
         assert "Max-Age=0" in set_cookie
 
     @pytest.mark.asyncio
@@ -714,7 +715,7 @@ class TestSessionCookie:
         created = await user_factory()
         token = create_access_token(data={"sub": created.email})
 
-        async_client_with_db.cookies.delete("aegis_session")
+        async_client_with_db.cookies.delete(SESSION_COOKIE)
 
         response = async_client_with_db.get(
             "/api/v1/auth/me",
@@ -913,7 +914,7 @@ class TestSessionsEndpoints:
         """A copied access token stops working once its session signs out."""
         user = await user_factory()
         await self._login(async_client_with_db, user.email)
-        token = async_client_with_db.cookies.get("aegis_session")
+        token = async_client_with_db.cookies.get(SESSION_COOKIE)
         assert async_client_with_db.post("/api/v1/auth/logout").status_code == 200
 
         async_client_with_db.cookies.clear()

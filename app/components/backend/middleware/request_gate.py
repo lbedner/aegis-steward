@@ -35,7 +35,7 @@ from app.components.backend.startup.finance_webhook_tunnel import (
 )
 from app.core.config import settings
 from app.core.db import get_async_db
-from app.core.security import SESSION_COOKIE_NAME
+from app.core.security import SESSION_COOKIE
 from app.services.auth.service import get_current_user_from_token
 from app.services.auth.users import UserService
 
@@ -84,7 +84,7 @@ async def signed_in(conn: HTTPConnection) -> bool:
     """Whether the session cookie or a bearer token names an active user
     whose session is live (``get_current_user_from_token``), read on the
     session a route would get: ``get_async_db``, or what a test put there."""
-    token = conn.cookies.get(SESSION_COOKIE_NAME)
+    token = conn.cookies.get(SESSION_COOKIE)
     bearer = conn.headers.get("authorization", "")
     if token is None and bearer.lower().startswith("bearer "):
         token = bearer[7:]
