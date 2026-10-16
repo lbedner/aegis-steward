@@ -8,18 +8,15 @@ import bcrypt
 from fastapi import Response
 from jose import JWTError, jwt
 
+from app.core.client_session import REFRESH_COOKIE, SESSION_COOKIE
 from app.core.config import settings
 
-# Cookie name used to carry the JWT for all browser-side auth flows
-# (login, register, OAuth callback, logout). HttpOnly + SameSite=Lax;
-# Secure flag is environment-aware (off in dev, on otherwise).
-SESSION_COOKIE_NAME = "aegis_session"
-
-# Cookie name used to carry the opaque refresh token. Sent only on
-# ``/api/v1/auth/refresh`` (``path`` is scoped accordingly) and on
-# logout. SameSite=Strict because no first-party flow ever needs to
-# include this cookie cross-site.
-REFRESH_COOKIE_NAME = "aegis_refresh"
+# The session cookie (``SESSION_COOKIE``) carries the JWT for every
+# browser-side auth flow (login, register, OAuth callback, logout): HttpOnly,
+# SameSite=Lax, the Secure flag environment-aware (off in dev, on otherwise).
+# The refresh cookie carries the opaque refresh token, sent only under this
+# path (refresh and logout), SameSite=Strict as no first-party flow needs it
+# cross-site. Both are named for the project (``client_session``).
 REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 
@@ -107,7 +104,7 @@ def set_session_cookie(response: Response, token: str) -> None:
         else not settings.is_dev
     )
     response.set_cookie(
-        SESSION_COOKIE_NAME,
+        SESSION_COOKIE,
         token,
         max_age=access_token_minutes() * 60,
         httponly=True,
@@ -119,7 +116,7 @@ def set_session_cookie(response: Response, token: str) -> None:
 
 def clear_session_cookie(response: Response) -> None:
     """Drop the session cookie. Used by ``/auth/logout``."""
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(SESSION_COOKIE, path="/")
 
 
 def set_refresh_cookie(response: Response, token: str) -> None:
@@ -138,7 +135,7 @@ def set_refresh_cookie(response: Response, token: str) -> None:
         else not settings.is_dev
     )
     response.set_cookie(
-        REFRESH_COOKIE_NAME,
+        REFRESH_COOKIE,
         token,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         httponly=True,
@@ -150,4 +147,4 @@ def set_refresh_cookie(response: Response, token: str) -> None:
 
 def clear_refresh_cookie(response: Response) -> None:
     """Drop the refresh cookie. Used by ``/auth/logout``."""
-    response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
+    response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)

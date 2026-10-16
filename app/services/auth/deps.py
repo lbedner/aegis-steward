@@ -6,7 +6,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_async_db
-from app.core.security import SESSION_COOKIE_NAME
+from app.core.security import SESSION_COOKIE
 from app.models.user import User
 from app.services.auth.refresh_tokens import RefreshService
 from app.services.auth.service import get_current_user_from_token
@@ -17,16 +17,16 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=F
 
 async def get_session_token(
     bearer_token: str | None = Depends(oauth2_scheme),
-    aegis_session: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> str | None:
     """Extract the JWT from either the session cookie or a Bearer header.
 
-    Browser flows rely on the HttpOnly ``aegis_session`` cookie set by
+    Browser flows rely on the HttpOnly ``<project>_session`` cookie set by
     ``/auth/token``, ``/auth/register``, and the OAuth callback. API
     clients keep using ``Authorization: Bearer ...``. Cookie wins if
     both are present, since browser flows are the primary path.
     """
-    return aegis_session or bearer_token
+    return session_cookie or bearer_token
 
 
 async def get_user_service(

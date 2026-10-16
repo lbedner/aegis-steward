@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.components.web_frontend import assets as web_assets
+from app.core.client_session import REFRESH_COOKIE, SESSION_COOKIE
 
 
 @pytest.fixture(autouse=True)
@@ -341,8 +342,8 @@ class TestAuthPages:
         # Cookies must land on the redirect the browser follows, which only
         # works because the handler hands its RedirectResponse to the API
         # handler as the response object.
-        assert "aegis_session" in response.cookies
-        assert "aegis_refresh" in response.cookies
+        assert SESSION_COOKIE in response.cookies
+        assert REFRESH_COOKIE in response.cookies
 
     def test_login_returns_to_the_next_target(
         self, async_client_with_db: TestClient
@@ -363,7 +364,7 @@ class TestAuthPages:
         )
         assert response.status_code == 303
         assert response.headers["location"] == "/dashboard"
-        assert "aegis_session" in response.cookies
+        assert SESSION_COOKIE in response.cookies
 
     def test_wrong_password_says_nothing_useful(
         self, async_client_with_db: TestClient
@@ -421,7 +422,7 @@ class TestAuthPages:
             data={"email": "edsger@example.com", "password": "hunter2hunter2"},
             follow_redirects=False,
         )
-        assert async_client_with_db.cookies.get("aegis_session"), "not signed in"
+        assert async_client_with_db.cookies.get(SESSION_COOKIE), "not signed in"
 
         response = async_client_with_db.get("/logout", follow_redirects=False)
         assert response.status_code == 303
@@ -430,10 +431,10 @@ class TestAuthPages:
         # refresh cookie behind would let the next page load silently resume
         # the session the user just ended.
         cleared = "; ".join(response.headers.get_list("set-cookie"))
-        assert "aegis_session=" in cleared
-        assert "aegis_refresh=" in cleared
-        assert not async_client_with_db.cookies.get("aegis_session")
-        assert not async_client_with_db.cookies.get("aegis_refresh")
+        assert f"{SESSION_COOKIE}=" in cleared
+        assert f"{REFRESH_COOKIE}=" in cleared
+        assert not async_client_with_db.cookies.get(SESSION_COOKIE)
+        assert not async_client_with_db.cookies.get(REFRESH_COOKIE)
 
     def test_logout_ends_the_session_on_the_server(
         self, async_client_with_db: TestClient
@@ -445,7 +446,7 @@ class TestAuthPages:
             data={"email": "barbara@example.com", "password": "hunter2hunter2"},
             follow_redirects=False,
         )
-        token = async_client_with_db.cookies.get("aegis_session")
+        token = async_client_with_db.cookies.get(SESSION_COOKIE)
         async_client_with_db.get("/logout", follow_redirects=False)
 
         me = async_client_with_db.get(

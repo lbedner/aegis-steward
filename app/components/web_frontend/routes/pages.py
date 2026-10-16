@@ -76,7 +76,7 @@ from app.core.audit import AuditEmitter, get_audit
 from app.core.config import settings
 from app.core.formatting import site_path
 from app.core.security import (
-    SESSION_COOKIE_NAME,
+    SESSION_COOKIE,
     clear_refresh_cookie,
     clear_session_cookie,
 )
@@ -276,7 +276,7 @@ async def logout(
     A GET so a plain link works. The session is revoked, ending its access
     tokens wherever they were copied, and both cookies are dropped.
     """
-    if session_id := session_id_of(request.cookies.get(SESSION_COOKIE_NAME)):
+    if session_id := session_id_of(request.cookies.get(SESSION_COOKIE)):
         await refresh_service.revoke_family(session_id)
     redirect = RedirectResponse(url="/", status_code=303)
     clear_session_cookie(redirect)

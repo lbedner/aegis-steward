@@ -101,7 +101,7 @@ async def login(
 ) -> TokenResponse:
     """Login and get access token.
 
-    Sets the HttpOnly ``aegis_session`` cookie *and* returns the token in
+    Sets the HttpOnly ``<project>_session`` cookie *and* returns the token in
     the JSON body. Browser-based callers rely on the cookie; pure API
     clients (CLIs, tests) keep using the bearer token from the body.
     """
