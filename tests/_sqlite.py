@@ -39,7 +39,7 @@ def shape_like_production(
     beside the main one, or ``:memory:``). ``busy_timeout_ms`` overrides
     the real wait for tests that must not spend it.
     """
-    from app.core.db import apply_sqlite_pragmas
+    from app.core.db import apply_sqlite_pragmas, emit_begin
 
     @event.listens_for(engine.sync_engine, "connect")
     def _connect(dbapi_connection: Any, connection_record: Any) -> None:
@@ -64,6 +64,4 @@ def shape_like_production(
         if attach is not None:
             attach(dbapi_connection)
 
-    @event.listens_for(engine.sync_engine, "begin")
-    def _begin(conn: Any) -> None:
-        conn.exec_driver_sql("BEGIN IMMEDIATE")
+    event.listen(engine.sync_engine, "begin", emit_begin)

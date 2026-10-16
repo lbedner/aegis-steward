@@ -1,7 +1,7 @@
 {% extends layout %}
 {% from "components/macros/layout.html" import page_header, card %}
 {% from "components/macros/feedback.html" import empty_state %}
-{% from "components/macros/form.html" import action, button_classes %}
+{% from "components/macros/form.html" import action %}
 
 {% block title %}Comms - {{ project_name }}{% endblock %}
 
@@ -28,7 +28,7 @@
     <p x-show="state === 'denied'" x-cloak>Blocked. Allow notifications for Steward in this device's settings.</p>
     <p x-show="state === 'on'" x-cloak>On. Bills due come here too.</p>
     <div class="flex flex-wrap items-center gap-3">
-      <button type="button" x-show="state === 'off'" x-cloak x-on:click="enable()" class="{{ button_classes() }}">Turn on</button>
+      {{ action("Turn on", 'x-show="state === \'off\'" x-cloak x-on:click="enable()"', tone="primary") }}
       {{ action("Send a test", 'hx-post="' ~ push.test ~ '" hx-swap="none" data-write') }}
     </div>
   </div>

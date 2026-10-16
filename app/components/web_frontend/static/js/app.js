@@ -820,7 +820,9 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('pushDevice', () => ({
     state: 'unsupported',
     keep(subscription) {
-      return fetch(this.$root.dataset.devices, {
+      // fetchAuth (auth.js) renews an expired session; it is absent when
+      // the stack runs without auth.
+      return (window.fetchAuth || fetch)(this.$root.dataset.devices, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subscription),

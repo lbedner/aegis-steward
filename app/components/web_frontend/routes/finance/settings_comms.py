@@ -20,7 +20,7 @@ from app.services.auth.deps import require_admin
 from app.services.comms import push
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.planning.recurring.forecast import (
-    reminder_subject,
+    bill_reminder,
     upcoming_outflows,
 )
 from app.services.finance.service import FinanceService
@@ -35,13 +35,10 @@ async def bill_email(
     the scheduled job uses, so the preview cannot drift from the mail."""
     days = settings.FINANCE_BILL_EMAIL_DAYS
     projection = await service.project_balances(owner_user_id=owner_user_id, days=days)
-    bills = upcoming_outflows(projection)
     return {
         "to": settings.FINANCE_BILL_EMAIL_TO,
         "days": days,
-        "bills": bills,
-        "total": sum(b["amount"] for b in bills),
-        "subject": reminder_subject(bills, days),
+        **bill_reminder(upcoming_outflows(projection), days),
     }
 
 
@@ -90,12 +87,15 @@ async def _push_device(request: Request) -> dict[str, str] | None:
 async def test_push(
     request: Request, db: AsyncSession = Depends(get_async_db)
 ) -> Response:
-    reached = await push.send_push(
-        db,
-        f"Test from {settings.PROJECT_DISPLAY_NAME}",
-        "Notifications are on.",
-        url=request.app.url_path_for("comms"),
-    )
+    try:
+        reached = await push.send_push(
+            db,
+            f"Test from {settings.PROJECT_DISPLAY_NAME}",
+            "Notifications are on.",
+            url=request.app.url_path_for("comms"),
+        )
+    except push.PushConfigurationError as exc:
+        return toast_response(str(exc), "error")
     if not reached:
         return toast_response("No device has notifications on.", "warn")
     return toast_response(f"Sent to {counted(reached, 'device')}.")

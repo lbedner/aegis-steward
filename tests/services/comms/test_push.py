@@ -38,8 +38,10 @@ class Gone:
 
 @pytest.fixture
 def pushed(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Every push sent; an endpoint containing ``gone`` answers 410."""
+    """Every push sent; an endpoint containing ``gone`` answers 410. Served
+    on https, so the contact is the site whatever ``.env`` says."""
     use_store(monkeypatch)
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "https://steward.example.com")
     sent: list[dict[str, Any]] = []
 
     async def _webpush(subscription_info: dict[str, Any], **kwargs: Any) -> None:
@@ -61,10 +63,30 @@ async def test_the_signing_key_is_made_once_and_kept(
     store = use_store(monkeypatch)
     first = await push.public_key()
     assert await push.public_key() == first
-    assert list(store.values) == ["WEB_PUSH_VAPID_KEY"]
+    assert list(store.values) == [push.VAPID_KEY]
     # What PushManager.subscribe takes: an uncompressed P-256 point.
     point = base64.urlsafe_b64decode(first + "=")
     assert len(point) == 65 and point[0] == 4
+
+
+async def test_the_key_is_read_once_per_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Made at the webserver's start, not in the request that first asks:
+    making it is a write, and the Comms page had queried (the bill
+    preview) before asking, so the write waited out the busy timeout
+    behind the page's own lock. After that, no request touches the store."""
+    use_store(monkeypatch)
+    from app.components.backend.startup.push_key import startup_hook
+
+    await startup_hook()
+    key = await push.public_key()
+
+    async def _locked(name: str) -> None:
+        raise AssertionError("a request read the store")
+
+    monkeypatch.setattr(push.secrets, "get", _locked)
+    assert await push.public_key() == key
 
 
 # Each test reads the devices more than once on purpose (keep twice, then
@@ -100,10 +122,33 @@ async def test_a_send_reaches_every_device_and_forgets_gone_ones(
         "body": "$1,500.00 on Friday",
         "url": "/bills",
     }
-    # Who to contact about these pushes: https://DOMAIN on a server.
-    assert sent["vapid_claims"]["sub"] == settings.PUBLIC_BASE_URL
+    assert sent["vapid_claims"]["sub"] == push.contact()
     (kept,) = await devices(async_db_session)
     assert kept.endpoint == SUBSCRIPTION["endpoint"]
+
+
+@pytest.mark.parametrize(
+    ("base_url", "admins", "contact"),
+    [
+        ("https://steward.example.com", [], "https://steward.example.com"),
+        # Served over plain http (dev): push services take only https or
+        # mailto, so the first admin's address.
+        ("http://127.0.0.1:8001", ["sam@example.com"], "mailto:sam@example.com"),
+    ],
+)
+def test_push_services_are_told_who_to_contact(
+    monkeypatch: pytest.MonkeyPatch, base_url: str, admins: list[str], contact: str
+) -> None:
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", base_url)
+    monkeypatch.setattr(settings, "ADMIN_USER_EMAILS", admins)
+    assert push.contact() == contact
+
+
+def test_with_no_one_to_contact_push_is_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://127.0.0.1:8001")
+    monkeypatch.setattr(settings, "ADMIN_USER_EMAILS", [])
+    with pytest.raises(push.PushConfigurationError, match="ADMIN_USER_EMAILS"):
+        push.contact()
 
 
 async def test_no_device_sends_nothing(
