@@ -9,19 +9,19 @@ shell's own tab bar is the navigation there.
 """
 
 import hashlib
-from pathlib import Path
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 from starlette.requests import Request
 
+from app.components.web_frontend.assets import APP_ICON, STATIC_DIR
 from app.components.web_frontend.nav import NATIVE_AGENT
 from app.components.web_frontend.rendering import APPEARANCE, templates
 from tests.web.dom import none, one
 from tests.web.test_theme import tailwind
 
 SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1"
-STATIC = Path("app/components/web_frontend/static")
 # favicon.svg as app-icon.png was last drawn from (``make app-icon``).
 FAVICON_DRAWN = "d92ab0c9bd833884635d7af14a4f04cc70186a716676f8418975dfe067cbdb4e"
 
@@ -55,12 +55,27 @@ class TestHomeScreen:
         title = one(page, 'meta[name="apple-mobile-web-app-title"]').get("content")
         assert title == templates.env.globals["project_name"]
 
+    def test_it_has_the_manifest_ios_asks_before_it_offers_notifications(
+        self, client: TestClient
+    ) -> None:
+        """iOS lets a home-screen app ask for notifications only when its
+        manifest says standalone. Fetched with the session, through the
+        gate like every other path."""
+        link = one(client.get("/overview").text, 'link[rel="manifest"]')
+        assert link.get("crossorigin") == "use-credentials"
+        manifest = client.get(link.get("href")).json()
+        assert manifest["display"] == "standalone"
+        assert manifest["name"] == templates.env.globals["project_name"]
+        assert manifest["start_url"] == "/"
+        (icon,) = manifest["icons"]
+        assert client.get(icon["src"]).headers["content-type"] == "image/png"
+
     def test_the_icon_is_the_favicon_on_the_page_ground(self) -> None:
         """A copy of the mark and of a theme color, so it is redrawn from
         both (``make app-icon``) and a change to either fails here."""
-        favicon = hashlib.sha256((STATIC / "favicon.svg").read_bytes()).hexdigest()
+        favicon = hashlib.sha256((STATIC_DIR / "favicon.svg").read_bytes()).hexdigest()
         assert favicon == FAVICON_DRAWN, "favicon.svg changed: make app-icon"
-        with Image.open(STATIC / "app-icon.png") as icon:
+        with Image.open(STATIC_DIR / APP_ICON) as icon:
             corner = "#" + icon.convert("RGB").tobytes()[:3].hex().upper()
         assert corner == icon_ground().upper(), "the page ground changed: make app-icon"
 
@@ -81,10 +96,11 @@ class TestNativeMode:
         none(page, 'button[aria-label="Toggle navigation"]')
         one(page, "main#app-content")
 
-    def test_a_page_drawn_without_render_knows_it_too(self) -> None:
+    def test_a_page_drawn_without_render_knows_it_too(self, app: FastAPI) -> None:
         """Sign-in and the Overseer answer with a bare TemplateResponse."""
         agent = f"{SAFARI} {NATIVE_AGENT}/1".encode()
-        request = Request({"type": "http", "headers": [(b"user-agent", agent)]})
+        scope = {"type": "http", "app": app, "headers": [(b"user-agent", agent)]}
+        request = Request(scope)
         response = templates.TemplateResponse(
             request=request, name="pages/overseer/forbidden.html"
         )

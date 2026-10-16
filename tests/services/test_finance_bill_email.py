@@ -93,6 +93,30 @@ async def test_lists_the_bills_due_in_the_window(
     assert "Rent" in mail["text"] and "$1,500.00" in mail["text"]
 
 
+async def test_every_device_with_notifications_on_hears_too(
+    outbox: list[dict[str, Any]],
+    job_session: None,
+    a_bill: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Push needs no address: a device that turned it on is the opt-in."""
+    pushed: list[tuple[str, str]] = []
+
+    async def _push(_session: AsyncSession, title: str, body: str) -> int:
+        pushed.append((title, body))
+        return 1
+
+    monkeypatch.setattr("app.services.comms.push.send_push", _push)
+    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_TO", None)
+    monkeypatch.setattr(settings, "FINANCE_BILL_EMAIL_DAYS", 7)
+    await jobs.finance_bill_due_email_job()
+
+    assert outbox == []
+    ((title, body),) = pushed
+    assert title == "1 bill due in the next 7 days"
+    assert "Rent" in body
+
+
 async def test_a_window_that_ends_before_the_bill_sends_nothing(
     outbox: list[dict[str, Any]],
     job_session: None,

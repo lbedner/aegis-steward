@@ -31,7 +31,7 @@ BUDGET_MB = {
     "backend": 10,
     "blog": 40,
     "change_queue": 50,
-    "comms": 25,
+    "comms": 35,  # #508 web push: py_vapid, the device table
     "documents": 100,
     "finance": 125,
     "insights": 40,

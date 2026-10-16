@@ -116,4 +116,5 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "scheduler": ("table", "scheduler.job_execution"),
     "deploy": ("table", "deployment"),
     "secrets": ("table", "secrets.secret"),
+    "push_subscription": ("table", "push_subscription"),
 }

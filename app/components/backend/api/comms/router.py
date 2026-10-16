@@ -8,9 +8,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.db import get_async_db
 from app.models.user import User
-from app.services.auth.deps import require_admin
+from app.services.auth.deps import get_current_active_user, require_admin
+from app.services.comms import push
 from app.services.comms.calls import (
     CallConfigurationError,
     CallError,
@@ -29,6 +32,7 @@ from app.services.comms.models import (
     CallResponse,
     EmailResponse,
     MakeCallRequest,
+    PushRegistration,
     SendEmailRequest,
     SendSMSRequest,
     SMSResponse,
@@ -371,3 +375,17 @@ async def check_domain(
     return DomainResponse(
         name=status.domain, status=status.status, verified=status.verified
     )
+
+
+# Web push
+
+
+@router.post("/push/subscriptions", status_code=204)
+async def register_push_device(
+    registration: PushRegistration,
+    _: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Turn notifications on for a device: what its browser's
+    ``PushManager.subscribe`` returned, posted by the page."""
+    await push.keep(db, registration)

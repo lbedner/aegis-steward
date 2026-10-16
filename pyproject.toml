@@ -73,6 +73,8 @@ dependencies = [
     # shape), so a major bump needs the adapter checked, not just resolved.
     "snaptrade-python-sdk>=13.0.9,<14.0.0",
     "email-validator==2.2.0",
+    # Web push (VAPID + aes128gcm) to the home-screen app and browsers.
+    "pywebpush>=2.5,<3",
 ]
 
 [project.scripts]

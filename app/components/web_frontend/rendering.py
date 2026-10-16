@@ -18,7 +18,7 @@ from starlette.responses import Response
 
 from app.components.backend.middleware.security_headers import csp_nonce
 from app.components.web_frontend import ranges
-from app.components.web_frontend.assets import COMPONENT_DIR, static_url
+from app.components.web_frontend.assets import COMPONENT_DIR, HOME_SCREEN, static_url
 from app.components.web_frontend.filters import FILTERS, assistant
 from app.components.web_frontend.glyphs import (
     account_glyph,
@@ -53,6 +53,7 @@ templates.env.globals["voice"] = voice
 # Every page's <title> and sidebar name the project, so these are globals
 # rather than something each route has to remember to pass through.
 templates.env.globals["project_name"] = settings.PROJECT_DISPLAY_NAME
+templates.env.globals.update(HOME_SCREEN)
 # What an account's things are CALLED, so a card title and the menu item
 # that edits it cannot drift apart (services.finance.constants).
 templates.env.globals["named"] = ACCOUNT_THINGS

@@ -53,7 +53,7 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/routes/finance/transactions.py": 790,
     "services/finance/adapters/importers/imports.py": 813,
     "cli/finance.py": 652,
-    "components/web_frontend/routes/finance/settings.py": 693,
+    "components/web_frontend/routes/finance/settings.py": 644,
     "components/web_frontend/routes/finance/account_manage.py": 675,
     "components/web_frontend/routes/finance/bills.py": 634,
     "services/finance/domains/ledger/queries/transactions.py": 581,
@@ -65,7 +65,7 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/rendering.py": 637,
     "services/ai/domains/llm/queries.py": 556,
     "core/formatting.py": 510,
-    "core/config.py": 828,  # #481 upload caps, #482 encryption-key guard, #486 code mode limits, #479 hosts + auth-off guard, #488 Traefik API, deploy DOMAIN
+    "core/config.py": 829,  # #481 upload caps, #482 encryption-key guard, #486 code mode limits, #479 hosts + auth-off guard, #488 Traefik API, deploy DOMAIN, #508 push key
 }
 
 
