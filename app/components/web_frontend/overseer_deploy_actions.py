@@ -51,6 +51,7 @@ TITLES = {
     "resume": "Resume the server",
     "deploy": "Deploy",
     "backup": "Back up",
+    "upload-storage": "Bring missing files",
     "rollback": "Roll back",
     "destroy": "Destroy",
 }
