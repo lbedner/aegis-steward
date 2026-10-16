@@ -1,11 +1,10 @@
-"""Settings: connections, categories, payees, and the comms job.
+"""Settings: connections, categories and payees (Comms is settings_comms).
 
 Four sibling routes under one sub-nav, the shape Review already uses.
 Connecting a provider is two posts (pattern 1): the first starts a
 session and hands back the provider's own page plus an element that
 polls the second until the connection lands, so the browser waits
-without a line of JavaScript. The two tables are the shared table macro;
-Comms shows what the scheduled bill email would say, and never sends it.
+without a line of JavaScript. The two tables are the shared table macro.
 """
 
 from __future__ import annotations
@@ -54,10 +53,8 @@ from app.components.web_frontend.routes.finance.connect_providers import (
     PROVIDERS,
     Provider,
 )
-from app.core.config import settings
 from app.services.finance.constants import PROVIDER_LABELS, connection_status
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning.recurring.forecast import upcoming_outflows
 from app.services.finance.service import FinanceService
 
 SECTION = section("settings")
@@ -450,40 +447,6 @@ async def payee_categories(
         "partials/settings/payee_categories.html",
         name=names[merchant_id],
         summary=summary,
-    )
-
-
-# --- comms ------------------------------------------------------------------
-
-
-async def bill_email(
-    service: FinanceService, owner_user_id: int | None
-) -> dict[str, Any]:
-    """What tomorrow's bill email would say. The same window and shaping
-    the scheduled job uses, so the preview cannot drift from the mail."""
-    days = settings.FINANCE_BILL_EMAIL_DAYS
-    projection = await service.project_balances(owner_user_id=owner_user_id, days=days)
-    bills = upcoming_outflows(projection)
-    return {
-        "to": settings.FINANCE_BILL_EMAIL_TO,
-        "days": days,
-        "bills": bills,
-        "total": sum(b["amount"] for b in bills),
-        "subject": f"{len(bills)} bill{'s' if len(bills) != 1 else ''} due in the next {days} days",
-    }
-
-
-@router.get("/comms", include_in_schema=False)
-async def comms(
-    request: Request,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    email = await bill_email(service, owner_user_id)
-    return render(
-        request,
-        "pages/settings/comms.html",
-        {"section": SECTION, **nav_context("comms"), "email": email},
     )
 
 

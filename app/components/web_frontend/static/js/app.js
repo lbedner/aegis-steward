@@ -810,3 +810,39 @@ const paintStatusBar = () => {
 };
 document.addEventListener('theme-changed', paintStatusBar);
 window.addEventListener('load', paintStatusBar);
+
+// Notifications on this device (Settings > Comms). The card hands over
+// the server's key and paths; the service worker shows the
+// notifications, and the subscription goes to the API the native shells
+// register through, again on every visit, so a device the server forgot
+// (it answered 410 once) comes back on its own.
+document.addEventListener('alpine:init', () => {
+  Alpine.data('pushDevice', () => ({
+    state: 'unsupported',
+    keep(subscription) {
+      return fetch(this.$root.dataset.devices, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription),
+      });
+    },
+    async init() {
+      if (!('serviceWorker' in navigator && 'PushManager' in window)) return;
+      const registration = await navigator.serviceWorker.register(this.$root.dataset.worker);
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) this.keep(subscription);
+      this.state = Notification.permission === 'denied' ? 'denied' : subscription ? 'on' : 'off';
+    },
+    async enable() {
+      if (await Notification.requestPermission() !== 'granted') { this.state = 'denied'; return; }
+      const key = atob(this.$root.dataset.key.replace(/-/g, '+').replace(/_/g, '/'));
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: Uint8Array.from(key, (c) => c.charCodeAt(0)),
+      });
+      if ((await this.keep(subscription)).ok) this.state = 'on';
+      else toast('Notifications could not be turned on.', 'error');
+    },
+  }));
+});

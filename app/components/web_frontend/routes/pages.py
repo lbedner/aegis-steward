@@ -7,12 +7,23 @@ Section pages live under ``routes/finance/``, one module per sidebar entry.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+)
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.components.backend.api.auth.router import login as api_login
 from app.components.backend.api.auth.router import register as api_register
 from app.components.backend.api.deps import login_rate_limit, register_rate_limit
+from app.components.web_frontend.assets import (
+    APP_ICON,
+    STATIC_DIR,
+    WEB_MANIFEST,
+    static_url,
+)
 from app.components.web_frontend.overseer_access import LOGIN, overseer_gate
 from app.components.web_frontend.rendering import templates, with_query
 from app.components.web_frontend.routes import overseer as overseer_routes
@@ -62,6 +73,7 @@ from app.components.web_frontend.routes.partials import (
     overseer_worker as overseer_worker_partials,
 )
 from app.core.audit import AuditEmitter, get_audit
+from app.core.config import settings
 from app.core.formatting import site_path
 from app.core.security import (
     SESSION_COOKIE_NAME,
@@ -82,6 +94,33 @@ router = APIRouter(dependencies=[Depends(overseer_gate)])
 async def root() -> RedirectResponse:
     """There is no landing page; the app opens on Overview."""
     return RedirectResponse(url="/overview", status_code=303)
+
+
+@router.get("/sw.js", include_in_schema=False)
+async def service_worker() -> FileResponse:
+    """Served from the root so its scope is every page; never cached, so
+    a deploy's worker is the next one the browser installs."""
+    return FileResponse(
+        STATIC_DIR / "js" / "sw.js",
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@router.get(WEB_MANIFEST, include_in_schema=False)
+async def web_manifest() -> JSONResponse:
+    """What a phone reads when the app is added to its home screen."""
+    manifest = {
+        "name": settings.PROJECT_DISPLAY_NAME,
+        "id": "/",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "icons": [
+            {"src": static_url(APP_ICON), "sizes": "180x180", "type": "image/png"}
+        ],
+    }
+    return JSONResponse(manifest, media_type="application/manifest+json")
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)

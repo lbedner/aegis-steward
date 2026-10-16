@@ -6,6 +6,7 @@ completion) plus a disconnect; the two tables render through the shared
 table macro; comms shows what the scheduled bill email would say.
 """
 
+import asyncio
 from datetime import timedelta
 import json
 from typing import Any
@@ -18,8 +19,10 @@ from app.components.web_frontend.routes.finance.connect_providers import (
     SIMPLEFIN_CREATE,
 )
 from app.core.config import settings
+from app.services.comms import push
 from app.services.finance.adapters.providers.simplefin import DEMO_PAGE
 from app.services.finance.service import FinanceService
+from tests._secret_settings import secret_settings, use_store
 from tests.web.conftest import Ledger, Streams
 from tests.web.dom import none, one, select, table_rows, text, triggers
 
@@ -739,6 +742,44 @@ class TestComms:
         monkeypatch.setattr("app.services.comms.email.send_email_simple", _send)
         client.get("/settings/comms")
         assert sent == []
+
+    def test_this_device_can_turn_notifications_on(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The card hands the page the key PushManager.subscribe needs."""
+        use_store(monkeypatch)
+        card = one(client.get("/settings/comms").text, "#push-device")
+        assert card.get("data-key") == asyncio.run(push.public_key())
+        assert card.get("data-worker") == "/sw.js"
+        assert card.get("data-devices") == "/api/v1/comms/push/subscriptions"
+        one(card, 'button[x-on\\:click="enable()"]')
+        assert one(card, "[hx-post]").get("hx-post") == "/settings/comms/test-push"
+
+    def test_without_a_place_to_keep_a_key_it_says_what_to_set(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with secret_settings("WEB_PUSH_VAPID_KEY"):
+            page = client.get("/settings/comms").text
+        none(page, "#push-device")
+        assert "WEB_PUSH_VAPID_KEY" in text(one(page, "#comms"))
+
+    @pytest.mark.parametrize(
+        ("reached", "said"),
+        [(2, "Sent to 2 devices"), (1, "Sent to 1 device"), (0, "No device")],
+    )
+    def test_a_test_push_says_where_it_went(
+        self,
+        hx: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+        reached: int,
+        said: str,
+    ) -> None:
+        async def _send(*_args: object, **_kwargs: object) -> int:
+            return reached
+
+        monkeypatch.setattr(push, "send_push", _send)
+        response = hx.post("/settings/comms/test-push")
+        assert triggers(response)["toast"]["text"].startswith(said)
 
 
 class TestActivity:

@@ -553,6 +553,7 @@ class Settings(
     TWILIO_AUTH_TOKEN: str | None = None
     TWILIO_PHONE_NUMBER: str | None = None  # E.164 format: +15551234567
     TWILIO_MESSAGING_SERVICE_SID: str | None = None  # Required for toll-free SMS
+    WEB_PUSH_VAPID_KEY: str | None = None  # made and kept in the secrets store
 
     # Finance Service Configuration
     FINANCE_DEFAULT_CURRENCY: str = "usd"

@@ -1,20 +1,40 @@
 {% extends layout %}
 {% from "components/macros/layout.html" import page_header, card %}
 {% from "components/macros/feedback.html" import empty_state %}
+{% from "components/macros/form.html" import action, button_classes %}
 
 {% block title %}Comms - {{ project_name }}{% endblock %}
 
 {% block app_content %}
-{{ page_header("Comms", "What the scheduler sends, and to whom") }}
+{{ page_header("Comms", "What the scheduler sends, and where") }}
 {% include "components/sub_nav.html" %}
 <div id="comms" class="grid gap-6 lg:grid-cols-2">
   {% call card("Bill reminder", "daily, from the scheduler") %}
   {% if email.to %}
   <p class="text-sm text-aegis-muted">Sent to <span class="text-aegis-text">{{ email.to }}</span> each morning, listing the bills due in the next {{ email.days }} days.</p>
   {% else %}
-  <p class="text-sm text-aegis-muted">Off. Set <span class="text-aegis-text">FINANCE_BILL_EMAIL_TO</span> in .env and restart to turn it on; nothing is sent until you do.</p>
+  <p class="text-sm text-aegis-muted">Not mailed. Set <span class="text-aegis-text">FINANCE_BILL_EMAIL_TO</span> in .env and restart to mail it; a device with notifications on gets it either way.</p>
   {% endif %}
   <p class="text-xxs text-aegis-muted">The window is FINANCE_BILL_EMAIL_DAYS, {{ email.days }} days today.</p>
+  {% endcall %}
+
+  {% call card("Notifications", "on this device") %}
+  {# pushDevice (app.js) says which of these is true here; the bill
+     reminder and every other alert come to each device that is on. #}
+  {% if push %}
+  <div id="push-device" data-key="{{ push.key }}" data-worker="{{ push.worker }}" data-devices="{{ push.devices }}" x-data="pushDevice" class="space-y-3 text-sm text-aegis-muted">
+    <p x-show="state === 'unsupported'" x-cloak>This browser cannot show notifications. On an iPhone, add Steward to the Home Screen and open it from there.</p>
+    <p x-show="state === 'off'" x-cloak>Off on this device.</p>
+    <p x-show="state === 'denied'" x-cloak>Blocked. Allow notifications for Steward in this device's settings.</p>
+    <p x-show="state === 'on'" x-cloak>On. Bills due come here too.</p>
+    <div class="flex flex-wrap items-center gap-3">
+      <button type="button" x-show="state === 'off'" x-cloak x-on:click="enable()" class="{{ button_classes() }}">Turn on</button>
+      {{ action("Send a test", 'hx-post="' ~ push.test ~ '" hx-swap="none" data-write') }}
+    </div>
+  </div>
+  {% else %}
+  <p class="text-sm text-aegis-muted">Off. Set <span class="text-aegis-text">{{ push_setting }}</span> in .env, or add the secrets component to keep one made here.</p>
+  {% endif %}
   {% endcall %}
 
   {% if email.to %}
