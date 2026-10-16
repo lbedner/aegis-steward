@@ -113,7 +113,7 @@ elif [ "$run_command" = "typecheck" ]; then
 elif [ "$run_command" = "test" ]; then
     "${RUN[@]}" pytest "$@"
 elif [ "$run_command" = "health" ]; then
-    "${RUN[@]}" python -m app.cli.health check "$@"
+    "${RUN[@]}" python -m app.cli.main health status "$@"
 elif [ "$run_command" = "help" ]; then
     echo "Available commands:"
     echo "  webserver   - Run FastAPI + Flet web server"
