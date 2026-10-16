@@ -38,9 +38,21 @@ class PushConfigurationError(Exception):
     """No key, and nowhere to keep a new one."""
 
 
+# The key, once read or made: it never changes on its own. Made at the
+# webserver's start (backend/startup/push_key.py), because making it is a
+# write, and a write inside a request that has queried waits on that
+# request's own lock (BEGIN IMMEDIATE, app.core.db).
+_key: str | None = None
+
+
 async def _private_key() -> str:
-    if key := await secrets.get(VAPID_KEY):
-        return key
+    global _key
+    if _key is None:
+        _key = await secrets.get(VAPID_KEY) or await _made_key()
+    return _key
+
+
+async def _made_key() -> str:
     if not secrets.writable():
         raise PushConfigurationError(f"Set {VAPID_KEY} in .env.")
     vapid = Vapid()
@@ -49,6 +61,17 @@ async def _private_key() -> str:
     key = b64urlencode(scalar)
     await secrets.put(VAPID_KEY, key, actor="web push")
     return key
+
+
+def contact() -> str:
+    """Who a push service can write to about these pushes (VAPID ``sub``),
+    which takes only https or mailto: the site where it is https, else
+    the first admin's address."""
+    if settings.PUBLIC_BASE_URL.startswith("https://"):
+        return settings.PUBLIC_BASE_URL
+    if settings.ADMIN_USER_EMAILS:
+        return f"mailto:{settings.ADMIN_USER_EMAILS[0]}"
+    raise PushConfigurationError("Set ADMIN_USER_EMAILS, or serve the app on https.")
 
 
 async def public_key() -> str:
@@ -75,14 +98,15 @@ async def send_push(
     session: AsyncSession, title: str, body: str, url: str = "/"
 ) -> int:
     """Notify every device; how many it reached. Tapping it opens ``url``."""
+    key = await _private_key()  # before the session's first query takes the lock
     devices = await push_devices(session)
     if not devices:
         return 0
+    claims = {"sub": contact()}
     # Imported here: it brings aiohttp and requests, 30 MB the rest of
     # comms never needs.
     from pywebpush import WebPushException, webpush_async
 
-    key = await _private_key()
     data = json.dumps({"title": title, "body": body, "url": url})
 
     async def _one(device: PushSubscription) -> str:
@@ -94,7 +118,7 @@ async def send_push(
                 },
                 data=data,
                 vapid_private_key=key,
-                vapid_claims={"sub": settings.PUBLIC_BASE_URL},
+                vapid_claims=dict(claims),  # a copy: it adds this endpoint's aud
                 ttl=24 * 60 * 60,
                 timeout=10,
             )

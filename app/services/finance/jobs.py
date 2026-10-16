@@ -169,7 +169,7 @@ async def finance_bill_due_email_job() -> None:
     from app.services.comms import push
     from app.services.comms.email import send_email_simple
     from app.services.finance.domains.planning.recurring.forecast import (
-        reminder_subject,
+        bill_reminder,
         upcoming_outflows,
     )
     from app.services.finance.service import FinanceService
@@ -205,13 +205,12 @@ async def finance_bill_due_email_job() -> None:
 
     if not bills:
         return
-    bills.sort(key=lambda b: b["due_date"] or b["date"])
+    reminder = bill_reminder(bills, days)
     lines = "\n".join(
         f"- {b['name']}: ${b['amount'] / 100:,.2f} on {b['due_date'] or b['date']}"
-        for b in bills
+        for b in reminder["bills"]
     )
-    total = sum(b["amount"] for b in bills)
-    subject = reminder_subject(bills, days)
+    subject, total = reminder["subject"], reminder["total"]
     try:
         async with get_async_session() as session:
             await push.send_push(session, subject, lines)

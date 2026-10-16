@@ -58,10 +58,15 @@ def _month_end(day: date) -> date:
     return date(day.year, day.month, calendar.monthrange(day.year, day.month)[1])
 
 
-def reminder_subject(bills: list[dict[str, Any]], days: int) -> str:
-    """The bill reminder's one line: the mail's subject, the notification's
-    title, and what Settings previews."""
-    return f"{counted(len(bills), 'bill')} due in the next {days} days"
+def bill_reminder(bills: list[dict[str, Any]], days: int) -> dict[str, Any]:
+    """The bill reminder, shaped once for the mail, the notification and
+    the Settings preview: the bills soonest first, their total, and the
+    one line (the subject, the notification's title)."""
+    return {
+        "bills": sorted(bills, key=lambda b: b["due_date"] or b["date"]),
+        "total": sum(b["amount"] for b in bills),
+        "subject": f"{counted(len(bills), 'bill')} due in the next {days} days",
+    }
 
 
 def upcoming_outflows(

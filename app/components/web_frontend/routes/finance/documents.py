@@ -154,7 +154,7 @@ async def account_documents(
     one label, written in one place so nothing has to re-derive it.
     """
     # The REQUEST's session, never a second one. Every transaction takes
-    # the write lock now (see ``_async_sqlite_emit_begin``), so a nested
+    # the write lock now (see ``emit_begin``), so a nested
     # session inside a request waits for a lock its own caller is
     # holding and times out as "database is locked" - a read deadlocking
     # against a read, which is the one thing the lock change made

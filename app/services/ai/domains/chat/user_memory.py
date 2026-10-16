@@ -203,7 +203,7 @@ async def session_or(session: AsyncSession | None) -> AsyncIterator[AsyncSession
     no session of its own, while a change type's describe or execute
     already holds the request's. Opening a second one inside the first
     is not merely wasteful - every transaction takes the write lock now
-    (see ``_async_sqlite_emit_begin``), so the inner session waits on a
+    (see ``emit_begin``), so the inner session waits on a
     lock its own caller is holding and spends the entire busy timeout
     doing it. That reads as a hang, and it cost two of them.
     """

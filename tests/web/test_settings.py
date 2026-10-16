@@ -758,10 +758,20 @@ class TestComms:
     def test_without_a_place_to_keep_a_key_it_says_what_to_set(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        with secret_settings("WEB_PUSH_VAPID_KEY"):
+        with secret_settings(push.VAPID_KEY):
             page = client.get("/settings/comms").text
         none(page, "#push-device")
-        assert "WEB_PUSH_VAPID_KEY" in text(one(page, "#comms"))
+        assert push.VAPID_KEY in text(one(page, "#comms"))
+
+    def test_a_test_push_that_cannot_be_signed_says_why(
+        self, hx: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def _send(*_args: object, **_kwargs: object) -> int:
+            raise push.PushConfigurationError("Set ADMIN_USER_EMAILS.")
+
+        monkeypatch.setattr(push, "send_push", _send)
+        toast = triggers(hx.post("/settings/comms/test-push"))["toast"]
+        assert (toast["text"], toast["tone"]) == ("Set ADMIN_USER_EMAILS.", "error")
 
     @pytest.mark.parametrize(
         ("reached", "said"),

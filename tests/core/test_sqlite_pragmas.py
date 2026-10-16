@@ -162,20 +162,25 @@ class TestTheLockIsTakenUpFront:
     def test_the_engine_does_not_emit_a_deferred_begin(self) -> None:
         import inspect
 
-        from app.core.db import _async_sqlite_emit_begin
+        from app.core.db import emit_begin
 
-        source = inspect.getsource(_async_sqlite_emit_begin)
+        source = inspect.getsource(emit_begin)
         assert "BEGIN IMMEDIATE" in source
 
     def test_no_module_emits_a_bare_begin(self) -> None:
         """A bare BEGIN anywhere reintroduces the upgrade that cannot
-        wait, in one place, silently."""
+        wait, in one place, silently. The one allowed is ``emit_begin``'s
+        for a read-only session, which never writes and so never upgrades."""
         import re
 
         offenders = []
         for path in Path("app").rglob("*.py"):
             for number, line in enumerate(path.read_text().splitlines(), start=1):
-                if re.search(r"""exec_driver_sql\(\s*["']BEGIN["']""", line):
+                if re.search(
+                    r"""exec_driver_sql\(\s*["']BEGIN["']""", line
+                ) and not line.strip().startswith(
+                    'conn.exec_driver_sql("BEGIN" if read_only else'
+                ):
                     offenders.append(f"{path}:{number}")
         assert not offenders, f"bare BEGIN: {offenders}"
 
