@@ -162,6 +162,35 @@ def backups() -> dict[str, Any]:
     return {"rows": rows, "note": None}
 
 
+async def offsite() -> dict[str, Any] | None:
+    """Backups' off-the-server card: not set up (``state`` "off"), no copy
+    yet ("waiting"), or the last run (``offsite.last_run``) as ``facts``,
+    or why it failed (``error``). None in a stack without the job."""
+    try:
+        from app.services.system import offsite as job
+    except ImportError:
+        return None
+    from app.core import secrets
+
+    if not await secrets.get("OFFSITE_BACKUP_REPOSITORY"):
+        return {"state": "off"}
+    run = job.last_run()
+    if run is None:
+        return {"state": "waiting"}
+    at = format_relative_time(datetime.fromisoformat(run["at"]))
+    if not run["ok"]:
+        return {"state": "failed", "at": at, "error": run["error"]}
+    return {
+        "state": "ok",
+        "facts": [
+            ("Last copy", at),
+            ("Of", run["stamp"]),
+            ("Copies kept", str(run["copies"])),
+            ("In the bucket", format_bytes(run["bytes"]) if run["bytes"] else ""),
+        ],
+    }
+
+
 async def history() -> dict[str, Any]:
     """``{"rows": [...], "note": str | None}``: this app's deploy records,
     newest first, or why there are none."""

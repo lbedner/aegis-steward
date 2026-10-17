@@ -87,6 +87,8 @@ async def section_context(
         return {
             "section_subtitle": "The scheduled database backups, newest first.",
             "backups": ui_deployments.backups(),
+            "offsite": await ui_deployments.offsite(),
+            "secrets_url": overseer_secrets.ITEM.url,
             "backup_columns": BACKUP_COLUMNS,
         }
     if section not in AS_DEPLOYED and actions.deployed():

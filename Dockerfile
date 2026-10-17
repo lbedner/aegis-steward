@@ -34,6 +34,7 @@ RUN apt-get update -y && \
       build-essential \
       ca-certificates \
       curl \
+      restic \
       tesseract-ocr \
       tesseract-ocr-eng \
     && \

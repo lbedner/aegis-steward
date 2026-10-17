@@ -1,7 +1,8 @@
 """Overseer > Deployments: what is live (build, commit, when, health), the
 host it runs on, and the database backups beside it (``ui_deployments``)."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ import pytest
 from app.core.config import settings
 from app.services.system import backup, health
 from tests._fake_runtime import SERVER, FakeRuntime, use_runtime
+from tests._secret_settings import use_store
 from tests.web.dom import one, select, text
 from tests.web.overseer import page_html, sign_in, status_with
 
@@ -96,6 +98,56 @@ def test_no_backups_says_why(
         monkeypatch.setattr(settings, "DATABASE_BACKUP_DIR", str(tmp_path / "none"))
     note = text(one(page_html(client, f"{PAGE}/backups"), "#deployments-backups"))
     assert "backups" in note.lower()
+
+
+def _offsite(html: str) -> str:
+    return text(one(html, "#card-offsite"))
+
+
+def test_off_the_server_says_how_to_set_it_up(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Without a repository the backups live only beside the app (#519)."""
+    use_store(monkeypatch)
+    monkeypatch.setattr(settings, "DATABASE_BACKUP_DIR", str(tmp_path))
+    html = page_html(client, f"{PAGE}/backups")
+    assert "Not set up" in _offsite(html)
+    assert one(html, "#card-offsite a").get("href") == "/overseer/secrets"
+
+
+def test_off_the_server_shows_the_last_copy(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """What the nightly job last did: when, which backup, how many copies
+    the bucket keeps and their size; or why it failed."""
+    from app.services.system import offsite
+
+    store = use_store(monkeypatch)
+    store.values["OFFSITE_BACKUP_REPOSITORY"] = "s3:https://example/b/app"
+    monkeypatch.setattr(settings, "DATABASE_BACKUP_DIR", str(tmp_path))
+    assert "No copy yet" in _offsite(page_html(client, f"{PAGE}/backups"))
+    at = (datetime.now(UTC) - timedelta(hours=3)).isoformat()
+    record = tmp_path / offsite.RECORD
+    record.write_text(
+        json.dumps(
+            {
+                "at": at,
+                "ok": True,
+                "stamp": "20261016_020000",
+                "copies": 3,
+                "bytes": 123456789,
+            }
+        )
+    )
+    said = _offsite(page_html(client, f"{PAGE}/backups"))
+    assert "3 hours ago" in said and "20261016_020000" in said
+    assert "3" in said and "117.7 MB" in said
+    record.write_text(
+        json.dumps(
+            {"at": at, "ok": False, "stamp": "x", "error": "restic backup failed: no"}
+        )
+    )
+    assert "restic backup failed: no" in _offsite(page_html(client, f"{PAGE}/backups"))
 
 
 def test_the_history_section_lists_each_deploy(
