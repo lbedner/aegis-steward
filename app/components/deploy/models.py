@@ -1,8 +1,10 @@
-"""Deploy history's one table: a row per build that went live."""
+"""Deploy history's tables: a row per build that went live, and a row per
+everything else done to the server."""
 
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import JSON, Column, DateTime, String, Text
 from sqlmodel import Field, SQLModel
 
 from app.core.time import utcnow
@@ -34,4 +36,33 @@ class Deployment(SQLModel, table=True):
     )
     rolled_back_to: str | None = Field(
         default=None, sa_column=Column(String(64), nullable=True)
+    )
+
+
+class DeployEvent(SQLModel, table=True):
+    """One thing done to the server besides a deploy (a backup, a rollback,
+    an upload, an off-site copy, a restore drill): who, from where, how it
+    went (``outcome``, ok or failed), in a sentence (``summary``) and in
+    full (``detail``)."""
+
+    __tablename__ = "deploy_event"
+
+    id: int | None = Field(default=None, primary_key=True)
+    kind: str = Field(sa_column=Column(String(32), index=True, nullable=False))
+    outcome: str = Field(sa_column=Column(String(16), nullable=False))
+    summary: str = Field(default="", sa_column=Column(Text, nullable=False))
+    started_at: datetime = Field(
+        default_factory=utcnow, sa_column=Column(DateTime, nullable=False)
+    )
+    finished_at: datetime = Field(
+        default_factory=utcnow, sa_column=Column(DateTime, index=True, nullable=False)
+    )
+    actor: str | None = Field(
+        default=None, sa_column=Column(String(320), nullable=True)
+    )
+    origin: str | None = Field(
+        default=None, sa_column=Column(String(255), nullable=True)
+    )
+    detail: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON, nullable=False)
     )
