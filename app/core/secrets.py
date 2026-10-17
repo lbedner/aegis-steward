@@ -42,6 +42,7 @@ OWNERS = (
     "app.services.ai.domains.llm.provider_management",
     "app.services.comms.email",
     "app.services.comms.push",
+    "app.services.system.offsite",
     "app.services.comms.twilio",
     "app.services.payment.providers.stripe",
     "app.components.backend.api.auth.oauth",
@@ -56,8 +57,7 @@ OWNERS = (
 # Shorter than this, the last four characters are most of the value.
 HINT_MIN_LENGTH = 12
 
-# Where a value came from: ``.env`` and the environment, or the installed
-# store's own name (``database``, later ``vault``...).
+# Where a value came from: ``.env`` and the environment, or the store's name.
 ENV = "env"
 # How a source reads to a person; another store reads as its own name.
 SOURCE_LABELS = {ENV: ".env", "database": "Saved here"}

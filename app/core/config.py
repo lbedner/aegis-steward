@@ -554,6 +554,11 @@ class Settings(
     TWILIO_PHONE_NUMBER: str | None = None  # E.164 format: +15551234567
     TWILIO_MESSAGING_SERVICE_SID: str | None = None  # Required for toll-free SMS
     WEB_PUSH_VAPID_KEY: str | None = None  # made and kept in the secrets store
+    # Off-site backup (app.services.system.offsite), from .env or the store.
+    OFFSITE_BACKUP_REPOSITORY: str | None = None
+    OFFSITE_BACKUP_PASSWORD: str | None = None
+    OFFSITE_BACKUP_ACCESS_KEY: str | None = None
+    OFFSITE_BACKUP_SECRET_KEY: str | None = None
 
     # Finance Service Configuration
     FINANCE_DEFAULT_CURRENCY: str = "usd"

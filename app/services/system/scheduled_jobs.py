@@ -3,6 +3,7 @@ needs a database to copy and a scheduler to run it."""
 
 from app.core.schedule import LONG_RUNNING, ServiceJob
 from app.services.system.backup import backup_database_job
+from app.services.system.offsite import offsite_backup_job
 
 JOBS: tuple[ServiceJob, ...] = (
     ServiceJob(
@@ -10,6 +11,14 @@ JOBS: tuple[ServiceJob, ...] = (
         "database_backup",
         "Daily Database Backup",
         {"trigger": "cron", "hour": 2, "minute": 0},
+        timeout=LONG_RUNNING,
+    ),
+    # After the backup it sends; does nothing until a repository is set.
+    ServiceJob(
+        offsite_backup_job,
+        "offsite_backup",
+        "Off-site Backup",
+        {"trigger": "cron", "hour": 2, "minute": 30},
         timeout=LONG_RUNNING,
     ),
 )
