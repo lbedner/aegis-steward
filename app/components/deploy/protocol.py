@@ -55,6 +55,25 @@ BACKUP_STEPS = {
     "offsite": "Off the server",
 }
 
+# A deploy event (``deploy event``): how it went, and History's name for
+# each kind, an action's name but the off-site copy (the server's nightly
+# job); aegis records them, through the app.
+EVENT_OK, EVENT_FAILED = "ok", "failed"
+OFFSITE, DRILL = "offsite", "restore-drill"
+EVENT_TITLES = {
+    "backup": "Backup",
+    "upload-db": "Database brought",
+    "upload-storage": "Stored files brought",
+    DRILL: "Restore drill",
+    OFFSITE: "Off-site copy",
+}
+# A restore drill's steps (``aegis deploy-restore-drill``).
+DRILL_STEPS = {
+    "restore": "Restore the newest copy",
+    "check": "Check it",
+    "record": "Record it",
+}
+
 PROTOCOL: dict[str, Any] = {
     "requests": "deploy:requests",
     "heartbeat": "deploy:agent",
@@ -159,6 +178,12 @@ PROTOCOL: dict[str, Any] = {
         },
         "upload-storage": {
             "command": ["deploy-upload-storage"],
+        },
+        # The newest off-site copy, restored in a throwaway container on
+        # the agent's machine and checked; recorded on the server.
+        DRILL: {
+            "command": ["deploy-restore-drill"],
+            "steps": DRILL_STEPS,
         },
         "rollback": {
             "command": ["deploy-rollback"],

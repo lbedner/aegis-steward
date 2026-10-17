@@ -52,6 +52,7 @@ TITLES = {
     "deploy": "Deploy",
     "backup": "Back up",
     "upload-storage": "Bring missing files",
+    "restore-drill": "Rehearse a restore",
     "rollback": "Roll back",
     "destroy": "Destroy",
 }
@@ -246,6 +247,8 @@ JOB_COLUMNS = [
     {"key": "started", "label": "Started"},
     {"key": "said", "label": "Last line", "wrap": True},
 ]
+# A job (or a deploy event) as a status cell: done unless one of these.
+DONE = ("Done", "ok")
 STATUS_CELLS = {"running": ("Running", "accent"), "failed": ("Failed", "error")}
 
 
@@ -281,7 +284,7 @@ def _job_row(job: JobSnapshot) -> dict[str, Any]:
             "label": TITLES[deploy_agent.action_of(job)],
             "url": job_url(job.job_id),
         },
-        "status": status_cell(*STATUS_CELLS.get(job.status, ("Done", "ok"))),
+        "status": status_cell(*STATUS_CELLS.get(job.status, DONE)),
         "started": format_relative_time(job.started_at),
         "said": job.error or job.label,
     }
