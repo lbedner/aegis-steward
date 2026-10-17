@@ -45,15 +45,25 @@ document.addEventListener('alpine:init', () => {
   }));
 });
 
-// A dropdown (macros/layout.html) opens on the side its macro asked for.
-// A button that wrapped to the other edge of a phone would open it off
-// the screen, so on opening it takes the other side, then slides back
-// whatever still overhangs. ``toggle`` does not bubble, so it is caught
-// on the way down.
+// A dropdown (macros/layout.html) opens below, on the side its macro
+// asked for. One that would run off the bottom of the window opens above
+// instead, when there is more room there. A button that wrapped to the
+// other edge of a phone would open it off the screen, so on opening it
+// takes the other side, then slides back whatever still overhangs.
+// ``toggle`` does not bubble, so it is caught on the way down.
 function placeDropdown(details) {
   const menu = details.lastElementChild;
   menu.style.left = menu.style.right = menu.style.translate = '';
+  menu.style.top = menu.style.bottom = menu.style.marginTop = menu.style.marginBottom = '';
   if (!details.open) return;
+  const below = menu.getBoundingClientRect();
+  const above = details.getBoundingClientRect().top;
+  if (below.bottom > window.innerHeight && above > window.innerHeight - below.top) {
+    menu.style.top = 'auto';
+    menu.style.bottom = '100%';
+    menu.style.marginTop = '0';
+    menu.style.marginBottom = '0.25rem'; // the macro's ``mt-1``, on the other side
+  }
   // The page's width, not innerWidth: a phone zooms out to show a menu
   // that overhangs, which widens innerWidth until it "fits". The gutter
   // is the macro's ``max-w-[calc(100vw-2rem)]``.

@@ -1,6 +1,7 @@
 {# Overseer > Deployments > Backups: whether they are copied off the
-   server (ui_deployments.offsite), then the scheduled database backups on
-   the backup volume, newest first, or why there are none. #}
+   server and the last restore drill (ui_deployments.offsite), then the
+   scheduled database backups on the backup volume, newest first, or why
+   there are none. #}
 {% from "components/macros/layout.html" import card, facts %}
 {% from "components/macros/table.html" import data_table %}
 {% from "pages/overseer/deployments/_macros.html" import goto, note %}
@@ -10,9 +11,8 @@
 <p class="{{ note() }}">Not set up: these backups live only on this server, and go with it. Set the Off-site backup values in {{ goto(secrets_url, "Secrets") }} and a copy leaves each night at 02:30.</p>
 {% elif offsite.state == "waiting" %}
 <p class="{{ note() }}">No copy yet: the first leaves at 02:30.</p>
-{% elif offsite.state == "failed" %}
-<p class="{{ note() }}">The last copy, {{ offsite.at }}, failed: {{ offsite.error }}</p>
 {% else %}
+{% if offsite.error %}<p class="{{ note() }}">The last copy failed: {{ offsite.error }}</p>{% endif %}
 {{ facts(offsite.facts) }}
 {% endif %}
 {% endcall %}
