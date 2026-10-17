@@ -958,7 +958,7 @@ def test_a_project_with_a_server_shows_it_and_its_actions(
     assert "Your server" in text(one(card, "h2"))
     assert "203.0.113.7" in text(card)
     none(card, "[data-step]")
-    for verb in ("deploy", "backup", "restore-drill"):
+    for verb in ("deploy", "backup", *(["restore-drill"] if actions.DRILLS else [])):
         assert one(card, f'[data-ask="{verb}"]').get("data-write") is not None
     # The backups a rollback picks from load on their own (no list to
     # ask), once More opens.
