@@ -15,12 +15,13 @@ server too.
 """
 
 import asyncio
-from datetime import UTC, datetime
 import json
 import os
-from typing import Any
 
+from app.components.deploy import history
+from app.components.deploy.protocol import EVENT_FAILED, EVENT_OK, OFFSITE
 from app.core import secrets
+from app.core.formatting import format_bytes
 from app.core.log import logger
 from app.core.secrets import Secret
 from app.services.system.backup import (
@@ -58,24 +59,8 @@ RESTIC_ENV = {
     "OFFSITE_BACKUP_SECRET_KEY": "AWS_SECRET_ACCESS_KEY",
 }
 KEEP = ("--keep-daily", "7", "--keep-weekly", "4", "--keep-monthly", "6")
-# The last run, beside the backups it sends, for Overseer > Deployments >
-# Backups: on the volume, so it outlives the worker's day-long task record.
-RECORD = "offsite.json"
-
-
-def last_run() -> dict[str, Any] | None:
-    """What the last run did (``at``, ``ok``, ``stamp``, and ``copies`` and
-    ``bytes`` in the repository, or ``error``); None before the first."""
-    try:
-        return json.loads((backup_dir() / RECORD).read_text())
-    except (OSError, ValueError):
-        return None
-
-
-def _keep(**run: Any) -> None:
-    (backup_dir() / RECORD).write_text(
-        json.dumps({"at": datetime.now(UTC).isoformat(), **run})
-    )
+# Each run is a deploy event (Overseer > Deployments: Backups' card, History).
+ACTOR = "Off-site Backup (scheduled)"
 
 
 async def _restic(env: dict[str, str], *args: str, check: bool = True) -> str | None:
@@ -120,12 +105,25 @@ async def offsite_backup_job() -> None:
             await _restic(env, "init")
         await _restic(env, "backup", "--tag", stamp, *sent)
         await _restic(env, "forget", *KEEP, "--prune")
-        copies = json.loads(await _restic(env, "snapshots", "--json") or "[]")
+        copies = len(json.loads(await _restic(env, "snapshots", "--json") or "[]"))
         size = json.loads(
             await _restic(env, "stats", "--mode", "raw-data", "--json") or "{}"
-        )
+        ).get("total_size")
     except RuntimeError as exc:
-        _keep(ok=False, stamp=stamp, error=str(exc))
+        await history.record_event(
+            OFFSITE,
+            EVENT_FAILED,
+            summary=str(exc),
+            actor=ACTOR,
+            detail={"stamp": stamp},
+        )
         raise
-    _keep(ok=True, stamp=stamp, copies=len(copies), bytes=size.get("total_size"))
+    held = f", {format_bytes(size)} in the bucket" if size else ""
+    await history.record_event(
+        OFFSITE,
+        EVENT_OK,
+        summary=f"Sent {stamp}: {copies} copies kept{held}",
+        actor=ACTOR,
+        detail={"stamp": stamp, "copies": copies, "bytes": size},
+    )
     logger.info("Off-site backup sent", stamp=stamp, files=len(sent))

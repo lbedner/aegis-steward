@@ -15,9 +15,13 @@ from typing import Any
 
 import pytest
 
+from app.components.deploy import history
 from app.core.config import settings
 from app.services.system import offsite
+from tests._deploy_events import no_deploy_events  # noqa: F401
 from tests._secret_settings import FakeStore, use_store
+
+pytestmark = pytest.mark.usefixtures("no_deploy_events")
 
 SET_UP = {
     "OFFSITE_BACKUP_REPOSITORY": "s3:https://nyc3.digitaloceanspaces.com/b/steward",
@@ -120,14 +124,10 @@ async def test_the_newest_backup_is_sent_then_old_copies_thinned(
     assert {c["repository"] for c in calls} == {SET_UP["OFFSITE_BACKUP_REPOSITORY"]}
     assert {c["password"] for c in calls} == {SET_UP["OFFSITE_BACKUP_PASSWORD"]}
     assert {(c["key"], c["secret"]) for c in calls} == {("DO00ACCESS", "secret")}
-    run = offsite.last_run()
-    assert run is not None
-    assert (run["ok"], run["stamp"], run["copies"], run["bytes"]) == (
-        True,
-        "20261016_020000",
-        3,
-        123456789,
-    )
+    copy = await history.latest_event("offsite")
+    assert copy is not None and copy.outcome == "ok"
+    assert copy.detail == {"stamp": "20261016_020000", "copies": 3, "bytes": 123456789}
+    assert copy.summary == "Sent 20261016_020000: 3 copies kept, 117.7 MB in the bucket"
 
 
 async def test_a_repository_that_exists_is_not_made_again(
@@ -149,9 +149,9 @@ async def test_a_failed_send_fails_the_job_saying_why(
     with pytest.raises(RuntimeError, match="unable to open repository"):
         await offsite.offsite_backup_job()
     assert "forget" not in [c["args"][0] for c in _calls(restic)]
-    run = offsite.last_run()
-    assert run is not None and run["ok"] is False
-    assert "unable to open repository" in run["error"]
+    copy = await history.latest_event("offsite")
+    assert copy is not None and copy.outcome == "failed"
+    assert "unable to open repository" in copy.summary
 
 
 async def test_half_set_up_fails_naming_what_is_missing(
