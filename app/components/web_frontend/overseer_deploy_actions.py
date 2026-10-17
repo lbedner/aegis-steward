@@ -12,6 +12,7 @@ commands.
 
 from collections.abc import AsyncIterator
 from functools import partial
+from importlib.util import find_spec
 from typing import Any
 
 from app.components.deploy import agent as deploy_agent
@@ -57,6 +58,9 @@ TITLES = {
     "rollback": "Roll back",
     "destroy": "Destroy",
 }
+# A restore is rehearsed on the nightly off-site copy: only a project with
+# that job (deploy, a database and the scheduler) has one to rehearse.
+DRILLS = find_spec("app.services.system.offsite") is not None
 
 
 def deployed() -> bool:
@@ -124,7 +128,7 @@ async def shared() -> dict[str, Any]:
     return {
         "agent": agent,
         "partials": PARTIALS,
-        "drill": {"verb": DRILL, "label": TITLES[DRILL]},
+        "drill": {"verb": DRILL, "label": TITLES[DRILL]} if DRILLS else None,
         "events": EVENTS,
         "event": EVENT,
         "job": await job_context() if listening else None,

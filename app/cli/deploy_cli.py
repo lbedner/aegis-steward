@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from app.cli import theme
-from app.components.deploy import drill, history
+from app.components.deploy import history
 
 app = typer.Typer(help="Deploy history, written by aegis deploy.")
 console = theme.console()
@@ -95,5 +95,9 @@ async def drill_check(
     the settings point, as JSON on the last line, each passed or not (aegis
     deploy-restore-drill runs this, and judges them; it exits non-zero
     only when it could not check)."""
+    # Only with the nightly off-site job, whose copy it checks: imported
+    # here so ``deploy`` loads in a project without it.
+    from app.components.deploy import drill
+
     drill.read_alone()
     typer.echo(json.dumps(await drill.drill_check(restored)))
