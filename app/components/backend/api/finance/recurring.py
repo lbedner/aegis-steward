@@ -87,11 +87,15 @@ async def rescan_recurring(
     """
     from app.services.finance.domains.detection import (
         detect_recurring,
+        generate_insights,
         promote_curated_streams,
     )
 
     result = await detect_recurring(service.db, owner_user_id=owner_user_id)
     await promote_curated_streams(service.db, owner_user_id=owner_user_id)
+    # The rules a sync runs after detection, so a bill this finds is
+    # announced in Attention now rather than after the next import (#340).
+    await generate_insights(service.db, owner_user_id=owner_user_id)
     await service.db.commit()
     return RecurringRescanResult(detected=result.detected, pruned=result.pruned)
 

@@ -6,6 +6,8 @@ it, which is what ``_inherited_curation`` reads back.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pydantic import BaseModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -50,6 +52,14 @@ async def _inherited_curation(
     )
 
 
+def _with_pay_days(metadata: dict | None, pay_days: Sequence[int] | None) -> dict:
+    """``metadata`` keeping the two days a twice-monthly bill lands on,
+    or dropping them when it no longer has two (#338). A new dict, so
+    the JSON column sees the change."""
+    kept = {k: v for k, v in (metadata or {}).items() if k != "pay_days"}
+    return {**kept, "pay_days": list(pay_days)} if pay_days else kept
+
+
 async def _upsert_stream(
     db: AsyncSession,
     *,
@@ -73,6 +83,7 @@ async def _upsert_stream(
     is_muted: bool = False,
     currency: str,
     revive_retired: bool = False,
+    pay_days: Sequence[int] | None = None,
 ) -> FinanceRecurringStream | None:
     """Insert or update the detected stream (keyed by the detected unique).
 
@@ -128,6 +139,7 @@ async def _upsert_stream(
         # recurring" (revive_retired) brings a row back to life.
         if revive_retired:
             existing.deleted_at = None
+        existing.metadata_ = _with_pay_days(existing.metadata_, pay_days)
         db.add(existing)
         await db.flush()
         return existing
@@ -158,6 +170,7 @@ async def _upsert_stream(
         confidence=confidence,
         status=status,
         source="derived",
+        metadata_=_with_pay_days({}, pay_days),
     )
     db.add(stream)
     await db.flush()

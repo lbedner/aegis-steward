@@ -18,7 +18,7 @@ than the blank it replaced.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date
 import re
@@ -77,26 +77,37 @@ def balances(pages: Iterable[Page]) -> list[Balance]:
     thing. The first printing wins, because a statement leads with what
     it is about.
     """
-    from app.services.finance.utils import money_to_cents
+    for page, said, tail in labelled(pages, _LABEL):
+        # The money AFTER the label: "Balance as of 09/07/26: $7,857.27"
+        # has a date in it that is not money, and the label itself may
+        # carry digits.
+        cents = money_in(tail)
+        if cents is None:
+            continue
+        found = find_date(said)
+        return [Balance(cents, found[0] if found else None, page, said)]
+    return []
 
+
+def labelled(
+    pages: Iterable[Page], label: re.Pattern[str]
+) -> Iterator[tuple[int, str, str]]:
+    """Each line on the opening pages that ``label`` marks: its page, the
+    line, and what follows the label - where the figure is."""
     for page in list(pages)[:OPENING_PAGES]:
         for line in (page["text"] or "").splitlines():
             said = line.strip()
-            if not said or not _LABEL.search(said):
-                continue
-            # The money AFTER the label: "Balance as of 09/07/26:
-            # $7,857.27" has a date in it that is not money, and the
-            # label itself may carry digits.
-            tail = said[_LABEL.search(said).end() :]
-            money = MONEY.search(tail)
-            if money is None:
-                continue
-            cents = money_to_cents(money.group().replace(" ", ""))
-            if cents is None:
-                continue
-            found = find_date(said)
-            return [Balance(cents, found[0] if found else None, page["page"], said)]
-    return []
+            found = label.search(said) if said else None
+            if found:
+                yield page["page"], said, said[found.end() :]
+
+
+def money_in(text: str) -> int | None:
+    """The first money ``text`` prints, in cents (``MONEY``)."""
+    from app.services.finance.utils import money_to_cents
+
+    money = MONEY.search(text)
+    return money_to_cents(money.group().replace(" ", "")) if money else None
 
 
 async def propose_figure(
@@ -133,7 +144,7 @@ async def propose_figure(
     found = balances(read)
     if not found:
         return None
-    account = await _account_on(db, read)
+    account = await account_on(db, read)
     if account is None or not account.subject_id:
         return None
     subject = await get_subject(db, account.subject_id)
@@ -146,7 +157,7 @@ async def propose_figure(
         return None
 
     balance = found[0]
-    document = await _document_row(db, document_id)
+    document = await document_row(db, document_id)
     as_of = balance.as_of or (document.document_date if document else None)
     return await propose(
         db,
@@ -170,7 +181,7 @@ async def propose_figure(
     )
 
 
-async def _account_on(db: AsyncSession, read: list[Page]) -> Any:
+async def account_on(db: AsyncSession, read: list[Page]) -> Any:
     """The account this paper says it is about, by its printed last four."""
     from app.services.finance.domains.ledger.queries.accounts import account_by_id
 
@@ -180,7 +191,7 @@ async def _account_on(db: AsyncSession, read: list[Page]) -> Any:
     return None
 
 
-async def _document_row(db: AsyncSession, document_id: int) -> Any:
+async def document_row(db: AsyncSession, document_id: int) -> Any:
     from app.services.documents.service import DocumentService
 
     return await DocumentService(db).get(document_id)

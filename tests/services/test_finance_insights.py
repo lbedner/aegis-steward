@@ -290,7 +290,8 @@ class TestRecurringDetection:
         first = await generate_insights(
             async_db_session, owner_user_id=1, today=date(2026, 7, 20)
         )
-        assert first.created == 1
+        # The hike, and the subscription itself, just found, is news (#340).
+        assert first.created == 2
         hike = (
             await async_db_session.exec(
                 select(FinanceInsight).where(

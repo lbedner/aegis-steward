@@ -1,17 +1,19 @@
-"""One rule: a mature stream's expected charge never showed up.
+"""The stream rules: a mature stream's expected charge never showed up,
+and a stream detection just found.
 
-Alone in its module because it is the largest of the nine and the only
-one reasoning about absence - it must establish that a stream was due,
-that it was mature enough to trust, and only then that nothing paid it.
+The first is the largest of the rules and the only one reasoning about
+absence - it must establish that a stream was due, that it was mature
+enough to trust, and only then that nothing paid it.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlmodel import or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.constants import frequency_label
 from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.insights.commitments import (
     is_commitment,
@@ -28,6 +30,9 @@ from app.services.finance.domains.planning.recurring import queries as recurring
 from app.services.finance.models import (
     FinanceRecurringStream,
 )
+
+# The insight a newly detected bill raises: Confirm or Mute it (#340).
+NEW_BILL = "new_recurring"
 
 
 async def _missed_recurring(
@@ -69,7 +74,7 @@ async def _missed_recurring(
     # Left alone, either kind sits "new" forever, telling every reader
     # (and every AI briefing) the bill is still missed.
     fetched_by_id = {s.id: s for s in streams if s.id is not None}
-    open_alerts = await queries.retractable_missed(db, store_owner)
+    open_alerts = await queries.retractable_alerts(db, store_owner)
     retracted_any = False
     for alert in open_alerts:
         stream = fetched_by_id.get(alert.related_stream_id)
@@ -118,7 +123,7 @@ async def _missed_recurring(
             # land AFTER an earlier pass already alerted (a multi-file
             # import sees one leg before the other), so also retract any
             # alert that pass created - it was wrong, not merely stale.
-            stale = await queries.retractable_missed(db, store_owner, stream.id)
+            stale = await queries.retractable_alerts(db, store_owner, stream.id)
             for insight in stale:
                 await db.delete(insight)
             if stale:
@@ -141,7 +146,7 @@ async def _missed_recurring(
             # sibling's). Like the transfer case above, a later pass can
             # learn this AFTER an earlier pass already alerted, so also
             # retract - the alert was wrong.
-            stale = await queries.retractable_missed(db, store_owner, stream.id)
+            stale = await queries.retractable_alerts(db, store_owner, stream.id)
             for insight in stale:
                 await db.delete(insight)
             if stale:
@@ -177,4 +182,59 @@ async def _missed_recurring(
             related_category_id=stream.category_id,
         ):
             created += 1
+    return created
+
+
+# How long a detected bill stays news: past this it is simply waiting in
+# Bills' Detected tab, and the first pass after this shipped must not
+# announce every proposal ever made.
+NEW_BILL_DAYS = 14
+
+
+async def _new_bills(db: AsyncSession, store_owner: int, today: date) -> int:
+    """A bill detection just found, announced rather than only counted in
+    the Detected tab, so a forgotten subscription is caught the week it
+    appears (#340). Taken back once it is confirmed, muted or gone."""
+    open_alerts = await queries.retractable_alerts(
+        db, store_owner, insight_type=NEW_BILL
+    )
+    proposed = {
+        s.id: s
+        for s in await queries.stream_rows_where(
+            db, queries.proposal_clauses(store_owner)
+        )
+        if s.deleted_at is None and not s.is_muted
+    }
+    for alert in open_alerts:
+        if alert.related_stream_id not in proposed:
+            await db.delete(alert)
+    since = today - timedelta(days=NEW_BILL_DAYS)
+    created = 0
+    for stream in proposed.values():
+        if stream.created_at.date() < since:
+            continue
+        # A price that moves is shopping (Target, CVS) or a utility, and
+        # waits in Detected; news is income or a fixed charge - the
+        # forgotten subscription this is for.
+        if stream.direction == "outflow" and stream.amount_is_variable:
+            continue
+        noun = "income" if stream.direction == "inflow" else "bill"
+        if await create_insight_if_new(
+            db,
+            owner_user_id=store_owner,
+            insight_type=NEW_BILL,
+            dedup_key=f"{NEW_BILL}:{stream.id}",
+            severity="info",
+            title=f"New {noun}: {stream.name}",
+            body=(
+                f"{frequency_label(stream.frequency)}, "
+                f"{format_usd(stream.amount)}; next expected "
+                f"{stream.next_expected_date or 'not yet known'}."
+            ),
+            detected_amount=stream.amount,
+            related_stream_id=stream.id,
+            related_account_id=stream.account_id,
+        ):
+            created += 1
+    await db.flush()
     return created

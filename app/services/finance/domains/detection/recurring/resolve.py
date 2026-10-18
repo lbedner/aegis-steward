@@ -8,12 +8,15 @@ absorb members into a bill the user settled.
 """
 
 from collections.abc import Mapping, Sequence
+from datetime import date
 
 from sqlmodel import or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.constants import CADENCES
 from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.recurring.cadence import (
+    AMOUNT_TOLERANCE,
     BILL_RESEMBLANCE_TOLERANCE,
     SPLIT_MARK,
 )
@@ -102,6 +105,17 @@ def _keys_nest(a: str, b: str) -> bool:
     return bool(ta) and bool(tb) and (ta <= tb or tb <= ta)
 
 
+def _alongside(
+    dates: Sequence[date], bill_dates: Sequence[date], frequency: str
+) -> bool:
+    """Charged beside the bill, not instead of it: twice or more within a
+    third of a cycle of one of its own payments."""
+    cadence = CADENCES.get(frequency)
+    near = (cadence.detect_days if cadence else 30) / 3
+    beside = sum(1 for d in dates if any(abs((d - b).days) <= near for b in bill_dates))
+    return beside >= 2
+
+
 def _is_the_bill_again(
     bills: list[FinanceRecurringStream],
     keys: Sequence[str],
@@ -110,6 +124,8 @@ def _is_the_bill_again(
     *,
     payee_id: int | None = None,
     bill_payees: Mapping[int, set[int]] | None = None,
+    bill_dates: Mapping[int, Sequence[date]] | None = None,
+    dates: Sequence[date] = (),
 ) -> bool:
     """ "Is it HBO or not": a group that is a confirmed bill's own payee,
     on the same cadence, at roughly the bill's price, is that bill's own
@@ -121,9 +137,21 @@ def _is_the_bill_again(
     ``payee_id`` is the bill's, or one its payments wear
     (``bill_payees``). Nesting, not overlap: ANTHROPIC SUBS and
     ANTHROPIC USAGE share a token but nest neither way, and stay two
-    bills."""
+    bills.
+
+    Not when it is charged ALONGSIDE the bill at another price: two
+    memberships at one car wash, $32.38 and $43.20 a day apart each
+    month, are two bills, while a bill's old price ends where its new one
+    begins (#337)."""
     for bill in bills:
         if bill.frequency != frequency:
+            continue
+        average = float(bill.average_amount or 0)
+        # Beside it at another price is a second bill; at its own price it
+        # is the bill's payment arriving twice (a file row a sync missed).
+        if abs(median_amount - average) > AMOUNT_TOLERANCE * average and _alongside(
+            dates, (bill_dates or {}).get(bill.id or 0, ()), frequency
+        ):
             continue
         wears = (bill_payees or {}).get(bill.id or 0, set())
         same_payee = payee_id is not None and (
@@ -133,7 +161,6 @@ def _is_the_bill_again(
             _keys_nest(key, bill.normalized_payee or "") for key in keys
         ):
             continue
-        average = float(bill.average_amount or 0)
         if average and abs(median_amount - average) <= (
             BILL_RESEMBLANCE_TOLERANCE * average
         ):

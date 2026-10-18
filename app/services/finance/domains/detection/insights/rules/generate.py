@@ -17,6 +17,7 @@ from app.services.finance.domains.detection.insights.rules.balances import (
 )
 from app.services.finance.domains.detection.insights.rules.recurring import (
     _missed_recurring,
+    _new_bills,
 )
 from app.services.finance.domains.detection.insights.rules.shared import (
     InsightGenerationResult,
@@ -70,6 +71,7 @@ async def generate_insights(
     result.created += await _missed_recurring(
         db, store_owner, live_accounts, today, floor
     )
+    result.created += await _new_bills(db, store_owner, today)
     result.created += await _credit_cards(db, owner_user_id, store_owner, today)
     result.created += await _cash_runway(db, owner_user_id, store_owner, today)
     result.created += await _subscription_creep(db, owner_user_id, store_owner, today)

@@ -471,7 +471,7 @@ def test_coffee_is_not_a_fee() -> None:
 class TestTwoMonthAndSixMonthRhythms:
     """Cadences the forecast could always step but detection could not name.
 
-    ``FREQUENCY_STEPS`` has handled bimonthly and semiannual from the
+    ``cadence_step`` has handled bimonthly and semiannual from the
     start, and the projection walks a stream by stepping its frequency.
     ``_CADENCES`` did not list either, so a six-month insurance premium
     measured as "irregular" - and an irregular stream cannot be stepped,

@@ -43,15 +43,7 @@ async def _purge_orphaned_proposals(db: AsyncSession, owner_user_id: int) -> int
     declare never looked at.
     """
     linked = await queries.linked_stream_ids(db)
-    stale = await queries.stream_rows_where(
-        db,
-        [
-            FinanceRecurringStream.owner_user_id == owner_user_id,
-            FinanceRecurringStream.source == "derived",
-            FinanceRecurringStream.is_user_confirmed.is_(False),
-            FinanceRecurringStream.provider_stream_id.is_(None),
-        ],
-    )
+    stale = await queries.stream_rows_where(db, queries.proposal_clauses(owner_user_id))
     doomed = [row for row in stale if row.id not in linked]
     await _delete_insights_for(db, [row.id for row in doomed])
     for row in doomed:
@@ -83,10 +75,7 @@ async def _purge_stale_proposals(
     stale = await queries.stream_rows_where(
         db,
         [
-            FinanceRecurringStream.owner_user_id == owner_user_id,
-            FinanceRecurringStream.source == "derived",
-            FinanceRecurringStream.is_user_confirmed.is_(False),
-            FinanceRecurringStream.provider_stream_id.is_(None),
+            *queries.proposal_clauses(owner_user_id),
             FinanceRecurringStream.id.not_in(touched) if touched else True,  # noqa: E712
         ],
     )

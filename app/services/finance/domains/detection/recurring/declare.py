@@ -13,7 +13,6 @@ a detected one are the same kind of row.
 
 from __future__ import annotations
 
-from datetime import timedelta
 import statistics
 
 from pydantic import BaseModel, ConfigDict
@@ -28,6 +27,7 @@ from app.services.finance.domains.detection.recurring.cadence import (
     _declared_cadence,
     _payee_key,
     amount_profile,
+    next_after,
 )
 from app.services.finance.domains.detection.recurring.detect import (
     _inherited_curation,
@@ -68,6 +68,8 @@ class RecurringPlanGroup(BaseModel):
     first_date: object | None
     last_date: object | None
     next_expected_date: object | None
+    # Twice a month: the two days it lands on (#338).
+    pay_days: list[int] = []
     # Everything that would join, vs how much of it the user actually
     # ticked. The gap between these two is the whole reason to preview.
     occurrence_count: int
@@ -196,7 +198,7 @@ async def plan_recurring(
         groups.items(), key=lambda kv: -len(kv[1])
     ):
         members.sort(key=lambda t: (t.date_, t.id or 0))
-        frequency, median_interval = _declared_cadence(members)
+        frequency, median_interval, pay_days = _declared_cadence(members)
         median_amount, variable = amount_profile(members, today=current_date())
         picked_amounts = [abs(t.amount) for t in members if t.id in selected_ids]
         selected_amount = int(
@@ -263,10 +265,11 @@ async def plan_recurring(
                 first_date=members[0].date_,
                 last_date=last.date_,
                 next_expected_date=(
-                    last.date_ + timedelta(days=int(median_interval))
+                    next_after(last.date_, median_interval, pay_days)
                     if median_interval is not None
                     else None
                 ),
+                pay_days=list(pay_days or ()),
                 occurrence_count=len(members),
                 selected_count=sum(1 for m in members if m.id in selected_ids),
                 selected_amount=selected_amount,
@@ -344,13 +347,11 @@ async def declare_recurring(
     chosen_categories = categories or {}
     chosen_amounts = amounts or {}
     # Local import: the ``service`` facade imports this module, so the step
-    # table cannot be reached at module scope.
-    from app.services.finance.utils import FREQUENCY_STEPS
+    # cannot be reached at module scope.
+    from app.services.finance.utils import cadence_step
 
     chosen_frequencies = {
-        key: value
-        for key, value in (frequencies or {}).items()
-        if value in FREQUENCY_STEPS
+        key: value for key, value in (frequencies or {}).items() if cadence_step(value)
     }
 
     for group in plan:
@@ -367,7 +368,8 @@ async def declare_recurring(
         # instruction on the very next line.
         next_expected = group.next_expected_date
         if frequency != group.frequency:
-            next_expected = FREQUENCY_STEPS[frequency](group.last_date)
+            step = cadence_step(frequency, group.pay_days)
+            next_expected = step(group.last_date) if step else None
         try:
             async with db.begin_nested():
                 stream = await _upsert_stream(
@@ -397,6 +399,7 @@ async def declare_recurring(
                     confidence=100,
                     currency=members[-1].currency,
                     revive_retired=True,
+                    pay_days=group.pay_days if frequency == "semi_monthly" else None,
                 )
                 # On the stream only: the members keep the categories
                 # they already have, which may have been corrected by hand.

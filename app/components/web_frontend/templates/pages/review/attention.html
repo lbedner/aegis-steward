@@ -19,8 +19,15 @@
       {% if insight.body %}<p class="mt-1 text-xs text-aegis-muted">{{ insight.body }}</p>{% endif %}
       {% if insight.resolution == "under_review" and insight.resolution_note %}<p class="mt-1 text-xs text-aegis-text" data-review-note>Under review: {{ insight.resolution_note }}</p>{% endif %}
     </div>
+    {% if insight.insight_type == "new_recurring" and insight.related_stream_id %}
+    {#- A bill just found: say whether it is one, where it was announced. -#}
+    {% for verb in ("confirm", "mute") %}
+    {{ action(verb|capitalize, hx_swap("/bills/" ~ insight.related_stream_id ~ "/" ~ verb ~ "?insight=" ~ insight.id, "#insight-" ~ insight.id, "post") ~ " data-" ~ verb) }}
+    {% endfor %}
+    {% else %}
     {{ action("Resolve", hx_dialog("/review/insights/" ~ insight.id ~ "/resolve") ~ " data-resolve") }}
     {{ action("Dismiss", hx_swap("/review/insights/" ~ insight.id ~ "/dismiss", "#insight-" ~ insight.id, "post")) }}
+    {% endif %}
   </li>
   {% endfor %}
 </ul>

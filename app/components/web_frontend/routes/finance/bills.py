@@ -52,7 +52,7 @@ from app.services.finance.domains.planning.recurring.review import (
 from app.services.finance.models import FinanceRecurringStream
 from app.services.finance.schemas import RecurringPause, RecurringStreamResponse
 from app.services.finance.service import FinanceService
-from app.services.finance.utils import FREQUENCY_STEPS, current_date
+from app.services.finance.utils import current_date, stream_step
 
 SECTION = section("bills")
 router = APIRouter(prefix=SECTION.path)
@@ -133,7 +133,7 @@ def next_due(stream: RecurringStreamResponse, today: date) -> date | None:
         return stream.next_expected_date
     if stream.paused_until is None or stream.paused_until >= PAUSE_INDEFINITE:
         return None
-    step = FREQUENCY_STEPS.get(stream.frequency)
+    step = stream_step(stream)
     when = stream.next_expected_date
     if step is None or when is None:
         return None
