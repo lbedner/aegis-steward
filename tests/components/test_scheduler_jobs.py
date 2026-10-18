@@ -24,8 +24,30 @@ def _scheduled() -> dict[str, Job]:
     return {job.id: job for job in scheduler.get_jobs()}
 
 
-def test_every_service_job_is_scheduled() -> None:
+@pytest.fixture
+def on_the_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "APP_ENV", "prod")
+
+
+def test_every_service_job_is_scheduled(on_the_server: None) -> None:
     assert set(_scheduled()) == {job.id for job in service_jobs()}
+
+
+def test_a_dev_stack_never_reaches_real_banks_inboxes_or_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The laptop and the server once synced one SimpleFIN access at the
+    same minute, and the server's ledger froze for days (#532). Real data
+    is the server's: a dev stack schedules none of it."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "APP_ENV", "dev")
+
+    server_only = {job.id for job in service_jobs() if job.server_only}
+    assert {"finance_sync_connections", "finance_bill_due_email"} <= server_only
+    assert set(_scheduled()) == {job.id for job in service_jobs()} - server_only
 
 
 def test_a_run_that_succeeds_logs_nothing() -> None:
@@ -43,7 +65,7 @@ def test_a_run_that_succeeds_logs_nothing() -> None:
         root.setLevel(previous)
 
 
-def test_the_scheduler_only_enqueues() -> None:
+def test_the_scheduler_only_enqueues(on_the_server: None) -> None:
     from app.components.worker.pools import enqueue_task
 
     scheduled = _scheduled()

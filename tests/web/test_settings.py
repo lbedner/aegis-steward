@@ -837,6 +837,27 @@ class TestActivity:
         marked = one(page, '#settings-nav a[aria-current="page"]')
         assert marked.get("href") == "/settings/activity"
 
+    async def test_a_failed_run_says_why_in_its_row(
+        self, client: TestClient, async_db_session
+    ) -> None:
+        """A failed run brought nothing, so its row says why instead (#532)."""
+        from app.core.time import utcnow
+        from app.services.finance.models.imports import FinanceImportBatch
+
+        run = FinanceImportBatch(
+            owner_user_id=1,
+            source_type="simplefin_sync",
+            status="failed",
+            error="SimpleFIN did not answer within 120s.",
+            started_at=utcnow(),
+        )
+        async_db_session.add(run)
+        await async_db_session.commit()
+
+        row = one(client.get("/settings/activity").text, f"#run-{run.id}")
+        assert "SimpleFIN did not answer within 120s." in text(row)
+        assert "failed" in text(row)
+
     def test_a_list_row_and_the_run_itself_name_it_the_same_way(self) -> None:
         """A list of runs and a single run must not name the same row two
         ways, so both read ``run_title``."""

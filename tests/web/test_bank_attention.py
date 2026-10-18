@@ -79,6 +79,23 @@ class TestTheBanner:
         assert "Login_Required" not in text(row)
         one(row, f'[hx-post="/settings/connections/{connection}/reconnect"]')
 
+    async def test_a_bank_that_said_why_says_it_and_points_to_activity(
+        self, hx: TestClient, async_db_session: AsyncSession, connection: int
+    ) -> None:
+        """ "Needs attention" alone hid an HSA out for ten days (#532)."""
+        said = "Connection to Optum Bank HSA may need attention. Auth required"
+        await _set(
+            async_db_session,
+            connection,
+            status="error",
+            status_detail=said,
+            last_successful_sync_at=utcnow(),
+        )
+
+        row = one(hx.get(ATTENTION).text, "[data-attention] li")
+        assert said in text(row)
+        one(row, 'a[href="/settings/activity"]')
+
     async def test_a_bank_that_stopped_syncing_is_stale(
         self, hx: TestClient, async_db_session: AsyncSession, connection: int
     ) -> None:

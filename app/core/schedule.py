@@ -30,6 +30,8 @@ class ServiceJob:
 
     ``trigger`` is passed to ``scheduler.add_job`` as keyword arguments.
     ``timeout`` is how long a worker lets it run; None keeps the queue's.
+    ``server_only``: it reaches real banks, inboxes or storage, so a dev
+    stack never schedules it - the server's ledger owns the data (#532).
     """
 
     func: Callable[[], Awaitable[Any]]
@@ -37,6 +39,7 @@ class ServiceJob:
     name: str
     trigger: dict[str, Any]
     timeout: int | None = None
+    server_only: bool = False
     app_service: str | None = None
 
     async def run(self) -> Any:

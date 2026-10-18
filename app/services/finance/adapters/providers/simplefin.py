@@ -27,7 +27,9 @@ import httpx
 from app.core.log import logger
 from app.services.finance.adapters.providers.errors import ProviderError
 
-_TIMEOUT_SECONDS = 30.0
+# The Bridge is sometimes slow: at 30s, 27 of 37 scheduled syncs timed out
+# (#532) on a request that answered in 3s when asked by hand.
+_TIMEOUT_SECONDS = 120.0
 # The Bridge's developer page: a fresh demo token on every visit, for fixed
 # fake data, no sign-up. Its demo access lives on the beta host.
 DEMO_PAGE = "https://beta-bridge.simplefin.org/info/developers"
@@ -101,8 +103,24 @@ class SimpleFINClient:
     def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._transport = transport
 
-    def _http(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=self._transport, timeout=_TIMEOUT_SECONDS)
+    async def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        """One request. A Bridge that never answers is a ``SimpleFINError``
+        in words: a timeout's own text is empty, and that blank is all the
+        connection used to say (#532)."""
+        try:
+            async with httpx.AsyncClient(
+                transport=self._transport, timeout=_TIMEOUT_SECONDS
+            ) as http:
+                return await http.request(method, url, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise SimpleFINError(
+                "timeout", f"SimpleFIN did not answer within {_TIMEOUT_SECONDS:.0f}s."
+            ) from exc
+        except httpx.TransportError as exc:
+            raise SimpleFINError(
+                "unreachable",
+                f"SimpleFIN could not be reached: {exc or type(exc).__name__}",
+            ) from exc
 
     async def claim(self, setup_token: str) -> str:
         """Trade a setup token for the access URL. A token works once."""
@@ -111,8 +129,7 @@ class SimpleFINClient:
             raise SimpleFINError(
                 "invalid_token", "That is not a SimpleFIN setup token."
             )
-        async with self._http() as http:
-            response = await http.post(claim_url, headers={"Content-Length": "0"})
+        response = await self._send("POST", claim_url, headers={"Content-Length": "0"})
         # The protocol's checklist: a refused claim may mean someone else
         # claimed the token first, so the user should disable it.
         _raise_for(
@@ -137,8 +154,7 @@ class SimpleFINClient:
             # The window's end is exclusive: midnight after ``end``.
             "end-date": str(_unix(end + timedelta(days=1))),
         }
-        async with self._http() as http:
-            response = await http.get(f"{base}/accounts", params=params, auth=auth)
+        response = await self._send("GET", f"{base}/accounts", params=params, auth=auth)
         _raise_for(
             response,
             "SimpleFIN no longer accepts this connection's access: it was "

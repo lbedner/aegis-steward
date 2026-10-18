@@ -3,7 +3,7 @@
    forms open inside it - you are already looking at whose policy it is. #}
 {% from "components/macros/form.html" import field, text_input, select, date_input, textarea, money_input, file_input, primary_button, action, chip_select %}
 {% from "components/macros/feedback.html" import error_banner %}
-{% from "components/macros/layout.html" import contact_link %}
+{% from "components/macros/layout.html" import contact_link, page_link %}
 {% from "components/macros/table.html" import data_table %}
 <div id="policies" class="space-y-4">
   {{ error_banner(errors) }}
@@ -28,7 +28,7 @@
         {% if policy.premium %}
         <div class="flex items-baseline justify-between gap-4 py-1.5 border-b border-aegis-border/60 text-sm">
           <dt class="text-aegis-muted shrink-0">Premium</dt>
-          <dd class="min-w-0 text-right"><a href="/bills" {{ hx_page("/bills") }} class="text-aegis-teal hover:underline" data-premium>{{ policy.premium }}</a></dd>
+          <dd class="min-w-0 text-right">{{ page_link("/bills", policy.premium, attrs="data-premium") }}</dd>
         </div>
         {% endif %}
       </dl>

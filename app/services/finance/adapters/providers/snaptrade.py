@@ -43,6 +43,20 @@ class SnapTradeError(ProviderError):
     """A SnapTrade API error."""
 
 
+# SnapTrade's own words, where they leave you guessing. 1076 is a signed
+# timestamp it refused: the Docker VM's clock lags after the Mac sleeps.
+_WHAT_IT_MEANS = {
+    "1076": "This machine's clock was off, as it is just after waking from sleep."
+}
+
+
+def _readable(code: str, said: str) -> str:
+    """SnapTrade's reason, not the SDK's dump of the HTTP headers (#532)."""
+    said = f"SnapTrade: {said.rstrip('.')}."
+    meaning = _WHAT_IT_MEANS.get(code)
+    return f"{said} {meaning}" if meaning else said
+
+
 def _body(response: Any) -> Any:
     """Unwrap an SDK response to its payload (plain dict/list)."""
     return getattr(response, "body", response)
@@ -148,8 +162,10 @@ class SnapTradeClient:
                 except ValueError:
                     body = None
             code = body.get("code") if isinstance(body, dict) else None
+            said = body.get("detail") if isinstance(body, dict) else None
             raise SnapTradeError(
-                str(code or getattr(exc, "status", "") or "api_error"), str(exc)
+                str(code or getattr(exc, "status", "") or "api_error"),
+                _readable(str(code), said) if said else str(exc),
             ) from exc
 
     # -- User lifecycle ------------------------------------------------------

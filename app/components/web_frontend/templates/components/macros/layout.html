@@ -483,7 +483,14 @@
    named draws it through this, so a name is never plain text in one
    card and a dialog in another. #}
 {% macro contact_link(party_id, name) -%}
-<a href="/contacts/{{ party_id }}" {{ hx_page("/contacts/" ~ party_id) }} class="{{ LINK }}" data-contact="{{ party_id }}">{{ name }}</a>
+{{ page_link("/contacts/" ~ party_id, name, attrs='data-contact="' ~ party_id ~ '"') }}
+{%- endmacro %}
+
+{# A door to another page of the app, opened in place: every in-app link
+   is drawn through this, so the next one cannot look or load slightly
+   differently. ``cls`` adds layout (``truncate``), never a new look. #}
+{% macro page_link(url, label, cls="", attrs="") -%}
+<a href="{{ url }}" {{ hx_page(url) }} class="{{ LINK }}{{ ' ' ~ cls if cls }}"{% if attrs %} {{ attrs|safe }}{% endif %}>{{ label }}</a>
 {%- endmacro %}
 
 {# Several places, each a door, read as a list: "Filed under NYSLRS, Renewal".

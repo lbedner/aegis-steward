@@ -555,7 +555,7 @@ async def run_detail(
                 for key in ("holdings", "trades", "accounts")
                 if detail.get(key)
             ],
-            "note": f"It brought {run_summary(run)}.",
+            "note": "" if run.status == "failed" else f"It brought {run_summary(run)}.",
         },
         errors=[run.error] if run.error else [],
     )

@@ -43,7 +43,9 @@ def needs_you(connection: Any) -> str | None:
     header turns amber for (``freshness``); never synced is unknown, not
     stale."""
     if connection.status in CONNECTION_NEEDS_YOU:
-        return connection_status(connection.status)[0]
+        # What the bank said, when it said anything: "Needs attention"
+        # alone hid an HSA out for ten days (#532).
+        return connection.status_detail or connection_status(connection.status)[0]
     if connection.new_accounts:
         return arrivals.WORDS
     if connection.status == "healthy" and connection.last_successful_sync_at:

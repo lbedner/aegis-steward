@@ -98,9 +98,12 @@ def register_service_jobs(scheduler: AsyncIOScheduler) -> None:
 
     The scheduler only produces: each job is scheduled as an enqueue of its
     task name onto the system queue, and a worker runs it. A manual run
-    repeats the stored call, so it lands on the worker too.
+    repeats the stored call, so it lands on the worker too. A dev stack
+    leaves out the ``server_only`` ones.
     """
     for job in service_jobs():
+        if job.server_only and settings.is_dev:
+            continue  # and the orphan sweep drops one stored before
         trigger = dict(job.trigger)
         if trigger.get("trigger") == "interval":
             trigger.setdefault("start_date", INTERVAL_ANCHOR)
