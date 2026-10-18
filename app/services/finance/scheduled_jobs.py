@@ -44,6 +44,7 @@ JOBS: tuple[ServiceJob, ...] = (
         "Finance: Sync Bank Connections",
         {"trigger": "interval", "hours": 6},
         timeout=LONG_RUNNING,
+        server_only=True,
     ),
     # Morning, after the overnight passes: what is due in the next few
     # days, mailed once. Does nothing until FINANCE_BILL_EMAIL_TO is set.
@@ -52,6 +53,7 @@ JOBS: tuple[ServiceJob, ...] = (
         "finance_bill_due_email",
         "Finance: Email Bills Coming Due",
         {"trigger": "cron", "hour": 7, "minute": 0},
+        server_only=True,
     ),
     # No nightly analyst note: steward writes it on request (#232).
 )

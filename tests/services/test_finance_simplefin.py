@@ -28,6 +28,7 @@ from app.services.finance.constants import Provider
 from app.services.finance.models import (
     FinanceAccount,
     FinanceConnection,
+    FinanceImportBatch,
     FinanceTransaction,
 )
 from app.services.finance.utils import current_date
@@ -403,6 +404,31 @@ class TestSyncing:
         # Access is revoked at SimpleFIN, by the user: nothing to call here.
         assert removed is True and revoke is None
 
+    @pytest.mark.asyncio
+    async def test_a_sync_that_fails_without_words_still_says_why(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A timeout's text is empty, and that blank was all the card and
+        the run said while a bank was out for ten days (#532)."""
+        client = FakeSimpleFINClient()
+        connection = await _connect(async_db_session, client)
+
+        async def silent(*_a: object, **_k: object) -> dict[str, Any]:
+            raise httpx.ReadTimeout("")
+
+        client.accounts = silent  # type: ignore[method-assign]
+        await connections.sync_owner_connections(
+            async_db_session, owner_user_id=1, clients={Provider.SIMPLEFIN: client}
+        )
+
+        run = (
+            await async_db_session.exec(
+                select(FinanceImportBatch).where(FinanceImportBatch.status == "failed")
+            )
+        ).one()
+        assert connection.status == "error"
+        assert connection.status_detail == run.error == "ReadTimeout"
+
 
 class TestTheClient:
     @pytest.mark.asyncio
@@ -446,6 +472,32 @@ class TestTheClient:
 
         assert "502" in raised.value.message
         assert "<" not in raised.value.message
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("raised", "said"),
+        [
+            (httpx.ReadTimeout(""), "did not answer within 120s"),
+            (
+                httpx.RemoteProtocolError("Server disconnected."),
+                "could not be reached: Server disconnected.",
+            ),
+        ],
+    )
+    async def test_a_bridge_that_never_answers_says_so(
+        self, raised: Exception, said: str
+    ) -> None:
+        def answer(_request: httpx.Request) -> httpx.Response:
+            raise raised
+
+        client = SimpleFINClient(transport=httpx.MockTransport(answer))
+
+        with pytest.raises(SimpleFINError) as failed:
+            await client.accounts(
+                ACCESS_URL, start=date(2026, 9, 1), end=date(2026, 9, 2)
+            )
+
+        assert said in failed.value.message
 
     @pytest.mark.asyncio
     async def test_a_token_that_is_not_one_says_so(self) -> None:

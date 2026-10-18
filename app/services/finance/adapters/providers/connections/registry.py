@@ -33,6 +33,7 @@ from app.services.finance.adapters.providers.connections.common import (
     list_provider_connections,
     record_run,
 )
+from app.services.finance.adapters.providers.errors import failure_text
 from app.services.finance.domains.ledger import bank_link
 from app.services.finance.models import FinanceConnection
 
@@ -114,7 +115,7 @@ async def _sync_isolated(
     except Exception as exc:
         logger.exception("Finance sync failed for connection %s", connection_id)
         connection.status = "error"
-        connection.status_detail = str(exc)[:500]
+        connection.status_detail = failure_text(exc)
         connection.last_error_code = getattr(exc, "error_code", None)
         connection.last_sync_attempt_at = utcnow()
         db.add(connection)
@@ -125,7 +126,7 @@ async def _sync_isolated(
             provider=provider,
             started=started,
             result=None,
-            error=str(exc)[:500],
+            error=connection.status_detail,
         )
         await db.flush()
         return None

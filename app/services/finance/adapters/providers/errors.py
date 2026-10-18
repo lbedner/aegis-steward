@@ -14,3 +14,10 @@ class ProviderError(RuntimeError):
         # The reason alone, for a person to read; ``str()`` adds the code.
         self.message = message
         super().__init__(f"{error_code}: {message}")
+
+
+def failure_text(exc: BaseException) -> str:
+    """A failure in words for a person: a provider's own reason, else the
+    exception's text, else its name. Never blank, which a timeout's text
+    is (#532)."""
+    return (getattr(exc, "message", None) or str(exc) or type(exc).__name__)[:500]

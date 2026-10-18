@@ -111,10 +111,8 @@ def run_summary(batch: Any) -> str:
     working import gets reported as broken, so each source answers in the
     units it deals in.
 
-    Lives here rather than in a page because the answer is a fact about
-    the run: the Activity list, a run dialog, the CLI and anything else
-    that reports one must not each invent their own wording for the same
-    five numbers.
+    Here, not in a page: the Activity list, a run dialog and the CLI must
+    not each word the same five numbers their own way.
     """
     detail = getattr(batch, "detail", None) or {}
     said = [
@@ -126,8 +124,10 @@ def run_summary(batch: Any) -> str:
     if said:
         return " · ".join(said)
     # A run that brought nothing is the most interesting kind, so it says
-    # so rather than rendering an empty cell.
-    return "nothing" if getattr(batch, "status", "") == "committed" else "-"
+    # so rather than rendering an empty cell; a failed one says why (#532).
+    if getattr(batch, "status", "") == "committed":
+        return "nothing"
+    return (getattr(batch, "error", None) or "-").splitlines()[0]
 
 
 async def _prior_batch(

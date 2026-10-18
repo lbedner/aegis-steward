@@ -38,6 +38,7 @@ from app.services.finance.adapters.providers.connections.upserts import (
     apply_transactions,
     upsert_accounts,
 )
+from app.services.finance.adapters.providers.errors import failure_text
 from app.services.finance.adapters.providers.simplefin import (
     SimpleFINClient,
     is_demo,
@@ -178,9 +179,7 @@ async def connect_simplefin(
         await db.rollback()  # the sync's own writes, not the connection
         await db.refresh(connection)
         connection.status = "error"
-        connection.status_detail = str(
-            getattr(exc, "message", None) or "The first sync failed."
-        )[:500]
+        connection.status_detail = failure_text(exc)
         db.add(connection)
         await db.commit()
         raise

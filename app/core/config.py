@@ -136,12 +136,12 @@ class Settings(
     # uvloop when installed; it never resolves to rloop on its own.
     WEBSERVER_LOOP: Literal["auto", "asyncio", "uvloop", "rloop", "zuvloop"] = "auto"
 
-    # Docker settings (used by docker-compose)
+    # Docker settings (used by docker-compose; the dev deploy-agent's mounts too)
     AEGIS_STACK_TAG: str = "aegis-steward:latest"
     AEGIS_STACK_VERSION: str = "dev"
-    # Deployed commit, stamped by ``aegis deploy``; cached payloads are
-    # namespaced by it. See ``services/insights/constants.py``.
-    BUILD_ID: str = "dev"
+    AEGIS_STACK_SOURCE: str | None = None
+    DEPLOY_AGENT_SSH_SOCK: str | None = None
+    BUILD_ID: str = "dev"  # the deployed commit; namespaces cached payloads
 
     # Health monitoring: checks answer on /health/ for any monitor to poll
     HEALTH_CHECK_TIMEOUT_SECONDS: Annotated[

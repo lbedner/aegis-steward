@@ -20,5 +20,6 @@ JOBS: tuple[ServiceJob, ...] = (
         "Off-site Backup",
         {"trigger": "cron", "hour": 2, "minute": 30},
         timeout=LONG_RUNNING,
+        server_only=True,
     ),
 )

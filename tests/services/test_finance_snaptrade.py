@@ -672,3 +672,30 @@ class TestSnapTradeConnect:
         )
         assert len(results) == 1
         assert results[0].accounts == 2
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_reads_as_snaptrades_reason_not_its_headers() -> None:
+    """The SDK's ``str()`` is the status, then every response header: that
+    was all a failed run kept, and its reason was past the cut (#532)."""
+    from snaptrade_client.exceptions import ApiException
+
+    from app.services.finance.adapters.providers.snaptrade import (
+        SnapTradeClient,
+        SnapTradeError,
+    )
+
+    refused = ApiException(status=401, reason="Unauthorized")
+    refused.headers = {"X-Request-ID": "f639"}
+    refused.body = {"detail": "Invalid timestamp", "status_code": 401, "code": "1076"}
+
+    def call() -> None:
+        raise refused
+
+    with pytest.raises(SnapTradeError) as failed:
+        await SnapTradeClient(client_id="cid", consumer_key="key")._call(call)
+
+    assert failed.value.error_code == "1076"
+    assert failed.value.message.startswith("SnapTrade: Invalid timestamp. ")
+    assert "clock" in failed.value.message
+    assert "X-Request-ID" not in failed.value.message
