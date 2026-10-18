@@ -1346,9 +1346,9 @@ class TestTheMenuMatchesTheEngine:
         from app.components.frontend.dashboard.modals.finance_modal import (
             _FREQUENCY_LABELS,
         )
-        from app.services.finance.utils import FREQUENCY_STEPS
+        from app.services.finance.constants import CADENCES
 
-        assert set(_FREQUENCY_LABELS) <= set(FREQUENCY_STEPS)
+        assert set(_FREQUENCY_LABELS) <= set(CADENCES)
 
     def test_every_steppable_cadence_can_be_picked(self) -> None:
         """The other direction, and the actual bug: the forecast could
@@ -1357,6 +1357,6 @@ class TestTheMenuMatchesTheEngine:
         from app.components.frontend.dashboard.modals.finance_modal import (
             _FREQUENCY_LABELS,
         )
-        from app.services.finance.utils import FREQUENCY_STEPS
+        from app.services.finance.constants import CADENCES
 
-        assert set(FREQUENCY_STEPS) <= set(_FREQUENCY_LABELS)
+        assert set(CADENCES) <= set(_FREQUENCY_LABELS)

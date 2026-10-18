@@ -20,7 +20,7 @@ from datetime import date
 from typing import Protocol
 
 from app.services.finance.constants import ONE_TIME_FREQUENCY
-from app.services.finance.utils import FREQUENCY_STEPS
+from app.services.finance.utils import stream_step
 
 # A cadence that steps by a day would still terminate inside any sane
 # window; this stops a malformed step function from spinning forever.
@@ -28,7 +28,8 @@ _MAX_STEPS = 400
 
 
 class _Scheduled(Protocol):
-    """The two fields a schedule reads off a stream."""
+    """The two fields a schedule reads off a stream (``stream_step`` also
+    reads its pay days and last date, where it has them)."""
 
     frequency: str
     next_expected_date: date | None
@@ -74,7 +75,7 @@ def occurrences(
             yield Occurrence(lands_on=when, due_on=when)
         return
 
-    step = FREQUENCY_STEPS.get(stream.frequency)
+    step = stream_step(stream)
     if step is None:
         return
 

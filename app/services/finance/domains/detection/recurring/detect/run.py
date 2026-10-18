@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
-import statistics
+from datetime import date
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import or_
@@ -13,17 +12,12 @@ from app.core.log import logger
 from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.recurring.cadence import (
     _SUBSCRIPTION_FREQUENCIES,
-    MIN_OCCURRENCES,
-    MIN_RHYTHM_RATIO,
     MIN_STREAM_AMOUNT,
-    _canonical_days,
     _descriptor_key,
-    _frequency_for,
-    _has_gone_quiet,
     _payee_key,
-    _rhythm_ratio,
     amount_profile,
     is_fee,
+    rhythm_of,
     split_interleaved,
 )
 from app.services.finance.domains.detection.recurring.detect.purge import (
@@ -114,9 +108,14 @@ async def detect_recurring(
     # The payees a confirmed bill's own payments wear, for the repropose
     # guard - read off rows already loaded, so it costs no query.
     bill_payees: dict[int, set[int]] = {}
+    # ...and the days it was paid on, to tell a second bill beside it
+    # from its own history at another price (#337).
+    bill_dates: dict[int, list[date]] = {}
     for txn in txns:
         # Already spoken for by a real bill - not detection's business.
         if txn.id in curated:
+            if txn.recurring_stream_id is not None:
+                bill_dates.setdefault(txn.recurring_stream_id, []).append(txn.date_)
             if txn.recurring_stream_id is not None and txn.merchant_id is not None:
                 bill_payees.setdefault(txn.recurring_stream_id, set()).add(
                     txn.merchant_id
@@ -167,38 +166,15 @@ async def detect_recurring(
     _release(unbanded)
 
     for account_id, direction, payee, members in work:
-        if len(members) < MIN_OCCURRENCES:
-            _release(members)
-            continue
         members.sort(key=lambda t: (t.date_, t.id or 0))
-        gaps = [
-            (members[i].date_ - members[i - 1].date_).days
-            for i in range(1, len(members))
-        ]
-        gaps = [g for g in gaps if g > 0]
-        if not gaps:
+        # No cadence, a coincidental one, or one that stopped: releasing
+        # lets the prune pass retire it rather than leaving a dead bill
+        # in the rollup and the forecast for years.
+        rhythm = rhythm_of(members, today)
+        if rhythm is None:
             _release(members)
             continue
-        median_interval = statistics.median(gaps)
-        matched = _frequency_for(median_interval)
-        if matched is None:
-            _release(members)
-            continue  # no stable cadence -> not a recurring stream
-        frequency = matched
-        # A median can land on a cadence by coincidence. Require that the
-        # gaps themselves mostly agree, or a handful of unrelated visits
-        # to the same shop becomes a subscription.
-        canonical = _canonical_days(frequency)
-        rhythm = _rhythm_ratio(gaps, canonical) if canonical else 0.0
-        if rhythm < MIN_RHYTHM_RATIO:
-            _release(members)
-            continue
-        # Real cadence, but it stopped. Releasing lets the prune pass
-        # retire it rather than leaving a dead bill in the rollup and the
-        # forecast for years.
-        if _has_gone_quiet(members[-1].date_, canonical, today):
-            _release(members)
-            continue
+        frequency = rhythm.frequency
 
         median_amount, variable = amount_profile(members, today=today)
         if median_amount < MIN_STREAM_AMOUNT:
@@ -218,6 +194,8 @@ async def detect_recurring(
             median_amount,
             payee_id=payee_id,
             bill_payees=bill_payees,
+            bill_dates=bill_dates,
+            dates=[m.date_ for m in members],
         ):
             _release(members)
             continue
@@ -233,7 +211,7 @@ async def detect_recurring(
         confidence = int(
             round(
                 40
-                + 30 * rhythm
+                + 30 * rhythm.ratio
                 + 10 * min(len(members) / 6, 1.0)
                 + (0 if variable else 20)
             )
@@ -272,11 +250,8 @@ async def detect_recurring(
                     last_amount=abs(last.amount),
                     first_date=members[0].date_,
                     last_date=last.date_,
-                    next_expected_date=(
-                        last.date_ + timedelta(days=int(median_interval))
-                        if median_interval is not None
-                        else None
-                    ),
+                    next_expected_date=rhythm.after(last.date_),
+                    pay_days=rhythm.pay_days,
                     occurrence_count=len(members),
                     variable=variable,
                     is_subscription=is_subscription,

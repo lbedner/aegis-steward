@@ -59,9 +59,11 @@ class TestEveryViewIsDerived:
     def test_the_forecast_steps_exactly_these(self) -> None:
         """Steps stay cadence-only: ``once`` projects a single occurrence
         by its own rule and must never be stepped."""
-        from app.services.finance.utils import FREQUENCY_STEPS
+        from app.services.finance.constants import ONE_TIME_FREQUENCY
+        from app.services.finance.utils import cadence_step
 
-        assert set(FREQUENCY_STEPS) == set(CADENCE_KEYS)
+        assert all(cadence_step(key) for key in CADENCE_KEYS)
+        assert cadence_step(ONE_TIME_FREQUENCY) is None
 
     def test_the_validator_accepts_cadences_plus_once(self) -> None:
         from app.services.finance.constants import ONE_TIME_FREQUENCY

@@ -130,6 +130,17 @@ async def insight_first_where(db: AsyncSession, filters: list) -> FinanceInsight
     return (await db.exec(select(FinanceInsight).where(*filters))).first()
 
 
+def proposal_clauses(owner_user_id: int) -> list:
+    """Detection's own proposals: derived, unconfirmed, not a provider's -
+    what the purges sweep and the new-bill rule announces."""
+    return [
+        FinanceRecurringStream.owner_user_id == owner_user_id,
+        FinanceRecurringStream.source == "derived",
+        FinanceRecurringStream.is_user_confirmed.is_(False),
+        FinanceRecurringStream.provider_stream_id.is_(None),
+    ]
+
+
 async def stream_rows_where(
     db: AsyncSession, filters: list
 ) -> list[FinanceRecurringStream]:
@@ -347,12 +358,16 @@ async def analyst_snapshots_between(
     )
 
 
-async def retractable_missed(
-    db: AsyncSession, store_owner: int, stream_id: int | None = None
+async def retractable_alerts(
+    db: AsyncSession,
+    store_owner: int,
+    stream_id: int | None = None,
+    insight_type: str = "missed_recurring",
 ) -> list[FinanceInsight]:
-    """Missed-bill alerts the rule may take back: one stream's, or every
-    stream's. Never a resolved one, or one a pending card is deciding
-    (FW-09): the person's word wins over the rule's second thoughts."""
+    """A stream rule's alerts it may take back (missed bills, unless
+    ``insight_type`` names another): one stream's, or every stream's.
+    Never a resolved one, or one a pending card is deciding (FW-09): the
+    person's word wins over the rule's second thoughts."""
     from app.services.finance.domains.writes.findings import awaiting_resolution
 
     deciding = await awaiting_resolution(db)
@@ -360,7 +375,7 @@ async def retractable_missed(
         db,
         [
             FinanceInsight.owner_user_id == store_owner,
-            FinanceInsight.insight_type == "missed_recurring",
+            FinanceInsight.insight_type == insight_type,
             FinanceInsight.related_stream_id.is_not(None)
             if stream_id is None
             else FinanceInsight.related_stream_id == stream_id,

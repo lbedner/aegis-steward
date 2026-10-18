@@ -23,8 +23,8 @@ from app.services.finance.domains.planning.recurring.membership import (
 from app.services.finance.models import FinanceRecurringStream, FinanceTransaction
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
-    FREQUENCY_STEPS,
     current_date,
+    stream_step,
     utcnow,
 )
 from app.services.shared.queries import stored_owner
@@ -264,7 +264,7 @@ async def attach_transaction_to_stream(
         # arriving is the end of it, not a reschedule.
         stream.next_expected_date = None
     else:
-        step = FREQUENCY_STEPS.get(stream.frequency)
+        step = stream_step(stream)
         if step is not None:
             advanced = step(txn.date_)
             current = stream.next_expected_date
@@ -383,7 +383,7 @@ async def update_recurring(
         stream.amount_is_variable = False
     if next_expected_date is not None:
         stream.next_expected_date = next_expected_date
-    elif frequency in FREQUENCY_STEPS and stream.next_expected_date is None:
+    elif frequency and (step := stream_step(stream)) and not stream.next_expected_date:
         # A cadence with no date to apply it to still projects
         # nothing, so stating one has to complete the repair. This is
         # the shape a bill takes when it has been seen ONCE: no gap to
@@ -391,7 +391,6 @@ async def update_recurring(
         # reading "Active" and contributes zero to the forecast.
         # Stepped from the last occurrence when there is one; the
         # forecast rolls a past date forward on its own.
-        step = FREQUENCY_STEPS[frequency]
         stream.next_expected_date = step(stream.last_date or current_date())
     if category_id is not None:
         stream.category_id = category_id

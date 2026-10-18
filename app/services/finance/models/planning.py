@@ -162,6 +162,12 @@ class FinanceRecurringStream(SQLModel, table=True):
         """
         return self.expected_amount or self.average_amount or 0
 
+    @property
+    def pay_days(self) -> list[int]:
+        """The two days of the month a twice-monthly bill lands on (31:
+        the last), kept since detection or declaration found them (#338)."""
+        return list((self.metadata_ or {}).get("pay_days") or [])
+
 
 class FinanceBudget(SQLModel, table=True):
     """Budget definition scoped to a period. Reserved until the budgeting UI

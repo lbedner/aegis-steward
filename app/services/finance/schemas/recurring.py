@@ -35,6 +35,7 @@ class RecurringStreamResponse(BaseModel):
     currency: str
     next_expected_date: date | None
     last_date: date | None  # last transaction actually matched to this stream
+    pay_days: list[int] = []  # twice a month: its two days (the model's)
     occurrence_count: int
     status: str
     confidence: int | None
@@ -103,6 +104,7 @@ class RecurringStreamResponse(BaseModel):
             currency=row.currency,
             next_expected_date=row.next_expected_date,
             last_date=row.last_date,
+            pay_days=row.pay_days,
             occurrence_count=row.occurrence_count,
             status=row.status,
             confidence=row.confidence,

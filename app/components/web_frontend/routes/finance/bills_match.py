@@ -13,6 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Query, Request
 from starlette.responses import Response
 
+from app.components.backend.api.finance.insights import dismiss_insight
 from app.components.backend.api.finance.recurring import (
     candidate_items,
     confirm_recurring,
@@ -163,12 +164,24 @@ async def verb(
     request: Request,
     stream_id: int,
     verb: str,
+    insight: Annotated[int | None, Query()] = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
+    """A bill's row verb. From an Attention item (``insight``), the item
+    it answered goes with it: a new bill is confirmed or muted where it
+    was announced (#340)."""
     handler = VERBS.get(verb)
     or_404(handler)
     await _stream(service, stream_id, owner_user_id)
     await handler(stream_id, service=service, owner_user_id=owner_user_id)  # type: ignore[call-arg]
     stream = await _stream(service, stream_id, owner_user_id)
+    if insight is not None:
+        from app.components.web_frontend.routes.finance.review import _resolved
+
+        await dismiss_insight(insight, service=service, owner_user_id=owner_user_id)
+        done = {"confirm": "Confirmed", "mute": "Muted"}.get(verb, verb.capitalize())
+        return await _resolved(
+            request, service, owner_user_id, "attention", f"{done}: {stream.name}."
+        )
     return await _row_response(request, service, stream, owner_user_id)

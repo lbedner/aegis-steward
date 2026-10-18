@@ -17,15 +17,30 @@ bill).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 import re
 import statistics
 
 from app.services.finance.constants import CADENCES
 from app.services.finance.models import FinanceTransaction
+from app.services.finance.pay_days import next_pay_day, pay_days_of
 from app.services.finance.utils import normalize_payee
 
 MIN_OCCURRENCES = 3
+
+# ...but a yearly charge has one a year, so three took three years to
+# find a renewal. Two about a year apart propose it (#339) when the price
+# repeats - a renewal recharges it, a second fill-up lands near it by
+# chance (Exxon, 2.6% apart) - the renewal is not long past unpaid, and
+# it is not cash: a withdrawal a year from the last is chance.
+PAIR_PRICE_TOLERANCE = 0.02
+PAIR_OVERDUE_DAYS = 30
+_CASH = re.compile(r"\bATM\b|\bWITHDRAWAL\b", re.IGNORECASE)
+
+# Every two weeks is 14 days nearly every time; twice a month runs 13 to
+# 17 as the months turn. This share of 14-day gaps or more is biweekly.
+BIWEEKLY_SHARE = 0.75
 
 # Key suffix separating "a second bill on the same payee" from the base
 # key ("anthropic", "anthropic#2", "anthropic#a2" for an amount band).
@@ -212,7 +227,24 @@ def _has_gone_quiet(last_date: date, canonical: int | None, today: date) -> bool
     return (today - last_date).days > window
 
 
-def _declared_cadence(members: list[FinanceTransaction]) -> tuple[str, float | None]:
+def _gaps(ordered: Sequence[FinanceTransaction]) -> list[int]:
+    """The days between consecutive charges, oldest first; two on one day
+    are one occurrence, not a gap of nothing."""
+    gaps = [(b.date_ - a.date_).days for a, b in zip(ordered, ordered[1:])]
+    return [g for g in gaps if g > 0]
+
+
+def next_after(day: date, gap: float, pay_days: Sequence[int] | None) -> date:
+    """The occurrence after ``day``: the next of its two days when it has
+    them (#338), else a median gap on."""
+    if pay_days:
+        return next_pay_day(day, pay_days)
+    return day + timedelta(days=int(gap))
+
+
+def _declared_cadence(
+    members: list[FinanceTransaction],
+) -> tuple[str, float | None, tuple[int, int] | None]:
     """``(frequency, median gap)`` for a group the USER says is recurring.
 
     Detection may decline - fewer than ``MIN_OCCURRENCES``, or a median gap
@@ -227,38 +259,80 @@ def _declared_cadence(members: list[FinanceTransaction]) -> tuple[str, float | N
     from what actually happened; a single transaction has no gap to
     measure at all and stays "unknown" until a second one arrives.
     """
-    gaps = [
-        (members[i].date_ - members[i - 1].date_).days for i in range(1, len(members))
-    ]
-    gaps = [g for g in gaps if g > 0]
+    gaps = _gaps(members)
     if not gaps:
-        return "unknown", None
+        return "unknown", None, None
     median_interval = statistics.median(gaps)
-    return _frequency_for(median_interval) or "irregular", median_interval
+    days = _twice_monthly([m.date_ for m in members], gaps)
+    if days:
+        return "semi_monthly", median_interval, days
+    return _frequency_for(median_interval) or "irregular", median_interval, None
 
 
-def _group_cadence(members: list[FinanceTransaction], today: date) -> str | None:
-    """The cadence this group would detect as, or None - the same gates
-    the main pass applies, shared so the amount-band fallback can never
-    disagree with it about what "fails"."""
-    if len(members) < MIN_OCCURRENCES:
+def _twice_monthly(dates: list[date], gaps: list[int]) -> tuple[int, int] | None:
+    """The two days a twice-monthly group lands on (#338), or None. Its
+    median gap matches every two weeks first, so it is told apart by
+    staying on two days of the month and not keeping to 14 days."""
+    if not 12 <= statistics.median(gaps) <= 18:
         return None
+    if sum(1 for g in gaps if g == 14) >= BIWEEKLY_SHARE * len(gaps):
+        return None
+    return pay_days_of(dates)
+
+
+def _yearly_pair(ordered: list[FinanceTransaction], today: date) -> bool:
+    """Two charges a year apart at one price, renewing, neither cash."""
+    first, last = ordered
+    gap = (last.date_ - first.date_).days
+    price = abs(last.amount)
+    return (
+        _frequency_for(gap) == "annually"
+        and abs(abs(first.amount) - price) <= price * PAIR_PRICE_TOLERANCE
+        and (today - last.date_).days <= gap + PAIR_OVERDUE_DAYS
+        and not any(_CASH.search(t.name or "") for t in ordered)
+    )
+
+
+@dataclass(frozen=True)
+class Rhythm:
+    """A group's cadence, as detection accepts it."""
+
+    frequency: str
+    ratio: float  # the share of its gaps that keep to the cadence
+    gap: float  # the median gap, in days
+    pay_days: tuple[int, int] | None = None
+
+    def after(self, day: date) -> date:
+        return next_after(day, self.gap, self.pay_days)
+
+
+def rhythm_of(members: list[FinanceTransaction], today: date) -> Rhythm | None:
+    """The cadence this group detects as, or None: the one set of gates
+    detection and the amount-band split both apply, so they can never
+    disagree about what fails."""
     ordered = sorted(members, key=lambda t: (t.date_, t.id or 0))
-    gaps = [
-        (ordered[i].date_ - ordered[i - 1].date_).days for i in range(1, len(ordered))
-    ]
-    gaps = [g for g in gaps if g > 0]
+    if len(ordered) < MIN_OCCURRENCES and not (
+        len(ordered) == 2 and _yearly_pair(ordered, today)
+    ):
+        return None
+    gaps = _gaps(ordered)
     if not gaps:
         return None
-    frequency = _frequency_for(statistics.median(gaps))
+    median = statistics.median(gaps)
+    days = _twice_monthly([t.date_ for t in ordered], gaps)
+    frequency = "semi_monthly" if days else _frequency_for(median)
     if frequency is None:
         return None
-    canonical = _canonical_days(frequency)
-    if not canonical or _rhythm_ratio(gaps, canonical) < MIN_RHYTHM_RATIO:
+    canonical = _canonical_days(frequency) or 0
+    ratio = _rhythm_ratio(gaps, canonical)
+    # A median can land on a cadence by coincidence: the gaps themselves
+    # must mostly agree, or a handful of visits to one shop is a bill.
+    if ratio < MIN_RHYTHM_RATIO:
         return None
+    # Real cadence, but it stopped.
     if _has_gone_quiet(ordered[-1].date_, canonical, today):
         return None
-    return frequency
+    return Rhythm(frequency, ratio, median, days)
 
 
 def _amount_bands(
@@ -311,10 +385,11 @@ def split_interleaved(
     released: list[FinanceTransaction] = []
     for account_id, direction, payee, members in work:
         if len(members) >= 2 * MIN_OCCURRENCES:
-            bands = [b for b in _amount_bands(members) if _group_cadence(b, today)]
-            whole = _group_cadence(members, today)
+            rhythms = [(b, rhythm_of(b, today)) for b in _amount_bands(members)]
+            bands = [b for b, rhythm in rhythms if rhythm]
+            whole = rhythm_of(members, today)
             one_bill_varying = whole is not None and all(
-                _group_cadence(b, today) == whole for b in bands
+                rhythm.frequency == whole.frequency for _b, rhythm in rhythms if rhythm
             )
             if bands and ((len(bands) >= 2 and not one_bill_varying) or whole is None):
                 for index, band in enumerate(bands):

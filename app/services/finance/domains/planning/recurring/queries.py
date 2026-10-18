@@ -10,6 +10,7 @@ unclaimed.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import aliased
@@ -348,11 +349,9 @@ async def members_of_streams(
     return grouped
 
 
-async def card_payment_stream_ids(
-    db: AsyncSession, stream_ids: Sequence[int]
-) -> set[int]:
-    """Streams paying a REVOLVING account (a credit card), as opposed to
-    a loan.
+def _card_payment_legs(*narrow: Any) -> Any:
+    """Payment legs into a REVOLVING account (a credit card), as opposed
+    to a loan: ``(stream id, card id)`` per stream, narrowed by ``narrow``.
 
     The distinction only matters to code measuring expenses: a card
     payment settles swipes that are already counted one by one, so
@@ -362,25 +361,42 @@ async def card_payment_stream_ids(
     other leg -> its account) rather than correlating a subquery, which
     cannot narrow by the destination's type.
     """
+    to_leg = aliased(FinanceTransaction)
+    return (
+        select(FinanceTransaction.recurring_stream_id, FinanceAccount.id)
+        .join(
+            FinanceTransfer,
+            FinanceTransfer.from_transaction_id == FinanceTransaction.id,
+        )
+        .join(to_leg, to_leg.id == FinanceTransfer.to_transaction_id)
+        .join(FinanceAccount, FinanceAccount.id == to_leg.account_id)
+        .where(
+            *narrow,
+            FinanceTransfer.status == "confirmed",
+            FinanceAccount.classification == "liability",
+            FinanceAccount.account_type == "credit_card",
+        )
+        .distinct()
+    )
+
+
+async def card_payment_stream_ids(
+    db: AsyncSession, stream_ids: Sequence[int]
+) -> set[int]:
+    """Which of ``stream_ids`` pay a credit card (``_card_payment_legs``)."""
     if not stream_ids:
         return set()
-    to_leg = aliased(FinanceTransaction)
-    rows = (
-        await db.exec(
-            select(FinanceTransaction.recurring_stream_id)
-            .join(
-                FinanceTransfer,
-                FinanceTransfer.from_transaction_id == FinanceTransaction.id,
-            )
-            .join(to_leg, to_leg.id == FinanceTransfer.to_transaction_id)
-            .join(FinanceAccount, FinanceAccount.id == to_leg.account_id)
-            .where(
-                FinanceTransaction.recurring_stream_id.in_(list(stream_ids)),
-                FinanceTransfer.status == "confirmed",
-                FinanceAccount.classification == "liability",
-                FinanceAccount.account_type == "credit_card",
-            )
-            .distinct()
-        )
-    ).all()
-    return {int(row) for row in rows if row is not None}
+    legs = _card_payment_legs(
+        FinanceTransaction.recurring_stream_id.in_(list(stream_ids))
+    )
+    return {int(stream) for stream, _card in (await db.exec(legs)).all() if stream}
+
+
+async def streams_paying(db: AsyncSession, card_id: int) -> set[int]:
+    """The streams paying card ``card_id``, so its statement can set the
+    payment it is due (#341)."""
+    legs = _card_payment_legs(
+        FinanceAccount.id == card_id,
+        FinanceTransaction.recurring_stream_id.is_not(None),
+    )
+    return {int(stream) for stream, _card in (await db.exec(legs)).all()}

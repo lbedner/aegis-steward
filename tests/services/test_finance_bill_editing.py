@@ -286,7 +286,7 @@ class TestTheCadenceListsAllAgree:
     gaps were invisible until a real bill fell through one:
 
         _CADENCES            what detection can measure
-        FREQUENCY_STEPS     what the forecast can step
+        CADENCES             what the forecast can step
         _FREQUENCY_LABELS    what the menus offer
         _STREAM_FREQUENCIES  what create/update will accept
 
@@ -300,16 +300,16 @@ class TestTheCadenceListsAllAgree:
         from app.components.frontend.dashboard.modals.finance_modal import (
             _FREQUENCY_LABELS,
         )
+        from app.services.finance.constants import CADENCES
         from app.services.finance.service import FinanceService
-        from app.services.finance.utils import FREQUENCY_STEPS
 
-        assert set(_FREQUENCY_LABELS) == set(FREQUENCY_STEPS)
+        assert set(_FREQUENCY_LABELS) == set(CADENCES)
         # The validator also accepts "once" - a dated one-off debt is
         # storable and forecastable (single occurrence) but has no step.
         from app.services.finance.constants import ONE_TIME_FREQUENCY
 
         assert set(FinanceService._STREAM_FREQUENCIES) == (
-            set(FREQUENCY_STEPS) | {ONE_TIME_FREQUENCY}
+            set(CADENCES) | {ONE_TIME_FREQUENCY}
         )
 
     def test_everything_detection_measures_can_be_stepped(self) -> None:
@@ -317,7 +317,7 @@ class TestTheCadenceListsAllAgree:
         that is fine, the user states those by hand. The reverse is not:
         measuring a cadence nothing can step is how a detected bill goes
         missing from the projection."""
+        from app.services.finance.constants import CADENCES
         from app.services.finance.domains.detection.recurring.cadence import _CADENCES
-        from app.services.finance.utils import FREQUENCY_STEPS
 
-        assert {label for _days, label in _CADENCES} <= set(FREQUENCY_STEPS)
+        assert {label for _days, label in _CADENCES} <= set(CADENCES)

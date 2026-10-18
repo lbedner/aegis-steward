@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import calendar
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import partial
@@ -13,9 +13,10 @@ import unicodedata
 
 from app.core.time import utcnow as clockutcnow
 from app.services.finance.constants import (
-    CADENCE_KEYS,
+    CADENCES,
     step_cadence,
 )
+from app.services.finance.pay_days import next_pay_day, pay_days_of
 
 DEFAULT_CURRENCY = "usd"
 
@@ -84,10 +85,28 @@ def monthly_income(streams: list[Any], today: date | None = None) -> tuple[int, 
     return sum(value for _stream, value in rows), len(rows)
 
 
-# Derived from the cadence table - see app/services/finance/constants.py.
-FREQUENCY_STEPS: dict[str, Callable[[date], date]] = {
-    key: partial(step_cadence, key) for key in CADENCE_KEYS
-}
+def cadence_step(
+    frequency: str, pay_days: Sequence[int] = ()
+) -> Callable[[date], date] | None:
+    """How a bill on ``frequency`` advances, or None when it has no
+    cadence. Twice a month with ``pay_days`` lands on those two days, not
+    15 days on, which drifts off them within months (#338)."""
+    if frequency not in CADENCES:
+        return None
+    if frequency == "semi_monthly" and pay_days:
+        return partial(next_pay_day, pay_days=tuple(pay_days))
+    return partial(step_cadence, frequency)
+
+
+def stream_step(stream: Any) -> Callable[[date], date] | None:
+    """``cadence_step`` for one bill: the pay days it keeps, else the two
+    its last and next dates fall on (a bill set twice-monthly by hand)."""
+    days = getattr(stream, "pay_days", None)
+    if not days and stream.frequency == "semi_monthly":
+        dates = (getattr(stream, "last_date", None), stream.next_expected_date)
+        known = [d for d in dates if d]
+        days = pay_days_of(known) or ()
+    return cadence_step(stream.frequency, days)
 
 
 def utcnow() -> datetime:
