@@ -6,7 +6,9 @@ business logic, no writes.
 
 from __future__ import annotations
 
-from sqlalchemy import or_
+from datetime import date
+
+from sqlalchemy import func, or_
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -89,6 +91,60 @@ async def provider_rows_for_accounts(
     )
 
 
+async def live_pending_rows(
+    db: AsyncSession, *, account_ids: set[int], source: str
+) -> list[FinanceTransaction]:
+    """Live pending rows a feed brought to these accounts (#540)."""
+    if not account_ids:
+        return []
+    return list(
+        (
+            await db.exec(
+                select(FinanceTransaction).where(
+                    FinanceTransaction.account_id.in_(account_ids),
+                    FinanceTransaction.source == source,
+                    FinanceTransaction.pending.is_(True),
+                    FinanceTransaction.deleted_at.is_(None),
+                )
+            )
+        ).all()
+    )
+
+
+async def unlinked_posted_rows(
+    db: AsyncSession, *, account_ids: set[int], source: str, since: date
+) -> list[FinanceTransaction]:
+    """Live posted rows from ``since`` that replace no pre-auth yet: the
+    twins a pending row that stopped being reported may have posted as."""
+    return list(
+        (
+            await db.exec(
+                select(FinanceTransaction).where(
+                    FinanceTransaction.account_id.in_(account_ids),
+                    FinanceTransaction.source == source,
+                    FinanceTransaction.pending.is_(False),
+                    FinanceTransaction.pending_transaction_id.is_(None),
+                    FinanceTransaction.deleted_at.is_(None),
+                    FinanceTransaction.date_ >= since,
+                )
+            )
+        ).all()
+    )
+
+
+async def oldest_pending_day(db: AsyncSession, connection_id: int) -> date | None:
+    """The day of the connection's oldest live pending row, if any."""
+    return (
+        await db.exec(
+            select(func.min(FinanceTransaction.date_)).where(
+                FinanceTransaction.connection_id == connection_id,
+                FinanceTransaction.pending.is_(True),
+                FinanceTransaction.deleted_at.is_(None),
+            )
+        )
+    ).first()
+
+
 async def connected_owner_ids(
     db: AsyncSession, providers: tuple[str, ...]
 ) -> list[int | None]:
@@ -145,7 +201,9 @@ async def live_accounts_for_connection(
     )
 
 
-async def move_children(db: AsyncSession, from_id: int, to_id: int) -> None:
+async def move_children(
+    db: AsyncSession, from_id: int, to_id: int, *, lines: bool = True
+) -> None:
     """Hang what was set on a pre-auth - its tags, split lines, filings
     and a paid-back mark - on the row it posted as (#323). One the posted
     row already has stays its own: moving a second would break the key
@@ -176,6 +234,8 @@ async def move_children(db: AsyncSession, from_id: int, to_id: int) -> None:
             .where(mark.transaction_id == from_id)
             .values(transaction_id=to_id)
         )
+    if not lines:  # its split adds up to another amount: it stays behind
+        return
     split = FinanceTransactionSplit
     await db.exec(
         update(split)

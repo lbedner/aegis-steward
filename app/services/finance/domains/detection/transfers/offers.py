@@ -3,7 +3,8 @@
 An offer holds both its legs until someone answers it. A sure pair -
 scored, or a payment the loan's own history confirms - takes a leg
 from it, and an offer whose leg was deleted can never be answered:
-either way the offer goes, and its Attention item with it.
+either way the offer goes, and its Attention item with it. A pre-auth
+that posted takes its confirmed pair too, so the other leg pairs again.
 """
 
 from __future__ import annotations
@@ -77,10 +78,20 @@ class Offers:
 
 async def drop_offers_on(db: AsyncSession, leg_ids: list[int]) -> None:
     """Every offer holding one of ``leg_ids``, gone with its Attention
-    item: an offer whose half is deleted can never be answered."""
+    item: an offer whose half is deleted can never be answered. A
+    confirmed pair stays, so an Undo of the delete has it back."""
     if not leg_ids:
         return
     await _drop(db, await queries.offers_holding(db, leg_ids))
+
+
+async def drop_pairs_on(db: AsyncSession, leg_ids: list[int]) -> None:
+    """Every live pair holding one of ``leg_ids`` - confirmed or offered -
+    gone: a pre-auth that posted or dropped (#540), whose pair would claim
+    its other leg for good."""
+    if not leg_ids:
+        return
+    await _drop(db, await queries.pairs_holding(db, leg_ids))
 
 
 async def _drop(db: AsyncSession, offers: list[FinanceTransfer]) -> None:

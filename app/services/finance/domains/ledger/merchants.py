@@ -204,7 +204,9 @@ async def merge_merchants(
         db.add(loser)
     target.updated_at = now
     db.add(target)
-    await db.flush()
+    await payee_aliases.file_blank_rows(  # filed where the survivor files (#541)
+        db, owner_user_id=owner_user_id, merchant_ids=[target_id]
+    )
     return moved
 
 

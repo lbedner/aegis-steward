@@ -161,3 +161,22 @@ class TestWhatCannotBePaidBack:
         ]
         # Four of the five ledger rows are money out; payroll is not.
         assert len(offered) == 4
+
+
+@pytest.mark.asyncio
+async def test_a_charge_that_is_gone_is_owed_nothing(
+    client: TestClient,
+    hx: TestClient,
+    finance: FinanceService,
+    async_db_session: AsyncSession,
+    ledger: Ledger,
+) -> None:
+    """A pre-auth marked to be paid back, retired when it never posted
+    (#540): its mark stayed open and the money read as owed."""
+    charge, _back = await _rows(finance, async_db_session, ledger, 3_000)
+    hx.post(f"/transactions/{charge}/reimbursable", data={"expected": "30"})
+
+    await finance.soft_delete_transactions([charge], owner_user_id=None)
+    await async_db_session.commit()
+
+    none(client.get(OPEN).text, "#reimbursable table")

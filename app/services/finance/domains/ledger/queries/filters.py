@@ -34,6 +34,11 @@ def not_duplicate() -> Any:
     return FinanceTransaction.dedup_status != "duplicate"
 
 
+def is_duplicate(row: FinanceTransaction) -> bool:
+    """``not_duplicate`` for a row in hand: another feed's copy."""
+    return row.dedup_status == "duplicate"
+
+
 def money_moved_in(account_id: int, owner_user_id: int | None = None) -> list[Any]:
     """The rows that count as money moving in an account: live, and not a
     duplicate of another. What "updated" means for a bank account or a

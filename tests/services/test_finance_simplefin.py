@@ -11,7 +11,7 @@ server actually sends.
 from __future__ import annotations
 
 import base64
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import httpx
@@ -27,11 +27,14 @@ from app.services.finance.adapters.providers.simplefin import (
 from app.services.finance.constants import Provider
 from app.services.finance.models import (
     FinanceAccount,
+    FinanceCategory,
     FinanceConnection,
     FinanceImportBatch,
     FinanceTransaction,
 )
+from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
+from tests.services._finance_factories import seed_account, seed_stream
 
 ACCESS_URL = "https://user:secret@bridge.example/simplefin"
 CLAIM_URL = "https://bridge.simplefin.org/simplefin/claim/TOKEN"
@@ -343,10 +346,17 @@ class TestSyncing:
         )
 
         today = current_date()
+        # The next sync reaches back to the demo's pending coffee too (#540).
+        pending = datetime.fromtimestamp(1791043200, UTC).date()
         assert client.windows == [
             (today - timedelta(days=89), today - timedelta(days=45)),
             (today - timedelta(days=44), today),
-            (today - timedelta(days=5), today),  # the next sync
+            (
+                max(
+                    min(today - timedelta(days=5), pending), today - timedelta(days=44)
+                ),
+                today,
+            ),
         ]
 
     @pytest.mark.asyncio
@@ -544,6 +554,309 @@ class TestTheClient:
         )
         assert request.headers["authorization"].startswith("Basic ")
         assert "secret" not in str(request.url)  # the credential rides the header
+
+
+def _at(day: date) -> int:
+    """A Bridge timestamp: noon UTC that day."""
+    return int(datetime.combine(day, time(12), tzinfo=UTC).timestamp())
+
+
+def _checking(*transactions: dict[str, Any]) -> dict[str, Any]:
+    """The Bridge reporting one checking account and these rows."""
+    return {
+        **DEMO,
+        "accounts": [
+            {
+                "id": "Demo Checking",
+                "name": "SimpleFIN Checking",
+                "conn_id": "CON-SIMPLEFIN-DEMO",
+                "currency": "USD",
+                "balance": "100.00",
+                "transactions": list(transactions),
+            }
+        ],
+    }
+
+
+def _pending(row_id: str, day: date, amount: str) -> dict[str, Any]:
+    return {
+        "id": row_id,
+        "posted": 0,
+        "transacted_at": _at(day),
+        "amount": amount,
+        "payee": "Coffee",
+        "pending": True,
+    }
+
+
+def _posted(row_id: str, day: date, amount: str) -> dict[str, Any]:
+    return {"id": row_id, "posted": _at(day), "amount": amount, "payee": "Coffee"}
+
+
+class TestAPendingChargePosts:
+    """The Bridge posts a pending charge under a new id and never says
+    which pending row it replaces (#540): the pending row stayed live
+    beside it, and the charge counted twice."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
+    async def test_the_pending_row_goes_and_what_was_set_on_it_stays(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        day = current_date() - timedelta(days=3)
+        client = FakeSimpleFINClient(_checking(_pending("p-1", day, "-40.00")))
+        connection = await _connect(async_db_session, client)
+        (pending,) = await _rows(async_db_session)
+        food = FinanceCategory(
+            owner_user_id=1, name="Food", slug="food-540", classification="expense"
+        )
+        async_db_session.add(food)
+        await async_db_session.flush()
+        bill = await seed_stream(
+            FinanceService(async_db_session),
+            name="Coffee",
+            expected_amount=-4_000,
+            next_expected_date=day,
+        )
+        # Filed, and matched to its bill, while it was pending.
+        pending.category_id, pending.category_source = food.id, "user"
+        pending.recurring_stream_id = bill.id
+        async_db_session.add(pending)
+        await async_db_session.commit()
+        pending_id = pending.id
+
+        client.payload = _checking(_posted("c-9", day + timedelta(days=1), "-40.00"))
+        await connections.sync_one_connection(
+            async_db_session, connection.id, clients={Provider.SIMPLEFIN: client}
+        )
+
+        (posted,) = await _rows(async_db_session)
+        assert posted.external_id == "c-9"
+        assert posted.pending_transaction_id == pending_id
+        assert (posted.category_id, posted.category_source) == (food.id, "user")
+        assert posted.recurring_stream_id == bill.id
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
+    async def test_one_that_never_posts_goes_once_its_grace_is_up(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A hold the bank dropped: no longer reported, no longer counted -
+        after a few days, since a feed can leave a row out of one pass."""
+        today = current_date()
+        client = FakeSimpleFINClient(
+            _checking(
+                _pending("p-old", today - timedelta(days=3), "-40.00"),
+                _pending("p-new", today - timedelta(days=1), "-12.00"),
+            )
+        )
+        connection = await _connect(async_db_session, client)
+
+        client.payload = _checking(_posted("c-9", today, "-75.00") | {"payee": "Gas"})
+        await connections.sync_one_connection(
+            async_db_session, connection.id, clients={Provider.SIMPLEFIN: client}
+        )
+
+        assert sorted(r.external_id for r in await _rows(async_db_session)) == [
+            "c-9",
+            "p-new",
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
+    async def test_a_tip_more_is_still_its_twin(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        day = current_date() - timedelta(days=3)
+        client = FakeSimpleFINClient(_checking(_pending("p-1", day, "-40.00")))
+        connection = await _connect(async_db_session, client)
+        (pending,) = await _rows(async_db_session)
+        pending.memo = "Dinner with Sam"
+        async_db_session.add(pending)
+        await async_db_session.commit()
+
+        client.payload = _checking(_posted("c-9", day + timedelta(days=1), "-48.00"))
+        await connections.sync_one_connection(
+            async_db_session, connection.id, clients={Provider.SIMPLEFIN: client}
+        )
+
+        (posted,) = await _rows(async_db_session)
+        assert (posted.amount, posted.memo) == (-4_800, "Dinner with Sam")
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
+    async def test_an_earlier_charge_alike_is_not_its_twin(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Two $5.40 McDonald's runs: the one already posted is another
+        charge, and keeps the payee it was given."""
+        day = current_date() - timedelta(days=3)
+        earlier = _posted("c-0", day, "-5.40")
+        client = FakeSimpleFINClient(_checking(earlier, _pending("p-1", day, "-5.40")))
+        connection = await _connect(async_db_session, client)
+
+        client.payload = _checking(
+            earlier, _posted("c-9", day + timedelta(days=1), "-5.40")
+        )
+        await connections.sync_one_connection(
+            async_db_session, connection.id, clients={Provider.SIMPLEFIN: client}
+        )
+
+        rows = {r.external_id: r for r in await _rows(async_db_session)}
+        assert set(rows) == {"c-0", "c-9"}
+        assert rows["c-0"].pending_transaction_id is None
+        assert rows["c-9"].pending_transaction_id is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
+    async def test_a_transfer_leg_that_posts_pairs_again(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A card payment paired while pending: retired by hand, the card's
+        side stayed paired to a deleted row and out of every total."""
+        day = current_date() - timedelta(days=3)
+        card = {
+            "id": "Demo Card",
+            "name": "Rewards Visa",
+            "conn_id": "CON-SIMPLEFIN-DEMO",
+            "currency": "USD",
+            "balance": "-100.00",
+            "transactions": [
+                {
+                    "id": "v-1",
+                    "posted": _at(day),
+                    "amount": "500.00",
+                    "payee": "Payment Thank You",
+                }
+            ],
+        }
+        paying = _pending("p-1", day, "-500.00") | {"payee": "Online Payment"}
+        client = FakeSimpleFINClient(
+            {**_checking(paying), "accounts": [*_checking(paying)["accounts"], card]}
+        )
+        connection = await _connect(async_db_session, client)
+
+        posted = _posted("c-9", day + timedelta(days=1), "-500.00") | {
+            "payee": "Online Payment"
+        }
+        client.payload = {
+            **_checking(posted),
+            "accounts": [*_checking(posted)["accounts"], card],
+        }
+        await connections.sync_one_connection(
+            async_db_session, connection.id, clients={Provider.SIMPLEFIN: client}
+        )
+
+        rows = {r.external_id: r for r in await _rows(async_db_session)}
+        assert set(rows) == {"c-9", "v-1"}
+        assert rows["c-9"].transfer_pair_transaction_id == rows["v-1"].id
+        assert rows["v-1"].transfer_pair_transaction_id == rows["c-9"].id
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
+    async def test_a_sync_reaches_back_to_its_oldest_pending_row(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Pulled daily, a sync only asked for the last five days: a pending
+        row older than that was never reported again, and never went."""
+        day = current_date() - timedelta(days=16)
+        client = FakeSimpleFINClient(_checking(_pending("p-1", day, "-40.00")))
+        connection = await _connect(async_db_session, client)
+
+        client.payload = _checking(_posted("c-1", current_date(), "-5.00"))
+        await connections.sync_one_connection(
+            async_db_session, connection.id, clients={Provider.SIMPLEFIN: client}
+        )
+
+        assert client.windows[-1][0] <= day
+        assert [r.external_id for r in await _rows(async_db_session)] == ["c-1"]
+
+
+class TestWhatTheSecondDryRunFound:
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two syncs
+    async def test_a_split_stays_behind_when_the_charge_settles_for_more(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """A -40.00 hold split -30/-10 posting as -48.00: its lines summed
+        to the hold, and $8 reached no category."""
+        from app.services.finance.schemas import SplitPart
+
+        day = current_date() - timedelta(days=3)
+        client = FakeSimpleFINClient(_checking(_pending("p-1", day, "-40.00")))
+        connection = await _connect(async_db_session, client)
+        (pending,) = await _rows(async_db_session)
+        food = FinanceCategory(
+            owner_user_id=1, name="Food", slug="food-split", classification="expense"
+        )
+        async_db_session.add(food)
+        await async_db_session.flush()
+        assert pending.id is not None and food.id is not None
+        await FinanceService(async_db_session).split_transaction(
+            pending.id,
+            [
+                SplitPart(amount=3_000, category_id=food.id),
+                SplitPart(amount=1_000, category_id=food.id),
+            ],
+            owner_user_id=1,
+        )
+        await async_db_session.commit()
+
+        client.payload = _checking(_posted("c-9", day + timedelta(days=1), "-48.00"))
+        await connections.sync_one_connection(
+            async_db_session, connection.id, clients={Provider.SIMPLEFIN: client}
+        )
+
+        (posted,) = await _rows(async_db_session)
+        assert (posted.amount, posted.is_split) == (-4_800, False)
+
+    @pytest.mark.asyncio
+    async def test_the_banks_hidden_copy_is_the_twin_and_gets_nothing(
+        self, svc: FinanceService, async_db_session: AsyncSession
+    ) -> None:
+        """The posting row is the bank's copy of an export's row, out of
+        view: it is the twin - so next week's charge is not - and what was
+        set on the hold stays off the hidden copy."""
+        from app.services.finance.adapters.providers.connections.posting import (
+            retire_unreported,
+        )
+
+        account = await seed_account(svc)
+        assert account.id is not None
+        today = current_date()
+
+        async def row(external: str, cents: int, day: date, **flags: Any) -> Any:
+            made = await svc.create_transaction(
+                owner_user_id=1,
+                account_id=account.id,
+                amount=cents,
+                txn_date=day,
+                name="Adams",
+                source=Provider.SIMPLEFIN,
+                external_id=external,
+                external_id_source=Provider.SIMPLEFIN,
+                **flags,
+            )
+            return made
+
+        hold = await row("p-1", -12_943, today - timedelta(days=5), pending=True)
+        hold.memo = "Thanksgiving"
+        copy = await row("c-9", -9_403, today - timedelta(days=4))
+        copy.dedup_status = "duplicate"
+        later = await row("c-10", -10_000, today - timedelta(days=1))
+        async_db_session.add_all([hold, copy])
+        await async_db_session.flush()
+
+        await retire_unreported(
+            async_db_session,
+            source=Provider.SIMPLEFIN,
+            reported={(account.id, "c-9"), (account.id, "c-10")},
+            today=today,
+        )
+
+        assert copy.pending_transaction_id == hold.id
+        assert copy.memo is None
+        assert later.pending_transaction_id is None
 
 
 class TestWhatTheReviewFound:

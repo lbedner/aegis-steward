@@ -132,6 +132,7 @@ from app.services.finance.domains.ledger.queries.subjects import (
     subjects_for_owner,
 )
 from app.services.finance.domains.ledger.queries.transactions import (
+    blank_synced_rows,
     dedup_match,
     live_transactions_by_ids,
     tag_by_normalized_name,
@@ -146,6 +147,7 @@ from app.services.finance.domains.ledger.queries.transactions import (
 )
 
 __all__ = [
+    "blank_synced_rows",
     "changes_where",
     "reimbursement_marks",
     "reimbursement_payments",

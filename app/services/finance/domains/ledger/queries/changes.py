@@ -61,7 +61,11 @@ async def reimbursement_marks(
     transaction_ids: list[int] | None = None,
 ) -> list[FinanceReimbursement]:
     query = select(FinanceReimbursement).where(
-        *owner_filters(FinanceReimbursement.owner_user_id, owner_user_id)
+        *owner_filters(FinanceReimbursement.owner_user_id, owner_user_id),
+        # A deleted charge is owed nothing: a pre-auth that never posted.
+        FinanceReimbursement.transaction_id.in_(
+            select(FinanceTransaction.id).where(FinanceTransaction.deleted_at.is_(None))
+        ),
     )
     if open_only:
         query = query.where(FinanceReimbursement.settled_at.is_(None))

@@ -19,6 +19,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.encryption import decrypt_secret
 from app.core.time import utcnow
+from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections.common import (
     _SIMPLEFIN_ACCESS_CONTEXT,
     ProviderAdapter,
@@ -27,6 +28,9 @@ from app.services.finance.adapters.providers.connections.common import (
     finished,
     new_connection,
     since_last_pull,
+)
+from app.services.finance.adapters.providers.connections.posting import (
+    retire_unreported,
 )
 from app.services.finance.adapters.providers.connections.simplefin_sync.mapping import (
     bank_names,
@@ -58,13 +62,19 @@ _OVERLAP_DAYS = 5
 _BACKFILL_WINDOWS = 2
 
 
-def _windows(connection: FinanceConnection, today: date) -> list[tuple[date, date]]:
+def _windows(
+    connection: FinanceConnection, today: date, pending: date | None = None
+) -> list[tuple[date, date]]:
     """The (start, end) of each request this pass makes, oldest first: the
-    backfill on a first sync, else one window from the last pull."""
+    backfill on a first sync, else one window from the last pull - or from
+    the oldest row still ``pending``, so the Bridge says whether it posted
+    (#540), never past the 45 days it allows."""
     if connection.sync_cursor:
         start = since_last_pull(
             connection, today, lookback=_WINDOW_DAYS - 1, overlap=_OVERLAP_DAYS
         )
+        if pending is not None:
+            start = max(min(start, pending), today - timedelta(days=_WINDOW_DAYS - 1))
         return [(start, today)]
     return [
         (
@@ -103,6 +113,12 @@ async def sync_simplefin_connection(
     """Read every account and the window's transactions: one request, or
     a backfill's few on a first sync."""
     started = utcnow()
+    # Where a re-read reaches back to (a first sync reads its backfill).
+    pending = (
+        await queries.oldest_pending_day(db, connection.id)
+        if connection.sync_cursor and connection.id is not None
+        else None
+    )
     client = client or SimpleFINClient()
     service = FinanceService(db)
     result = SyncResult(connection_id=connection.id)
@@ -115,7 +131,7 @@ async def sync_simplefin_connection(
         await asyncio.gather(
             *(
                 client.accounts(access_url, start=start, end=end)
-                for start, end in _windows(connection, today)
+                for start, end in _windows(connection, today, pending)
             )
         )
     )
@@ -127,13 +143,26 @@ async def sync_simplefin_connection(
         db, service, connection, Provider.SIMPLEFIN, simplefin_accounts(payload)
     )
     result.accounts = len(account_by_id)
+    transactions = simplefin_transactions(payload)
     result.added, result.updated = await apply_transactions(
         db,
         service,
-        simplefin_transactions(payload),
+        transactions,
         account_by_id,
         connection=connection,
         source=Provider.SIMPLEFIN,
+    )
+    # The Bridge reports every row it holds: a pending one it stopped
+    # reporting has posted under an id of its own, or dropped (#540).
+    result.removed = await retire_unreported(
+        db,
+        source=Provider.SIMPLEFIN,
+        today=today,
+        reported={
+            (account_by_id[t.provider_account_id], t.external_id)
+            for t in transactions
+            if t.provider_account_id in account_by_id
+        },
     )
     connection.sync_cursor = today.isoformat()
     finished(db, connection, started=started, result=result)

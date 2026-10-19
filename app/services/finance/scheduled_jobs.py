@@ -5,6 +5,7 @@ from app.services.finance.jobs import (
     finance_bill_due_email_job,
     finance_budget_close_job,
     finance_envelope_credit_job,
+    finance_file_blank_rows_job,
     finance_goal_auto_contribute_job,
     finance_recompute_snapshots_job,
     finance_sync_connections_job,
@@ -35,6 +36,14 @@ JOBS: tuple[ServiceJob, ...] = (
         "finance_budget_close",
         "Finance: Record Last Month",
         {"trigger": "cron", "day": 5, "hour": 3, "minute": 0},
+    ),
+    # Payees: a row that arrived blank, filed once its payee says where
+    # (#541) - before the snapshots, so the night's figures have it.
+    ServiceJob(
+        finance_file_blank_rows_job,
+        "finance_file_blank_rows",
+        "Finance: File New Rows",
+        {"trigger": "cron", "hour": 1, "minute": 50},
     ),
     # Envelopes: the allowance arrives on its cadence (weekly credits land
     # Mondays), so the job checks daily and its per-period idempotency
