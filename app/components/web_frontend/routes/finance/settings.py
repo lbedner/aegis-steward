@@ -1,4 +1,4 @@
-"""Settings: connections, categories and payees (Comms is settings_comms).
+"""Settings: connections and categories (Comms and Payees have their own).
 
 Four sibling routes under one sub-nav, the shape Review already uses.
 Connecting a provider is two posts (pattern 1): the first starts a
@@ -26,10 +26,6 @@ from app.components.backend.api.finance.categories import list_categories
 from app.components.backend.api.finance.connections import (
     disconnect_connection,
     list_connections,
-)
-from app.components.backend.api.finance.payees import (
-    list_merchants,
-    merchant_category_summary,
 )
 from app.components.web_frontend import ranges
 from app.components.web_frontend.nav import section
@@ -85,23 +81,6 @@ INSTITUTION_COLUMNS = [
     {"key": "account_count", "label": "Accounts", "kind": "int", "align": "right"},
 ]
 
-PAYEE_COLUMNS = [
-    {"key": "name", "label": "Name", "kind": "avatar"},
-    {
-        "key": "transaction_count",
-        "label": "Transactions",
-        "kind": "int",
-        "align": "right",
-    },
-    {
-        "key": "total_amount",
-        "label": "Total",
-        "kind": "money",
-        "align": "right",
-        "toned": True,
-    },
-    {"key": "last_date", "label": "Last seen", "kind": "date"},
-]
 # A connection's stored status, as the card says it.
 
 
@@ -373,7 +352,7 @@ async def remove(
     return dialog_done(SECTION.path, "Disconnected. Its accounts stay.")
 
 
-# --- categories and payees --------------------------------------------------
+# --- categories --------------------------------------------------
 
 
 @router.get("/categories", include_in_schema=False)
@@ -400,53 +379,6 @@ async def categories(
             "ranges": ranges.WINDOWS,
             "path": SECTION.path,
         },
-    )
-
-
-@router.get("/payees", include_in_schema=False)
-async def payees(
-    request: Request,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    listing = await list_merchants(
-        account_ids=None, service=service, owner_user_id=owner_user_id
-    )
-    return render(
-        request,
-        "pages/settings/payees.html",
-        {
-            "section": SECTION,
-            **nav_context("payees"),
-            "rows": listing.items,
-            "columns": PAYEE_COLUMNS,
-            "path": SECTION.path,
-        },
-    )
-
-
-@router.get("/payees/{merchant_id:int}/categories", include_in_schema=False)
-async def payee_categories(
-    request: Request,
-    merchant_id: int,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    """How this payee's transactions are filed today: a payee arguing with
-    itself shows up here as two rows."""
-    # One name, not the whole directory: listing it also aggregates usage
-    # and schedules icon fetches, which a single dialog has no use for.
-    names = await service.merchant_names({merchant_id})
-    if merchant_id not in names:
-        raise HTTPException(status_code=404)
-    summary = await merchant_category_summary(
-        merchant_id, service=service, owner_user_id=owner_user_id
-    )
-    return dialog(
-        request,
-        "partials/settings/payee_categories.html",
-        name=names[merchant_id],
-        summary=summary,
     )
 
 

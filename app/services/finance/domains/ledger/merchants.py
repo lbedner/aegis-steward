@@ -11,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger import (
     categories,
+    changelog,
     payee_aliases,
     queries,
     transactions,
@@ -183,11 +184,15 @@ async def merge_merchants(
         txn.merchant_id = target_id
         db.add(txn)
         moved += 1
+    # A payee's action, not logged per charge (Undo would re-point them).
+    changelog.quietly(db, rows, "merchant_id")
 
     streams = await queries.live_streams_by_merchants(db, loser_ids)
     for stream in streams:
         stream.merchant_id = target_id
         db.add(stream)
+    # Its taught descriptors follow, or imports file them under it (#328).
+    await queries.repoint_aliases(db, loser_ids, target_id)
 
     now = utcnow()
     for loser in losers:
@@ -388,6 +393,9 @@ async def file_payee_under(
     One statement, and deliberately the same row set the tally counts, so
     "filed" and "asked about" can never disagree again.
     """
+    # One statement, which no flush sees: logged from what it will change.
+    before = await queries.payee_categories(db, merchant_id, owner_user_id)
+    changelog.note_bulk(db, before, "category_id", category_id)
     stmt = (
         update(FinanceTransaction)
         .where(

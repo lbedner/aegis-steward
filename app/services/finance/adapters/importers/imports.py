@@ -1,10 +1,9 @@
 """Import pipeline: batch bookkeeping + two-lane transaction dedup.
 
 Shared by every importer (OFX/QFX, QIF, CSV). Each run creates a
-``finance_import_batch`` — short-circuiting an identical re-upload by
-``file_sha256`` — writes one ``finance_import_batch_row`` per record, and
-inserts new transactions while counting duplicates. Writes but does not commit
-(the caller owns the transaction boundary).
+``finance_import_batch`` (an identical re-upload short-circuits on
+``file_sha256``), writes one ``finance_import_batch_row`` per record and
+inserts new rows, counting duplicates. Writes; the caller commits.
 
 ``finance_import_batch`` / ``_row`` carry a NOT-NULL ``owner_user_id``; in
 standalone (no-auth) mode the owner is ``None``, so it's coerced to the ``0``
@@ -54,7 +53,7 @@ from app.services.finance.adapters.importers.base import (
 )
 from app.services.finance.adapters.importers.plan import plan_transactions
 from app.services.finance.constants import PROVIDER_LABELS, sync_source
-from app.services.finance.domains.ledger import payee_aliases, two_feeds
+from app.services.finance.domains.ledger import changelog, payee_aliases, two_feeds
 from app.services.finance.models import (
     FinanceImportBatch,
     FinanceImportBatchRow,
@@ -166,6 +165,7 @@ PROGRESS_EVERY_ROWS = 2000
 FLUSH_EVERY_ROWS = 2000
 
 
+@changelog.as_actor(changelog.IMPORT)
 async def ingest_transactions(
     db: AsyncSession,
     *,

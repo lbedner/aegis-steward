@@ -4,7 +4,7 @@ Mirrors ``payment/deps.py``. Owner scoping is ``get_owner_user_id`` in
 ``app.services.shared.deps``, shared with every service that owns rows.
 """
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import get_async_db
@@ -15,6 +15,13 @@ from app.services.shared.deps import get_owner_user_id  # noqa: F401
 
 
 async def get_finance_service(
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
 ) -> FinanceService:
+    # What a request changes is yours, one action per request (#325); a
+    # read changes nothing to log.
+    if request.method not in ("GET", "HEAD"):
+        from app.services.finance.domains.ledger import changelog
+
+        changelog.act_as("you")
     return FinanceService(db)

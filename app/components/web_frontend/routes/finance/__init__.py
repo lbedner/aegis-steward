@@ -19,6 +19,7 @@ from app.components.web_frontend.routes.finance import (
     budget_envelopes,
     budget_goals,
     cash_flow,
+    changes_log,
     connection_placing,
     cover,
     documents,
@@ -27,11 +28,14 @@ from app.components.web_frontend.routes.finance import (
     overview,
     projected,
     receipts,
+    register_views,
+    reimbursables,
     review,
     review_edit,
     review_resolve,
     settings,
     settings_comms,
+    settings_payees,
     transactions,
     usage,
 )
@@ -40,6 +44,9 @@ router = APIRouter()
 router.include_router(overview.router)
 router.include_router(cash_flow.router)
 router.include_router(usage.router)
+router.include_router(register_views.router)
+router.include_router(reimbursables.router)
+router.include_router(changes_log.router)
 router.include_router(accounts.router)
 router.include_router(account_manage.router)
 router.include_router(account_merge.router)
@@ -60,6 +67,7 @@ router.include_router(review_resolve.router)
 router.include_router(review.router)
 router.include_router(settings.router)
 router.include_router(settings_comms.router)
+router.include_router(settings_payees.router)
 router.include_router(connection_placing.router)
 router.include_router(bank_attention.router)
 router.include_router(transactions.router)

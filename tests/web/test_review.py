@@ -29,6 +29,8 @@ class TestNav:
             "Uncategorized": "Uncategorized (2)",  # the mystery charge and payroll
             "No payee": "No payee (5)",
             "Attention": "Attention (1)",
+            # Charges still owed back (#327): a list, not a queue to count.
+            "Paid back": "Paid back",
         }
         assert text(one(page, '#review-nav a[aria-current="page"]')).startswith(
             "Approvals"

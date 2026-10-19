@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -169,6 +169,34 @@ async def live_transactions_by_merchants(
                 )
             )
         ).all()
+    )
+
+
+async def payee_categories(
+    db: AsyncSession, merchant_id: int, owner_user_id: int | None
+) -> list[tuple[int, int | None, int | None]]:
+    """``(id, owner, category)`` of a payee's live rows - what a refile
+    of all of them changes."""
+    query = select(
+        FinanceTransaction.id,
+        FinanceTransaction.owner_user_id,
+        FinanceTransaction.category_id,
+    ).where(
+        FinanceTransaction.merchant_id == merchant_id,
+        FinanceTransaction.deleted_at.is_(None),
+    )
+    if owner_user_id is not None:
+        query = query.where(FinanceTransaction.owner_user_id == owner_user_id)
+    return [(i, o, c) for i, o, c in (await db.exec(query)).all()]
+
+
+async def repoint_aliases(db: AsyncSession, from_ids: list[int], to_id: int) -> None:
+    """Every descriptor taught to ``from_ids`` now names ``to_id``. One
+    alias per descriptor and owner, so none can collide."""
+    await db.exec(
+        update(FinanceMerchantAlias)
+        .where(FinanceMerchantAlias.merchant_id.in_(from_ids))
+        .values(merchant_id=to_id)
     )
 
 

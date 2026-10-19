@@ -67,6 +67,7 @@ QUEUES: tuple[tuple[str, str, str], ...] = (
     ("uncategorized", "Uncategorized", "/uncategorized"),
     ("no_payee", "No payee", "/no-payee"),
     ("attention", "Attention", "/attention"),
+    ("reimbursable", "Paid back", "/reimbursable"),
 )
 SEVERITY_TONE = {"critical": "error", "warning": "warn", "info": "muted"}
 GROUP_COLUMNS = [
@@ -128,7 +129,7 @@ async def nav_context(
                 "key": key,
                 "label": label,
                 "href": SECTION.path + suffix,
-                "count": tally[key],
+                "count": tally.get(key, 0),
             }
             for key, label, suffix in QUEUES
         ],
@@ -287,7 +288,7 @@ async def uncategorized(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     fixed = RegisterFilters(
-        **{**filters.__dict__, "uncategorized": True, "category_id": None}
+        **{**filters.__dict__, "uncategorized": True, "categories": ()}
     )
     return await _queue_page(request, service, owner_user_id, "uncategorized", fixed)
 
@@ -344,7 +345,7 @@ async def no_payee(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     fixed = RegisterFilters(
-        **{**filters.__dict__, "without_merchant": True, "merchant_id": None}
+        **{**filters.__dict__, "without_merchant": True, "payees": ()}
     )
     groups = None
     if view == "groups":

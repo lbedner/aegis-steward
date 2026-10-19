@@ -144,26 +144,27 @@ class TestFilters:
         assert one(page, 'input[name="q"]').get("value") == "Market"
 
     @pytest.mark.queryspy(threshold=3)  # each request redraws rows
+    @pytest.mark.queryspy(threshold=4)  # the page, the pick, an old link
     def test_category_filter_offers_every_category_and_narrows(
         self, client: TestClient, ledger: Ledger
     ) -> None:
         page = client.get(REGISTER).text
-        options = [
-            text(o)
-            for o in select(page, '#register-filters select[name="category_id"] option')
-        ]
-        assert options[0] == "All categories"
-        assert "Food:Groceries" in options and "Auto:Fuel" in options
-        groceries = next(
-            o
-            for o in select(page, 'select[name="category_id"] option')
-            if text(o) == "Food:Groceries"
-        )
-        filtered = client.get(f"{REGISTER}?category_id={groceries.get('value')}").text
+        boxes = {
+            text(label): one(label, "input").get("value")
+            for label in select(page, "#register-categories label")
+            if one(label, "input").get("name") == "categories"
+        }
+        assert "Food:Groceries" in boxes and "Auto:Fuel" in boxes
+        groceries = boxes["Food:Groceries"]
+        filtered = client.get(f"{REGISTER}?categories={groceries}").text
         assert names(filtered) == ["Market", "Market"]
-        assert one(
-            filtered, '#register-filters select[name="category_id"] option[selected]'
-        ).get("value") == groceries.get("value")
+        ticked = one(filtered, '#register-categories input[name="categories"][checked]')
+        assert ticked.get("value") == groceries
+        # A link from elsewhere still names one category the old way.
+        assert names(client.get(f"{REGISTER}?category_id={groceries}").text) == [
+            "Market",
+            "Market",
+        ]
 
     def test_date_range_narrows(self, client: TestClient, ledger: Ledger) -> None:
         today = current_date().isoformat()

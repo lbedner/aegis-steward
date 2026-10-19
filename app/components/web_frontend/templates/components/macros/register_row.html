@@ -95,6 +95,8 @@
       {{ menu_item("Split", hx_dialog('/transactions/' ~ row.id ~ '/split')) }}
       {% endif %}
       {{ menu_item("Make recurring", hx_dialog('/transactions/declare?transaction_ids=' ~ row.id)) }}
+      {% if row.amount < 0 %}{{ menu_item("Paid back…", hx_dialog('/transactions/' ~ row.id ~ '/reimbursable')) }}{% endif %}
+      {{ menu_item("History", hx_dialog('/transactions/' ~ row.id ~ '/history')) }}
       {{ menu_item("Attach receipt", hx_dialog('/transactions/' ~ row.id ~ '/receipt' ~ ('?show_account=true' if show_account else ''))) }}
       {{ menu_item("Remove", 'hx-delete="/transactions/' ~ row.id ~ '" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Remove this transaction? A re-import will not bring it back."', danger=True) }}
     {% endcall %}

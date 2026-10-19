@@ -17,6 +17,7 @@ from app.services.finance.domains.ledger import queries
 from app.services.finance.domains.ledger.queries import (  # noqa: F401  (re-export)
     transaction_search_filter,
 )
+from app.services.finance.domains.ledger.queries.filters import Narrowing
 from app.services.finance.models import (
     FinanceTag,
     FinanceTransaction,
@@ -461,6 +462,7 @@ async def list_transactions(
     amount: int | None = None,
     sort: str | None = None,
     descending: bool = True,
+    narrowing: Narrowing | None = None,
 ) -> tuple[list[FinanceTransaction], int]:
     """The register: not soft-deleted, never the losing side of a dedup,
     accounts still live, paired transfer legs hidden unless asked for."""
@@ -483,4 +485,5 @@ async def list_transactions(
         amount=amount,
         sort=sort,
         descending=descending,
+        narrowing=narrowing,
     )

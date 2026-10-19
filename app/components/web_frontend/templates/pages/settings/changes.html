@@ -1,0 +1,34 @@
+{% extends layout %}
+{% from "components/macros/layout.html" import page_header, card, badge %}
+{% from "components/macros/feedback.html" import empty_state %}
+{% from "components/macros/form.html" import action %}
+
+{% block title %}Changes - {{ project_name }}{% endblock %}
+
+{# Every edit, newest first, one action to an entry (issue 325): who, when, on
+   what, before and after. Undo takes back the newest action that can be:
+   yours or an assistant's, never an import or a sync that landed after. #}
+{% block app_content %}
+{{ page_header("Changes", "Every edit to a transaction, and who made it") }}
+{% include "components/sub_nav.html" %}
+{% call card(id="changes") %}
+{% if actions %}
+<ul class="flex flex-col divide-y divide-aegis-border/60">
+  {% for a in actions %}
+  <li class="py-3 flex items-start gap-4" {% if a.batch %}data-batch="{{ a.batch }}"{% endif %}>
+    <div class="flex-1 min-w-0">
+      <p class="text-sm text-aegis-text">{{ a.who }} · {{ a.when|short_date }} · {{ a.transactions|length }} transaction{{ "s" if a.transactions|length != 1 }}{% if a.undone %} {{ badge("Undone", "muted") }}{% endif %}</p>
+      <ul class="mt-1 text-xs text-aegis-muted">
+        {% for line in a.lines[:5] %}<li>{{ line }}</li>{% endfor %}
+        {% if a.lines|length > 5 %}<li>and {{ a.lines|length - 5 }} more</li>{% endif %}
+      </ul>
+    </div>
+    {% if a.batch and a.batch == undoable %}{{ action("Undo", 'hx-post="' ~ path ~ '/undo" hx-target="#changes" hx-select="#changes" hx-swap="outerHTML" data-undo') }}{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+{{ empty_state("No changes yet", "Edits to transactions are listed here as they are made.") }}
+{% endif %}
+{% endcall %}
+{% endblock %}

@@ -10,6 +10,7 @@
 {% include "components/sub_nav.html" %}
 {% call card(id="payees") %}
 {% call(row) data_table(columns, rows, empty="No payees yet", row_id="payee") %}
+  {{ action("Edit", hx_dialog(path ~ "/payees/" ~ row.id ~ "/edit") ~ " data-edit") }}
   {{ action("Categories", hx_dialog(path ~ "/payees/" ~ row.id ~ "/categories")) }}
 {% endcall %}
 {% endcall %}

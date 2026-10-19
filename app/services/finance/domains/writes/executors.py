@@ -19,6 +19,7 @@ from app.services.finance.domains.writes import (
     filing,
     findings,
     linking,
+    payees,
     planning,
     structure,
     terms,
@@ -484,3 +485,5 @@ for change_type, title, model, execute, describe in (
             describe=describe,
         )
     )
+for payee_change in payees.CHANGES:
+    register(payee_change)

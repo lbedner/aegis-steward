@@ -34,7 +34,7 @@ from app.services.finance.adapters.providers.connections.common import (
     record_run,
 )
 from app.services.finance.adapters.providers.errors import failure_text
-from app.services.finance.domains.ledger import bank_link
+from app.services.finance.domains.ledger import bank_link, changelog
 from app.services.finance.models import FinanceConnection
 
 logger = logging.getLogger(__name__)
@@ -144,6 +144,7 @@ async def _sync_isolated(
     return result
 
 
+@changelog.as_actor(changelog.SYNC)
 async def sync_owner_connections(
     db: AsyncSession,
     *,
@@ -184,6 +185,7 @@ async def sync_owner_connections(
     return results
 
 
+@changelog.as_actor(changelog.SYNC)
 async def sync_one_connection(
     db: AsyncSession,
     connection_id: int,

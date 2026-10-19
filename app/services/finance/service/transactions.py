@@ -17,6 +17,7 @@ from app.services.finance.domains.ledger import (
 from app.services.finance.domains.ledger import (
     queries as ledger_queries,
 )
+from app.services.finance.domains.ledger.queries.filters import Narrowing
 from app.services.finance.models import (
     FinanceTag,
     FinanceTransaction,
@@ -353,6 +354,7 @@ class TransactionsMixin(FinanceServiceBase):
         amount: int | None = None,
         sort: str | None = None,
         descending: bool = True,
+        narrowing: Narrowing | None = None,
     ) -> tuple[list[FinanceTransaction], int]:
         # Default view: not soft-deleted, and never the losing side of a dedup.
         # Also hide transactions whose account was removed/disconnected — the
@@ -379,4 +381,5 @@ class TransactionsMixin(FinanceServiceBase):
             amount=amount,
             sort=sort,
             descending=descending,
+            narrowing=narrowing,
         )
