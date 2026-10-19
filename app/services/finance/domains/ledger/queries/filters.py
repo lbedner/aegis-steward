@@ -8,6 +8,7 @@ transaction, a category total, or a payee roll-up is asking.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 import re
 from typing import Any
@@ -24,6 +25,7 @@ from app.services.finance.models import (
     FinanceMerchant,
     FinanceTransaction,
     FinanceTransactionSplit,
+    FinanceTransactionTag,
 )
 
 
@@ -130,3 +132,60 @@ def split_aware_category_clause(own: Any, line: Any) -> Any:
             select(FinanceTransactionSplit.parent_transaction_id).where(line)
         ),
     )
+
+
+# The axes that take several values, as ``Narrowing`` and the URL name
+# them; ``exclude`` holds the ones taken as "all but these".
+AXES = ("categories", "payees", "tags", "accounts")
+
+
+@dataclass(frozen=True)
+class Narrowing:
+    """The register's finer filters (#326): several values on an axis, or
+    with the axis in ``exclude`` everything but them, and an amount range
+    by magnitude (a receipt says $8.00, not -800).
+
+    Excluding keeps the rows with no value on the axis - leaving out
+    Groceries must not also drop every uncategorized charge, which a bare
+    ``NOT IN`` does with its NULLs.
+    """
+
+    categories: tuple[int, ...] = ()
+    payees: tuple[int, ...] = ()
+    tags: tuple[int, ...] = ()
+    accounts: tuple[int, ...] = ()
+    exclude: frozenset[str] = frozenset()
+    amount_min: int | None = None
+    amount_max: int | None = None
+
+    def clauses(self) -> list[Any]:
+        txn = FinanceTransaction
+        picked: list[tuple[str, Any]] = []
+        if self.categories:
+            own = and_(
+                txn.category_id.is_not(None), txn.category_id.in_(self.categories)
+            )
+            line = FinanceTransactionSplit.category_id.in_(self.categories)
+            picked.append(("categories", split_aware_category_clause(own, line)))
+        if self.payees:
+            picked.append(
+                (
+                    "payees",
+                    and_(
+                        txn.merchant_id.is_not(None), txn.merchant_id.in_(self.payees)
+                    ),
+                )
+            )
+        if self.tags:
+            tagged = select(FinanceTransactionTag.transaction_id).where(
+                FinanceTransactionTag.tag_id.in_(self.tags)
+            )
+            picked.append(("tags", txn.id.in_(tagged)))
+        if self.accounts:
+            picked.append(("accounts", txn.account_id.in_(self.accounts)))
+        clauses = [~c if axis in self.exclude else c for axis, c in picked]
+        if self.amount_min is not None:
+            clauses.append(func.abs(txn.amount) >= self.amount_min)
+        if self.amount_max is not None:
+            clauses.append(func.abs(txn.amount) <= self.amount_max)
+        return clauses

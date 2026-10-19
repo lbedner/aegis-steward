@@ -62,6 +62,14 @@ from app.services.finance.domains.ledger.queries.categories import (
     category_usage_rows,
     spending_rows,
 )
+from app.services.finance.domains.ledger.queries.changes import (
+    changes_where,
+    reimbursement_marks,
+    reimbursement_payments,
+    tags_on,
+    unlinked_money_in,
+    views_for,
+)
 from app.services.finance.domains.ledger.queries.filters import (
     live_account_ids,
     split_aware_category_clause,
@@ -89,7 +97,9 @@ from app.services.finance.domains.ledger.queries.merchants import (
     merchants_for_owner,
     named_transactions,
     paired_payees,
+    payee_categories,
     payeeless_transactions,
+    repoint_aliases,
 )
 from app.services.finance.domains.ledger.queries.networth import (
     account_rollup,
@@ -134,6 +144,12 @@ from app.services.finance.domains.ledger.queries.transactions import (
 )
 
 __all__ = [
+    "changes_where",
+    "reimbursement_marks",
+    "reimbursement_payments",
+    "tags_on",
+    "unlinked_money_in",
+    "views_for",
     "EVERYONE",
     "HOUSEHOLD",
     "account_by_id",
@@ -184,6 +200,8 @@ __all__ = [
     "live_accounts_for_owner",
     "live_merchants_by_ids",
     "live_streams_by_merchants",
+    "payee_categories",
+    "repoint_aliases",
     "live_transactions_by_ids",
     "live_transactions_by_merchants",
     "merchant_by_id",

@@ -3,7 +3,7 @@
    with ``register`` (see routes/finance/register.py) in context. #}
 {% from "components/macros/layout.html" import card %}
 {% from "components/macros/table.html" import data_table, pager %}
-{% from "components/macros/form.html" import select, date_input, checkbox, search_input, action, range_chips, control %}
+{% from "components/macros/form.html" import checklist, date_input, checkbox, search_input, action, range_chips, control %}
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/register_row.html" import register_row %}
 {% from "components/macros/changes.html" import redraws_on_decision %}
@@ -70,9 +70,14 @@
     <button type="button" data-filters-toggle @click="more = !more" :aria-expanded="more"
             class="chip sm:hidden">Filters{% if register.filters.folded %} · {{ register.filters.folded }}{% endif %}</button>
     <div data-more-filters :data-open="more" class="contents">
-    {% if not register.filters.uncategorized %}{{ select("category_id", register.categories, register.filters.category_id, blank="All categories") }}{% endif %}
-    {% if not register.filters.without_merchant %}{{ select("merchant_id", register.merchants, register.filters.merchant_id, blank="All payees") }}{% endif %}
-    {% if register.tags %}{{ select("tag_id", register.tags, register.filters.tag_id, blank="All tags") }}{% endif %}
+    {#- Several values on each axis, or everything but them (issue 326). -#}
+    {% set picks = register.picks %}
+    {% if not register.filters.uncategorized %}{{ checklist("register-categories", "categories", "Categories", picks.categories, exclude="categories" in register.filters.exclude) }}{% endif %}
+    {% if not register.filters.without_merchant %}{{ checklist("register-payees", "payees", "Payees", picks.payees, exclude="payees" in register.filters.exclude) }}{% endif %}
+    {% if picks.tags %}{{ checklist("register-tags", "tags", "Tags", picks.tags, exclude="tags" in register.filters.exclude) }}{% endif %}
+    {% if picks.accounts %}{{ checklist("register-accounts", "accounts", "Accounts", picks.accounts, exclude="accounts" in register.filters.exclude) }}{% endif %}
+    <label class="inline-flex items-center gap-1 text-xs text-aegis-muted">$<input type="text" inputmode="decimal" name="amount_min" value="{{ register.filters.amount_min or '' }}" placeholder="min" aria-label="Smallest amount" class="{{ control('input') }} w-16"></label>
+    <label class="inline-flex items-center gap-1 text-xs text-aegis-muted">to $<input type="text" inputmode="decimal" name="amount_max" value="{{ register.filters.amount_max or '' }}" placeholder="max" aria-label="Largest amount" class="{{ control('input') }} w-16"></label>
     {{ date_input("from", register.filters.from_date, label="From") }}
     {{ date_input("to", register.filters.to_date, label="To") }}
     {{ checkbox("hide_transfers", register.filters.hide_transfers, label="Hide transfers") }}
@@ -85,6 +90,12 @@
     <span id="register-clear">{% if register.filtered %}<a href="{{ register.path }}" {{ hx_replace(register.path, "#register") }}
        class="text-xs text-aegis-teal hover:text-aegis-text transition-colors">Clear</a>{% endif %}</span>
   </form>
+  {# Saved views (issue 326), out of the form above (a form cannot hold one).
+     Loads once, then keeps across this section's swaps (``hx-preserve``). #}
+  <details id="register-views" hx-preserve class="relative self-start" @click.outside="$el.removeAttribute('open')">
+    <summary class="list-none cursor-pointer text-xs px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text">Views</summary>
+    <div class="absolute z-20 mt-1 w-72 floating p-2"><div {{ hx_load("/accounts/views") }}></div></div>
+  </details>
 
   {# What a search replaces: the rows, their pager and the empty states.
      Everything above stays put, which is the whole point. #}

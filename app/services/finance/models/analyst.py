@@ -77,9 +77,11 @@ class FinanceAnalystSnapshot(SQLModel, table=True):
 
 
 class FinanceTransactionChangelog(SQLModel, table=True):
-    """Append-only field-level audit of Plaid ``modified[]`` and user edits, kept
-    separate from the mutable transaction row (the queryable row stays an upsert;
-    audit is immutable). Reserved until an audit/undo surface is built."""
+    """Append-only field-level audit of edits, kept separate from the
+    mutable transaction row (#325). ``change_source`` is who did it (you,
+    an assistant by slug, an import, a sync, an undo); one action's rows
+    share a ``batch_id``, which is what an undo takes back, marking them
+    ``undone_at``."""
 
     __tablename__ = "finance_transaction_changelog"
     __table_args__ = (
@@ -90,7 +92,9 @@ class FinanceTransactionChangelog(SQLModel, table=True):
     )
 
     id: int | None = Field(default=None, primary_key=True)
-    transaction_id: int = Field(foreign_key=f"{_FK}finance_transaction.id")
+    transaction_id: int = Field(
+        foreign_key=f"{_FK}finance_transaction.id", ondelete="CASCADE"
+    )
     owner_user_id: int = Field()
     field: str
     old_value: str | None = Field(default=None)
@@ -98,3 +102,5 @@ class FinanceTransactionChangelog(SQLModel, table=True):
     change_source: str
     sync_cursor: str | None = Field(default=None)
     changed_at: datetime = Field(default_factory=utcnow)
+    batch_id: str | None = Field(default=None, max_length=36, index=True)
+    undone_at: datetime | None = Field(default=None)

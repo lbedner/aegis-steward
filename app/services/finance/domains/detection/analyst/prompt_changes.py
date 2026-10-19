@@ -11,6 +11,9 @@ from app.services.documents.models import DOCUMENT_KINDS
 from app.services.finance.domains.detection.analyst.prompt_matters import (
     MATTER_CHANGES,
 )
+from app.services.finance.domains.detection.analyst.prompt_payees import (
+    PAYEE_CHANGES,
+)
 from app.services.finance.domains.detection.analyst.prompt_planning import (
     PLANNING_CHANGES,
 )
@@ -40,13 +43,7 @@ re-filing a row just to record what was in the bag is a change nobody \
 asked for. Sending it with a categorize proposal for the same row is \
 two cards for one decision; put the memo IN the categorize payload \
 instead.
-- `transaction.assign_payee` - payload {"transaction_id": int, \
-"payee": str}: names who a transaction was really with ("these 12 ATM \
-withdrawals are Riverbend Grounded"). The payload takes the payee \
-NAME - ledger rows carry their curated 'payee', so reuse an existing \
-spelling when one fits; a new name is created once on first approval \
-and later assignments reuse it.
-- `recurring.declare` - payload {"name", "direction": inflow/outflow, \
+{payees}- `recurring.declare` - payload {"name", "direction": inflow/outflow, \
 "frequency": weekly/biweekly/monthly/... (bills()'s vocabulary), \
 "amount_cents", "next_expected_date", optional "account_id" \
 (accounts() - where it lands or is paid from), "category_id" \
@@ -497,4 +494,5 @@ PROPOSING_CHANGES = (
     PROPOSING_CHANGES.replace("{kinds}", "/".join(DOCUMENT_KINDS))
     .replace("{planning}", PLANNING_CHANGES)
     .replace("{matters}", MATTER_CHANGES)
+    .replace("{payees}", PAYEE_CHANGES)
 )

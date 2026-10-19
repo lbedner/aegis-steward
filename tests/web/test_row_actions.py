@@ -18,9 +18,7 @@ from tests.web.dom import none, one, oob, select, text, triggers
 
 def category_id(page: str, name: str) -> str:
     option = next(
-        o
-        for o in select(page, '#register-filters select[name="category_id"] option')
-        if text(o) == name
+        o for o in select(page, "#category-options option") if text(o) == name
     )
     return option.get("value") or ""
 
@@ -54,7 +52,10 @@ class TestRowMenu:
             "Tag",
             "Split",
             "Make recurring",
-            # One row's alone: a receipt is one charge's (#331).
+            # One row's alone: paid back is one charge's (#327), its
+            # history one row's (#325), a receipt one charge's (#331).
+            "Paid back…",
+            "History",
             "Attach receipt",
             "Remove",
         ]

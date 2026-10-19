@@ -16,6 +16,7 @@ from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger.queries.filters import (
+    Narrowing,
     live_account_ids,
     money_moved_in,
     not_duplicate,
@@ -117,6 +118,7 @@ async def transactions_page(
     amount: int | None = None,
     sort: str | None = None,
     descending: bool = True,
+    narrowing: Narrowing | None = None,
 ) -> tuple[list[FinanceTransaction], int]:
     """The register page + total count (two statements).
 
@@ -164,6 +166,8 @@ async def transactions_page(
         )
     if query:
         filters.append(transaction_search_filter(query))
+    if narrowing is not None:
+        filters.extend(narrowing.clauses())
     if amount is not None:
         # By MAGNITUDE: a receipt says $8.00, not -800, and the sign is
         # the ledger's business rather than the reader's. This is the

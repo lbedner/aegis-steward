@@ -18,6 +18,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.documents.domains.reading import filing
+from app.services.finance.domains.ledger import changelog
 from app.services.finance.domains.writes.queries import (
     batch_rows,
     get_change,
@@ -212,8 +213,21 @@ async def approve_batch(
     failing row stays pending with its error; the rest land.
     """
     excluded = set(exclude_ids or [])
+    rows = await batch_rows(db, batch_id, owner_user_id=owner_user_id)
+    # One batch approved is one action, undone as one (#325).
+    proposer = next((r.proposed_by_agent for r in rows if r.proposed_by_agent), None)
+    with changelog.acting(proposer or "you"):
+        return await _approve_rows(db, rows, excluded, owner_user_id)
+
+
+async def _approve_rows(
+    db: AsyncSession,
+    rows: list[Any],
+    excluded: set[int],
+    owner_user_id: int | None,
+) -> dict[str, Any]:
     approved = rejected = failed = 0
-    for row in await batch_rows(db, batch_id, owner_user_id=owner_user_id):
+    for row in rows:
         if row.status != "pending" or row.id is None:
             continue
         if row.id in excluded:
@@ -319,7 +333,9 @@ async def approve(
         # API said 500. The savepoint rolls back to a session that can
         # still record what went wrong.
         async with db.begin_nested():
-            result = await executor.execute(db, model, row.owner_user_id)
+            # The proposer's change, approved: logged as theirs (#325).
+            with changelog.acting(row.proposed_by_agent or "you", join=True):
+                result = await executor.execute(db, model, row.owner_user_id)
     except Exception as e:
         # The row stays PENDING: the error is audit, the decision is
         # still the user's (reject it, or fix the world and re-approve).

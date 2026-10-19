@@ -4,6 +4,7 @@ One sub-router of the finance API (see ``router.py``, the aggregator).
 """
 
 from datetime import date
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
@@ -19,6 +20,7 @@ from app.services.finance.domains.ledger.hydrate import (  # noqa: F401 — re-e
     hydrate_transactions,
     split_line,
 )
+from app.services.finance.domains.ledger.queries.filters import Narrowing
 from app.services.finance.schemas import (
     CategorySuggestionListResponse,
     SimilarTransaction,
@@ -60,12 +62,23 @@ async def list_transactions(
     page_size: int = 50,
     sort: str | None = None,
     descending: bool = True,
+    categories: Annotated[list[int] | None, Query()] = None,
+    payees: Annotated[list[int] | None, Query()] = None,
+    tags: Annotated[list[int] | None, Query()] = None,
+    accounts: Annotated[list[int] | None, Query()] = None,
+    exclude: Annotated[list[str] | None, Query()] = None,
+    amount_min: int | None = None,
+    amount_max: int | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> TransactionListResponse:
     """Transaction feed, newest first. Excludes soft-deleted and
     duplicate-marked rows, and (by default) paired transfer legs so a card
     payment doesn't show as two lines. Filter by account, date, category, payee.
+
+    ``categories``/``payees``/``tags``/``accounts`` take several values;
+    an axis named in ``exclude`` means everything but them. ``amount_min``
+    and ``amount_max`` are cents, by magnitude (#326).
     """
     transactions, total = await service.list_transactions(
         owner_user_id=owner_user_id,
@@ -84,6 +97,15 @@ async def list_transactions(
         page_size=page_size,
         sort=sort,
         descending=descending,
+        narrowing=Narrowing(
+            categories=tuple(categories or ()),
+            payees=tuple(payees or ()),
+            tags=tuple(tags or ()),
+            accounts=tuple(accounts or ()),
+            exclude=frozenset(exclude or ()),
+            amount_min=amount_min,
+            amount_max=amount_max,
+        ),
     )
     items = await hydrate_transactions(service, transactions)
     return TransactionListResponse(items=items, total=total)

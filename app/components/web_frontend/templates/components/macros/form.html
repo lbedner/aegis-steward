@@ -162,13 +162,14 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
    (``hx-preserve``, which needs the ``id``), so the menu stays open while
    several are ticked; a click anywhere else closes it. The button at its
    top ticks every option, or clears them when all are ticked, and the form
-   refreshes as for any tick. #}
-{% macro checklist(id, name, label, options) %}
+   refreshes as for any tick. ``exclude`` (not None) adds an "All but
+   these" switch posting ``exclude=<name>``, outside what that button ticks. #}
+{% macro checklist(id, name, label, options, exclude=None) %}
 {% set ticked = options|selectattr("checked")|list|length %}
 <details id="{{ id }}" hx-preserve class="relative" @click.outside="$el.removeAttribute('open')"
-         x-data="{ full: false, boxes() { return [...$root.querySelectorAll('input[type=checkbox]')] }, sync() { this.full = this.boxes().every((b) => b.checked) } }"
+         x-data="{ full: false, boxes() { return [...$root.querySelectorAll('input[type=checkbox]:not([data-exclude])')] }, sync() { this.full = this.boxes().every((b) => b.checked) } }"
          x-init="sync()" x-on:change="sync()">
-  <summary class="list-none cursor-pointer text-xs px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text">{{ label }}{% if ticked %}: {{ ticked }}{% endif %}</summary>
+  <summary class="list-none cursor-pointer text-xs px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text">{{ label }}{% if ticked %}: {{ "all but " if exclude }}{{ ticked }}{% endif %}</summary>
   <div class="absolute z-20 mt-1 w-64 max-h-80 overflow-y-auto floating p-2 space-y-0.5">
     <div class="flex items-center justify-between px-2 pb-1 mb-1 border-b border-aegis-border/60">
       <span class="text-xxs caps text-aegis-muted">{{ label }}</span>
@@ -178,6 +179,12 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
         <span x-show="!full">{{ icon("check", "w-3.5 h-3.5", 2) }}</span><span x-show="full" x-cloak>{{ icon("x-mark", "w-3.5 h-3.5", 2) }}</span>
       </button>
     </div>
+    {% if exclude is not none %}
+    <label class="flex items-center gap-2 px-2 pb-1 mb-1 border-b border-aegis-border/60 text-xs text-aegis-muted cursor-pointer">
+      <input type="checkbox" name="exclude" value="{{ name }}" data-exclude {% if exclude %}checked{% endif %} class="{{ control("checkbox") }}">
+      <span>All but these</span>
+    </label>
+    {% endif %}
     {% for o in options %}
     <label class="flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-aegis-border/30 cursor-pointer{% if o.indent %} pl-6 text-aegis-muted{% endif %}">
       <input type="checkbox" name="{{ o.name or name }}" value="{{ o.value }}" {% if o.checked %}checked{% endif %} class="{{ control("checkbox") }}">

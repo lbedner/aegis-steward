@@ -358,3 +358,71 @@ class FinanceTransfer(SQLModel, table=True):
     match_method: str = Field(max_length=20)
     confidence: int | None = Field(default=None)
     status: str = Field(default="suggested", max_length=12)
+
+
+class FinanceRegisterView(SQLModel, table=True):
+    """A register filter set kept under a name (#326): the register's own
+    URL, path and query, so opening one is following a link."""
+
+    __tablename__ = "finance_register_view"
+    __table_args__ = (
+        Index("ix_finance_register_view_owner", "owner_user_id"),
+        {"schema": _SCHEMA},
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None)
+    name: str = Field(max_length=80)
+    url: str = Field(max_length=2048)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class FinanceReimbursement(SQLModel, table=True):
+    """A charge that will be paid back (#327): how much, and by whom.
+
+    Once its repayments cover the whole charge the pair nets out of
+    spending - charge and repayments leave the reports together, and
+    ``excluded_pair`` remembers that this did it, so unsettling puts back
+    exactly what it took."""
+
+    __tablename__ = "finance_reimbursement"
+    __table_args__ = (
+        Index("ix_finance_reimbursement_owner", "owner_user_id"),
+        Index("uq_finance_reimbursement_txn", "transaction_id", unique=True),
+        {"schema": _SCHEMA},
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int | None = Field(default=None)
+    transaction_id: int = Field(
+        foreign_key=f"{_FK}finance_transaction.id", ondelete="CASCADE"
+    )
+    expected_amount: int = _bigint("expected_amount", nullable=False)
+    from_party_id: int | None = Field(default=None)
+    from_name: str | None = Field(default=None, max_length=255)
+    note: str | None = Field(default=None, max_length=500)
+    settled_at: datetime | None = Field(default=None)
+    excluded_pair: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class FinanceReimbursementPayment(SQLModel, table=True):
+    """Money that paid a reimbursable back (#327). ``was_excluded`` is
+    the row's own report flag before a settled pair took it out."""
+
+    __tablename__ = "finance_reimbursement_payment"
+    __table_args__ = (
+        Index("ix_finance_reimbpay_reimbursement", "reimbursement_id"),
+        Index("uq_finance_reimbpay_txn", "transaction_id", unique=True),
+        {"schema": _SCHEMA},
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    reimbursement_id: int = Field(
+        foreign_key=f"{_FK}finance_reimbursement.id", ondelete="CASCADE"
+    )
+    transaction_id: int = Field(
+        foreign_key=f"{_FK}finance_transaction.id", ondelete="CASCADE"
+    )
+    was_excluded: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=utcnow)

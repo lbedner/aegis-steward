@@ -1,0 +1,25 @@
+{# The register's saved views (issue 326): each a link to the register as it
+   was saved, and a form keeping the register as it is now. Answers with
+   itself, so saving or removing one redraws only this menu. #}
+{% from "components/macros/feedback.html" import error_banner %}
+{% from "components/macros/form.html" import control %}
+<div id="register-views-menu" class="space-y-2">
+  {{ error_banner(errors) }}
+  {% if views %}
+  <ul class="space-y-0.5">
+    {% for view in views %}
+    <li id="view-{{ view.id }}" class="flex items-center gap-2">
+      <a href="{{ view.url }}" {{ hx_replace(view.url, "#register") }} class="flex-1 truncate px-2 py-1 rounded text-sm text-aegis-teal hover:bg-aegis-border/30">{{ view.name }}</a>
+      <button type="button" hx-delete="/accounts/views/{{ view.id }}" hx-target="#register-views-menu" hx-swap="outerHTML"
+              class="px-1 text-aegis-muted hover:text-aegis-text" aria-label="Remove {{ view.name }}">×</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="px-2 text-xs text-aegis-muted">No saved views yet.</p>
+  {% endif %}
+  <form hx-post="/accounts/views" hx-target="#register-views-menu" hx-swap="outerHTML" class="flex items-center gap-2 border-t border-aegis-border/60 pt-2" data-save-view>
+    <input type="text" name="name" placeholder="Name this view" aria-label="View name" class="{{ control('input') }} flex-1 min-w-0">
+    <button type="submit" class="text-xs text-aegis-teal hover:text-aegis-text">Save</button>
+  </form>
+</div>

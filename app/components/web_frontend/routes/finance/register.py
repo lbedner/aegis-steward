@@ -33,9 +33,11 @@ from app.components.web_frontend.filters import mark_new
 from app.core.formatting import payee_label
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
 from app.services.finance.domains.ledger.queries.accounts import account_names
+from app.services.finance.domains.ledger.queries.filters import AXES
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import AccountResponse, TransactionResponse
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import money_to_cents
 
 PAGE_SIZE = 50
 
@@ -71,9 +73,14 @@ TRADE_COLUMNS = [
 @dataclass(frozen=True)
 class RegisterFilters:
     q: str | None = None
-    category_id: int | None = None
-    merchant_id: int | None = None
-    tag_id: int | None = None
+    categories: tuple[int, ...] = ()
+    payees: tuple[int, ...] = ()
+    tags: tuple[int, ...] = ()
+    accounts: tuple[int, ...] = ()
+    exclude: tuple[str, ...] = ()
+    # Dollars, by magnitude, as typed: "$8" finds the $8.00 charge.
+    amount_min: str | None = None
+    amount_max: str | None = None
     from_date: date | None = None
     to_date: date | None = None
     # The chip row: a window in days, ALL for everything. An explicit
@@ -99,9 +106,12 @@ class RegisterFilters:
     def _picks(self) -> tuple[object, ...]:
         """The finer filters a reader picks in the bar."""
         return (
-            self.category_id,
-            self.merchant_id,
-            self.tag_id,
+            self.categories,
+            self.payees,
+            self.tags,
+            self.accounts,
+            self.amount_min,
+            self.amount_max,
             self.from_date,
             self.to_date,
         )
@@ -123,7 +133,7 @@ class RegisterFilters:
         pairs = {
             names.get(k, k): (v.isoformat() if isinstance(v, date) else v)
             for k, v in values.items()
-            if v not in (None, "", False)
+            if v not in (None, "", False, ())
             and not (k == "page" and v == 1)
             and not (k == "page_size" and v == PAGE_SIZE)
             and not (k == "days" and v == ranges.ALL)
@@ -132,7 +142,7 @@ class RegisterFilters:
         for key, value in pairs.items():
             if value is True:
                 pairs[key] = "on"
-        return urlencode(pairs)
+        return urlencode(pairs, doseq=True)
 
     def sorted_by(self, key: str) -> str:
         """The query string for clicking column ``key``: the same column
@@ -155,8 +165,26 @@ class RegisterFilters:
         return self.from_date or ranges.since(self.days)
 
 
+def _cents(dollars: str | None) -> int | None:
+    cents = money_to_cents(dollars) if dollars else None
+    return abs(cents) if cents is not None else None
+
+
+def _picks(rows: list[Any], chosen: tuple[int, ...]) -> list[dict[str, Any]]:
+    """``checklist`` options: every row, ticked where it is picked."""
+    return [{"value": r.id, "label": r.name, "checked": r.id in chosen} for r in rows]
+
+
 def register_filters(
     q: str | None = None,
+    categories: Annotated[list[int], Query()] = [],  # noqa: B006
+    payees: Annotated[list[int], Query()] = [],  # noqa: B006
+    tags: Annotated[list[int], Query()] = [],  # noqa: B006
+    accounts: Annotated[list[int], Query()] = [],  # noqa: B006
+    exclude: Annotated[list[str], Query()] = [],  # noqa: B006
+    amount_min: Annotated[str | None, Blank] = None,
+    amount_max: Annotated[str | None, Blank] = None,
+    # One value each, as links from elsewhere still name them.
     category_id: Annotated[int | None, Blank] = None,
     merchant_id: Annotated[int | None, Blank] = None,
     tag_id: Annotated[int | None, Blank] = None,
@@ -171,11 +199,18 @@ def register_filters(
     sort: Annotated[str | None, Blank] = None,
     sort_dir: str = "desc",
 ) -> RegisterFilters:
+    def picked(values: list[int], one: int | None) -> tuple[int, ...]:
+        return tuple(dict.fromkeys([*values, *([one] if one else [])]))
+
     return RegisterFilters(
         q=q or None,
-        category_id=category_id,
-        merchant_id=merchant_id,
-        tag_id=tag_id,
+        categories=picked(categories, category_id),
+        payees=picked(payees, merchant_id),
+        tags=picked(tags, tag_id),
+        accounts=tuple(dict.fromkeys(accounts)),
+        exclude=tuple(a for a in AXES if a in exclude),
+        amount_min=amount_min or None,
+        amount_max=amount_max or None,
         from_date=from_date,
         to_date=to_date,
         days=days,
@@ -363,11 +398,15 @@ async def register_context(
         account_ids=None,
         from_date=filters.start_date,
         to_date=filters.to_date,
-        category_id=filters.category_id,
-        merchant_id=filters.merchant_id,
         without_merchant=filters.without_merchant,
-        tag_id=filters.tag_id,
         q=filters.q,
+        categories=list(filters.categories),
+        payees=list(filters.payees),
+        tags=list(filters.tags),
+        accounts=list(filters.accounts),
+        exclude=list(filters.exclude),
+        amount_min=_cents(filters.amount_min),
+        amount_max=_cents(filters.amount_max),
         include_transfers=not filters.hide_transfers,
         uncategorized=filters.uncategorized,
         page=filters.page,
@@ -377,6 +416,15 @@ async def register_context(
     )
     names = {a.id: a.name for a in accounts}
     filed = await receipts(service, listing.items)
+    categories = (
+        await list_category_options(service=service, owner_user_id=owner_user_id)
+    ).items
+    merchants = (
+        await list_merchants(
+            account_ids=None, service=service, owner_user_id=owner_user_id
+        )
+    ).items
+    tags = await list_tags(service=service, owner_user_id=owner_user_id)
     columns = (
         TXN_COLUMNS
         if account is None
@@ -395,15 +443,18 @@ async def register_context(
         ),
         "total": listing.total,
         "pager": _pager(path, filters, listing.total),
-        "categories": (
-            await list_category_options(service=service, owner_user_id=owner_user_id)
-        ).items,
-        "merchants": (
-            await list_merchants(
-                account_ids=None, service=service, owner_user_id=owner_user_id
+        "categories": categories,
+        "tags": tags,
+        # Each axis's checklist (#326): every value, ticked where picked.
+        "picks": {
+            axis: _picks(rows, getattr(filters, axis))
+            for axis, rows in (
+                ("categories", categories),
+                ("payees", merchants),
+                ("tags", tags),
+                ("accounts", accounts if account is None else []),
             )
-        ).items,
-        "tags": await list_tags(service=service, owner_user_id=owner_user_id),
+        },
         "uncategorized_total": await uncategorized_total(service, owner_user_id),
         "show_account": account is None,
         "filtered": bool(filters.days != ranges.ALL or filters.q or filters.narrowed),
