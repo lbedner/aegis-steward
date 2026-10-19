@@ -68,11 +68,14 @@ _TYPES: dict[str, type] = {
     "tag": int,
 }
 UNDO = "undo"
+REDO = "redo"
 IMPORT = "import"
 SYNC = "sync"
 # Arrivals are history, not decisions: Undo takes back what you or an
-# assistant did, never a feed that landed after it.
-_NOT_UNDOABLE = {UNDO, IMPORT, SYNC}
+# assistant did, never a feed that landed after it. An undo or a redo is
+# a move along that history, not an action of its own.
+_NOT_UNDOABLE = {UNDO, REDO, IMPORT, SYNC}
+STEPS = {UNDO, REDO}
 # Session key: this flush's changes another action already stands for.
 _QUIET = "finance_changelog_quiet"
 
@@ -256,42 +259,83 @@ async def last_undoable(db: AsyncSession, owner_user_id: int | None) -> str | No
     return rows[0].batch_id if rows else None
 
 
+async def last_redoable(db: AsyncSession, owner_user_id: int | None) -> str | None:
+    """The action undone last, while nothing you or an assistant did
+    since stands on top of it - a redo over a newer edit would reapply a
+    stale change, so a new action ends the chance."""
+    owner = FinanceTransactionChangelog.owner_user_id == (owner_user_id or 0)
+    undone_at = FinanceTransactionChangelog.undone_at
+    rows = await queries.changes_where(
+        db,
+        owner,
+        undone_at.is_not(None),  # type: ignore[union-attr]
+        limit=1,
+        order=undone_at.desc(),  # type: ignore[union-attr]
+    )
+    if not rows or rows[0].undone_at is None:
+        return None
+    since = await queries.changes_where(
+        db,
+        owner,
+        FinanceTransactionChangelog.changed_at > rows[0].undone_at,
+        FinanceTransactionChangelog.change_source.not_in(_NOT_UNDOABLE),  # type: ignore[attr-defined]
+        limit=1,
+    )
+    return None if since else rows[0].batch_id
+
+
 async def undo(db: AsyncSession, owner_user_id: int | None) -> tuple[int, int]:
     """Take back the newest action: each field to its value before it,
     unless it has changed again since (that field is left alone).
     Returns ``(fields put back, fields left)``. The undo is logged too."""
     batch = await last_undoable(db, owner_user_id)
-    if batch is None:
-        return 0, 0
+    return await _step(db, batch, back=True) if batch else (0, 0)
+
+
+async def redo(db: AsyncSession, owner_user_id: int | None) -> tuple[int, int]:
+    """Put back the action undone last - the undo, applied the other way."""
+    batch = await last_redoable(db, owner_user_id)
+    return await _step(db, batch, back=False) if batch else (0, 0)
+
+
+async def _step(db: AsyncSession, batch: str, *, back: bool) -> tuple[int, int]:
+    """Move one action's fields from one side of it to the other: back to
+    each ``old_value`` (undo) or forward to each ``new_value`` (redo),
+    only where a field still holds the side it is moved from."""
     rows = await queries.changes_where(
         db, FinanceTransactionChangelog.batch_id == batch
     )
     txns = await queries.transactions_by_ids(db, list({r.transaction_id for r in rows}))
     tags = {(t.transaction_id, t.tag_id): t for t in await queries.tags_on(db, txns)}
-    put_back = left = 0
-    with acting(UNDO):
+    moved = left = 0
+    with acting(UNDO if back else REDO):
         for row in rows:
+            source, target = (
+                (row.new_value, row.old_value)
+                if back
+                else (row.old_value, row.new_value)
+            )
             txn = txns.get(row.transaction_id)
             if txn is None:
                 left += 1
                 continue
             if row.field == "tag":
                 key = (txn.id, decode("tag", row.new_value or row.old_value))
-                if row.new_value is not None and key in tags:
+                if source is not None and key in tags:
                     await db.delete(tags.pop(key))
-                elif row.old_value is not None and key not in tags:
+                elif target is not None and key not in tags:
                     db.add(FinanceTransactionTag(transaction_id=key[0], tag_id=key[1]))
-                put_back += 1
+                moved += 1
                 continue
-            if encode(getattr(txn, row.field)) != row.new_value:
+            if encode(getattr(txn, row.field)) != source:
                 left += 1
                 continue
-            setattr(txn, row.field, decode(row.field, row.old_value))
+            setattr(txn, row.field, decode(row.field, target))
             db.add(txn)
-            put_back += 1
-        now = utcnow()
+            moved += 1
+        undone = utcnow() if back else None
         for row in rows:
-            row.undone_at = now
+            row.undone_at = undone
             db.add(row)
         await db.flush()
-    return put_back, left
+    return moved, left

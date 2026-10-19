@@ -1,12 +1,12 @@
 {# Dialog body: one transaction's changes, newest first (issue 325). #}
-{% from "components/macros/layout.html" import dialog_title, badge %}
+{% from "components/macros/layout.html" import dialog_title, badge, local_time %}
 {% from "components/macros/feedback.html" import empty_state %}
 {{ dialog_title("History") }}
 {% if entries %}
 <ul class="flex flex-col gap-2" data-history>
   {% for e in entries %}
   <li class="text-sm"><span class="text-aegis-text">{{ e.what }}</span>{% if e.undone %} {{ badge("Undone", "muted") }}{% endif %}
-    <p class="text-xxs text-aegis-muted">{{ e.who }} · {{ e.when|short_date }}</p></li>
+    <p class="text-xxs text-aegis-muted">{{ e.who }} · {{ local_time(e.when) }}</p></li>
   {% endfor %}
 </ul>
 {% else %}

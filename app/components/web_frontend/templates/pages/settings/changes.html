@@ -1,13 +1,15 @@
 {% extends layout %}
-{% from "components/macros/layout.html" import page_header, card, badge %}
+{% from "components/macros/layout.html" import page_header, card, local_time %}
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/form.html" import action %}
 
 {% block title %}Changes - {{ project_name }}{% endblock %}
 
-{# Every edit, newest first, one action to an entry (issue 325): who, when, on
-   what, before and after. Undo takes back the newest action that can be:
-   yours or an assistant's, never an import or a sync that landed after. #}
+{# Every edit, newest first, one line per action in words (issue 325): when,
+   who, what. The fields it moved open under it. Undo takes back the newest
+   of yours or an assistant's, Redo puts back the one undone last while
+   nothing newer stands on it; neither is a line of its own - the action
+   it moved says Undone instead. #}
 {% block app_content %}
 {{ page_header("Changes", "Every edit to a transaction, and who made it") }}
 {% include "components/sub_nav.html" %}
@@ -15,15 +17,21 @@
 {% if actions %}
 <ul class="flex flex-col divide-y divide-aegis-border/60">
   {% for a in actions %}
-  <li class="py-3 flex items-start gap-4" {% if a.batch %}data-batch="{{ a.batch }}"{% endif %}>
-    <div class="flex-1 min-w-0">
-      <p class="text-sm text-aegis-text">{{ a.who }} · {{ a.when|short_date }} · {{ a.transactions|length }} transaction{{ "s" if a.transactions|length != 1 }}{% if a.undone %} {{ badge("Undone", "muted") }}{% endif %}</p>
-      <ul class="mt-1 text-xs text-aegis-muted">
-        {% for line in a.lines[:5] %}<li>{{ line }}</li>{% endfor %}
-        {% if a.lines|length > 5 %}<li>and {{ a.lines|length - 5 }} more</li>{% endif %}
-      </ul>
+  <li class="py-2.5" {% if a.batch %}data-batch="{{ a.batch }}"{% endif %}>
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+      {{ local_time(a.when, "w-28 shrink-0 text-xs text-aegis-muted") }}
+      <span class="w-20 shrink-0 text-xs text-aegis-muted">{{ a.who }}</span>
+      <div class="flex-1 min-w-0">
+        <p class="{{ 'text-aegis-muted line-through' if a.undone else 'text-aegis-text' }}" data-said>{{ a.said }}</p>
+        <details class="mt-0.5">
+          <summary class="list-none cursor-pointer text-xxs text-aegis-muted hover:text-aegis-text">Details</summary>
+          <ul class="mt-1 text-xs text-aegis-muted">{% for line in a.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+        </details>
+      </div>
+      {% if a.undone %}<span class="text-xxs text-aegis-muted" data-undone>Undone</span>{% endif %}
+      {% if a.batch and a.batch == undoable %}{{ action("Undo", 'hx-post="' ~ path ~ '/undo" hx-target="#changes" hx-select="#changes" hx-swap="outerHTML" data-undo') }}{% endif %}
+      {% if a.batch and a.batch == redoable %}{{ action("Redo", 'hx-post="' ~ path ~ '/redo" hx-target="#changes" hx-select="#changes" hx-swap="outerHTML" data-redo') }}{% endif %}
     </div>
-    {% if a.batch and a.batch == undoable %}{{ action("Undo", 'hx-post="' ~ path ~ '/undo" hx-target="#changes" hx-select="#changes" hx-swap="outerHTML" data-undo') }}{% endif %}
   </li>
   {% endfor %}
 </ul>

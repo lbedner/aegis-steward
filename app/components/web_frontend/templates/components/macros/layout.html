@@ -482,6 +482,13 @@
 {# A contact's name, as the door to their page. Every place a party is
    named draws it through this, so a name is never plain text in one
    card and a dialog in another. #}
+{# A moment the server keeps in UTC, read in the viewer's clock by app.js
+   (``localTime``); the date stands until it does. #}
+{% macro local_time(when, cls="") -%}
+{% set iso = when.isoformat() if when.isoformat is defined else when %}
+<time data-local datetime="{{ iso }}Z" class="tabular-nums {{ cls }}">{{ when|short_date }}</time>
+{%- endmacro %}
+
 {% macro contact_link(party_id, name) -%}
 {{ page_link("/contacts/" ~ party_id, name, attrs='data-contact="' ~ party_id ~ '"') }}
 {%- endmacro %}

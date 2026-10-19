@@ -129,6 +129,22 @@ function setBoxText(box, text) {
   box.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+// A moment the server keeps in UTC, read in the viewer's own clock: the
+// time alone for today, the day with it otherwise (Settings > Changes).
+function localTime(iso, now = new Date()) {
+  const when = new Date(iso);
+  const time = when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (when.toDateString() === now.toDateString()) return time;
+  const day = when.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${day}, ${time}`;
+}
+
+document.body.addEventListener('htmx:load', (event) => {
+  event.detail.elt.querySelectorAll?.('time[data-local]').forEach((el) => {
+    el.textContent = localTime(el.getAttribute('datetime'));
+  });
+});
+
 function toast(text, tone) {
   window.dispatchEvent(new CustomEvent('toast', { detail: { text, tone } }));
 }
@@ -809,7 +825,7 @@ document.body.addEventListener('htmx:afterSwap', () => {
 });
 
 // For the node tests (tests/web/test_app_js.py).
-if (typeof module !== 'undefined') module.exports = { outsideClick, dismiss, navigates, markCurrent, rangeUrl, spanned, inView, splitMatches, mapFocus, sourceColumn };
+if (typeof module !== 'undefined') module.exports = { outsideClick, dismiss, navigates, markCurrent, rangeUrl, spanned, inView, splitMatches, mapFocus, sourceColumn, localTime };
 
 // A home-screen iPhone app's status bar wears base.html's theme-color.
 // It is read from the page's own background, so the bar follows the

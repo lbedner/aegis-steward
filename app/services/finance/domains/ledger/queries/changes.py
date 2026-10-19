@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -21,10 +22,14 @@ _NEWEST = FinanceTransactionChangelog.id.desc()  # type: ignore[union-attr]
 
 
 async def changes_where(
-    db: AsyncSession, *filters: object, limit: int | None = None
+    db: AsyncSession, *filters: object, limit: int | None = None, order: Any = None
 ) -> list[FinanceTransactionChangelog]:
-    """Change-log rows, newest first."""
-    query = select(FinanceTransactionChangelog).where(*filters).order_by(_NEWEST)
+    """Change-log rows, newest first (or in ``order``)."""
+    query = (
+        select(FinanceTransactionChangelog)
+        .where(*filters)
+        .order_by(_NEWEST if order is None else order)
+    )
     if limit is not None:
         query = query.limit(limit)
     return list((await db.exec(query)).all())

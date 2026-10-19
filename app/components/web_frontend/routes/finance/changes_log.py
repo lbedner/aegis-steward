@@ -9,17 +9,17 @@ Values read as the page shows them: a payee by its name, money as money.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
-from app.components.web_frontend.filters import money, short_date
+from app.components.web_frontend.filters import assistant, money, short_date
 from app.components.web_frontend.nav import settings_nav as nav_context
 from app.components.web_frontend.rendering import dialog, render, with_toast
 from app.components.web_frontend.routes.finance.settings import SECTION
+from app.core.formatting import payee_label
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger import changelog
 from app.services.finance.domains.ledger.queries.accounts import account_names
@@ -39,6 +39,7 @@ CHANGES = f"{SECTION.path}/changes"
 
 _WHO = {"you": "You", changelog.IMPORT: "An import", changelog.SYNC: "A sync"}
 _WHO[changelog.UNDO] = "Undo"
+_WHO[changelog.REDO] = "Redo"
 # The fields whose values are ids, read as the names they point at.
 _NAMED = {"merchant_id", "category_id", "account_id", "tag"}
 
@@ -100,7 +101,67 @@ def _line(row: FinanceTransactionChangelog, names: dict[str, dict[int, str]]) ->
 
 
 def _who(source: str) -> str:
-    return _WHO.get(source) or source.replace("-", " ").title()
+    return _WHO.get(source) or assistant(source) or source
+
+
+# Which change an action is named for, when it made several: the one a
+# person did it for. Reviewed rides along a filing and goes unsaid.
+_LEAD = (
+    "category_id",
+    "merchant_id",
+    "tag",
+    "memo",
+    "deleted_at",
+    "excluded_from_reports",
+    "amount",
+    "date_",
+    "name",
+    "account_id",
+    "is_reviewed",
+)
+
+
+def _sentence(
+    rows: list[FinanceTransactionChangelog],
+    names: dict[str, dict[int, str]],
+    payees: dict[int, str],
+) -> str:
+    """One action in words: what was done, to which charge (or how many)."""
+    fields = {r.field: r for r in reversed(rows)}
+    txn_ids = {r.transaction_id for r in rows}
+    only = next(iter(txn_ids))
+    what = (
+        payees.get(only, "a charge") if len(txn_ids) == 1 else f"{len(txn_ids)} charges"
+    )
+    lead = next(f for f in _LEAD if f in fields)
+    same = len({r.new_value for r in rows if r.field == lead}) == 1
+    new = fields[lead].new_value
+    to = _said(lead, new, names)
+    said = {
+        "category_id": f"Filed {what} under {to}"
+        if same and new
+        else f"Recategorized {what}",
+        "merchant_id": f"Named the payee {to} on {what}"
+        if same and new
+        else f"Changed the payee on {what}",
+        "tag": f"Tagged {what} \u201c{to}\u201d"
+        if new
+        else f"Took \u201c{_said('tag', fields[lead].old_value, names)}\u201d off {what}",
+        "memo": f"Noted \u201c{to}\u201d on {what}"
+        if same and new
+        else f"Changed the note on {what}",
+        "deleted_at": f"Removed {what}" if new else f"Restored {what}",
+        "excluded_from_reports": f"Left {what} out of reports"
+        if new == "true"
+        else f"Counted {what} in reports again",
+        "is_reviewed": f"Marked {what} reviewed"
+        if new == "true"
+        else f"Marked {what} not reviewed",
+    }.get(lead, f"Edited the {changelog.LABELS.get(lead, lead).lower()} on {what}")
+    others = len(fields.keys() - {lead, "is_reviewed"})
+    if others:
+        said += f", and {others} other change{'s' if others > 1 else ''}"
+    return said
 
 
 @router.get(CHANGES, include_in_schema=False)
@@ -112,50 +173,72 @@ async def changes(
     rows = await changelog.recent(service.db, owner_user_id)
     names = await _names(service.db, rows)
     txns = await transactions_by_ids(service.db, list({r.transaction_id for r in rows}))
-    payees = {i: t.merchant_name or t.name for i, t in txns.items()}
-    actions: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        action = actions.setdefault(
-            row.batch_id or f"row-{row.id}",
-            {
-                "batch": row.batch_id,
-                "when": row.changed_at,
-                "who": _who(row.change_source),
-                "undone": row.undone_at is not None,
-                "transactions": set(),
-                "lines": [],
-            },
+    named = await merchants_by_ids(service.db, {t.merchant_id for t in txns.values()})
+    # Called what the register calls it: the payee someone named first.
+    payees = {
+        i: payee_label(
+            named[t.merchant_id].name if t.merchant_id in named else None,
+            t.merchant_name,
+            t.name,
         )
-        action["transactions"].add(row.transaction_id)
-        payee = payees.get(row.transaction_id, f"#{row.transaction_id}")
-        action["lines"].append(f"{payee} · {_line(row, names)}")
+        for i, t in txns.items()
+    }
+    batches: dict[str, list[FinanceTransactionChangelog]] = {}
+    for row in rows:
+        # An undo or a redo marks the action it moved; it is not one.
+        if row.change_source not in changelog.STEPS:
+            batches.setdefault(row.batch_id or f"row-{row.id}", []).append(row)
+    actions = [
+        {
+            "batch": batch[0].batch_id,
+            "when": batch[0].changed_at,
+            "who": _who(batch[0].change_source),
+            "said": _sentence(batch, names, payees),
+            "undone": batch[0].undone_at is not None,
+            "lines": [
+                f"{payees.get(r.transaction_id, '#' + str(r.transaction_id))} \u00b7 {_line(r, names)}"
+                for r in batch
+            ],
+        }
+        for batch in batches.values()
+    ]
     return render(
         request,
         "pages/settings/changes.html",
         {
             "section": SECTION,
             **nav_context("changes"),
-            "actions": list(actions.values()),
+            "actions": actions,
             "undoable": await changelog.last_undoable(service.db, owner_user_id),
+            "redoable": await changelog.last_redoable(service.db, owner_user_id),
             "path": CHANGES,
         },
     )
 
 
-@router.post(CHANGES + "/undo", include_in_schema=False)
-async def undo(
+# Each step, and what it says it did.
+_STEPS = {"undo": (changelog.undo, "Undone"), "redo": (changelog.redo, "Redone")}
+
+
+@router.post(CHANGES + "/{step:str}", include_in_schema=False)
+async def step(
     request: Request,
+    step: str,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    """Take back the newest action, and say what could not be."""
-    put_back, left = await changelog.undo(service.db, owner_user_id)
+    """Undo the newest action, or redo the one undone last, and say what
+    could not be moved."""
+    move, done = _STEPS.get(step, (None, ""))
+    if move is None:
+        raise HTTPException(status_code=404)
+    moved, left = await move(service.db, owner_user_id)
     await service.db.commit()
-    said = f"Undone: {put_back} change{'s' if put_back != 1 else ''} put back."
+    said = f"{done}: {moved} change{'s' if moved != 1 else ''}."
     if left:
         said += f" {left} had changed again since and were left."
     response = await changes(request, service, owner_user_id)
-    return with_toast(response, said if put_back or left else "Nothing to undo.")
+    return with_toast(response, said if moved or left else f"Nothing to {step}.")
 
 
 @router.get("/transactions/{transaction_id:int}/history", include_in_schema=False)
