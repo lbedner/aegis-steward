@@ -69,6 +69,7 @@ async def list_transactions(
     exclude: Annotated[list[str] | None, Query()] = None,
     amount_min: int | None = None,
     amount_max: int | None = None,
+    reviewed: bool | None = None,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> TransactionListResponse:
@@ -105,6 +106,7 @@ async def list_transactions(
             exclude=frozenset(exclude or ()),
             amount_min=amount_min,
             amount_max=amount_max,
+            reviewed=reviewed,
         ),
     )
     items = await hydrate_transactions(service, transactions)

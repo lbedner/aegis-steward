@@ -89,6 +89,7 @@ class TransactionResponse(BaseModel):
     check_number: str | None = None
     payment_channel: str | None = None
     pending: bool = False
+    is_reviewed: bool = False
     status: str = "posted"
     dedup_status: str = "unique"
     is_transfer: bool = False
@@ -132,6 +133,7 @@ class TransactionResponse(BaseModel):
             check_number=row.check_number,
             payment_channel=row.payment_channel,
             pending=row.pending,
+            is_reviewed=row.is_reviewed,
             status=row.status,
             dedup_status=row.dedup_status,
             is_transfer=row.is_transfer,

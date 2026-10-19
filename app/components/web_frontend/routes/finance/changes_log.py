@@ -85,7 +85,7 @@ def _said(field: str, text: str | None, names: dict[str, dict[int, str]]) -> str
         return money(value)
     if field in ("date_", "deleted_at"):
         return short_date(value)
-    if field == "excluded_from_reports":
+    if isinstance(value, bool):
         return "yes" if value else "no"
     return str(value)
 

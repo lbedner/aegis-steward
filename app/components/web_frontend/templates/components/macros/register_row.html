@@ -20,6 +20,9 @@
   {% if show_account %}<td data-role="detail" class="px-5 py-2 whitespace-nowrap text-aegis-muted">{{ row.account }}</td>{% endif %}
   <td data-cell="payee" data-role="primary" class="px-5 py-2 text-aegis-text">
     <span class="inline-flex items-center gap-2">{{ mark(row, row.payee) }}<span>{{ row.payee }}</span>
+      {#- Still a pre-auth (issue 323), and what you have looked at (issue 322). -#}
+      {%- if row.pending %}<span data-pending title="Pending: counted in spending until it posts or drops" class="px-1.5 py-0.5 rounded text-xxs border border-aegis-border text-aegis-muted">Pending</span>{% endif %}
+      {%- if row.is_reviewed %}<span data-reviewed title="Reviewed" class="text-aegis-teal">{{ icon("check", "w-3.5 h-3.5", 2) }}</span>{% endif %}
       {#- Its receipt (issue 331): the paper filed on this row, opened in the one modal. -#}
       {%- if row.receipt %}<button type="button" data-receipt {{ hx_dialog('/documents/' ~ row.receipt) }} aria-label="Open the receipt" title="Receipt" class="text-aegis-muted hover:text-aegis-teal">{{ icon("paper-clip", "w-3.5 h-3.5") }}</button>{% endif %}</span>
     {# The note, under the payee where a split's lines go: a memo the
@@ -96,6 +99,9 @@
       {% endif %}
       {{ menu_item("Make recurring", hx_dialog('/transactions/declare?transaction_ids=' ~ row.id)) }}
       {% if row.amount < 0 %}{{ menu_item("Paid back…", hx_dialog('/transactions/' ~ row.id ~ '/reimbursable')) }}{% endif %}
+      {#- Plain strings: joined to a tojson value, autoescape would quote the rest. -#}
+      {% set review_vals = '{"transaction_ids": ' ~ row.id ~ ', "reviewed": ' ~ ('false' if row.is_reviewed else 'true') ~ ', "show_account": ' ~ ('true' if show_account else 'false') ~ '}' %}
+      {{ menu_item("Mark not reviewed" if row.is_reviewed else "Mark reviewed", 'hx-post="/transactions/reviewed" hx-swap="none" hx-vals=\'' ~ review_vals ~ '\'') }}
       {{ menu_item("History", hx_dialog('/transactions/' ~ row.id ~ '/history')) }}
       {{ menu_item("Attach receipt", hx_dialog('/transactions/' ~ row.id ~ '/receipt' ~ ('?show_account=true' if show_account else ''))) }}
       {{ menu_item("Remove", 'hx-delete="/transactions/' ~ row.id ~ '" hx-target="closest tr" hx-swap="outerHTML" hx-confirm="Remove this transaction? A re-import will not bring it back."', danger=True) }}

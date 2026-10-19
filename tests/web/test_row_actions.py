@@ -55,6 +55,7 @@ class TestRowMenu:
             # One row's alone: paid back is one charge's (#327), its
             # history one row's (#325), a receipt one charge's (#331).
             "Paid back…",
+            "Mark reviewed",
             "History",
             "Attach receipt",
             "Remove",

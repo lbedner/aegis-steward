@@ -143,3 +143,42 @@ async def live_accounts_for_connection(
             )
         ).all()
     )
+
+
+async def move_children(db: AsyncSession, from_id: int, to_id: int) -> None:
+    """Hang what was set on a pre-auth - its tags, split lines, filings
+    and a paid-back mark - on the row it posted as (#323). One the posted
+    row already has stays its own: moving a second would break the key
+    and fail the whole sync."""
+    from sqlalchemy import delete, update
+
+    from app.services.finance.models import (
+        FinanceReimbursement,
+        FinanceTransactionLink,
+        FinanceTransactionSplit,
+        FinanceTransactionTag,
+    )
+
+    tag, link = FinanceTransactionTag, FinanceTransactionLink
+    for model, column, key in (
+        (tag, tag.transaction_id, tag.tag_id),
+        (link, link.transaction_id, link.label),
+    ):
+        held = select(key).where(column == to_id)
+        await db.exec(delete(model).where(column == from_id, key.in_(held)))
+        await db.exec(update(model).where(column == from_id).values({column: to_id}))
+    mark = FinanceReimbursement
+    if (
+        await db.exec(select(mark.id).where(mark.transaction_id == to_id))
+    ).first() is None:
+        await db.exec(
+            update(mark)
+            .where(mark.transaction_id == from_id)
+            .values(transaction_id=to_id)
+        )
+    split = FinanceTransactionSplit
+    await db.exec(
+        update(split)
+        .where(split.parent_transaction_id == from_id)
+        .values(parent_transaction_id=to_id)
+    )

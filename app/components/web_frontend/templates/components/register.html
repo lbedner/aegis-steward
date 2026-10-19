@@ -3,7 +3,7 @@
    with ``register`` (see routes/finance/register.py) in context. #}
 {% from "components/macros/layout.html" import card %}
 {% from "components/macros/table.html" import data_table, pager %}
-{% from "components/macros/form.html" import checklist, date_input, checkbox, search_input, action, range_chips, control %}
+{% from "components/macros/form.html" import checklist, select, date_input, checkbox, search_input, action, range_chips, control %}
 {% from "components/macros/feedback.html" import empty_state %}
 {% from "components/macros/register_row.html" import register_row %}
 {% from "components/macros/changes.html" import redraws_on_decision %}
@@ -75,6 +75,7 @@
     {% if not register.filters.uncategorized %}{{ checklist("register-categories", "categories", "Categories", picks.categories, exclude="categories" in register.filters.exclude) }}{% endif %}
     {% if not register.filters.without_merchant %}{{ checklist("register-payees", "payees", "Payees", picks.payees, exclude="payees" in register.filters.exclude) }}{% endif %}
     {% if picks.tags %}{{ checklist("register-tags", "tags", "Tags", picks.tags, exclude="tags" in register.filters.exclude) }}{% endif %}
+    {{ select("reviewed", register.reviewed_options, register.filters.reviewed, blank="Reviewed or not") }}
     {% if picks.accounts %}{{ checklist("register-accounts", "accounts", "Accounts", picks.accounts, exclude="accounts" in register.filters.exclude) }}{% endif %}
     <label class="inline-flex items-center gap-1 text-xs text-aegis-muted">$<input type="text" inputmode="decimal" name="amount_min" value="{{ register.filters.amount_min or '' }}" placeholder="min" aria-label="Smallest amount" class="{{ control('input') }} w-16"></label>
     <label class="inline-flex items-center gap-1 text-xs text-aegis-muted">to $<input type="text" inputmode="decimal" name="amount_max" value="{{ register.filters.amount_max or '' }}" placeholder="max" aria-label="Largest amount" class="{{ control('input') }} w-16"></label>
@@ -101,6 +102,8 @@
      Everything above stays put, which is the whole point. #}
   <div id="register-results" class="contents">
   {% if register.rows %}
+  {#- Whether a pre-auth counts is a choice, so it is stated (issue 323). -#}
+  {% if register.rows|selectattr("pending")|list %}<p data-pending-note class="text-xxs text-aegis-muted">Pending charges count in spending until they post or drop.</p>{% endif %}
   {# Selection is plain checkboxes; the bar counts them (local UI state)
      and every action includes the checked ones. #}
   <div x-data="{ selected: 0 }"
@@ -115,6 +118,7 @@
     {{ action("Categorize", hx_dialog("/transactions/categorize", checked ~ account)) }}
     {{ action("Tag", hx_dialog("/transactions/tag", checked ~ account)) }}
     {{ action("Make recurring", hx_dialog("/transactions/declare", checked)) }}
+    {{ action("Mark reviewed", 'hx-post="/transactions/reviewed" hx-swap="none" ' ~ checked ~ account) }}
     {{ action("Remove", 'hx-post="/transactions/delete" ' ~ checked ~ ' hx-swap="none" hx-confirm="Remove the selected transactions? A re-import will not bring them back."', tone="danger") }}
   </div>
   {# The selection wrapper already bleeds, so the table must not bleed

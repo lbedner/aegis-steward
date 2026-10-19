@@ -22,6 +22,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections import arrivals, placing
+from app.services.finance.adapters.providers.connections.posting import carry_edits
 from app.services.finance.constants import FILE_SOURCES
 from app.services.finance.domains.ledger import (
     bank_link,
@@ -490,6 +491,7 @@ async def apply_transactions(
             continue
         posted.pending_transaction_id = pending_row.id
         pending_row.deleted_at = now
+        await carry_edits(db, pending_row, posted)
         db.add(posted)
         db.add(pending_row)
     await db.flush()
