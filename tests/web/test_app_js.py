@@ -409,3 +409,21 @@ def test_a_clicked_name_is_found_by_its_column_in_the_source() -> None:
     """Overseer > Code asks where a name is by line and column: the column
     counts the line's source only, never its number."""
     assert run(COLUMN, APP_JS=APP_JS) == [10, 4, None]
+
+
+def test_a_change_reads_in_the_viewers_clock() -> None:
+    """The server keeps UTC; the page shows the viewer's own time - the
+    time alone today, the day with it otherwise."""
+    harness = (
+        STUBS
+        + """
+const { localTime } = require(APP_JS);
+const now = new Date('2026-10-19T02:19:05Z');
+console.log(JSON.stringify([localTime('2026-10-19T02:19:05Z', now),
+                            localTime('2026-10-12T02:19:05Z', now)]));
+"""
+    )
+    today, earlier = run(harness, APP_JS=APP_JS)
+
+    assert "," not in today and ":" in today
+    assert "," in earlier

@@ -187,6 +187,7 @@ EXAMPLES: dict[str, dict[str, str]] = {
         "file_mark": """{{ file_mark(file_badge("application/pdf", "statement.pdf")) }}""",
         "contact_link": """{{ contact_link(7, "County Clerk") }}""",
         "page_link": """{{ page_link("/settings/activity", "Activity") }}""",
+        "local_time": """{{ local_time("2026-10-19T02:19:05") }}""",
         "doors": """
             {{ doors([{"label": "Checking", "url": "/accounts/1"}, {"label": "Taxes", "url": "/matters/2"},
                       {"label": "Renewal", "url": "/matters/3"}], show=2) }}""",

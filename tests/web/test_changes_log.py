@@ -48,7 +48,7 @@ async def _category(db: AsyncSession, transaction_id: int) -> int | None:
 
 class TestYourEditIsLogged:
     @pytest.mark.asyncio
-    @pytest.mark.queryspy(threshold=5)  # edit, history, the log, undo, the log
+    @pytest.mark.queryspy(threshold=6)  # edit, history, the log, undo, redo
     async def test_an_edit_shows_in_history_and_undoes(
         self,
         client: TestClient,
@@ -74,18 +74,28 @@ class TestYourEditIsLogged:
 
         page = client.get(CHANGES).text
         entry = one(page, "#changes li[data-batch]")
-        assert "Mystery charge" in text(entry)
+        # One action, one sentence; reviewed rides along unsaid.
+        assert text(one(entry, "[data-said]")) == (
+            "Filed Mystery charge under Food:Groceries"
+        )
         undo = one(entry, "[data-undo]")
         assert undo.get("hx-post") == f"{CHANGES}/undo"
 
         after = hx.post(f"{CHANGES}/undo").text
 
         assert await _category(async_db_session, mystery) is None
-        # The undo is an action of its own, logged above what it took back.
-        undid, original = select_all(after, "#changes li[data-batch]")
-        assert text(undid).startswith("Undo")
-        assert "Undone" in text(original)
+        # Undoing marks the action; it is not a line of its own.
+        entry = one(after, "#changes li[data-batch]")
+        one(entry, "[data-undone]")
         none(after, "[data-undo]")
+        assert one(entry, "[data-redo]").get("hx-post") == f"{CHANGES}/redo"
+
+        again = hx.post(f"{CHANGES}/redo").text
+
+        assert await _category(async_db_session, mystery) == groceries
+        entry = one(again, "#changes li[data-batch]")
+        none(entry, "[data-undone]")
+        one(entry, "[data-undo]")
 
     @pytest.mark.asyncio
     async def test_a_tag_added_is_logged_and_taken_back(
@@ -187,3 +197,66 @@ def test_the_settings_tab_names_it(client: TestClient) -> None:
         a.get("href") for a in select_all(client.get(CHANGES).text, "#settings-nav a")
     ]
     assert CHANGES in tabs
+
+
+@pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=3)  # asked before the new edit and after
+async def test_a_new_edit_ends_the_chance_to_redo(
+    finance: FinanceService, async_db_session: AsyncSession, ledger: Ledger
+) -> None:
+    """A redo over a newer edit would reapply a stale change."""
+    mystery, groceries = await _mystery(finance)
+    row = await async_db_session.get(FinanceTransaction, mystery)
+    assert row is not None
+    with changelog.acting("you"):
+        row.category_id = groceries
+        await async_db_session.flush()
+    await changelog.undo(async_db_session, None)
+    assert await changelog.last_redoable(async_db_session, None) is not None
+
+    with changelog.acting("you"):
+        row.memo = "a newer edit"
+        await async_db_session.flush()
+
+    assert await changelog.last_redoable(async_db_session, None) is None
+
+
+def test_a_tag_reads_with_its_name_coming_or_going() -> None:
+    from app.components.web_frontend.routes.finance.changes_log import _sentence
+
+    names = {"tag": {5: "Work"}}
+    payees = {1: "Dunkin'"}
+
+    def row(old: str | None, new: str | None) -> FinanceTransactionChangelog:
+        return FinanceTransactionChangelog(
+            transaction_id=1,
+            owner_user_id=0,
+            field="tag",
+            old_value=old,
+            new_value=new,
+            change_source="you",
+        )
+
+    assert _sentence([row(None, "5")], names, payees) == "Tagged Dunkin' “Work”"
+    assert _sentence([row("5", None)], names, payees) == "Took “Work” off Dunkin'"
+
+
+@pytest.mark.asyncio
+async def test_a_charge_is_called_what_the_register_calls_it(
+    client: TestClient,
+    hx: TestClient,
+    finance: FinanceService,
+    async_db_session: AsyncSession,
+    ledger: Ledger,
+) -> None:
+    """The payee someone named, not the bank's descriptor."""
+    mystery, groceries = await _mystery(finance)
+    payee = await finance.create_merchant("Shop Rite", owner_user_id=None)
+    assert payee.id is not None
+    await finance.assign_merchant([mystery], payee.id, owner_user_id=None)
+    await async_db_session.commit()
+
+    hx.post(f"/transactions/{mystery}/categorize", data={"category_id": groceries})
+
+    said = text(one(client.get(CHANGES).text, "#changes li[data-batch] [data-said]"))
+    assert said == "Filed Shop Rite under Food:Groceries"
