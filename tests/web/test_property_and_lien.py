@@ -38,7 +38,7 @@ class TestPropertyDetails:
     def test_menu_offers_property_items_on_a_property(
         self, client: TestClient, house: int
     ) -> None:
-        from app.services.finance.constants import ACCOUNT_ACTION_LABELS as LABELS
+        from app.services.finance.account_menu import ACCOUNT_ACTION_LABELS as LABELS
 
         page = client.get(f"/accounts/{house}").text
         labels = [text(li) for li in select(page, "#manage-menu li")]
@@ -51,6 +51,8 @@ class TestPropertyDetails:
                 "property",
                 "valuations",
                 "merge",
+                "close",
+                "hide",
                 "remove",
             )
         ]
@@ -184,7 +186,7 @@ class TestPositionsByHand:
     ) -> None:
         """A connected account's holdings are rewritten by the next sync,
         so a hand-typed row there would read as data loss."""
-        from app.services.finance.constants import account_actions
+        from app.services.finance.account_menu import account_actions
 
         assert "positions" in account_actions(
             account_type="brokerage", classification="asset", connected=False

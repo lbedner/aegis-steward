@@ -56,7 +56,6 @@ BUDGET: dict[str, int] = {
     "components/web_frontend/routes/finance/settings.py": 575,
     "components/web_frontend/routes/finance/account_manage.py": 675,
     "components/web_frontend/routes/finance/bills.py": 634,
-    "services/finance/domains/ledger/queries/transactions.py": 581,
     "services/finance/domains/ledger/merchants.py": 570,
     "services/system/health_db_sqlite.py": 550,
     # The template catch-up to aegis-stack 44a3670 (2026-10-09): the

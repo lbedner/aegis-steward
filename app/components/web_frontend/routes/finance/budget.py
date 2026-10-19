@@ -16,7 +16,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from starlette.responses import Response
 
 from app.components.backend.api.finance.budgets import (
-    budget_actuals,
     budget_history,
     budget_outlook,
     budget_stat_details,
@@ -46,6 +45,7 @@ from app.components.web_frontend.routes.finance.budget_display import (
     SECTION,
     budget_dialog,
     eta_caption,
+    past_month,
     remove_dialog,
     removed,
     stats_context,
@@ -113,20 +113,18 @@ async def budget_context(
     month = max(-PAST_MONTHS, min(month, len(outlook.items) - 1))
     current = current_period_month()
     period = shift_period(current, month) if month < 0 else None
-    summary, stats = await stats_context(service, owner_user_id, account_ids, period)
+    closed = None
     if period is not None:
-        actuals = await budget_actuals(
-            month=period,
-            account_ids=account_ids,
-            service=service,
-            owner_user_id=owner_user_id,
+        summary, stats, closed = await past_month(
+            service, owner_user_id, account_ids, period
         )
-        stats = {
-            "cells": strip.review_cells(summary.stats, actuals),
-            "clickable": False,
-        }
-    elif month > 0:
-        stats = {"cells": strip.outlook_cells(outlook.items[month]), "clickable": False}
+    else:
+        summary, stats = await stats_context(service, owner_user_id, account_ids)
+        if month > 0:
+            stats = {
+                "cells": strip.outlook_cells(outlook.items[month]),
+                "clickable": False,
+            }
     tab = tab if tab in dict(TABS) else TABS[0][0]
     window = window if window in dict(HISTORY_WINDOWS) else 6
 
@@ -185,6 +183,7 @@ async def budget_context(
             for key, label in TABS
         ],
         "stats": stats,
+        "changed_since": closed.changed_since() if closed else None,
         "pager": pager,
         "summary": summary,
         "commitments": strip.COMMITMENT_BUCKETS,

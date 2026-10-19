@@ -240,11 +240,13 @@ class TestSplitAwareReporting:
     ) -> None:
         _, _, food_id = await self._split_target_run(svc)
 
-        totals = dict(
-            await ledger_queries.category_spend_totals(
+        totals = {
+            name: total
+            for name, kind, total in await ledger_queries.category_spend_totals(
                 svc.db, owner_user_id=1, start=date(2026, 8, 1)
             )
-        )
+            if kind == "spending"
+        }
 
         assert totals["Food:Groceries"] == -2_500
         assert totals["Shopping"] == -5_100

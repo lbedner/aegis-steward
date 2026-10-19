@@ -85,6 +85,7 @@ class TestReconcileAdjustment:
         assert account.metadata_["reconciled_through"] == STATEMENT_DAY.isoformat()
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=4)  # reconciled three times, on purpose
     async def test_reconcile_is_idempotent_per_date(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:

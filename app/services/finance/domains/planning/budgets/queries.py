@@ -15,20 +15,25 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from sqlalchemy import case, func
+from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import add_months
+from app.services.finance.domains.ledger.queries.filters import (
+    counts_as,
+    split_aware_category_clause,
+)
+from app.services.finance.domains.ledger.queries.flows import spent_by_category_rows
 from app.services.finance.domains.planning.queries import (
     countable_filters,
-    not_reconciliation,
     spend_filters,
     split_lines,
 )
 from app.services.finance.models import (
     FinanceBudget,
     FinanceBudgetCategory,
+    FinanceBudgetMonth,
     FinanceTransaction,
     FinanceTransactionSplit,
 )
@@ -40,6 +45,20 @@ def month_bounds(period_month: int) -> tuple[date, date]:
     """``[start, end)`` date range for a YYYYMM period."""
     start = period_start(period_month)
     return start, add_months(start, 1)
+
+
+async def closed_month(
+    db: AsyncSession, *, owner_user_id: int, period_month: int
+) -> FinanceBudgetMonth | None:
+    """A month's record (#319), when it was recorded."""
+    return (
+        await db.exec(
+            select(FinanceBudgetMonth).where(
+                FinanceBudgetMonth.owner_user_id == owner_user_id,
+                FinanceBudgetMonth.period_month == period_month,
+            )
+        )
+    ).first()
 
 
 async def monthly_budget(
@@ -162,16 +181,18 @@ async def budget_line_by_id(
 
 async def categorized_outflow_history(
     db: AsyncSession, *, owner_user_id: int | None, start: date, end: date
-) -> list[FinanceTransaction]:
-    """Countable, non-transfer, categorized outflows over ``[start, end)``
-    - the corpus budget suggestions average over, under the same
-    ``spend_filters`` as every other spend figure."""
-    query = select(FinanceTransaction).where(
-        *spend_filters(owner_user_id, start, end),
-        FinanceTransaction.is_transfer.is_(False),
-        FinanceTransaction.category_id.is_not(None),
+) -> list[tuple[int | None, date, int]]:
+    """(category id, date, amount) of countable, non-transfer, categorized
+    spending over ``[start, end)`` - the corpus budget suggestions average
+    over, a split read as its lines (#316)."""
+    return await spent_by_category_rows(
+        db,
+        [
+            *countable_filters(owner_user_id, start, end),
+            FinanceTransaction.is_transfer.is_(False),
+        ],
+        category=lambda column: column.is_not(None),
     )
-    return list((await db.exec(query)).all())
 
 
 async def outflow_tuples(
@@ -195,6 +216,7 @@ async def outflow_tuples(
     the parent's payee columns and stream - so category tallies see the
     lines while payee and stream tallies still add up to the parent."""
     filters = spend_filters(owner_user_id, start, end, account_ids)
+    line_filters = spend_filters(owner_user_id, start, end, account_ids, line=True)
     rows = (
         await db.exec(
             select(
@@ -220,36 +242,10 @@ async def outflow_tuples(
                     FinanceTransaction.recurring_stream_id,
                     *extra,
                 )
-            ).where(*filters)
+            ).where(*line_filters)
         )
     ).all()
     return [*rows, *split_rows]
-
-
-async def money_in_and_out(
-    db: AsyncSession,
-    *,
-    owner_user_id: int | None,
-    start: date,
-    end: date,
-    account_ids: list[int] | None = None,
-) -> tuple[int, int]:
-    """(cents in, cents out) over ``[start, end)``: countable rows, with
-    money moved between your own accounts and reconciliations aside."""
-    amount = FinanceTransaction.amount
-    money_in, money_out = (
-        await db.exec(
-            select(
-                func.coalesce(func.sum(case((amount > 0, amount), else_=0)), 0),
-                func.coalesce(func.sum(case((amount < 0, -amount), else_=0)), 0),
-            ).where(
-                *countable_filters(owner_user_id, start, end, account_ids),
-                FinanceTransaction.is_transfer.is_(False),
-                not_reconciliation(),
-            )
-        )
-    ).one()
-    return int(money_in), int(money_out)
 
 
 async def outflow_rows(
@@ -275,32 +271,16 @@ async def outflow_rows(
     rows = (
         await db.exec(
             select(FinanceTransaction)
-            .where(*spend_filters(owner_user_id, start, end, account_ids))
+            .where(
+                *countable_filters(owner_user_id, start, end, account_ids),
+                split_aware_category_clause(
+                    counts_as("spending"), counts_as("spending", line=True)
+                ),
+            )
             .order_by(FinanceTransaction.date_.desc())
         )
     ).all()
     return list(rows)
-
-
-async def category_dated_amounts_where(
-    db: AsyncSession, filters: list
-) -> list[tuple[int | None, date, int]]:
-    """(category_id, date, amount) rows under caller-built predicates.
-
-    Row-level rather than grouped: whether a category's spending recurs
-    is a question about WHICH MONTHS it landed in, and grouping by month
-    in SQL means date functions that differ per dialect.
-    """
-    rows = (
-        await db.exec(
-            select(
-                FinanceTransaction.category_id,
-                FinanceTransaction.date_,
-                FinanceTransaction.amount,
-            ).where(*filters)
-        )
-    ).all()
-    return [(row[0], row[1], int(row[2])) for row in rows]
 
 
 async def category_first_spend(

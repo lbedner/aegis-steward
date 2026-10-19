@@ -121,10 +121,17 @@ async def assign_subject(
         subject = await get_subject(db, subject_id, owner_user_id=owner_user_id)
         if subject is None:
             raise ValueError(f"Subject {subject_id} not found.")
+    moved = account.subject_id != subject_id
     account.subject_id = subject_id
     account.updated_at = utcnow()
     db.add(account)
     await db.flush()
+    if moved:
+        # Whose money it is decides whether it counts (#314): the line
+        # moves with the headline, not the next night.
+        from app.services.finance.domains.ledger.accounts import redraw_line
+
+        await redraw_line(db, owner_user_id)
     return account
 
 

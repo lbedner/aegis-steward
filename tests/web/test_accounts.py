@@ -116,15 +116,15 @@ class TestRegister:
         self, client: TestClient, ledger: Ledger
     ) -> None:
         """Rename, the bank and the balance always; rates and collateral
-        on a debt; Remove only on a manual account (a provider account
-        belongs to its connection).
+        on a debt; Close and Hide on any (#315); Remove only on a manual
+        account (a provider account belongs to its connection).
 
         Asserted as ACTIONS rather than as their wording: the labels live
         in ``ACCOUNT_ACTION_LABELS`` beside the rule that orders them, so
         this menu and Flet's cannot drift, and renaming an item is a copy
         decision rather than a test failure.
         """
-        from app.services.finance.constants import ACCOUNT_ACTION_LABELS as LABELS
+        from app.services.finance.account_menu import ACCOUNT_ACTION_LABELS as LABELS
 
         card = client.get(f"/accounts/{ledger.card}").text
         assert [text(li) for li in select(card, "#manage-menu li")] == [
@@ -136,13 +136,23 @@ class TestRegister:
                 "terms",
                 "secured_by",
                 "merge",
+                "close",
+                "hide",
                 "remove",
             )
         ]
         checking = client.get(f"/accounts/{ledger.checking}").text
         assert [text(li) for li in select(checking, "#manage-menu li")] == [
             LABELS[key]
-            for key in ("rename", "institution", "reconcile", "merge", "remove")
+            for key in (
+                "rename",
+                "institution",
+                "reconcile",
+                "merge",
+                "close",
+                "hide",
+                "remove",
+            )
         ]
 
     def test_the_header_says_how_current_the_account_is(
@@ -232,6 +242,8 @@ class TestRegister:
                     "terms",
                     "secured_by",
                     "merge",
+                    "close",
+                    "hide",
                     "remove",
                 )
             ]

@@ -40,4 +40,15 @@
   {{ empty_state("No accounts yet", "Add one, connect a bank, or import a file.") }}
   {% endfor %}
 </div>
+
+{#- Apart from the groups and out of the total (issue 315): closed is the
+    bank's word (it ended, its history stays), hidden is ours. -#}
+{% for key, label, rows in (("data-hidden-accounts", "Hidden", hidden_accounts), ("data-closed", "Closed", closed)) if rows %}
+<section {{ key }} class="mt-6 p-2" aria-label="{{ label }} accounts">
+  <h2 class="px-4 pt-2 pb-1 micro-label text-aegis-muted">{{ label }} · not counted</h2>
+  {% for row in rows %}
+  {{ portfolio_row(section.path, row, (label ~ " " ~ (row.account.closed_on|short_date)) if row.account.closed_on else label, account_icons.get(row.account.id)) }}
+  {% endfor %}
+</section>
+{% endfor %}
 {% endblock %}

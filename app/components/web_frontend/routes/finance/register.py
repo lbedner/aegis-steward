@@ -276,6 +276,7 @@ def _row(
         "is_split": txn.is_split,
         "pending": txn.pending,
         "is_reviewed": txn.is_reviewed,
+        "transfer_pair": txn.transfer_pair_transaction_id,
         "splits": txn.splits,
         "import_batch_id": txn.import_batch_id,
         "created_at": txn.created_at,
@@ -431,7 +432,9 @@ async def register_context(
         service=service,
         owner_user_id=owner_user_id,
     )
-    names = {a.id: a.name for a in accounts}
+    # By the rows' own accounts, like the re-rendered rows: a closed
+    # account is out of the picker and still names its rows (#315).
+    names = await account_names(service.db, [t.account_id for t in listing.items])
     filed = await receipts(service, listing.items)
     categories = (
         await list_category_options(service=service, owner_user_id=owner_user_id)

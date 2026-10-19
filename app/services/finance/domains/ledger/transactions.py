@@ -24,11 +24,9 @@ from app.services.finance.models import (
     FinanceTransactionSplit,
     FinanceTransactionTag,
 )
-from app.services.finance.schemas import CashflowMonth, PayeeTotal
+from app.services.finance.schemas import PayeeTotal
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
-    current_date,
-    month_start_before,
     utcnow,
 )
 from app.services.shared.queries import stored_owner
@@ -241,6 +239,20 @@ async def _settle_envelopes(db: AsyncSession, *, owner_user_id: int | None) -> N
     await settle(db, owner_user_id=owner_user_id)
 
 
+def count_again(leg: FinanceTransaction) -> None:
+    """Both flags pairing set, cleared: the row counts again (#317)."""
+    leg.is_transfer = False
+    leg.excluded_from_reports = False
+
+
+def unpair_leg(leg: FinanceTransaction) -> None:
+    """A transfer leg's pairing undone: it counts again, linked to
+    nothing."""
+    count_again(leg)
+    leg.transfer_group_id = None
+    leg.transfer_pair_transaction_id = None
+
+
 async def soft_delete_transactions(
     db: AsyncSession, transaction_ids: list[int], *, owner_user_id: int | None = None
 ) -> int:
@@ -250,7 +262,8 @@ async def soft_delete_transactions(
     the register, budgets, and projections with no recompute step.
     Linked-row rules: a transfer pair's SURVIVING leg is unpaired and
     comes back into view (the money movement on its account still
-    happened); a split parent takes its split lines with it.
+    happened); a split parent takes its split lines with it; an offered
+    pair goes.
     """
     rows = await queries.live_transactions_by_ids(
         db, transaction_ids, owner_user_id=owner_user_id
@@ -276,15 +289,24 @@ async def soft_delete_transactions(
         pair_id = txn.transfer_pair_transaction_id
         survivor = survivors.get(pair_id) if pair_id is not None else None
         if survivor is not None:
-            survivor.is_transfer = False
-            survivor.transfer_pair_transaction_id = None
-            survivor.transfer_group_id = None
+            unpair_leg(survivor)
             survivor.updated_at = now
             db.add(survivor)
         for split in splits_by_parent.get(txn.id, []):
             await db.delete(split)
     await db.flush()
+    await _drop_offers(db, [txn.id for txn in rows if txn.id is not None])
     return len(rows)
+
+
+async def _drop_offers(db: AsyncSession, leg_ids: list[int]) -> None:
+    """A near miss offered on a deleted row can never be answered (#317):
+    it goes. Imported lazily: detection builds on the ledger."""
+    from app.services.finance.domains.detection.transfers.offers import (
+        drop_offers_on,
+    )
+
+    await drop_offers_on(db, leg_ids)
 
 
 async def transaction_tags(
@@ -361,69 +383,6 @@ async def top_payees(
             category=usual.get(payee),
         )
         for payee, amount, count in rows
-    ]
-
-
-async def monthly_cashflow(
-    db: AsyncSession,
-    *,
-    owner_user_id: int | None = None,
-    months: int = 6,
-    today: date | None = None,
-    account_ids: list[int] | None = None,
-    rows: list[tuple[date, int]] | None = None,
-) -> list[CashflowMonth]:
-    """Income and spend per calendar month, oldest first.
-
-    Transfers and report-excluded rows are out: a card payment is money
-    moved, and counting it as both income and spend would double the
-    bars. Months with no activity are still returned at zero so the
-    chart keeps an even time axis instead of skipping a quiet month.
-    ``account_ids`` narrows the bars to those accounts.
-
-    Bucketing runs in Python rather than SQL date-truncation, which is
-    dialect-specific - and at a few thousand rows the loop costs less
-    than a millisecond. ``rows`` are ``dated_amounts_in_window`` rows a
-    caller already read over a wider window (``cash_flow.overview_flows``).
-    """
-    today = today or current_date()
-    span = max(1, months)
-    start = month_start_before(today, span - 1)
-    first_year, first_month = start.year, start.month
-
-    if rows is None:
-        rows = await queries.dated_amounts_in_window(
-            db,
-            owner_user_id=owner_user_id,
-            start=start,
-            end=today,
-            account_ids=account_ids,
-        )
-
-    buckets: dict[str, dict[str, int]] = {}
-    year, month = first_year, first_month
-    for _ in range(span):
-        buckets[f"{year:04d}-{month:02d}"] = {"income": 0, "expense": 0}
-        month += 1
-        if month > 12:
-            month = 1
-            year += 1
-    for txn_date, amount in rows:
-        bucket = buckets.get(f"{txn_date.year:04d}-{txn_date.month:02d}")
-        if bucket is None or txn_date > today:
-            continue
-        if amount >= 0:
-            bucket["income"] += amount
-        else:
-            bucket["expense"] += -amount  # positive magnitude for the bar
-    return [
-        CashflowMonth(
-            month=key,
-            income=value["income"],
-            expense=value["expense"],
-            net=value["income"] - value["expense"],
-        )
-        for key, value in buckets.items()
     ]
 
 

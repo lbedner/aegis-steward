@@ -73,25 +73,34 @@ async def split_transaction(
     if remainder > 0:
         lines.append(SplitPart(amount=remainder, category_id=parent.category_id))
 
+    splits = write_lines(db, parent, lines)
+    await db.flush()
+    return splits
+
+
+def write_lines(
+    db: AsyncSession, parent: FinanceTransaction, lines: list[SplitPart]
+) -> list[FinanceTransactionSplit]:
+    """``lines`` (positive magnitudes that cover the parent) written under
+    an unsplit ``parent`` with its sign, and the parent marked split. No
+    reads, so a pass splitting many rows splits them in one flush."""
     sign = -1 if parent.amount < 0 else 1
-    splits: list[FinanceTransactionSplit] = []
-    for order, line in enumerate(lines):
-        split = FinanceTransactionSplit(
+    splits = [
+        FinanceTransactionSplit(
             owner_user_id=parent.owner_user_id,
-            parent_transaction_id=transaction_id,
+            parent_transaction_id=parent.id,
             amount=sign * line.amount,
             category_id=line.category_id,
             memo=line.memo,
             sort_order=order,
             currency=parent.currency,
         )
-        db.add(split)
-        splits.append(split)
-
+        for order, line in enumerate(lines)
+    ]
+    db.add_all(splits)
     parent.is_split = True
     parent.updated_at = utcnow()
     db.add(parent)
-    await db.flush()
     return splits
 
 

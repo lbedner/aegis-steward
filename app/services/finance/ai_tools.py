@@ -30,6 +30,7 @@ from app.services.finance.domains.ledger.queries.accounts import EVERYONE, accou
 from app.services.finance.domains.ledger.queries.categories import (
     category_names_by_id,
 )
+from app.services.finance.domains.ledger.queries.flows import counted_as
 from app.services.finance.domains.ledger.queries.transactions import (
     transactions_window_with_payees,
 )
@@ -41,7 +42,11 @@ from app.services.finance.schemas.agent_tools import (
     TransactionRow,
     Transactions,
 )
-from app.services.finance.utils import current_date, month_start_before
+from app.services.finance.utils import (
+    current_date,
+    current_period_month,
+    month_start_before,
+)
 
 # Sized for years of a personal ledger (a few thousand rows/year); rows
 # land in the code-mode sandbox, not the model's context, so the cost of
@@ -59,7 +64,9 @@ _UPCOMING_WINDOW_DAYS = 35
 LEDGER_SCOPE = (
     "Money in and out of every account tracked, all spending (bills "
     "included); transfers between your own accounts and rows excluded "
-    "from reports are left out."
+    "from reports are left out. Income is what is filed as income; a "
+    "refund nets against the category it is filed under; a credit filed "
+    "as nothing is in neither and counted apart as unfiled."
 )
 
 
@@ -72,10 +79,13 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
 
     Monthly detail returns 'scope' (what is counted - say it when you
     report a figure), 'months': a list, oldest first, of entries carrying
-    'month', 'income_cents', 'spend_cents' and 'net_cents' (the current
-    month is only so far), and 'month_to_date': 'through_day', and
-    'this_month' beside 'last_month_same_days' (each 'income', 'spending',
-    'saved' in cents). Compare a part-finished month with
+    'month', 'income_cents', 'spend_cents', 'net_cents' and
+    'unfiled_cents' (credits filed as nothing, in neither figure - name
+    it when it is big enough to change the picture; the current month is
+    only so far), and
+    'month_to_date': 'through_day', and 'this_month' beside
+    'last_month_same_days' (each 'income', 'spending', 'unfiled', 'saved'
+    in cents). Compare a part-finished month with
     'last_month_same_days', never with last month's whole total. Transaction detail returns keys 'total', 'returned'
     and 'transactions': a list, newest first, of rows shaped as
     ``transactions`` returns them ('amount_cents' signed, negative =
@@ -96,6 +106,7 @@ async def ledger(months: int = 12, detail: str = "monthly") -> dict[str, Any]:
                     "income_cents": row.income,
                     "spend_cents": row.expense,
                     "net_cents": row.net,
+                    "unfiled_cents": row.unfiled,
                 }
                 for row in rows
             ],
@@ -132,11 +143,12 @@ async def transaction_rows(
         page=1,
         page_size=500,
         subject_id=EVERYONE,
+        include_closed=True,
     )
     account_names = {account.id: account.name for account in account_rows}
-    tags_by_txn = await transaction_tags(
-        session, [t.id for t, _name in rows if t.id is not None]
-    )
+    ids = [t.id for t, _name in rows if t.id is not None]
+    tags_by_txn = await transaction_tags(session, ids)
+    kinds = await counted_as(session, ids)
     return [
         {
             # The id is what a transaction.categorize proposal's
@@ -164,6 +176,7 @@ async def transaction_rows(
             "tags": sorted(t.name for t in tags_by_txn.get(txn.id, [])),
             "memo": txn.memo,
             "transfer": txn.is_transfer,
+            "counts_as": kinds.get(txn.id or 0),  # as every total does (#316)
             "pending": txn.pending,
             # The bill (``bills``' id) the row is already matched to.
             "bill_id": txn.recurring_stream_id,
@@ -286,8 +299,11 @@ async def transactions(
     "Tax Related" is one call). Returns 'total' (how many match) and
     'transactions' - id, date, payee, amount_cents, category,
     category_id, uncategorized (no category, or a catch-all bucket), tags,
-    account, memo, transfer, pending, bill_id - newest first, capped at
-    ``limit``.
+    account, memo, transfer, counts_as, pending, bill_id - newest first,
+    capped at ``limit``.
+    'counts_as' is what every total counts it as: income, spending (signed:
+    a credit here lowers spending by its amount, whatever its payee), unfiled,
+    transfer, split (by its lines) or not counted. Total by it, not by sign.
     'tags' is what the row wears now: read it before proposing a tag.
     'bill_id' is the bill (``bills``' id) the row is already matched to,
     or null.
@@ -367,18 +383,31 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
     Medicine/Drugs?". A limit is a number the user chose and it lives
     nowhere else: `ledger` shows what was SPENT, which is a different
     question and cannot answer this one. ``period_month`` is YYYYMM for
-    an earlier month; omitted means the current period.
+    an earlier month; omitted means the current period. A month that has
+    ended reads as it was recorded when it ended (its bills and income
+    then, not now), with 'changed_since' saying what was filed into it
+    later; one that ended before records were kept is read as it is now.
 
     Only 'limits' carry a real spend-vs-limit status. A commitment's
     'limit_cents' is just what that bill typically costs, so never report one
     as a budget the user set, or as being over or under.
     """
-    from app.services.finance.domains.planning.budgets.summary import budget_summary
+    from app.services.finance.domains.planning import budgets
 
     async with get_async_session() as session:
-        summary = await budget_summary(
-            session, owner_user_id=None, period_month=period_month
+        closed = (
+            await budgets.month_as_closed(
+                session, owner_user_id=None, period_month=period_month
+            )
+            if period_month is not None and period_month < current_period_month()
+            else None
         )
+        if closed is not None:
+            summary = closed.summary  # as recorded when it ended (#319)
+        else:
+            summary = await budgets.budget_summary(
+                session, owner_user_id=None, period_month=period_month
+            )
 
     def line(row: Any) -> dict[str, Any]:
         return {
@@ -419,6 +448,8 @@ async def budget(period_month: int | None = None) -> dict[str, Any]:
             "left_in_limits_under_budget_cents": sum(r for r in remaining if r > 0),
             "net_left_cents": sum(remaining),
         },
+        # Cents, as recorded ("then") and as now, when filed into since.
+        "changed_since": closed.changed_since() if closed else None,
     }
 
 

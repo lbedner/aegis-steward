@@ -30,7 +30,9 @@ class TestIncomeByCategory:
 
         rows = await svc.income_by_category(owner_user_id=1, days=30)
 
-        assert rows == [("Income", 301_200), ("Refunds", 2_500)]
+        # A refund filed under an expense category is a return, not
+        # income: it nets against spending instead (#316).
+        assert rows == [("Income", 301_200)]
 
     @pytest.mark.asyncio
     async def test_it_stops_at_the_last_day_asked(self, svc: FinanceService) -> None:

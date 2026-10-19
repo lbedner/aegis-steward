@@ -25,9 +25,13 @@ from app.components.web_frontend.filters import account_params, dollars, money
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import hx_dialog, render, templates
 from app.components.web_frontend.rendering import ranked as bar_ratios
+from app.components.web_frontend.routes.finance.portfolio import balance
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger.accounts import effective_balance
 from app.services.finance.domains.ledger.merchant_icon import Icon, payee_icons_by_name
+from app.services.finance.domains.ledger.net_worth_rule import (
+    assets_and_owed,
+    counts_in_net_worth,
+)
 from app.services.finance.domains.planning.recurring.forecast import upcoming_outflows
 from app.services.finance.schemas import (
     AccountResponse,
@@ -79,23 +83,15 @@ BILL_COLUMNS = [
 def totals(accounts: list[AccountResponse], selected: list[int]) -> dict[str, int]:
     """Assets, liabilities and net worth over the accounts in view, using
     the domain's own effective-balance rule (what the assistant reports)."""
-    rows = [a for a in accounts if not selected or a.id in selected]
+    # The household's net worth by the one rule the line uses (#314).
+    rows = [
+        a
+        for a in accounts
+        if (not selected or a.id in selected) and counts_in_net_worth(a)
+    ]
 
-    def balance(account: AccountResponse) -> int:
-        return effective_balance(
-            current_balance=account.current_balance,
-            balance_as_of=account.balance_as_of,
-            classification=account.classification,
-            activity_balance=account.activity_balance,
-        )
-
-    assets = sum(balance(a) for a in rows if a.classification != "liability")
-    liabilities = sum(balance(a) for a in rows if a.classification == "liability")
-    return {
-        "assets": assets,
-        "liabilities": liabilities,
-        "net_worth": assets + liabilities,
-    }
+    assets, owed = assets_and_owed((a.classification, balance(a)) for a in rows)
+    return {"assets": assets, "liabilities": -owed, "net_worth": assets - owed}
 
 
 # The net worth card's views (#343): the field's value and its chip.
@@ -418,6 +414,7 @@ async def page(
             ],
             "kept": kept,
             "cashflow": cashflow_chart(overview.cashflow.items),
+            "unfiled": sum(m.unfiled for m in overview.cashflow.items),
             "spending": spending_chart(overview.spending),
             "drilldown": f"{SECTION.path}/spending?{_query(days, selected, start, end)}",
             "dates": (start, end),

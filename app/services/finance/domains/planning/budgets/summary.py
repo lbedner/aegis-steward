@@ -9,7 +9,7 @@ month. ``outlook`` runs this same equation forward over future months.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -19,6 +19,10 @@ from app.services.finance.domains.detection.insights.commitments import (
     monthly_share,
 )
 from app.services.finance.domains.ledger import categories
+from app.services.finance.domains.ledger.queries.flows import (
+    dated_amounts_in_window,
+    money_flow,
+)
 from app.services.finance.domains.planning import envelopes, goals, recurring
 from app.services.finance.domains.planning.budgets import queries, strip
 from app.services.finance.domains.planning.budgets.lines import (
@@ -372,9 +376,19 @@ async def month_actuals(
     rebuilt from today's bills (#359)."""
     month = period_month or current_period_month()
     start, end = queries.month_bounds(month)
-    money_in, money_out = await queries.money_in_and_out(
-        db, owner_user_id=owner_user_id, start=start, end=end, account_ids=account_ids
+    # The rows and the tally every income and spending figure reads (#316).
+    flow = money_flow(
+        await dated_amounts_in_window(
+            db,
+            owner_user_id=owner_user_id,
+            start=start,
+            end=end - timedelta(days=1),
+            account_ids=account_ids,
+        )
     )
     return BudgetMonthActuals(
-        period_month=month, money_in=money_in, money_out=money_out
+        period_month=month,
+        money_in=flow["income"],
+        money_out=flow["spending"],
+        unfiled=flow["unfiled"],
     )

@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlmodel import select
+from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.finance.domains.ledger.queries.filters import categories_filed_as
 from app.services.finance.models import (
     FinanceAccount,
     FinanceAnalystSnapshot,
@@ -50,27 +51,83 @@ async def account_rows_where(db: AsyncSession, filters: list) -> list[FinanceAcc
 # -- transfers ----------------------------------------------------------------
 
 
-async def claimed_leg_ids(db: AsyncSession, owner_user_id: int | None) -> set[int]:
-    """Transaction ids already claimed by a transfer of ANY status, so
-    pairings (including rejected ones) never recur."""
-    transfer_owner = owner_clause(FinanceTransfer.owner_user_id, owner_user_id)
-    paired_ids: set[int] = set()
-    for col in (
-        FinanceTransfer.from_transaction_id,
-        FinanceTransfer.to_transaction_id,
-    ):
-        rows = (
-            await db.exec(select(col).where(col.is_not(None), transfer_owner))
+async def transfer_for_leg(
+    db: AsyncSession, transaction_id: int, owner_user_id: int | None
+) -> FinanceTransfer | None:
+    """The transfer, of any status, that ``transaction_id`` is a leg of."""
+    return (
+        await db.exec(
+            select(FinanceTransfer).where(
+                or_(
+                    FinanceTransfer.from_transaction_id == transaction_id,
+                    FinanceTransfer.to_transaction_id == transaction_id,
+                ),
+                owner_clause(FinanceTransfer.owner_user_id, owner_user_id),
+            )
+        )
+    ).first()
+
+
+async def offers_holding(db: AsyncSession, leg_ids: list[int]) -> list[FinanceTransfer]:
+    """Near-miss offers (#317) holding any of ``leg_ids``."""
+    return list(
+        (
+            await db.exec(
+                select(FinanceTransfer).where(
+                    FinanceTransfer.status == "suggested",
+                    or_(
+                        FinanceTransfer.from_transaction_id.in_(leg_ids),
+                        FinanceTransfer.to_transaction_id.in_(leg_ids),
+                    ),
+                )
+            )
         ).all()
-        paired_ids.update(int(r) for r in rows)
-    return paired_ids
+    )
+
+
+async def confirmed_transfers_into(
+    db: AsyncSession, account_ids: list[int]
+) -> list[FinanceTransfer]:
+    """Confirmed transfers landing on ``account_ids``: a loan's payments."""
+    if not account_ids:
+        return []
+    return list(
+        (
+            await db.exec(
+                select(FinanceTransfer).where(
+                    FinanceTransfer.to_account_id.in_(account_ids),
+                    FinanceTransfer.status == "confirmed",
+                )
+            )
+        ).all()
+    )
+
+
+async def expense_category_ids(db: AsyncSession) -> set[int]:
+    """Ids of the categories classified as spending."""
+    rows = await db.exec(categories_filed_as("expense"))
+    return {int(i) for i in rows.all() if i is not None}
+
+
+async def transfers_for_owner(
+    db: AsyncSession, owner_user_id: int | None
+) -> list[FinanceTransfer]:
+    """Every transfer of the owner's, of any status: which legs are
+    claimed, and which are only offered (#317), read once."""
+    return list(
+        (
+            await db.exec(
+                select(FinanceTransfer).where(
+                    owner_clause(FinanceTransfer.owner_user_id, owner_user_id)
+                )
+            )
+        ).all()
+    )
 
 
 def transfer_category_ids():
     """Subquery: category ids classified as transfers."""
-    return select(FinanceCategory.id).where(
-        FinanceCategory.classification == "transfer"
-    )
+    return categories_filed_as("transfer")
 
 
 # -- streams ------------------------------------------------------------------

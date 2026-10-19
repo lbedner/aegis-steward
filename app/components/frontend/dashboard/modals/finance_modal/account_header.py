@@ -21,7 +21,7 @@ from app.components.frontend.dashboard.modals.modal_sections import (
     headline_stat_color,
 )
 from app.components.frontend.theme import AegisTheme as Theme
-from app.services.finance.constants import (
+from app.services.finance.account_menu import (
     ACCOUNT_ACTION_LABELS,
     account_actions,
 )

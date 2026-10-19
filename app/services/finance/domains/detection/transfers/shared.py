@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.services.finance.models import (
     FinanceTransaction,
+    FinanceTransfer,
 )
 
 
@@ -15,6 +16,10 @@ class TransferDetectionResult(BaseModel):
     """Counts from one detection pass."""
 
     auto_paired: int = 0
+    # Near misses offered in Attention, not paired (#317).
+    suggested: int = 0
+    # Loan payments split into principal, interest and escrow (#318).
+    loan_split: int = 0
     # Flagged by their category's classification, not by finding a pair.
     category_flagged: int = 0
     # Same-account offsetting adjustment pairs (issuer bookkeeping),
@@ -34,6 +39,13 @@ AMOUNT_BAND_PCT = 0.05  # within 5% (or $2) is a candidate at all
 
 
 AUTO_THRESHOLD = 80
+
+# From here to AUTO_THRESHOLD a pair is offered, never assumed (#317): the
+# same amount two days apart is too close to leave unsaid, and too thin
+# to take out of spending on its own.
+SUGGEST_THRESHOLD = 60
+
+SUGGESTED = "transfer_suggested"
 
 
 _CREDIT_CARD_TYPE = "credit_card"
@@ -85,3 +97,16 @@ def _flag_legs(
         leg.transfer_group_id = transfer_id
     out_txn.transfer_pair_transaction_id = in_txn.id
     in_txn.transfer_pair_transaction_id = out_txn.id
+
+
+def claimed_legs(transfers: list[FinanceTransfer], *, offers: bool = True) -> set[int]:
+    """Transaction ids a transfer claims, of ANY status, so pairings
+    (including rejected ones) never recur. ``offers=False`` leaves out the
+    legs a near-miss offer holds (#317): a sure pair may still take one."""
+    return {
+        leg
+        for transfer in transfers
+        if offers or transfer.status != "suggested"
+        for leg in (transfer.from_transaction_id, transfer.to_transaction_id)
+        if leg is not None
+    }

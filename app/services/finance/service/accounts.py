@@ -190,6 +190,7 @@ class AccountsMixin(FinanceServiceBase):
         page: int = 1,
         page_size: int = 50,
         subject_id: int | None = HOUSEHOLD,
+        include_closed: bool = False,
     ) -> tuple[list[FinanceAccount], int]:
         return await accounts.list_accounts(
             self.db,
@@ -198,6 +199,7 @@ class AccountsMixin(FinanceServiceBase):
             subject_id=subject_id,
             page=page,
             page_size=page_size,
+            include_closed=include_closed,
         )
 
     async def update_account_balance(
@@ -260,6 +262,7 @@ class AccountsMixin(FinanceServiceBase):
         reference: str | None = None,
         is_hidden: bool | None = None,
         is_closed: bool | None = None,
+        closed_on: date | None = None,
     ) -> FinanceAccount | None:
         return await accounts.update_account(
             self.db,
@@ -269,6 +272,7 @@ class AccountsMixin(FinanceServiceBase):
             reference=reference,
             is_hidden=is_hidden,
             is_closed=is_closed,
+            closed_on=closed_on,
         )
 
     async def set_secured_debt(

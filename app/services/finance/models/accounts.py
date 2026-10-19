@@ -125,6 +125,9 @@ class FinanceAccount(SQLModel, table=True):
     is_manual: bool = Field(default=False)
     is_hidden: bool = Field(default=False)
     is_closed: bool = Field(default=False)
+    # The day it closed: its history stays, and it leaves net worth from
+    # here on (#315). None on a closed account means "since forever".
+    closed_on: date | None = Field(default=None)
     is_on_budget: bool = Field(default=True)
     linked_at: datetime | None = Field(default=None)
     last_synced_at: datetime | None = Field(default=None)
@@ -162,6 +165,9 @@ class FinanceLiabilityDetail(SQLModel, table=True):
     origination_principal: int | None = _bigint("origination_principal")
     outstanding_balance: int | None = _bigint("outstanding_balance")
     interest_rate_bps: int | None = Field(default=None)
+    # What each payment sets aside for taxes and insurance (#318): housing
+    # cost, not principal, so a payment splits around it.
+    escrow_amount: int | None = _bigint("escrow_amount")
     ytd_interest_paid: int | None = _bigint("ytd_interest_paid")
     ytd_principal_paid: int | None = _bigint("ytd_principal_paid")
     loan_term_months: int | None = Field(default=None)

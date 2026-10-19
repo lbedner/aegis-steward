@@ -261,7 +261,8 @@ async def spending_by_category(
     ``account_ids`` narrows the breakdown to those accounts (still
     intersected with live accounts and the owner scope, so a stray id can
     never widen the view)."""
-    return await _by_parent(db, owner_user_id, days, account_ids, through)
+    since = current_date() - timedelta(days=days)
+    return (await flow_by_category(db, owner_user_id, since, account_ids, through))[0]
 
 
 async def income_by_category(
@@ -275,34 +276,38 @@ async def income_by_category(
     """Money in per PARENT category over the window, largest first, as
     positive cents (#344): ``spending_by_category`` the other way round,
     the same predicate and rollup, so the cash-flow page's tables agree."""
-    return await _by_parent(db, owner_user_id, days, account_ids, through, inflow=True)
+    since = current_date() - timedelta(days=days)
+    return (await flow_by_category(db, owner_user_id, since, account_ids, through))[1]
 
 
-async def _by_parent(
+async def flow_by_category(
     db: AsyncSession,
     owner_user_id: int | None,
-    days: int,
+    since: date,
     account_ids: list[int] | None,
     through: date | None,
-    inflow: bool = False,
-) -> list[tuple[str, int]]:
-    """Category totals over ``days`` back (through ``through``), rolled up
-    to the parent segment, as positive cents largest first."""
-    cutoff = current_date() - timedelta(days=days)
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+    """(spending, income) per PARENT category from ``since`` (through
+    ``through``), as positive cents largest first, from ONE read - what
+    the Cash flow page shows side by side, from the day its totals do."""
     rows = await queries.category_spend_totals(
         db,
         owner_user_id=owner_user_id,
-        start=cutoff,
+        start=since,
         end=_day_after(through),
         account_ids=account_ids,
-        inflow=inflow,
     )
-    sign = 1 if inflow else -1  # outflows are stored negative
-    totals: dict[str, int] = {}
-    for name, total in rows:
+    totals: dict[str, dict[str, int]] = {"spending": {}, "income": {}}
+    for name, kind, total in rows:
         parent = name.split(":", 1)[0]
-        totals[parent] = totals.get(parent, 0) + sign * total
-    return sorted(totals.items(), key=lambda pair: pair[1], reverse=True)
+        # Spending is stored negative; what came in, positive.
+        signed = -total if kind == "spending" else total
+        totals[kind][parent] = totals[kind].get(parent, 0) + signed
+    spending, income = (
+        sorted(totals[kind].items(), key=lambda pair: pair[1], reverse=True)
+        for kind in ("spending", "income")
+    )
+    return spending, income
 
 
 async def spending_transactions(
@@ -357,7 +362,7 @@ async def spending_summary(
     rows = await queries.category_spend_totals(
         db, owner_user_id=owner_user_id, start=start, end=end
     )
-    result = [(name, -total) for name, total in rows]
+    result = [(name, -total) for name, kind, total in rows if kind == "spending"]
     result.sort(key=lambda pair: pair[1], reverse=True)
     return result
 

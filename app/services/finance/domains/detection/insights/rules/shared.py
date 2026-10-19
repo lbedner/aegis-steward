@@ -26,7 +26,11 @@ from app.services.finance.domains.detection.insights.formatting import (
     month_key,
     pace_day,
 )
-from app.services.finance.domains.ledger.queries.filters import not_duplicate
+from app.services.finance.domains.ledger.queries.filters import (
+    household_account_ids,
+    not_duplicate,
+)
+from app.services.finance.domains.ledger.queries.flows import spent_by_category_rows
 from app.services.finance.models import (
     FinanceAccount,
     FinanceInsight,
@@ -96,7 +100,9 @@ async def monthly_category_spend(
 ) -> dict[int, dict[str, int]]:
     """``{category_id: {"YYYY-MM": spend_cents}}`` over the trailing window.
 
-    Transfer-excluded, categorized outflows only. Shared by the overspend rule
+    Transfer-excluded, categorized spending only, net of the returns filed
+    under it (#316): a refunded purchase is not "more than usual". Shared
+    by the overspend rule
     and the analyst's snapshot so that "more than usual" means exactly the same
     thing wherever the product says it.
 
@@ -110,7 +116,7 @@ async def monthly_category_spend(
     ``everyday`` leaves out the payments of a recurring stream - a bill
     belongs to Bills & Income, and its timing is not a change in habit.
     """
-    rows = await queries.transaction_rows_where(
+    rows = await spent_by_category_rows(
         db,
         [
             *([FinanceTransaction.recurring_stream_id.is_(None)] if everyday else []),
@@ -118,20 +124,20 @@ async def monthly_category_spend(
             FinanceTransaction.deleted_at.is_(None),
             not_duplicate(),
             FinanceTransaction.excluded_from_reports.is_(False),
-            FinanceTransaction.amount < 0,
-            FinanceTransaction.category_id.is_not(None),
             FinanceTransaction.date_ >= month_start_before(today, months_back),
-            FinanceTransaction.account_id.in_(live_account_ids(owner_user_id)),
+            # Ours: their account's spending is not a change in our habits.
+            FinanceTransaction.account_id.in_(household_account_ids()),
         ],
+        category=lambda column: column.is_not(None),
     )
 
     by_category: dict[int, dict[str, int]] = {}
-    for txn in rows:
-        if through_day is not None and txn.date_.day > through_day:
+    for category_id, day, amount in rows:
+        if category_id is None or (through_day is not None and day.day > through_day):
             continue
-        months = by_category.setdefault(txn.category_id, {})
-        key = month_key(txn.date_)
-        months[key] = months.get(key, 0) + abs(txn.amount)
+        months = by_category.setdefault(category_id, {})
+        key = month_key(day)
+        months[key] = months.get(key, 0) - amount
     return by_category
 
 
@@ -196,6 +202,7 @@ async def create_insight_if_new(
     related_transaction_id: int | None = None,
     related_category_id: int | None = None,
     related_account_id: int | None = None,
+    period_end: date | None = None,
 ) -> FinanceInsight | None:
     """Insert an insight unless its dedup_key already exists.
 
@@ -219,6 +226,7 @@ async def create_insight_if_new(
         related_transaction_id=related_transaction_id,
         related_category_id=related_category_id,
         related_account_id=related_account_id,
+        period_end=period_end,
     )
     db.add(insight)
     await db.flush()

@@ -11,6 +11,7 @@ from app.components.web_frontend.routes.finance import (
     account_manage,
     account_merge,
     account_naming,
+    account_state,
     accounts,
     bank_attention,
     bills,
@@ -38,6 +39,7 @@ from app.components.web_frontend.routes.finance import (
     settings_comms,
     settings_payees,
     transactions,
+    transfer_pairs,
     usage,
 )
 
@@ -52,6 +54,7 @@ router.include_router(changes_log.router)
 router.include_router(accounts.router)
 router.include_router(account_manage.router)
 router.include_router(account_merge.router)
+router.include_router(account_state.router)
 router.include_router(account_naming.router)
 router.include_router(cover.router)
 router.include_router(documents.router)
@@ -73,4 +76,5 @@ router.include_router(settings_payees.router)
 router.include_router(connection_placing.router)
 router.include_router(bank_attention.router)
 router.include_router(transactions.router)
+router.include_router(transfer_pairs.router)
 router.include_router(receipts.router)

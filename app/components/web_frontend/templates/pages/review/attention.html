@@ -24,6 +24,16 @@
     {% for verb in ("confirm", "mute") %}
     {{ action(verb|capitalize, hx_swap("/bills/" ~ insight.related_stream_id ~ "/" ~ verb ~ "?insight=" ~ insight.id, "#insight-" ~ insight.id, "post") ~ " data-" ~ verb) }}
     {% endfor %}
+    {% elif insight.insight_type == "statement_gap" and insight.related_account_id %}
+    {#- A statement that disagrees (issue 321): the correction, filled in. -#}
+    {% set fix = "/accounts/" ~ insight.related_account_id ~ "/reconcile?statement_date=" ~ insight.period_end ~ "&statement_balance=" ~ (insight.detected_amount|cents_to_input) %}
+    {{ action("Correct the balance", hx_dialog(fix) ~ " data-correct") }}
+    {{ action("Dismiss", hx_swap("/review/insights/" ~ insight.id ~ "/dismiss", "#insight-" ~ insight.id, "post")) }}
+    {% elif insight.insight_type == "transfer_suggested" and insight.related_transaction_id %}
+    {#- A near miss (issue 317): a transfer, or not, answered where it is read. -#}
+    {% set pair = "/transactions/" ~ insight.related_transaction_id ~ "/transfer/" %}
+    {{ action("It's a transfer", hx_swap(pair ~ "confirm?insight=" ~ insight.id, "#insight-" ~ insight.id, "post") ~ " data-confirm") }}
+    {{ action("Not a transfer", hx_swap(pair ~ "decline?insight=" ~ insight.id, "#insight-" ~ insight.id, "post") ~ " data-decline") }}
     {% else %}
     {{ action("Resolve", hx_dialog("/review/insights/" ~ insight.id ~ "/resolve") ~ " data-resolve") }}
     {{ action("Dismiss", hx_swap("/review/insights/" ~ insight.id ~ "/dismiss", "#insight-" ~ insight.id, "post")) }}

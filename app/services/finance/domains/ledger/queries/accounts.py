@@ -122,8 +122,13 @@ async def accounts_page(
     page: int,
     page_size: int,
     subject_id: int | None = HOUSEHOLD,
+    include_closed: bool = False,
 ) -> tuple[list[FinanceAccount], int]:
     """One page of live accounts plus the total count (two statements).
+
+    A closed account is left out unless asked for (#315): every picker
+    and filter reads this, and none of them should offer an account the
+    bank closed.
 
     ``subject_id`` narrows to whose money the rows describe: an id for one
     subject's accounts, ``HOUSEHOLD`` for our own (the rows nobody
@@ -148,6 +153,9 @@ async def accounts_page(
     if not include_hidden:
         query = query.where(~FinanceAccount.is_hidden)
         count_query = count_query.where(~FinanceAccount.is_hidden)
+    if not include_closed:
+        query = query.where(~FinanceAccount.is_closed)
+        count_query = count_query.where(~FinanceAccount.is_closed)
     if subject_id is not None:
         clause = (
             FinanceAccount.subject_id.is_(None)

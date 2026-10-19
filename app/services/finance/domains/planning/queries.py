@@ -17,11 +17,15 @@ from collections.abc import Iterable, Sequence
 from datetime import date
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, union_all
 from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.finance.domains.ledger.queries.filters import not_duplicate
+from app.services.finance.domains.ledger.queries.filters import (
+    counts_as,
+    household_account_ids,
+    not_duplicate,
+)
 from app.services.finance.models import (
     FinanceAccount,
     FinanceInsight,
@@ -36,10 +40,14 @@ def spend_filters(
     start: date,
     end: date | None = None,
     account_ids: list[int] | None = None,
+    *,
+    line: bool = False,
 ) -> list[object]:
-    """The shared "countable spend" predicate: countable outflows."""
+    """The shared "countable spend" predicate: countable rows that count
+    as spending, net of their returns. ``line`` judges a split line, for
+    the reads that swap a split parent for its lines (``split_lines``)."""
     return countable_filters(
-        owner_user_id, start, end, account_ids, FinanceTransaction.amount < 0
+        owner_user_id, start, end, account_ids, counts_as("spending", line=line)
     )
 
 
@@ -53,7 +61,8 @@ def countable_filters(
     """Rows that count: live accounts, non-duplicate, report-included, in
     ``direction`` when given, from ``start`` (exclusive of ``end`` when
     given, optionally scoped to ``account_ids``)."""
-    live_accounts = select(FinanceAccount.id).where(FinanceAccount.deleted_at.is_(None))
+    # Ours: an account held for somebody else is theirs (#314).
+    live_accounts = household_account_ids()
     filters: list[object] = [
         FinanceTransaction.deleted_at.is_(None),
         not_duplicate(),
@@ -107,6 +116,7 @@ async def spend_by_category(
     if not wanted:
         return {}
     filters = spend_filters(owner_user_id, start, end)
+    line_filters = spend_filters(owner_user_id, start, end, line=True)
     parent_rows = (
         await db.exec(
             select(
@@ -129,7 +139,7 @@ async def spend_by_category(
                     func.sum(FinanceTransactionSplit.amount),
                 )
             )
-            .where(*filters, FinanceTransactionSplit.category_id.in_(wanted))
+            .where(*line_filters, FinanceTransactionSplit.category_id.in_(wanted))
             .group_by(FinanceTransactionSplit.category_id)
         )
     ).all()
@@ -181,23 +191,28 @@ async def accounts_of_type(
 async def tagged_spend(db: AsyncSession, *, tag_id: int, since: date) -> int:
     """Positive cents of countable spend (``spend_filters``) wearing the
     tag from ``since``, transfers aside: paying her allowance by Venmo is
-    a transfer, not something she bought."""
+    a transfer, not something she bought. A split purchase counts its
+    spending lines (#316)."""
     from app.services.finance.models import FinanceTransactionTag
 
-    total = (
-        await db.exec(
-            select(func.coalesce(func.sum(FinanceTransaction.amount), 0))
-            .join(
-                FinanceTransactionTag,
-                FinanceTransactionTag.transaction_id == FinanceTransaction.id,
+    txn, line = FinanceTransaction, FinanceTransactionSplit
+    tagged = [
+        txn.id.in_(
+            select(FinanceTransactionTag.transaction_id).where(
+                FinanceTransactionTag.tag_id == tag_id
             )
-            .where(
-                FinanceTransactionTag.tag_id == tag_id,
-                FinanceTransaction.is_transfer.is_(False),
-                *spend_filters(None, since),
-            )
-        )
-    ).one()
+        ),
+        txn.is_transfer.is_(False),
+    ]
+    spent = union_all(
+        select(txn.amount.label("amount")).where(
+            *tagged, *spend_filters(None, since), txn.is_split.is_(False)
+        ),
+        split_lines(select(line.amount.label("amount"))).where(
+            *tagged, *spend_filters(None, since, line=True)
+        ),
+    ).subquery()
+    total = (await db.exec(select(func.coalesce(func.sum(spent.c.amount), 0)))).one()
     return -int(total)
 
 

@@ -104,3 +104,10 @@
   {{ text }}
 </a>
 {% endmacro %}
+
+{# Money that came in filed as nothing (issue 316): counted as neither
+   income nor spending until it is, so a page that leaves it out says
+   so, and where to file it. #}
+{% macro unfiled_notice(cents) %}
+{{ notice("unfiled-notice", cents, "/review/uncategorized", (cents|money) ~ " came in that is not filed as anything, so it counts as neither income nor spending. File it →") }}
+{% endmacro %}

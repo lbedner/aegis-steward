@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import and_, case, func
+from sqlalchemy import case, func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -150,6 +150,16 @@ def _owner_scoped_net_worth(query, owner_user_id: int | None):
     return query.where(FinanceNetWorthSnapshot.owner_user_id == owner_user_id)
 
 
+async def first_net_worth_day(
+    db: AsyncSession, *, owner_user_id: int | None
+) -> date | None:
+    """The first day the owner's net-worth line was drawn for, if any."""
+    query = _owner_scoped_net_worth(
+        select(func.min(FinanceNetWorthSnapshot.as_of_date)), owner_user_id
+    )
+    return (await db.exec(query)).one()
+
+
 async def net_worth_snapshots_between(
     db: AsyncSession,
     *,
@@ -192,11 +202,12 @@ async def balance_series(
     since: date,
     owner_user_id: int | None,
     until: date | None = None,
-) -> list[tuple[date, str, str, int]]:
-    """(balance_date, classification, account_type, summed balance) for the
-    accounts - the live-summed series behind a filtered Overview chart and
-    its by-type view. The join to ``finance_account`` keeps the owner scope
-    authoritative."""
+) -> list[tuple[date, int, str, str, int]]:
+    """(balance_date, account id, classification, account_type, balance)
+    for the accounts - the live-summed series behind a filtered Overview
+    chart and its by-type view, per account so a closed one leaves from
+    its close date (#315). The join to ``finance_account`` keeps the owner
+    scope authoritative."""
     filters = [
         FinanceBalanceSnapshot.account_id.in_(account_ids),
         FinanceBalanceSnapshot.balance_date >= since,
@@ -211,20 +222,16 @@ async def balance_series(
         await db.exec(
             select(
                 FinanceBalanceSnapshot.balance_date,
+                FinanceAccount.id,
                 FinanceAccount.classification,
                 FinanceAccount.account_type,
-                func.sum(FinanceBalanceSnapshot.balance),
+                FinanceBalanceSnapshot.balance,
             )
             .join(
                 FinanceAccount,
                 FinanceAccount.id == FinanceBalanceSnapshot.account_id,
             )
             .where(*filters)
-            .group_by(
-                FinanceBalanceSnapshot.balance_date,
-                FinanceAccount.classification,
-                FinanceAccount.account_type,
-            )
             .order_by(FinanceBalanceSnapshot.balance_date)
         )
     ).all()
@@ -246,56 +253,6 @@ async def house_account_ids(db: AsyncSession, *, owner_user_id: int | None) -> s
     )
     house_ids = set((await db.exec(houses)).all())
     return house_ids | set((await db.exec(liens)).all())
-
-
-async def account_rollup(
-    db: AsyncSession, *, owner_user_id: int | None = None
-) -> tuple[int, int, int]:
-    """(assets, liabilities, account_count) in a single aggregate query.
-
-    Assets/liabilities sum only *visible* accounts; the count includes
-    hidden ones - conditional sums over one scan rather than three
-    separate queries."""
-    query = (
-        select(
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            and_(
-                                FinanceAccount.classification == "asset",
-                                ~FinanceAccount.is_hidden,
-                            ),
-                            FinanceAccount.current_balance,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            and_(
-                                FinanceAccount.classification == "liability",
-                                ~FinanceAccount.is_hidden,
-                            ),
-                            FinanceAccount.current_balance,
-                        ),
-                        else_=0,
-                    )
-                ),
-                0,
-            ),
-            func.count(),
-        )
-        .select_from(FinanceAccount)
-        .where(FinanceAccount.deleted_at.is_(None))
-    )
-    query = query.where(*owner_filters(FinanceAccount.owner_user_id, owner_user_id))
-    assets, liabilities, count = (await db.exec(query)).one()
-    return int(assets or 0), int(liabilities or 0), int(count or 0)
 
 
 async def connection_rollup(

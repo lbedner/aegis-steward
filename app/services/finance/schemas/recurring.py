@@ -302,6 +302,9 @@ class InsightResponse(BaseModel):
     related_stream_id: int | None
     related_transaction_id: int | None
     related_category_id: int | None
+    related_account_id: int | None = None
+    # The day it is about, where it is one: a statement's date (#321).
+    period_end: date | None = None
     status: str
     # What it turned out to be, and in whose words (FW-09).
     resolution: str | None = None
@@ -322,6 +325,8 @@ class InsightResponse(BaseModel):
             related_stream_id=row.related_stream_id,
             related_transaction_id=row.related_transaction_id,
             related_category_id=row.related_category_id,
+            related_account_id=row.related_account_id,
+            period_end=row.period_end,
             status=row.status,
             resolution=row.resolution,
             resolution_note=row.resolution_note,

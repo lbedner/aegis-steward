@@ -12,6 +12,10 @@ from datetime import date, timedelta
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger import queries
+from app.services.finance.domains.ledger.net_worth_rule import (
+    counts_in_net_worth,
+    sum_into,
+)
 from app.services.finance.models import (
     FinanceAccount,
     FinanceBalanceSnapshot,
@@ -317,10 +321,8 @@ async def recompute_snapshots(
                     is_estimated=True,
                     owner_user_id=owner_user_id,
                 )
-                if account.classification == "asset":
-                    per_day[day][0] += first_value
-                elif account.classification == "liability":
-                    per_day[day][1] += abs(first_value)
+                if counts_in_net_worth(account, day):
+                    sum_into(per_day[day], account.classification, first_value)
                 continue
             point_date, value, native_source = current
             is_exact = point_date == day
@@ -334,15 +336,10 @@ async def recompute_snapshots(
                 is_estimated=not is_exact,
                 owner_user_id=owner_user_id,
             )
-            if account.classification == "asset":
-                per_day[day][0] += value
-            elif account.classification == "liability":
-                # ``net_worth = assets - liabilities``, so this column is a
-                # magnitude OWED, always positive. A register-derived card
-                # balance is negative (spending), and adding it raw flipped
-                # the subtraction into an addition - net worth came out too
-                # high by exactly twice the debt.
-                per_day[day][1] += abs(value)
+            # Every account keeps its own balance line; only the ones in
+            # net worth that day are summed into it (#314, #315).
+            if counts_in_net_worth(account, day):
+                sum_into(per_day[day], account.classification, value)
 
     # 4) Existing net-worth snapshots for the window in one query (was one
     #    existence query per day).
@@ -355,6 +352,8 @@ async def recompute_snapshots(
         currency=DEFAULT_CURRENCY,
     ):
         existing_net_worth[snapshot.as_of_date] = snapshot
+    for day in existing_net_worth.keys() - per_day.keys():
+        per_day[day] = [0, 0]  # nothing counts that day now, as in resum_line
 
     written = 0
     for day, (assets, liabilities) in per_day.items():
@@ -369,3 +368,58 @@ async def recompute_snapshots(
         written += 1
     await db.flush()
     return written
+
+
+async def resum_line(
+    db: AsyncSession, *, owner_user_id: int | None, before: date
+) -> int:
+    """The net-worth line's days before ``before`` summed again from the
+    per-account balances already recorded for them, under today's rule of
+    which accounts count (#314) - a removed account drops out, a closed
+    one from its close date. Balances are read, never rewritten: they
+    were measured then, and today's figure carried backwards over them
+    would flatten every account's history. Days written."""
+    first = await queries.first_net_worth_day(db, owner_user_id=owner_user_id)
+    if first is None or first >= before:
+        return 0
+    end = before - timedelta(days=1)
+    accounts = {
+        a.id: a
+        for a in await queries.live_accounts_for_owner(db, owner_user_id=owner_user_id)
+    }
+    per_day: dict[date, list[int]] = {}
+    for row in await queries.balance_snapshots_between(
+        db, list(accounts), start=first, end=end
+    ):
+        account = accounts[row.account_id]
+        day = per_day.setdefault(row.balance_date, [0, 0])
+        if counts_in_net_worth(account, row.balance_date):
+            sum_into(day, account.classification, row.balance)
+    existing = {
+        s.as_of_date: s
+        for s in await queries.net_worth_snapshots_between(
+            db,
+            owner_user_id=owner_user_id,
+            start=first,
+            end=end,
+            currency=DEFAULT_CURRENCY,
+        )
+    }
+    for day in existing.keys() - per_day.keys():
+        per_day[day] = [0, 0]  # nothing that counts was recorded then
+    for day, (assets, liabilities) in per_day.items():
+        _apply_net_worth_snapshot(
+            db,
+            existing,
+            owner_user_id=owner_user_id,
+            as_of_date=day,
+            total_assets=assets,
+            total_liabilities=liabilities,
+        )
+    await db.flush()
+    return len(per_day)
+
+
+def window_start() -> date:
+    """The first day ``recompute_snapshots`` rebuilds by default."""
+    return _today() - timedelta(days=_DEFAULT_WINDOW_DAYS - 1)

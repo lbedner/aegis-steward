@@ -238,12 +238,19 @@ def review_cells(stats: BudgetStatsResponse, actuals: BudgetMonthActuals) -> lis
     over = stats.over_budget_count
     held = "every limit held" if over == 0 else f"{_count(over, 'limit')} over"
     return [
-        Cell("income", "Money in", actuals.money_in, "deposits, refunds and interest"),
+        Cell(
+            "income",
+            "Money in",
+            actuals.money_in,
+            f"filed as income · {format_money(actuals.unfiled)} not filed"
+            if actuals.unfiled
+            else "filed as income",
+        ),
         Cell(
             "everything",
             "Money out",
             actuals.money_out,
-            "everything spent, transfers aside",
+            "everything spent, net of returns",
         ),
         Cell(
             "budgets",

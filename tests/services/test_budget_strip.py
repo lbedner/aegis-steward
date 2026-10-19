@@ -286,8 +286,8 @@ class TestAMonthBehind:
         cells = strip.review_cells(stats, actuals)
 
         assert [(c.label, c.display, c.caption) for c in cells] == [
-            ("Money in", "$2,000.00", "deposits, refunds and interest"),
-            ("Money out", "$200.00", "everything spent, transfers aside"),
+            ("Money in", "$2,000.00", "filed as income"),
+            ("Money out", "$200.00", "everything spent, net of returns"),
             ("Budgets", "$120.00", "of $300.00 · every limit held"),
             ("August 2026", "+$1,800.00", "left over"),
         ]

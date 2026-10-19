@@ -28,6 +28,8 @@ class TransactionRow(TypedDict):
     tags: list[str]
     memo: str | None
     transfer: bool
+    # income | spending | unfiled | transfer | split | not counted (#316)
+    counts_as: str | None
     pending: bool
     bill_id: int | None  # the bill (``bills``' id) it is matched to
 

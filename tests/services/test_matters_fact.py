@@ -467,6 +467,7 @@ class TestWhatTheRegisterSays:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two accounts given to them: two redraws
     async def test_an_account_whose_register_is_empty_says_nothing(
         self, async_db_session: AsyncSession
     ) -> None:
