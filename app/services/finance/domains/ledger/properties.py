@@ -217,11 +217,17 @@ async def set_property_details(
     # six-field dialog reset the three fields it does not display.
     current = property_metadata(account.metadata_)
     merged: dict[str, Any] = current.model_dump() if current is not None else {}
+    counted = merged.get("include_in_net_worth")
     merged.update({key: value for key, value in fields.items() if value is not None})
     account.metadata_ = set_property_metadata(account.metadata_, **merged)
     account.updated_at = utcnow()
     db.add(account)
     await db.flush()
+    if merged.get("include_in_net_worth") != counted:
+        # In or out of net worth (#314): the line moves with the headline.
+        from app.services.finance.domains.ledger.accounts import redraw_line
+
+        await redraw_line(db, owner_user_id)
     return account
 
 

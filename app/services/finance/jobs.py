@@ -16,7 +16,7 @@ from app.services.finance.domains.detection import (
     generate_insights,
     promote_curated_streams,
 )
-from app.services.finance.domains.ledger import networth
+from app.services.finance.domains.ledger.accounts import redraw_line
 from app.services.finance.models import FinanceAccount
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
@@ -28,8 +28,9 @@ async def finance_recompute_snapshots_job() -> None:
     """Nightly: materialize per-account balance + per-user net-worth snapshots.
 
     Recomputes per owner so net worth stays isolated across users (a single
-    ``None`` owner in standalone/no-auth mode). Bounded to the recent window
-    by the service.
+    ``None`` owner in standalone/no-auth mode). The whole line, every
+    night: a rule that changes which accounts count (#314) reaches every
+    day it was drawn for, not only the last month.
     """
     try:
         async with get_async_session() as session:
@@ -45,9 +46,7 @@ async def finance_recompute_snapshots_job() -> None:
                 await detect_recurring(session, owner_user_id=owner_user_id)
                 await promote_curated_streams(session, owner_user_id=owner_user_id)
                 await generate_insights(session, owner_user_id=owner_user_id)
-                days_written += await networth.recompute_snapshots(
-                    session, owner_user_id=owner_user_id
-                )
+                days_written += await redraw_line(session, owner_user_id)
             await session.commit()
         logger.info(
             "Finance: recomputed net-worth snapshots for %d owner(s), %d day(s)",
@@ -82,6 +81,36 @@ async def finance_goal_auto_contribute_job() -> None:
         logger.info("Finance: auto-contributed to %d goal(s)", booked)
     except Exception:
         logger.exception("Finance goal auto-contribute failed")
+
+
+async def finance_budget_close_job() -> None:
+    """Monthly (the 5th): record last month as it ended, so it reads back
+    the same however its bills change later (#319). The 5th, not the 1st:
+    the charges of its last days post a few days late. Idempotent: a
+    month is recorded once."""
+    from app.services.finance.domains.planning import budgets
+    from app.services.finance.utils import current_period_month, shift_period
+
+    try:
+        async with get_async_session() as session:
+            owners = (
+                await session.exec(
+                    select(FinanceAccount.owner_user_id)
+                    .where(FinanceAccount.deleted_at.is_(None))
+                    .distinct()
+                )
+            ).all()
+            ended = shift_period(current_period_month(), -1)
+            for owner_user_id in owners:
+                await budgets.close_month(
+                    session, owner_user_id=owner_user_id, period_month=ended
+                )
+            await session.commit()
+        logger.info(
+            "Finance: recorded budget month %d for %d owner(s)", ended, len(owners)
+        )
+    except Exception:
+        logger.exception("Finance budget month close failed")
 
 
 async def finance_envelope_credit_job() -> None:

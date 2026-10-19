@@ -23,6 +23,8 @@
       {#- Still a pre-auth (issue 323), and what you have looked at (issue 322). -#}
       {%- if row.pending %}<span data-pending title="Pending: counted in spending until it posts or drops" class="px-1.5 py-0.5 rounded text-xxs border border-aegis-border text-aegis-muted">Pending</span>{% endif %}
       {%- if row.is_reviewed %}<span data-reviewed title="Reviewed" class="text-aegis-teal">{{ icon("check", "w-3.5 h-3.5", 2) }}</span>{% endif %}
+      {#- One half of a transfer (issue 317): out of spending, and here is the other half. -#}
+      {%- if row.transfer_pair %}<button type="button" data-transfer {{ hx_dialog('/transactions/' ~ row.id ~ '/transfer') }} aria-label="Transfer: open the other half" title="{{ 'Loan payment: the principal moved, the interest and escrow count' if row.is_split else 'Transfer: not counted in spending' }}" class="text-aegis-muted hover:text-aegis-teal">{{ icon("arrows-right-left", "w-3.5 h-3.5") }}</button>{% endif %}
       {#- Its receipt (issue 331): the paper filed on this row, opened in the one modal. -#}
       {%- if row.receipt %}<button type="button" data-receipt {{ hx_dialog('/documents/' ~ row.receipt) }} aria-label="Open the receipt" title="Receipt" class="text-aegis-muted hover:text-aegis-teal">{{ icon("paper-clip", "w-3.5 h-3.5") }}</button>{% endif %}</span>
     {# The note, under the payee where a split's lines go: a memo the

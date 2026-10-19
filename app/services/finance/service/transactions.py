@@ -264,7 +264,7 @@ class TransactionsMixin(FinanceServiceBase):
         today: date | None = None,
         account_ids: list[int] | None = None,
     ) -> list[CashflowMonth]:
-        return await transactions.monthly_cashflow(
+        return await cash_flow.monthly_cashflow(
             self.db,
             owner_user_id=owner_user_id,
             months=months,

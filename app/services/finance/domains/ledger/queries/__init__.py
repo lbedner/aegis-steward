@@ -76,6 +76,11 @@ from app.services.finance.domains.ledger.queries.filters import (
     transaction_search_filter,
     uncategorized_catchall_ids,
 )
+from app.services.finance.domains.ledger.queries.flows import (
+    dated_amounts_in_window,
+    outflow_by_account_in_window,
+    top_payees_over_window,
+)
 from app.services.finance.domains.ledger.queries.links import (
     delete_transaction_link,
     transaction_link_id,
@@ -102,11 +107,11 @@ from app.services.finance.domains.ledger.queries.merchants import (
     repoint_aliases,
 )
 from app.services.finance.domains.ledger.queries.networth import (
-    account_rollup,
     balance_series,
     balance_snapshots_between,
     connection_rollup,
     daily_register_deltas,
+    first_net_worth_day,
     holding_quantities,
     house_account_ids,
     live_accounts_for_owner,
@@ -127,16 +132,13 @@ from app.services.finance.domains.ledger.queries.subjects import (
     subjects_for_owner,
 )
 from app.services.finance.domains.ledger.queries.transactions import (
-    dated_amounts_in_window,
     dedup_match,
     live_transactions_by_ids,
-    outflow_by_account_in_window,
     tag_by_normalized_name,
     tag_links,
     tagged_transaction_ids,
     tags_by_transaction,
     tags_with_counts,
-    top_payees_over_window,
     transaction_by_id,
     transactions_by_ids,
     transactions_page,
@@ -156,7 +158,7 @@ __all__ = [
     "account_ids_for_connection",
     "account_owner_ids",
     "account_masks",
-    "account_rollup",
+    "first_net_worth_day",
     "accounts",
     "accounts_page",
     "alias_by_normalized",

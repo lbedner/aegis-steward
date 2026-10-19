@@ -1306,6 +1306,10 @@ async def test_cashflow_splits_income_from_spend_and_skips_transfers(
         classification="asset",
     )
     today = current_date()
+    # Filed as income: a credit filed as nothing is income no more (#316).
+    salary = await service.get_or_create_category_from_hint(
+        "Income:Salary", owner_user_id=acting_owner_user_id
+    )
     for amount, transfer in ((500_000, False), (-120_000, False), (-99_999, True)):
         txn = await service.create_transaction(
             owner_user_id=acting_owner_user_id,
@@ -1315,6 +1319,7 @@ async def test_cashflow_splits_income_from_spend_and_skips_transfers(
             name="row",
         )
         txn.is_transfer = transfer
+        txn.category_id = salary.id if amount > 0 else None
         async_db_session.add(txn)
     await async_db_session.commit()
 

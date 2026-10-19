@@ -93,6 +93,8 @@ class TransactionResponse(BaseModel):
     status: str = "posted"
     dedup_status: str = "unique"
     is_transfer: bool = False
+    # The other half of a paired transfer (#317), when it is one.
+    transfer_pair_transaction_id: int | None = None
     excluded_from_reports: bool = False
     is_reversal: bool = False
     is_split: bool = False
@@ -137,6 +139,7 @@ class TransactionResponse(BaseModel):
             status=row.status,
             dedup_status=row.dedup_status,
             is_transfer=row.is_transfer,
+            transfer_pair_transaction_id=row.transfer_pair_transaction_id,
             excluded_from_reports=row.excluded_from_reports,
             is_reversal=row.is_reversal,
             is_split=row.is_split,
@@ -180,10 +183,14 @@ class SpendingCategory(BaseModel):
 
 
 class CashFlow(BaseModel):
-    """Money in and out, positive minor units, and what was kept."""
+    """Money in and out, positive minor units, and what was kept.
+
+    ``unfiled`` is the credits nobody filed (#316): counted as neither
+    until they are, and said beside the figures rather than assumed."""
 
     income: int
     spending: int
+    unfiled: int = 0
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -274,6 +281,7 @@ class CashflowMonth(BaseModel):
     income: int  # cents
     expense: int  # cents, positive
     net: int  # cents, signed
+    unfiled: int = 0  # cents of credits nobody filed: in neither (#316)
 
 
 class CashflowResponse(BaseModel):

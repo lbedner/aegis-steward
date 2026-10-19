@@ -3,6 +3,7 @@
 from app.core.schedule import LONG_RUNNING, ServiceJob
 from app.services.finance.jobs import (
     finance_bill_due_email_job,
+    finance_budget_close_job,
     finance_envelope_credit_job,
     finance_goal_auto_contribute_job,
     finance_recompute_snapshots_job,
@@ -26,6 +27,14 @@ JOBS: tuple[ServiceJob, ...] = (
         "finance_goal_auto_contribute",
         "Finance: Auto-Contribute to Goals",
         {"trigger": "cron", "day": 1, "hour": 2, "minute": 45},
+    ),
+    # Budgets: last month, recorded as it ended (#319) - on the 5th, once
+    # the charges of its last days have posted (a card's take a few).
+    ServiceJob(
+        finance_budget_close_job,
+        "finance_budget_close",
+        "Finance: Record Last Month",
+        {"trigger": "cron", "day": 5, "hour": 3, "minute": 0},
     ),
     # Envelopes: the allowance arrives on its cadence (weekly credits land
     # Mondays), so the job checks daily and its per-period idempotency

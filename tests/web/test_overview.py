@@ -63,11 +63,17 @@ class TestSeededLedger:
     def test_cashflow_bars_carry_income_and_spending(
         self, client: TestClient, ledger: Ledger
     ) -> None:
-        data = chart_data(client.get("/overview").text, "bar")
+        """The ledger's $500 payroll is filed as nothing: neither income
+        nor spending, and the page says so (#316)."""
+        page = client.get("/overview").text
+        data = chart_data(page, "bar")
         labels = [s["label"] for s in data["series"]]
         assert labels == ["Income", "Spending"]
-        assert sum(data["series"][0]["values"]) == 500.0
+        assert sum(data["series"][0]["values"]) == 0.0
         assert sum(data["series"][1]["values"]) == 72.0
+        notice = one(page, "#unfiled-notice")
+        assert "$500.00" in text(notice)
+        assert notice.get("href") == "/review/uncategorized"
 
     def test_recent_transactions_table(
         self, client: TestClient, ledger: Ledger

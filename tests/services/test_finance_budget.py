@@ -1944,9 +1944,20 @@ class TestAMonthAsItWent:
     ) -> None:
         checking = await _account(svc)
         savings = await _account(svc, name="Savings", account_type="savings")
-        await _txn(svc, checking.id, 200_000, date(2026, 7, 1), name="Payroll")
+        pay = (await svc.get_or_create_category_from_hint("Income:Salary")).id
+        interest = (await svc.get_or_create_category_from_hint("Income:Interest")).id
+        await _txn(
+            svc, checking.id, 200_000, date(2026, 7, 1), name="Payroll", category_id=pay
+        )
         await _txn(svc, checking.id, -12_000, date(2026, 7, 5), name="Gas")
-        await _txn(svc, savings.id, 1_500, date(2026, 7, 9), name="Interest")
+        await _txn(
+            svc,
+            savings.id,
+            1_500,
+            date(2026, 7, 9),
+            name="Interest",
+            category_id=interest,
+        )
         moved = await _txn(
             svc, checking.id, -50_000, date(2026, 7, 7), name="To savings"
         )
@@ -1966,8 +1977,16 @@ class TestAMonthAsItWent:
     async def test_the_account_filter_narrows_them(self, svc: FinanceService) -> None:
         checking = await _account(svc)
         savings = await _account(svc, name="Savings", account_type="savings")
+        interest = (await svc.get_or_create_category_from_hint("Income:Interest")).id
         await _txn(svc, checking.id, 200_000, date(2026, 7, 1), name="Payroll")
-        await _txn(svc, savings.id, 1_500, date(2026, 7, 9), name="Interest")
+        await _txn(
+            svc,
+            savings.id,
+            1_500,
+            date(2026, 7, 9),
+            name="Interest",
+            category_id=interest,
+        )
 
         actuals = await svc.budget_month_actuals(
             owner_user_id=1, period_month=_MONTH, account_ids=[savings.id]

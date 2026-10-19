@@ -73,8 +73,10 @@ async def test_ledger_monthly_detail_reports_cashflow(
 ) -> None:
     account = await seed_account(svc)
     today = current_date()
-    await seed_txn(svc, account.id, 250_00, today)
+    salary = await svc.get_or_create_category_from_hint("Income:Salary")
+    await seed_txn(svc, account.id, 250_00, today, category_id=salary.id)
     await seed_txn(svc, account.id, -100_00, today)
+    await seed_txn(svc, account.id, 40_00, today)  # filed as nothing
 
     summary = await ai_tools.ledger(months=1)
 
@@ -83,6 +85,7 @@ async def test_ledger_monthly_detail_reports_cashflow(
     assert month["income_cents"] == 250_00
     assert month["spend_cents"] == 100_00
     assert month["net_cents"] == 150_00
+    assert month["unfiled_cents"] == 40_00
 
 
 async def test_ledger_transactions_detail_lists_line_items(
@@ -961,6 +964,7 @@ async def test_bills_say_where_they_draw_from_and_what_they_are(
 
 
 @pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=3)  # the rows read twice: two calls
 async def test_a_transaction_says_which_bill_it_pays(
     svc: FinanceService, session: AsyncSession
 ) -> None:
@@ -1300,6 +1304,7 @@ async def test_projection_walks_cash_forward_over_a_requested_window(
 
 
 @pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=3)  # the rows read twice: two calls
 async def test_a_transaction_reads_the_same_from_either_tool(
     svc: FinanceService, session: AsyncSession
 ) -> None:
@@ -1516,6 +1521,7 @@ async def test_transactions_finds_a_spoken_round_amount(
 
 
 @pytest.mark.asyncio
+@pytest.mark.queryspy(threshold=3)  # the rows read twice: two calls
 async def test_transactions_narrows_by_date(
     svc: FinanceService, session: AsyncSession
 ) -> None:
@@ -1740,3 +1746,44 @@ def test_a_matching_tool_shows_its_keys(tool: str, keys: set[str]) -> None:
 
     schema = Tool(resolve_tools([tool])[0]).function_schema.return_schema
     assert keys <= set(schema.get("properties", {}))
+
+
+async def test_a_row_says_what_every_total_counts_it_as(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A refund is a credit, and a credit was income to a model summing by
+    sign: each row now says what the totals count it as (#316)."""
+    account = await seed_account(svc)
+    food = await svc.get_or_create_category_from_hint("Food:Groceries")
+    day = current_date()
+    await seed_txn(svc, account.id, -40_00, day, name="Grocer", category_id=food.id)
+    await seed_txn(
+        svc, account.id, 15_00, day, name="Grocer refund", category_id=food.id
+    )
+    await seed_txn(svc, account.id, 900_00, day, name="Deposit")
+    await session.commit()
+
+    rows = (await ai_tools.transactions(since=day.isoformat()))["transactions"]
+
+    assert {r["payee"]: r["counts_as"] for r in rows} == {
+        "Grocer": "spending",
+        "Grocer refund": "spending",
+        "Deposit": "unfiled",
+    }
+
+
+async def test_the_balance_sheet_says_which_accounts_make_net_worth(
+    svc: FinanceService, session: AsyncSession
+) -> None:
+    """A goal's pot holds money already counted where it sits: summed with
+    every other row, a net worth counted it twice."""
+    await seed_account(svc, current_balance=5_000_00)
+    await create_envelope(
+        session, owner_user_id=1, name="Groceries", monthly_credit=300_00
+    )
+    await session.commit()
+
+    result = await ai_tools.accounts()
+
+    counted = {a["name"]: a["counts_in_net_worth"] for a in result["accounts"]}
+    assert counted == {"Checking": True, "Groceries": False}

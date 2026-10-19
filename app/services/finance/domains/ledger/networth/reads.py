@@ -12,6 +12,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import ACCOUNT_GROUPS, account_group
 from app.services.finance.domains.ledger import queries
+from app.services.finance.domains.ledger.accounts import effective_balance
+from app.services.finance.domains.ledger.net_worth_rule import (
+    counts_in_net_worth,
+    sum_into,
+)
 from app.services.finance.domains.ledger.networth.snapshots import _today
 from app.services.finance.domains.planning import insights
 from app.services.finance.models import (
@@ -48,22 +53,14 @@ async def get_net_worth_series(
     ``until`` stops the series at that day (a from-to range, #342).
     """
     since = _today() - timedelta(days=max(days, 1) - 1)
-    account_ids = await _in_view(db, owner_user_id, account_ids, without_house)
-    if account_ids is not None:
-        rows = await queries.balance_series(
-            db,
-            account_ids=account_ids,
-            since=since,
-            until=until,
-            owner_user_id=owner_user_id,
+    if account_ids is not None or without_house:
+        left_out = await _left_out(db, owner_user_id, without_house)
+        rows = await _counted_rows(
+            db, owner_user_id, account_ids, left_out, since, until
         )
         per_day: dict[date, list[int]] = {}
         for balance_date, classification, _type, total in rows:
-            bucket = per_day.setdefault(balance_date, [0, 0])
-            if classification == "liability":
-                bucket[1] += abs(int(total or 0))
-            else:
-                bucket[0] += int(total or 0)
+            sum_into(per_day.setdefault(balance_date, [0, 0]), classification, total)
         # Transient rows, shaped like the materialized ones; never persisted.
         return [
             FinanceNetWorthSnapshot(
@@ -82,25 +79,50 @@ async def get_net_worth_series(
     )
 
 
-async def _live_ids(db: AsyncSession, owner_user_id: int | None) -> list[int]:
-    accounts = await queries.live_accounts_for_owner(db, owner_user_id=owner_user_id)
-    return [account.id for account in accounts if account.id is not None]
+async def _left_out(
+    db: AsyncSession, owner_user_id: int | None, without_house: bool
+) -> set[int]:
+    """The property accounts and the loans they secure, when the house is
+    left out (#343); nothing otherwise."""
+    if not without_house:
+        return set()
+    return await queries.house_account_ids(db, owner_user_id=owner_user_id)
 
 
-async def _in_view(
+async def _counted_rows(
     db: AsyncSession,
     owner_user_id: int | None,
     account_ids: list[int] | None,
-    without_house: bool,
-) -> list[int] | None:
-    """The accounts a net worth read sums; None means the owner's whole
-    book. ``without_house`` drops the property accounts and the loans
-    they secure together (#343), from whatever else is in view."""
-    if not without_house:
-        return account_ids
-    house = await queries.house_account_ids(db, owner_user_id=owner_user_id)
-    in_view = account_ids or await _live_ids(db, owner_user_id)
-    return [i for i in in_view if i not in house]
+    left_out: set[int],
+    since: date,
+    until: date | None,
+) -> list[tuple[date, str, str, int]]:
+    """(day, classification, account type, balance) for ``account_ids``
+    (None: the whole book) less ``left_out``, each day only while the
+    account counts in net worth then (#314, #315) - a closed one stays in
+    the days before it closed."""
+    accounts = {
+        a.id: a
+        for a in await queries.live_accounts_for_owner(db, owner_user_id=owner_user_id)
+    }
+    ids = [
+        i
+        for i in (account_ids if account_ids is not None else accounts)
+        if i is not None and i not in left_out
+    ]
+    return [
+        (day, classification, account_type, int(balance or 0))
+        for day, account_id, classification, account_type, balance in (
+            await queries.balance_series(
+                db,
+                account_ids=ids,
+                since=since,
+                until=until,
+                owner_user_id=owner_user_id,
+            )
+        )
+        if account_id in accounts and counts_in_net_worth(accounts[account_id], day)
+    ]
 
 
 async def net_worth_by_type(
@@ -117,14 +139,8 @@ async def net_worth_by_type(
     per-account snapshots and the same query as the filtered net line, so
     the groups sum to it."""
     since = _today() - timedelta(days=max(days, 1) - 1)
-    in_view = await _in_view(db, owner_user_id, account_ids, without_house)
-    rows = await queries.balance_series(
-        db,
-        account_ids=await _live_ids(db, owner_user_id) if in_view is None else in_view,
-        since=since,
-        until=until,
-        owner_user_id=owner_user_id,
-    )
+    left_out = await _left_out(db, owner_user_id, without_house)
+    rows = await _counted_rows(db, owner_user_id, account_ids, left_out, since, until)
     by_group: dict[str, dict[date, int]] = {}
     for balance_date, classification, account_type, total in rows:
         amount = int(total or 0)
@@ -166,8 +182,27 @@ def analyst_available() -> bool:
 async def account_rollup(
     db: AsyncSession, *, owner_user_id: int | None = None
 ) -> tuple[int, int, int]:
-    """(assets, liabilities, account_count) in a single aggregate query."""
-    return await queries.account_rollup(db, owner_user_id=owner_user_id)
+    """(assets, liabilities owed, live account count): the accounts in net
+    worth (#314) at the balance the pages show - a debt is owed whichever
+    sign its bank stores it with."""
+    accounts = await queries.live_accounts_for_owner(db, owner_user_id=owner_user_id)
+    activity = await queries.transaction_totals_by_account(
+        db, owner_user_id=owner_user_id, account_ids=[a.id for a in accounts]
+    )
+    assets = liabilities = 0
+    for account in accounts:
+        if not counts_in_net_worth(account):
+            continue
+        worth = effective_balance(
+            current_balance=account.current_balance,
+            balance_as_of=account.balance_as_of,
+            classification=account.classification,
+            activity_balance=activity.get(account.id, 0),
+        )
+        totals = [assets, liabilities]
+        sum_into(totals, account.classification, worth)
+        assets, liabilities = totals
+    return assets, liabilities, len(accounts)
 
 
 async def connection_rollup(
@@ -234,7 +269,9 @@ async def health(
     Backs ``GET /api/v1/finance/health``. ``status`` is ``"ok"`` unless a
     connection needs the user's attention (re-auth, consent expired, ...).
     """
-    _, _, accounts = await account_rollup(db, owner_user_id=owner_user_id)
+    accounts = len(
+        await queries.live_accounts_for_owner(db, owner_user_id=owner_user_id)
+    )
     connections, needs_action = await connection_rollup(db, owner_user_id=owner_user_id)
     return FinanceHealth(
         status="ok" if needs_action == 0 else "attention",

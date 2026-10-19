@@ -289,6 +289,27 @@ class FinanceBudgetCategory(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class FinanceBudgetMonth(SQLModel, table=True):
+    """A budget month as it stood when it ended (#319): its limits, bills,
+    income and result, recorded once and read back, so a month that is
+    over stays over - a bill added or a charge filed into it later does
+    not rewrite it. ``summary`` and ``actuals`` are the page's own
+    response models, dumped."""
+
+    __tablename__ = "finance_budget_month"
+    __table_args__ = (
+        Index("uq_finance_budget_month", "owner_user_id", "period_month", unique=True),
+        {"schema": _SCHEMA},
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    owner_user_id: int = Field()
+    period_month: int  # YYYYMM
+    summary: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    actuals: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    recorded_at: datetime = Field(default_factory=utcnow)
+
+
 class FinanceSpendingBaseline(SQLModel, table=True):
     """Materialized trailing 3/6/12-month averages per category (and optional
     merchant) — powers anomaly-vs-your-own-baseline "wasting money" insights.

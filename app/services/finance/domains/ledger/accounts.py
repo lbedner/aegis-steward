@@ -30,6 +30,7 @@ from app.services.finance.models import (
 from app.services.finance.schemas import ReconcileResponse
 from app.services.finance.utils import (
     DEFAULT_CURRENCY,
+    current_date,
 )
 
 
@@ -122,6 +123,7 @@ async def list_accounts(
     page: int = 1,
     page_size: int = 50,
     subject_id: int | None = queries.HOUSEHOLD,
+    include_closed: bool = False,
 ) -> tuple[list[FinanceAccount], int]:
     return await queries.accounts_page(
         db,
@@ -130,6 +132,7 @@ async def list_accounts(
         page=page,
         page_size=page_size,
         subject_id=subject_id,
+        include_closed=include_closed,
     )
 
 
@@ -221,8 +224,11 @@ async def update_account(
     reference: str | None = None,
     is_hidden: bool | None = None,
     is_closed: bool | None = None,
+    closed_on: date | None = None,
 ) -> FinanceAccount | None:
-    """Rename / hide / close an account. Returns None if not found/owned."""
+    """Rename / hide / close an account. Returns None if not found/owned.
+    Closing dates it (``closed_on``, today by default); reopening clears
+    the date. Either redraws the net-worth line it changes."""
     account = await get_account(db, account_id, owner_user_id=owner_user_id)
     if account is None:
         return None
@@ -235,9 +241,12 @@ async def update_account(
         account.is_hidden = is_hidden
     if is_closed is not None:
         account.is_closed = is_closed
+        account.closed_on = (closed_on or current_date()) if is_closed else None
     account.updated_at = utcnow()
     db.add(account)
     await db.flush()
+    if is_hidden is not None or is_closed is not None:
+        await redraw_line(db, account.owner_user_id)
     return account
 
 
@@ -251,7 +260,26 @@ async def soft_delete_account(
     account.deleted_at = utcnow()
     db.add(account)
     await db.flush()
+    await redraw_line(db, account.owner_user_id)
     return True
+
+
+async def redraw_line(db: AsyncSession, owner_user_id: int | None) -> int:
+    """The whole net-worth line under today's rule (#314): the recent
+    window rebuilt from balances, and every earlier day re-summed from
+    the balances recorded for it. An account leaving or joining changes
+    every day it was summed into; a line redrawn only lately disagrees
+    with itself further back. Days written."""
+    from app.services.finance.domains.ledger.networth.snapshots import (
+        recompute_snapshots,
+        resum_line,
+        window_start,
+    )
+
+    written = await recompute_snapshots(db, owner_user_id=owner_user_id)
+    return written + await resum_line(
+        db, owner_user_id=owner_user_id, before=window_start()
+    )
 
 
 async def purge_account(
@@ -280,7 +308,6 @@ async def purge_connection_accounts(
 async def _purged(
     db: AsyncSession, account_ids: list[int], owner_user_id: int | None
 ) -> int:
-    from app.services.finance.domains.ledger import networth
     from app.services.finance.domains.writes import queue
 
     await queue.expire_naming(
@@ -291,7 +318,7 @@ async def _purged(
     )
     removed = await queries.purge_accounts(db, account_ids)
     if account_ids:
-        await networth.recompute_snapshots(db, owner_user_id=owner_user_id)
+        await redraw_line(db, owner_user_id)
     return removed
 
 
@@ -304,6 +331,14 @@ async def reconcile_adjustment_for(
     db: AsyncSession, account_id: int, statement_date: date
 ) -> FinanceTransaction | None:
     return await queries.reconcile_adjustment_on(db, account_id, statement_date)
+
+
+def statement_balance(classification: str, printed: int) -> int:
+    """A statement's balance as the register holds it: a debt's statement
+    prints what is owed, which the register holds negative - and a
+    credit it prints negative is money owed back, positive. An asset's
+    reads as printed, an overdraft negative as it is."""
+    return -printed if classification == "liability" else printed
 
 
 async def reconcile_preview(
@@ -338,6 +373,15 @@ async def reconcile_preview(
         adjustment_transaction_id=existing.id if existing else None,
         applied=False,
     )
+
+
+def mark_reconciled(account: FinanceAccount, through: date) -> None:
+    """The account's waterline: reconciled through ``through``, unless
+    it already is through a later day."""
+    meta = account.metadata_ or {}
+    known = meta.get("reconciled_through")
+    if known is None or known < through.isoformat():
+        account.metadata_ = {**meta, "reconciled_through": through.isoformat()}
 
 
 async def reconcile_account(
@@ -431,15 +475,18 @@ async def reconcile_account(
                 statement_date.year, statement_date.month, statement_date.day
             )
 
-    account.metadata_ = {
-        **(account.metadata_ or {}),
-        "reconciled_through": statement_date.isoformat(),
-    }
+    mark_reconciled(account, statement_date)
     db.add(account)
     await db.flush()
     result.reconciled_through = statement_date
 
+    from app.services.finance.domains.detection.insights.statement_gaps import (
+        settle_gaps,
+    )
     from app.services.finance.domains.ledger import networth
+
+    # A statement that said it was off is answered now (#321).
+    await settle_gaps(db, account_id, statement_date)
 
     await networth.recompute_snapshots(
         db, owner_user_id=owner_user_id, start_date=statement_date

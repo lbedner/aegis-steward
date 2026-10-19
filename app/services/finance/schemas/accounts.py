@@ -124,6 +124,11 @@ class AccountResponse(BaseModel):
     # Whose money this is, when it is not the household's own. Null is
     # ours, so every ledger that predates subjects reads unchanged.
     subject_id: int | None = None
+    is_hidden: bool = False
+    is_closed: bool = False
+    closed_on: date | None = None
+    # The last statement the register agreed with (#321).
+    reconciled_through: date | None = None
     liability: LiabilitySummary | None = None
     # Present only on property accounts. The stored metadata blob is
     # parsed through its own model, so a client never sees raw keys.
@@ -152,6 +157,10 @@ class AccountResponse(BaseModel):
             reference=row.reference,
             mask=row.mask,
             subject_id=row.subject_id,
+            is_hidden=row.is_hidden,
+            is_closed=row.is_closed,
+            closed_on=row.closed_on,
+            reconciled_through=(row.metadata_ or {}).get("reconciled_through"),
             liability=(
                 LiabilitySummary.from_row(liability) if liability is not None else None
             ),

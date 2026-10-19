@@ -15,6 +15,7 @@ from app.services.finance.models import (
 )
 from app.services.shared.queries import owner_clause
 
+from .offers import Offers
 from .shared import (
     _CREDIT_CARD_TYPE,
     AUTO_THRESHOLD,
@@ -74,6 +75,8 @@ async def _pair_payment_history(db: AsyncSession, *, owner_user_id: int | None) 
         db, _unpaired(asset_ids, inflow=False)
     )
 
+    # An offer on these legs (#317) gives way: this is a sure pair.
+    offered = Offers(await queries.transfers_for_owner(db, owner_user_id))
     by_amount: dict[tuple[int, str], list[FinanceTransaction]] = {}
     for txn in outflows:
         by_amount.setdefault((abs(txn.amount), txn.currency), []).append(txn)
@@ -89,8 +92,10 @@ async def _pair_payment_history(db: AsyncSession, *, owner_user_id: int | None) 
         if not candidates:
             continue
         out_txn = min(candidates, key=lambda t: abs((t.date_ - in_txn.date_).days))
+        held = offered.holding(out_txn.id, in_txn.id)
         try:
             async with db.begin_nested():
+                await offered.take(db, held)
                 transfer = FinanceTransfer(
                     owner_user_id=owner_user_id,
                     organization_id=out_txn.organization_id,
@@ -123,5 +128,7 @@ async def _pair_payment_history(db: AsyncSession, *, owner_user_id: int | None) 
             logger.debug("payment-history pairing skipped: leg already paired")
             continue
         used.add(out_txn.id)
+        offered.taken_by(held)
         paired += 1
+    await offered.withdraw(db)
     return paired

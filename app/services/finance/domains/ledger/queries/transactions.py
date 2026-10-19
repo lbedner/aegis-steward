@@ -7,8 +7,7 @@ transaction surfaces are built from.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from sqlalchemy import func
@@ -33,7 +32,6 @@ from app.services.finance.models import (
     FinanceTransactionSplit,
     FinanceTransactionTag,
 )
-from app.services.finance.utils import current_date
 from app.services.shared.queries import owner_filters
 
 
@@ -327,95 +325,6 @@ async def newest_transaction_date(
     ).one()
 
 
-async def top_payees_over_window(
-    db: AsyncSession,
-    *,
-    owner_user_id: int | None = None,
-    days: int = 90,
-    limit: int = 8,
-) -> list[tuple[str, int, int]]:
-    """(payee, outflow total as positive cents, transaction count) grouped
-    by payee, biggest first, transfers excluded.
-
-    The payee is ``payee_label``'s rule in SQL: the payee somebody NAMED
-    first, then the one the source supplied, then the raw descriptor.
-    Grouping on the source's name alone made this list disagree with
-    every other surface - the register showed "Maple Nursing Care"
-    while this showed "Recurring Withdrawal Debit Card CK *Maple Nu...".
-
-    It is not only the label. Naming a payee is what makes its rows ADD
-    UP: on the live ledger one Shop Rite reached this list at $662.78
-    across seven transactions that had been seven separate descriptors,
-    and two American Express charges that had been filed under two
-    different interest-charge descriptions became one row. A list of
-    biggest payees built on descriptors ranks the wrong things.
-    """
-    payee = func.coalesce(
-        FinanceMerchant.name,
-        FinanceTransaction.merchant_name,
-        FinanceTransaction.name,
-    )
-    filters = [
-        FinanceTransaction.deleted_at.is_(None),
-        not_duplicate(),
-        FinanceTransaction.excluded_from_reports.is_(False),
-        FinanceTransaction.is_transfer.is_(False),
-        FinanceTransaction.account_id.in_(live_account_ids()),
-        FinanceTransaction.amount < 0,
-        FinanceTransaction.date_ >= current_date() - timedelta(days=days),
-        payee.is_not(None),
-    ]
-    filters.extend(owner_filters(FinanceTransaction.owner_user_id, owner_user_id))
-    rows = (
-        await db.exec(
-            select(
-                payee,
-                func.sum(FinanceTransaction.amount),
-                func.count(FinanceTransaction.id),
-            )
-            .select_from(FinanceTransaction)
-            .outerjoin(
-                FinanceMerchant, FinanceMerchant.id == FinanceTransaction.merchant_id
-            )
-            .where(*filters)
-            .group_by(payee)
-            .order_by(func.sum(FinanceTransaction.amount))
-            .limit(limit)
-        )
-    ).all()
-    return [(name, -int(total or 0), int(count or 0)) for name, total, count in rows]
-
-
-async def dated_amounts_in_window(
-    db: AsyncSession,
-    *,
-    owner_user_id: int | None = None,
-    start: date,
-    end: date,
-    account_ids: list[int] | None = None,
-) -> list[tuple[date, int]]:
-    """(date, amount) pairs for cashflow bucketing: live accounts,
-    non-duplicate, report-included, transfers excluded."""
-    filters = [
-        FinanceTransaction.deleted_at.is_(None),
-        not_duplicate(),
-        FinanceTransaction.excluded_from_reports.is_(False),
-        FinanceTransaction.is_transfer.is_(False),
-        FinanceTransaction.account_id.in_(live_account_ids()),
-        FinanceTransaction.date_ >= start,
-        FinanceTransaction.date_ <= end,
-    ]
-    if account_ids is not None:
-        filters.append(FinanceTransaction.account_id.in_(account_ids))
-    filters.extend(owner_filters(FinanceTransaction.owner_user_id, owner_user_id))
-    rows = (
-        await db.exec(
-            select(FinanceTransaction.date_, FinanceTransaction.amount).where(*filters)
-        )
-    ).all()
-    return [(txn_date, amount) for txn_date, amount in rows]
-
-
 async def tag_by_normalized_name(
     db: AsyncSession, *, store_owner: int, normalized: str
 ) -> FinanceTag | None:
@@ -505,70 +414,3 @@ async def tags_by_transaction(
     for txn_id, tag in rows:
         by_txn[txn_id].append(tag)
     return by_txn
-
-
-async def outflow_by_account_in_window(
-    db: AsyncSession,
-    *,
-    owner_user_id: int | None = None,
-    start: date,
-    end: date,
-    exclude_stream_ids: Sequence[int] | None = None,
-    include_transfer_stream_ids: Sequence[int] | None = None,
-) -> list[tuple[int, int]]:
-    """(account_id, money out as positive cents) over the window.
-
-    What actually left, rather than what was declared: the measured
-    denominator a fund sized in months of expenses needs. Transfers are
-    excluded by the same filter every other spending read uses, which is
-    also what keeps a card payment from counting on top of the swipes it
-    settles - but ``is_transfer`` is set by matching, so a payment nobody
-    matched still looks like spending. ``exclude_stream_ids`` drops whole
-    streams for that case: the stream knows it is a card payment even
-    when one of its transactions was never paired.
-
-    ``include_transfer_stream_ids`` is the opposite door, for transfers
-    that ARE expenses. A matched mortgage payment is a transfer into a
-    liability, so the blanket transfer filter would drop it - and unlike
-    a card payment, nothing else in the ledger records that money
-    leaving.
-    """
-    filters = [
-        FinanceTransaction.deleted_at.is_(None),
-        not_duplicate(),
-        FinanceTransaction.excluded_from_reports.is_(False),
-        FinanceTransaction.account_id.in_(live_account_ids()),
-        FinanceTransaction.amount < 0,
-        FinanceTransaction.date_ >= start,
-        FinanceTransaction.date_ <= end,
-    ]
-    if include_transfer_stream_ids:
-        filters.append(
-            or_(
-                FinanceTransaction.is_transfer.is_(False),
-                FinanceTransaction.recurring_stream_id.in_(
-                    list(include_transfer_stream_ids)
-                ),
-            )
-        )
-    else:
-        filters.append(FinanceTransaction.is_transfer.is_(False))
-    filters.extend(owner_filters(FinanceTransaction.owner_user_id, owner_user_id))
-    if exclude_stream_ids:
-        filters.append(
-            or_(
-                FinanceTransaction.recurring_stream_id.is_(None),
-                FinanceTransaction.recurring_stream_id.notin_(list(exclude_stream_ids)),
-            )
-        )
-    rows = (
-        await db.exec(
-            select(
-                FinanceTransaction.account_id,
-                func.sum(FinanceTransaction.amount),
-            )
-            .where(*filters)
-            .group_by(FinanceTransaction.account_id)
-        )
-    ).all()
-    return [(int(account_id), -int(total or 0)) for account_id, total in rows]

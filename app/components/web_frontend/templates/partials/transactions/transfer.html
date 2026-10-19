@@ -1,0 +1,22 @@
+{# A transfer's two halves (issue 317): what left one account and what
+   reached the other, out of spending together - and the way to say it
+   was not one. #}
+{% from "components/macros/layout.html" import dialog_title %}
+{% from "components/macros/form.html" import action %}
+<div data-narrow>
+{#- A loan payment split around its principal (issue 318) counts its interest and escrow. -#}
+{% if legs|selectattr("is_split")|list %}
+{{ dialog_title("Loan payment", "The principal moved to the loan and counts as neither side; the interest and escrow count as spending.") }}
+{% else %}
+{{ dialog_title("Transfer", "Money moved between your own accounts: neither side counts as income or spending.") }}
+{% endif %}
+<ul class="mb-4 divide-y divide-aegis-border/60 text-sm">
+  {% for leg in legs %}
+  <li data-leg="{{ leg.id }}" class="flex items-baseline justify-between gap-4 py-2">
+    <span class="min-w-0"><span class="block text-aegis-text truncate">{{ names.get(leg.account_id, "") }}</span><span class="block text-xxs text-aegis-muted">{{ leg.date_|short_date }} · {{ leg.name }}</span></span>
+    <span class="shrink-0 tabular-nums">{{ leg.amount|money }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{{ action("Not a transfer", 'hx-post="/transactions/' ~ transaction_id ~ '/transfer/break" hx-swap="none" data-break') }}
+</div>

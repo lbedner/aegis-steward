@@ -11,7 +11,7 @@ from app.components.frontend.dashboard.modals.finance_modal.account_header impor
 from app.components.frontend.dashboard.modals.finance_modal.transactions_panel.property_details import (
     property_payload,
 )
-from app.services.finance.constants import ACCOUNT_ACTION_LABELS as LABELS
+from app.services.finance.account_menu import ACCOUNT_ACTION_LABELS as LABELS
 
 
 class TestManageMenu:

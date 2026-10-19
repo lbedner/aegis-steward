@@ -9,13 +9,16 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import date, timedelta
+from typing import Any
 
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, union_all
 from sqlmodel import or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.ledger.queries.filters import (
-    live_account_ids,
+    counts_as,
+    household_account_ids,
+    money_kind,
     not_duplicate,
     split_aware_category_clause,
     uncategorized_catchall_ids,
@@ -226,19 +229,16 @@ def _category_outflow_filters(
     start: date,
     end: date | None,
     account_ids: list[int] | None,
-    inflow: bool = False,
 ) -> list[object]:
-    """Report-included outflows on live accounts - the shared predicate
-    behind every category-spend rollup; ``inflow`` asks for the money in
-    instead (#344). Callers add their own "which category column is
-    non-NULL" clause: the parent's for unsplit rows, the line's when
-    reading through ``finance_transaction_split``."""
+    """Report-included rows on live accounts - the shared predicate behind
+    every category rollup. Which rows are spending and which income is
+    the caller's ``_counted`` clause, on the parent for unsplit rows and
+    on the line when reading through ``finance_transaction_split``."""
     filters: list[object] = [
         FinanceTransaction.deleted_at.is_(None),
         not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
-        FinanceTransaction.account_id.in_(live_account_ids()),
-        FinanceTransaction.amount > 0 if inflow else FinanceTransaction.amount < 0,
+        FinanceTransaction.account_id.in_(household_account_ids()),
         FinanceTransaction.date_ >= start,
     ]
     if end is not None:
@@ -249,6 +249,14 @@ def _category_outflow_filters(
     return filters
 
 
+def _kinds() -> tuple[Any, Any]:
+    """What an unsplit row counts as, and what a split line does."""
+    return (
+        money_kind(FinanceTransaction.category_id, FinanceTransaction.amount),
+        money_kind(FinanceTransactionSplit.category_id, FinanceTransactionSplit.amount),
+    )
+
+
 async def category_spend_totals(
     db: AsyncSession,
     *,
@@ -256,44 +264,42 @@ async def category_spend_totals(
     start: date,
     end: date | None = None,
     account_ids: list[int] | None = None,
-    inflow: bool = False,
-) -> list[tuple[str, int]]:
-    """Signed spend total per LEAF category name over the window, two
-    grouped queries (unsplit parents + split lines); money in instead with
-    ``inflow``. Callers roll up / sign-flip as their surface needs."""
-    filters = _category_outflow_filters(
-        owner_user_id, start, end, account_ids, inflow=inflow
+) -> list[tuple[str, str, int]]:
+    """(LEAF category name, ``"spending"`` or ``"income"``, signed total)
+    over the window - spending net of its returns - in ONE statement
+    (unsplit parents and split lines, unioned), so a page showing both
+    reads once. Callers roll up / sign-flip as their surface needs."""
+    filters = _category_outflow_filters(owner_user_id, start, end, account_ids)
+    own, line = _kinds()
+    wanted = ("spending", "income")
+    parents = (
+        select(
+            FinanceCategory.name, own.label("kind"), func.sum(FinanceTransaction.amount)
+        )
+        .join(FinanceCategory, FinanceTransaction.category_id == FinanceCategory.id)
+        .where(*filters, own.in_(wanted), FinanceTransaction.is_split.is_(False))
+        .group_by(FinanceCategory.name, own)
     )
-    rows = (
-        await db.exec(
-            select(FinanceCategory.name, func.sum(FinanceTransaction.amount))
-            .join(
-                FinanceCategory,
-                FinanceTransaction.category_id == FinanceCategory.id,
-            )
-            .where(*filters, FinanceTransaction.is_split.is_(False))
-            .group_by(FinanceCategory.name)
+    lines = (
+        select(
+            FinanceCategory.name,
+            line.label("kind"),
+            func.sum(FinanceTransactionSplit.amount),
         )
-    ).all()
-    split_rows = (
-        await db.exec(
-            select(FinanceCategory.name, func.sum(FinanceTransactionSplit.amount))
-            .join(
-                FinanceTransaction,
-                FinanceTransaction.id == FinanceTransactionSplit.parent_transaction_id,
-            )
-            .join(
-                FinanceCategory,
-                FinanceTransactionSplit.category_id == FinanceCategory.id,
-            )
-            .where(*filters, FinanceTransaction.is_split.is_(True))
-            .group_by(FinanceCategory.name)
+        .join(
+            FinanceTransaction,
+            FinanceTransaction.id == FinanceTransactionSplit.parent_transaction_id,
         )
-    ).all()
-    totals: dict[str, int] = {}
-    for name, total in [*rows, *split_rows]:
-        totals[name] = totals.get(name, 0) + int(total)
-    return list(totals.items())
+        .join(
+            FinanceCategory, FinanceTransactionSplit.category_id == FinanceCategory.id
+        )
+        .where(*filters, line.in_(wanted), FinanceTransaction.is_split.is_(True))
+        .group_by(FinanceCategory.name, line)
+    )
+    totals: dict[tuple[str, str], int] = {}
+    for name, kind, total in (await db.exec(union_all(parents, lines))).all():
+        totals[(name, kind)] = totals.get((name, kind), 0) + int(total)
+    return [(name, kind, total) for (name, kind), total in totals.items()]
 
 
 async def spending_rows(
@@ -311,6 +317,7 @@ async def spending_rows(
     parent surfaces when one of its LINES matches - the row shown is
     still the parent, badge and lines rendered by the register."""
     filters = _category_outflow_filters(owner_user_id, start, end, account_ids)
+    own, line = counts_as("spending"), counts_as("spending", line=True)
     if categories:
         matching_ids = select(FinanceCategory.id).where(
             or_(
@@ -328,7 +335,9 @@ async def spending_rows(
     else:
         own_category = FinanceTransaction.category_id.is_not(None)
         line_category = FinanceTransactionSplit.category_id.is_not(None)
-    filters.append(split_aware_category_clause(own_category, line_category))
+    filters.append(
+        split_aware_category_clause(and_(own_category, own), and_(line_category, line))
+    )
     rows = (
         await db.exec(
             select(FinanceTransaction)

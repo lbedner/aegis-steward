@@ -110,6 +110,7 @@ class TestSubjects:
         assert len(rows) == 2
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # given, then handed back: two redraws
     async def test_a_subject_can_be_released(self, svc: FinanceService) -> None:
         subject = await svc.create_subject(name="Dad", owner_user_id=1)
         account = await _account(svc)

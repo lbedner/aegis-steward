@@ -15,7 +15,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Form, Request
 from starlette.responses import Response
 
-from app.components.backend.api.finance.accounts import list_accounts
+from app.components.backend.api.finance.accounts import (
+    account_responses,
+    list_accounts,
+)
 from app.components.web_frontend.filters import (
     arrivals_by_account,
     money_to_cents,
@@ -48,16 +51,23 @@ from app.components.web_frontend.routes.finance.valuations import (
     valuation_history,
 )
 from app.components.web_frontend.seen import remember, watermark
-from app.services.finance.constants import (
+from app.services.finance.account_menu import (
     ACCOUNT_ACTION_LABELS,
+    POT_ACCOUNT_TYPES,
+    account_actions,
+)
+from app.services.finance.constants import (
     ADD_ACCOUNT_TYPES,
     INVESTMENT_ACCOUNT_TYPES,
     PROPERTY_ACCOUNT_TYPE,
-    account_actions,
     account_classification,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.domains.ledger.institutions import websites
+from app.services.finance.domains.ledger.net_worth_rule import (
+    counts_in_net_worth,
+    net_of,
+)
 from app.services.finance.schemas import AccountResponse
 from app.services.finance.service import FinanceService
 
@@ -74,6 +84,8 @@ def actions(account: AccountResponse) -> list[dict[str, str]]:
         account_type=account.account_type,
         classification=account.classification,
         connected=account.connection_id is not None,
+        hidden=account.is_hidden,
+        closed=account.is_closed,
     )
     return [
         {
@@ -110,22 +122,35 @@ async def _accounts(
     owner_user_id: int | None,
     seeing: str | None = None,
     since: datetime | None = None,
+    set_aside: bool = False,
 ) -> tuple[list[AccountResponse], dict[str, Any]]:
-    """Every live account, and the shape both pages read it through.
+    """Every open account, and the shape both pages read it through.
 
     ``seeing`` is the ``?whose=`` parameter. It defaults to ours, so the
     portfolio total on this page is a statement about our money however
-    many other people's accounts the app is holding.
+    many other people's accounts the app is holding. ``set_aside`` also
+    lists the closed and hidden ones (#315), apart and out of the total:
+    the portfolio's sections, read in the same one listing.
     """
-    listing = await list_accounts(
-        include_hidden=False,
+    everything = await list_accounts(
+        include_hidden=set_aside,
+        include_closed=set_aside,
         page=1,
         page_size=200,
         subject_id=subjects.whose(seeing),
         service=service,
         owner_user_id=owner_user_id,
     )
-    sites = await websites(service.db, {a.institution_id for a in listing.items})
+    listing = everything.model_copy(
+        update={
+            "items": [a for a in everything.items if not (a.is_hidden or a.is_closed)]
+        }
+    )
+
+    def rows(accounts: list[AccountResponse]) -> list[dict[str, Any]]:
+        return [{"account": a, "balance": balance(a)} for a in accounts]
+
+    sites = await websites(service.db, {a.institution_id for a in everything.items})
     return listing.items, {
         "section": SECTION,
         **await subjects.chips(service, seeing),
@@ -135,13 +160,29 @@ async def _accounts(
             service.db, since, [a.id for a in listing.items]
         ),
         "groups": grouped(listing.items),
-        "total": sum(balance(a) for a in listing.items),
+        # Ours by the net-worth rule (#314); someone else's portfolio is
+        # all theirs, so all of it.
+        "total": net_of(
+            (a.classification, balance(a))
+            for a in listing.items
+            if a.subject_id is not None or counts_in_net_worth(a)
+        ),
+        "closed": rows([a for a in everything.items if a.is_closed]),
+        "hidden_accounts": rows(
+            [
+                a
+                for a in everything.items
+                if a.is_hidden
+                and not a.is_closed
+                and a.account_type not in POT_ACCOUNT_TYPES
+            ]
+        ),
         "statement_lines": {a.id: statement_line(a) for a in listing.items},
         # A brand mark per account, borrowed from the bank it is held at.
         # One resolution for the page, never one per row - and the banks'
         # websites read once, for the marks and the header's link (#412).
         "account_icons": await account_icons(
-            service, listing.items, owner_user_id, sites
+            service, everything.items, owner_user_id, sites
         ),
         "bank_sites": sites,
     }
@@ -161,6 +202,9 @@ async def _one_account(
     whose = str(found.subject_id) if found and found.subject_id else None
     accounts, context = await _accounts(service, owner_user_id, whose)
     selected = next((a for a in accounts if a.id == account_id), None)
+    if selected is None and found is not None and (found.is_closed or found.is_hidden):
+        # Closed or hidden (#315): out of the listing, still its own door.
+        (selected,) = await account_responses(service, owner_user_id, [found])
     or_404(selected)
     return accounts, selected, context
 
@@ -313,7 +357,11 @@ async def page(
 ) -> Response:
     """The portfolio. No register: that is the other page's job."""
     _, context = await _accounts(
-        service, owner_user_id, whose, since=watermark(request, "register")
+        service,
+        owner_user_id,
+        whose,
+        since=watermark(request, "register"),
+        set_aside=True,
     )
     return render(request, "pages/accounts.html", context)
 

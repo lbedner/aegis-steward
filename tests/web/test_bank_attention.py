@@ -49,6 +49,7 @@ def queued(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
 
 
 class TestTheBanner:
+    @pytest.mark.queryspy(threshold=3)  # the portfolio twice, page and fragment
     def test_every_page_asks_for_it_and_a_fragment_does_not(
         self, client: TestClient, hx: TestClient, ledger: Ledger
     ) -> None:

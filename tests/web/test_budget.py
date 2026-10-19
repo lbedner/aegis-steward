@@ -852,14 +852,17 @@ class TestAPastMonth:
     ) -> int:
         """Beyond the ledger's reach (its rows are the last five days): a
         $300 fuel limit with $120 against it, $80 of groceries no limit
-        covered, a $2,000 paycheck, and $500 moved to savings."""
+        covered, a $2,000 paycheck filed as income, and $500 moved to
+        savings."""
         period = shift_period(current_period_month(), -2)
         first = date(period // 100, period % 100, 1)
+        salary = await finance.get_or_create_category_from_hint("Income:Salary")
+        assert salary is not None
         await seed_limit(
             finance, budget.fuel, 30_000, owner_user_id=None, period_month=period
         )
         for day, amount, name, category in (
-            (1, 200_000, "Payroll", None),
+            (1, 200_000, "Payroll", salary.id),
             (5, -12_000, "Gas", budget.fuel),
             (6, -8_000, "Market", budget.groceries),
             (7, -50_000, "To savings", None),
@@ -913,6 +916,83 @@ class TestAPastMonth:
         }
         # Figures only, like a month ahead: nothing here opens today's rows.
         none(page, "#budget-stats [hx-get]")
+
+    @pytest.mark.queryspy(threshold=3)  # recorded, then read back
+    async def test_a_month_reads_as_it_closed_and_says_what_changed_since(
+        self,
+        client: TestClient,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+        ledger: Ledger,
+    ) -> None:
+        """Recorded at month end (#319): a charge filed into it later does
+        not rewrite it, and is said."""
+        from app.services.finance.domains.planning.budgets import close_month
+
+        period = await self._two_months_back(finance, async_db_session, budget, ledger)
+        await close_month(async_db_session, owner_user_id=None, period_month=period)
+        await async_db_session.commit()
+        await finance.create_transaction(
+            account_id=ledger.checking,
+            amount=-3_000,
+            txn_date=date(period // 100, period % 100, 9),
+            name="Late charge",
+        )
+        await async_db_session.commit()
+
+        page = client.get("/budget?month=-2").text
+
+        assert stats(page)["Money out"] == "$200.00"
+        changed = text(one(page, "[data-changed-since]"))
+        assert "$200.00" in changed and "$230.00" in changed
+
+    @pytest.mark.queryspy(threshold=3)  # recorded, then read back
+    async def test_a_recorded_month_has_no_days_left(
+        self,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+        ledger: Ledger,
+    ) -> None:
+        """Read as of its last day, it was recorded with that day still
+        left, and Illiana's budget() said an ended month had one."""
+        from app.services.finance.domains.planning.budgets import (
+            close_month,
+            month_as_closed,
+        )
+
+        period = await self._two_months_back(finance, async_db_session, budget, ledger)
+        await close_month(async_db_session, owner_user_id=None, period_month=period)
+
+        closed = await month_as_closed(
+            async_db_session, owner_user_id=None, period_month=period
+        )
+
+        assert closed is not None
+        assert closed.summary.stats.days_left_in_period == 0
+
+    async def test_a_month_nobody_recorded_reads_live_and_records_nothing(
+        self,
+        client: TestClient,
+        finance: FinanceService,
+        async_db_session: AsyncSession,
+        budget: Budget,
+        ledger: Ledger,
+    ) -> None:
+        """Only the month-end job records a month: a reading would record
+        today's bills as that month's."""
+        from sqlmodel import select
+
+        from app.services.finance.models import FinanceBudgetMonth
+
+        await self._two_months_back(finance, async_db_session, budget, ledger)
+
+        page = client.get("/budget?month=-2").text
+
+        assert stats(page)["Money out"] == "$200.00"
+        none(page, "[data-changed-since]")
+        assert (await async_db_session.exec(select(FinanceBudgetMonth))).all() == []
 
     async def test_its_limits_are_read_only_and_open_that_month(
         self,

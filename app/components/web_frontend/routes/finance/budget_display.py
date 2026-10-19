@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from starlette.responses import Response
 
-from app.components.backend.api.finance.budgets import budget_summary
+from app.components.backend.api.finance.budgets import budget_actuals, budget_summary
 from app.components.web_frontend.filters import money
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
@@ -22,7 +22,9 @@ from app.components.web_frontend.rendering import (
     templates,
     with_toast,
 )
+from app.services.finance.domains.planning import budgets
 from app.services.finance.domains.planning.budgets import strip
+from app.services.finance.domains.planning.budgets.closing import ClosedMonth
 from app.services.finance.models import FinanceAccount
 from app.services.finance.schemas import BudgetSummaryResponse, GoalResponse
 from app.services.finance.service import FinanceService
@@ -44,6 +46,36 @@ async def stats_context(
         owner_user_id=owner_user_id,
     )
     return summary, {"cells": strip.stats_cells(summary.stats), "clickable": True}
+
+
+async def past_month(
+    service: FinanceService,
+    owner_user_id: int | None,
+    account_ids: list[int] | None,
+    period: int,
+) -> tuple[BudgetSummaryResponse, dict[str, Any], ClosedMonth | None]:
+    """An ended month and its strip, in actuals only: as recorded when it
+    ended (#319), or read live - filtered by account, or ended before
+    records were kept - and the record, when there is one."""
+    closed = None
+    if account_ids is None:
+        closed = await budgets.month_as_closed(
+            service.db, owner_user_id=owner_user_id, period_month=period
+        )
+    if closed is not None:
+        summary, actuals = closed.summary, closed.actuals
+    else:
+        summary, _live = await stats_context(
+            service, owner_user_id, account_ids, period
+        )
+        actuals = await budget_actuals(
+            month=period,
+            account_ids=account_ids,
+            service=service,
+            owner_user_id=owner_user_id,
+        )
+    cells = strip.review_cells(summary.stats, actuals)
+    return summary, {"cells": cells, "clickable": False}, closed
 
 
 async def with_strip(

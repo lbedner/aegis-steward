@@ -15,10 +15,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import Response
 
 from app.components.backend.api.finance.accounts import list_accounts
-from app.components.backend.api.finance.categories import (
-    income_by_category,
-    spending_by_category,
-)
 from app.components.backend.api.finance.overview import cash_flow
 from app.components.web_frontend import ranges
 from app.components.web_frontend.nav import section
@@ -30,6 +26,7 @@ from app.components.web_frontend.routes.finance.overview import (
     ranked,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.schemas import SpendingCategory
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 
@@ -53,11 +50,18 @@ async def page(
         "service": service,
         "owner_user_id": owner_user_id,
     }
-    flow = await cash_flow(
-        start=current_date() - timedelta(days=window - 1), end=end, **scope
+    since = current_date() - timedelta(days=window - 1)
+    flow = await cash_flow(start=since, end=end, **scope)
+    # Both tables from one read (#316): the same rows, by what they are,
+    # from the same first day as the totals above them.
+    spending_rows, income_rows = await service.flow_by_category(
+        owner_user_id=owner_user_id,
+        since=since,
+        account_ids=account_ids,
+        through=end,
     )
-    spending = await spending_by_category(days=window, end=end, **scope)
-    income = await income_by_category(days=window, end=end, **scope)
+    spending = [SpendingCategory(category=n, amount=a) for n, a in spending_rows]
+    income = [SpendingCategory(category=n, amount=a) for n, a in income_rows]
     accounts = await list_accounts(
         include_hidden=False,
         page=1,

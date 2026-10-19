@@ -991,8 +991,11 @@ class TestExpenseBaseExcludesCardPaymentsOnly:
             )
         )
         await session.flush()
-        # The cash leg wears the transfer flag, the way matching leaves it.
+        # The cash leg wears both flags, the way matching leaves it: set
+        # only ``is_transfer`` and the mortgage counted here while every
+        # real paired payment, out of reports too, did not.
         out_txn.is_transfer = True
+        out_txn.excluded_from_reports = True
         session.add(out_txn)
         await session.flush()
 
@@ -1381,8 +1384,11 @@ class TestLoanPaymentsSurviveTheMeasuredPath:
             )
         )
         await session.flush()
-        # The cash leg wears the transfer flag, the way matching leaves it.
+        # The cash leg wears both flags, the way matching leaves it: set
+        # only ``is_transfer`` and the mortgage counted here while every
+        # real paired payment, out of reports too, did not.
         out_txn.is_transfer = True
+        out_txn.excluded_from_reports = True
         session.add(out_txn)
         await session.flush()
 

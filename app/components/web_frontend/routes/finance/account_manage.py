@@ -41,6 +41,9 @@ from app.components.web_frontend.routes.finance.valuations import (
     valuation_row,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
+from app.services.finance.domains.ledger.accounts import (
+    statement_balance as as_register_holds,
+)
 from app.services.finance.domains.ledger.properties import (
     PROPERTY_KINDS,
     VALUATION_SOURCES,
@@ -76,16 +79,20 @@ async def _account(
 async def reconcile_form(
     request: Request,
     account_id: int,
+    statement_date: date | None = None,
+    statement_balance: str = "",
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
+    """The correction, filled in when a statement that disagreed opens it
+    (#321)."""
     account = await _account(service, account_id, owner_user_id)
     return dialog(
         request,
         "partials/accounts/reconcile.html",
         account=account,
-        statement_date=current_date(),
-        statement_balance="",
+        statement_date=statement_date or current_date(),
+        statement_balance=statement_balance,
         result=None,
         errors=[],
     )
@@ -122,8 +129,8 @@ async def reconcile(
             errors=errors,
         )
     assert statement_date is not None and cents is not None
-    if account.classification == "liability":
-        cents = -abs(cents)
+    # What is owed, typed as the statement prints it (#321).
+    cents = as_register_holds(account.classification, cents)
     result = await reconcile_account(
         account_id,
         ReconcileRequest(

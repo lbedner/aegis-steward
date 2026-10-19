@@ -81,6 +81,18 @@ class CategoriesMixin(FinanceServiceBase):
             through=through,
         )
 
+    async def flow_by_category(
+        self,
+        *,
+        owner_user_id: int | None = None,
+        since: date,
+        account_ids: list[int] | None = None,
+        through: date | None = None,
+    ) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+        return await categories.flow_by_category(
+            self.db, owner_user_id, since, account_ids, through
+        )
+
     async def income_by_category(
         self,
         *,

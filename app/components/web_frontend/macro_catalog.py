@@ -230,6 +230,8 @@ EXAMPLES: dict[str, dict[str, str]] = {
         "sse_job": """
             {# Follows /jobs/<id>/events until the job's terminal frame. #}
             {{ sse_job("import-42", "Importing") }}""",
+        "unfiled_notice": """
+            {{ unfiled_notice(5000) }}""",
         "notice": """
             {{ notice("catalog-waiting", 3, "/review", "3 transactions are waiting for review") }}""",
         "oob": """

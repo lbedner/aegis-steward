@@ -14,7 +14,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.db import OpenSession
 from app.core.log import logger
-from app.services.documents.domains.reading.figures import propose_figure
+from app.services.documents.domains.reading.figures import (
+    propose_figure,
+    stated_balance,
+)
 from app.services.documents.domains.reading.findings import Page
 from app.services.documents.domains.reading.identity import identify, known_strings
 from app.services.documents.domains.reading.metadata import read_document
@@ -121,18 +124,21 @@ async def propose_reading(
     from app.services.documents.domains.reading import receipts
     from app.services.documents.domains.reading.banks import propose_bank
     from app.services.documents.domains.reading.statements import (
+        check_filed_statement,
         record_card_statement,
     )
 
     async with open_session() as db:
         stranger = await _propose_contact(db, document_id, owner_user_id)
-        figure = await propose_figure(
-            db, document_id, owner_user_id, asked=_already_asked
+        stated = await stated_balance(db, document_id)  # read once, used thrice
+        figure = stated and await propose_figure(
+            db, document_id, owner_user_id, asked=_already_asked, stated=stated
         )
         metadata = await _propose_metadata(db, document_id, owner_user_id)
         bank = await propose_bank(db, document_id, owner_user_id)
-        # One of our cards' statements: what it says is due (#341).
-        await record_card_statement(db, document_id)
+        if stated is not None:
+            await record_card_statement(db, document_id, stated)  # due (#341)
+            await check_filed_statement(db, document_id, stated)  # agrees? (#321)
         # Filed as a receipt already (the paperclip, mail): its charge
         # may be on file, or it starts waiting for it (#330).
         await receipts.match_waiting(db, owner_user_id=owner_user_id)

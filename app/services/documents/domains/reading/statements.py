@@ -21,52 +21,73 @@ import re
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.documents.domains.reading.figures import (
-    account_on,
-    balances,
-    document_row,
+    Stated,
     labelled,
     money_in,
+    stated_balance,
 )
-from app.services.documents.domains.reading.findings import Page
 from app.services.documents.domains.reading.patterns import find_date
 
 _DUE = re.compile(r"\bpayment due date\b", re.I)
 _MINIMUM = re.compile(r"\bminimum payment due\b", re.I)
 
 
-async def record_card_statement(db: AsyncSession, document_id: int) -> bool:
+# What a statement calls the balance it closed at - not a letter's
+# "current balance", which says nothing about a statement's date.
+_CLOSING = re.compile(r"\b(new|ending|closing|statement) balance\b", re.I)
+
+
+async def check_filed_statement(
+    db: AsyncSession, document_id: int, stated: Stated | None = None
+) -> int:
+    """A filed statement's closing balance against the register on its
+    printed date (#321), for any account it names by its last four; the
+    gap, 0 for none. A paper that prints no closing balance, or no date
+    beside it, is not a statement to check."""
+    from app.services.finance.domains.detection.insights.statement_gaps import (
+        check_statement,
+    )
+
+    stated = stated or await stated_balance(db, document_id)
+    if stated is None or stated.balance.as_of is None:
+        return 0
+    if not _CLOSING.search(stated.balance.because):
+        return 0
+    return await check_statement(
+        db,
+        stated.account,
+        statement_date=stated.balance.as_of,
+        printed=stated.balance.value_cents,
+    )
+
+
+async def record_card_statement(
+    db: AsyncSession, document_id: int, stated: Stated | None = None
+) -> bool:
     """Keep what a filed card statement says is due, when it is one of
     the household's cards; False for anything else."""
-    from app.services.documents.queries import pages_for
     from app.services.finance.domains.planning.recurring.statements import (
         record_statement,
     )
 
-    read: list[Page] = [
-        {"page": page.page_number, "text": page.text}
-        for page in await pages_for(db, document_id)
-    ]
     # A balance AND a due date: what a card statement always prints, and
     # a letter that mentions a card's balance does not. Not its kind,
     # which is only settled once its metadata card is approved.
-    found = balances(read)
+    stated = stated or await stated_balance(db, document_id)
+    if stated is None or stated.account.account_type != "credit_card":
+        return False
+    read = stated.read
     due = next(filter(None, (find_date(t) for _p, _l, t in labelled(read, _DUE))), None)
-    if not found or due is None:
-        return False
-    card = await account_on(db, read)
-    if card is None or card.account_type != "credit_card":
-        return False
-    document = await document_row(db, document_id)
-    issued = found[0].as_of or (document.document_date if document else None)
-    if issued is None:
+    issued = stated.as_of
+    if due is None or issued is None:
         return False
     minimum = next(
         filter(None, (money_in(t) for _p, _l, t in labelled(read, _MINIMUM))), None
     )
     return await record_statement(
         db,
-        card,
-        balance=found[0].value_cents,
+        stated.account,
+        balance=stated.balance.value_cents,
         issued=issued,
         due=due[0],
         minimum=minimum,

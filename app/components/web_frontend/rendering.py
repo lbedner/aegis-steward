@@ -29,7 +29,8 @@ from app.components.web_frontend.glyphs import (
 from app.components.web_frontend.nav import NAV, native, section
 from app.core import series
 from app.core.config import settings
-from app.services.finance.constants import ACCOUNT_THINGS, account_sections
+from app.services.finance.account_menu import ACCOUNT_THINGS
+from app.services.finance.constants import account_sections
 from app.services.shared.deps import operator_refusal
 from app.services.system import topology, ui_runtime
 

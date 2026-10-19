@@ -83,6 +83,7 @@ FIELDS: tuple[Term, ...] = (
     Term("outstanding_balance", "Balance owed", "money"),
     Term("interest_rate_bps", "Interest rate", "rate"),
     Term("minimum_payment_amount", "Minimum payment", "money"),
+    Term("escrow_amount", "Escrow per payment", "money"),
     Term("next_payment_due_date", "Next due", "date"),
     Term("origination_date", "Originated", "date"),
     Term("origination_principal", "Original principal", "money"),
@@ -108,6 +109,7 @@ SHAPES: dict[str, tuple[str, ...]] = {
         "outstanding_balance",
         "interest_rate_bps",
         "minimum_payment_amount",
+        "escrow_amount",
         "next_payment_due_date",
         "origination_principal",
         "origination_date",
@@ -246,6 +248,7 @@ class LoanTermsPayload(BaseModel):
     outstanding_balance: int | None = Field(default=None, ge=0)
     interest_rate_bps: int | None = Field(default=None, ge=0, le=1_000_000)
     minimum_payment_amount: int | None = Field(default=None, ge=0)
+    escrow_amount: int | None = Field(default=None, ge=0)
     next_payment_due_date: date | None = None
     origination_date: date | None = None
     origination_principal: int | None = Field(default=None, ge=0)

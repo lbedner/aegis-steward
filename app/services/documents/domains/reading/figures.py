@@ -110,12 +110,50 @@ def money_in(text: str) -> int | None:
     return money_to_cents(money.group().replace(" ", "")) if money else None
 
 
+@dataclass(frozen=True)
+class Stated:
+    """A filed paper's stated balance, the account its last four names,
+    and the pages it was read from: what every reading of a statement
+    starts from, read once."""
+
+    read: list[Page]
+    balance: Balance
+    account: Any
+    document: Any
+
+    @property
+    def as_of(self) -> date | None:
+        """The balance's printed date, else the paper's own."""
+        return self.balance.as_of or (
+            self.document.document_date if self.document else None
+        )
+
+
+async def stated_balance(db: AsyncSession, document_id: int) -> Stated | None:
+    """What ``document_id`` states a balance of, and for which account;
+    None when it states none or names no account of ours to hold."""
+    from app.services.documents.queries import pages_for
+
+    read: list[Page] = [
+        {"page": page.page_number, "text": page.text}
+        for page in await pages_for(db, document_id)
+    ]
+    found = balances(read)
+    if not found:
+        return None
+    account = await account_on(db, read)
+    if account is None:
+        return None
+    return Stated(read, found[0], account, await document_row(db, document_id))
+
+
 async def propose_figure(
     db: AsyncSession,
     document_id: int,
     owner_user_id: int | None,
     *,
     asked: Any,
+    stated: Stated | None = None,
 ) -> Any | None:
     """The balance a statement states, as a fact about whoever holds the
     account it is for.
@@ -130,23 +168,16 @@ async def propose_figure(
     accounts propose nothing - a fact is about SOMEBODY, and a card
     asking whose this is would be a question rather than a proposal.
     """
-    from app.services.documents.queries import pages_for
     from app.services.finance.domains.ledger.subjects import get_subject
     from app.services.finance.domains.writes.queue import propose
     from app.services.matters.service import PartyService
 
     if await asked(db, FIGURE, document_id):
         return None
-    read: list[Page] = [
-        {"page": page.page_number, "text": page.text}
-        for page in await pages_for(db, document_id)
-    ]
-    found = balances(read)
-    if not found:
+    stated = stated or await stated_balance(db, document_id)
+    if stated is None or not stated.account.subject_id:
         return None
-    account = await account_on(db, read)
-    if account is None or not account.subject_id:
-        return None
+    account = stated.account
     subject = await get_subject(db, account.subject_id)
     party = (
         await PartyService(db).get(subject.party_id)
@@ -156,9 +187,7 @@ async def propose_figure(
     if party is None:
         return None
 
-    balance = found[0]
-    document = await document_row(db, document_id)
-    as_of = balance.as_of or (document.document_date if document else None)
+    balance, as_of = stated.balance, stated.as_of
     return await propose(
         db,
         FIGURE,

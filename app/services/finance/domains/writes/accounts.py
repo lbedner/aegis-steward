@@ -88,6 +88,7 @@ async def _similar(db: AsyncSession, name: str, owner_user_id: int | None) -> li
         include_hidden=True,
         page_size=500,
         subject_id=EVERYONE,
+        include_closed=True,
     )
     return [
         a.name
@@ -116,6 +117,7 @@ async def create_account_execute(
         include_hidden=True,
         page_size=500,
         subject_id=EVERYONE,
+        include_closed=True,
     )
     if any(a.name.casefold() == payload.name.casefold() for a in existing):
         raise ValueError(

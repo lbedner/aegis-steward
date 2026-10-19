@@ -24,6 +24,7 @@ from app.services.finance.domains.ledger.accounts import (
     effective_balance,
     liability_details,
 )
+from app.services.finance.domains.ledger.net_worth_rule import counts_in_net_worth
 from app.services.finance.domains.ledger.properties import (
     PROPERTY_ACCOUNT_TYPE,
     property_metadata,
@@ -68,6 +69,11 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
     Returns a dict with key 'accounts': a list where every entry
     carries 'id', 'name', 'account_type', 'classification',
     'balance_cents' (liabilities are negative = owed), 'hidden',
+    'closed_on' (the day it closed, null while open),
+    'counts_in_net_worth' (whether it is part of net worth today: a
+    net worth is the sum of exactly those, never of every row - a goal
+    or envelope pot is money already counted where it sits, a closed
+    account is out from its close date, and someone else's is theirs),
     'whose' (null = ours, else whose money it is), 'subject_id',
     'held_with' (the institution) and 'reference' (the number that
     institution prints - a member id, a policy number). A balance of 0
@@ -100,6 +106,7 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             page=1,
             page_size=500,
             subject_id=subject_filter(whose),
+            include_closed=True,
         )
         holdings = await list_current_holdings(session)
         account_ids = [account.id for account in account_rows]
@@ -188,6 +195,12 @@ async def accounts(whose: str = "ours") -> dict[str, Any]:
             # writes win; a never-written 0 falls back to the register sum.
             "balance_cents": balances[account.id],
             "hidden": account.is_hidden,
+            # Closed: its history is real, it is out of net worth (#315).
+            "closed_on": account.closed_on.isoformat()
+            if account.closed_on
+            else ("yes" if account.is_closed else None),
+            # The one rule every net-worth figure asks (#314).
+            "counts_in_net_worth": counts_in_net_worth(account),
             # Null is ours, and a balance of 0 with a subject means "no
             # figure recorded yet", never "worth nothing".
             "whose": whose.get(account.subject_id or 0),

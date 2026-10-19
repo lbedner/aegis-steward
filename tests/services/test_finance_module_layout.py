@@ -105,7 +105,6 @@ BUDGET_QUERIES = {
     "categorized_outflow_history",
     "outflow_tuples",
     "budget_lines_before",
-    "money_in_and_out",
 }
 
 # The auto-budget gates. service.py mirrors them onto the facade, so
@@ -342,7 +341,6 @@ def test_dispatch_across_providers_lives_only_in_the_registry() -> None:
 LEDGER_QUERY_OWNERS = {
     "account_by_id": "accounts",
     "account_owner_ids": "accounts",
-    "account_rollup": "networth",
     "accounts_page": "accounts",
     "alias_by_normalized": "categories",
     "all_categories": "categories",
@@ -359,7 +357,7 @@ LEDGER_QUERY_OWNERS = {
     "connection_rollup": "networth",
     "currency_by_code": "accounts",
     "daily_register_deltas": "networth",
-    "dated_amounts_in_window": "transactions",
+    "dated_amounts_in_window": "flows",
     "transaction_link_id": "links",
     "delete_transaction_link": "links",
     "transactions_by_label": "links",
@@ -382,6 +380,7 @@ LEDGER_QUERY_OWNERS = {
     "merchants_by_ids": "merchants",
     "merchants_for_owner": "merchants",
     "net_worth_series_since": "networth",
+    "first_net_worth_day": "networth",
     "net_worth_snapshots_between": "networth",
     "payeeless_transactions": "merchants",
     "priced_trade_rows": "networth",
@@ -397,7 +396,7 @@ LEDGER_QUERY_OWNERS = {
     "tagged_transaction_ids": "transactions",
     "tags_by_transaction": "transactions",
     "tags_with_counts": "transactions",
-    "top_payees_over_window": "transactions",
+    "top_payees_over_window": "flows",
     "transaction_by_id": "transactions",
     "transaction_search_filter": "filters",
     "transaction_totals_by_account": "accounts",

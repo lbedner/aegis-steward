@@ -13,7 +13,7 @@ from decimal import Decimal
 import re
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlmodel import and_, or_, select
 
 from app.services.finance.constants import (
@@ -60,12 +60,67 @@ def live_account_ids():
     return select(FinanceAccount.id).where(FinanceAccount.deleted_at.is_(None))
 
 
+def household_account_ids():
+    """Subquery: live accounts holding the household's own money - not one
+    held here for somebody else (#314), and not one hidden (#315), which
+    leaves every total, its history with it. Every income and spending
+    figure reads through it, as net worth does; owner-blind like
+    ``live_account_ids``. A goal or envelope pot is hidden too, and holds
+    no rows: its money moves by valuation."""
+    return select(FinanceAccount.id).where(
+        FinanceAccount.deleted_at.is_(None),
+        FinanceAccount.subject_id.is_(None),
+        FinanceAccount.is_hidden.is_(False),
+    )
+
+
 def uncategorized_catchall_ids():
     """Subquery: category ids whose name is a source app's own catch-all
     bucket (see ``UNCATEGORIZED_CATEGORY_NAMES``)."""
     return select(FinanceCategory.id).where(
         func.lower(FinanceCategory.name).in_(list(UNCATEGORIZED_CATEGORY_NAMES))
     )
+
+
+def categories_filed_as(classification: str) -> Any:
+    """Subquery: ids of the categories classified ``classification``."""
+    return select(FinanceCategory.id).where(
+        FinanceCategory.classification == classification
+    )
+
+
+def money_kind(category: Any, amount: Any) -> Any:
+    """What a row counts as in money in against money out (#316), by what
+    it is filed under - the one rule every income and spending figure
+    reads. ``category`` and ``amount`` are a transaction's columns or a
+    split line's, so a split counts line by line.
+
+    ``"transfer"``: money moved - filed as a transfer, or a credit on a
+    loan, which is its balance coming down whatever a feed filed it
+    under (#318). ``"unfiled"``: a credit nobody filed (no category, or
+    a source app's catch-all - "Other Income" is one) - neither income
+    nor spending until it is, and said. ``"income"``: filed as income, a
+    clawback negative. ``"spending"``: everything else, so a return
+    filed under groceries brings groceries down instead of reading as
+    income. A split line is judged with its parent's account, which
+    every read of lines joins.
+    """
+    unfiled = or_(category.is_(None), category.in_(uncategorized_catchall_ids()))
+    loans = select(FinanceAccount.id).where(FinanceAccount.account_type == "loan")
+    return case(
+        (and_(amount > 0, FinanceTransaction.account_id.in_(loans)), "transfer"),
+        (unfiled, case((amount > 0, "unfiled"), else_="spending")),
+        (category.in_(categories_filed_as("income")), "income"),
+        (category.in_(categories_filed_as("transfer")), "transfer"),
+        else_="spending",
+    )
+
+
+def counts_as(kind: str, *, line: bool = False) -> Any:
+    """``money_kind`` is ``kind``, judged on the row - or with ``line`` on
+    the split line a split-aware read swaps its parent for."""
+    row: Any = FinanceTransactionSplit if line else FinanceTransaction
+    return money_kind(row.category_id, row.amount) == kind
 
 
 def transaction_search_filter(query: str):

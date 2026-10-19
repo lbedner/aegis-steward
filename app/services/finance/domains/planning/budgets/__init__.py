@@ -21,6 +21,10 @@ from app.services.finance.domains.planning.budgets import (
     summary,
     trims,
 )
+from app.services.finance.domains.planning.budgets.closing import (
+    close_month,
+    month_as_closed,
+)
 from app.services.finance.domains.planning.budgets.details import (
     budget_stat_details,
 )
@@ -63,6 +67,8 @@ from app.services.finance.domains.planning.budgets.uncovered import (
 
 __all__ = [
     "carried_amounts",
+    "close_month",
+    "month_as_closed",
     "month_actuals",
     "strip",
     "budget_line_transactions",

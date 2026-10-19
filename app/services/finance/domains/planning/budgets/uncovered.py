@@ -14,6 +14,7 @@ the capped portion averages into the rate, the excess reports at face
 value.
 """
 
+from collections.abc import Callable
 from datetime import date
 from typing import Any, NamedTuple
 
@@ -21,13 +22,14 @@ from sqlmodel import or_
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import add_months
+from app.services.finance.domains.ledger.queries.flows import spent_by_category_rows
 from app.services.finance.domains.planning.budgets import queries
 from app.services.finance.domains.planning.budgets.lines import (
     lines_in_force,
 )
 from app.services.finance.domains.planning.queries import (
+    countable_filters,
     not_reconciliation,
-    spend_filters,
 )
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.utils import current_date, current_period_month
@@ -83,14 +85,14 @@ async def uncovered_spend(
     only one window month has a median of zero, so the whole amount is
     a one-off either way.
     """
-    filters, (_lookback_start, window_end) = await uncovered_spend_filters(
+    filters, category, (_lookback_start, window_end) = await uncovered_spend_filters(
         db,
         owner_user_id=owner_user_id,
         today=today,
         account_ids=account_ids,
         lookback_months=RATE_EVIDENCE_LOOKBACK_MONTHS,
     )
-    rows = await queries.category_dated_amounts_where(db, filters)
+    rows = await spent_by_category_rows(db, filters, category)
 
     window_start = add_months(window_end, -UNCOVERED_WINDOW_MONTHS)
     window_months = [
@@ -183,12 +185,14 @@ async def uncovered_spend_filters(
     today: date | None,
     account_ids: list[int] | None,
     lookback_months: int = UNCOVERED_WINDOW_MONTHS,
-) -> tuple[list[Any], tuple[date, date]]:
+) -> tuple[list[Any], Callable[[Any], Any] | None, tuple[date, date]]:
     """The uncovered-spend population, shared by the rate and its
     per-category breakdown so the popup's rows always sum to the
-    cell's figure. Returns (filters, (window_start, window_end)) -
-    ``lookback_months`` widens the date floor for the habit-evidence
-    read without changing what counts as uncovered."""
+    cell's figure. Returns (filters on the transaction, the category
+    test - on the row's category, or a split line's - and
+    (window_start, window_end)); ``lookback_months`` widens the date
+    floor for the habit-evidence read without changing what counts as
+    uncovered."""
     today = today or current_date()
     window_end = date(today.year, today.month, 1)
     window_start = add_months(window_end, -lookback_months)
@@ -202,16 +206,14 @@ async def uncovered_spend_filters(
     }
 
     filters: list[Any] = [
-        *spend_filters(owner_user_id, window_start, window_end, account_ids),
+        *countable_filters(owner_user_id, window_start, window_end, account_ids),
         FinanceTransaction.is_transfer.is_(False),
         FinanceTransaction.recurring_stream_id.is_(None),
         not_reconciliation(),
     ]
-    if budgeted_category_ids:
-        filters.append(
-            or_(
-                FinanceTransaction.category_id.is_(None),
-                FinanceTransaction.category_id.notin_(budgeted_category_ids),
-            )
-        )
-    return filters, (window_start, window_end)
+
+    def unbudgeted(column: Any) -> Any:
+        return or_(column.is_(None), column.notin_(budgeted_category_ids))
+
+    category = unbudgeted if budgeted_category_ids else None
+    return filters, category, (window_start, window_end)

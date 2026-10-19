@@ -145,6 +145,10 @@
       <span data-arrived class="inline-flex items-center gap-1.5 ml-3">{{ dot(updated.arrived.tone) }}Last transaction {{ updated.arrived.label }}</span>
       {%- endif %}
       {%- endif -%}
+      {#- The last statement the register agreed with (issue 321). -#}
+      {%- if selected.reconciled_through %}
+      <span data-reconciled class="ml-3">Reconciled through {{ selected.reconciled_through|short_date }}</span>
+      {%- endif -%}
       {% else %}
       <a href="{{ section.path }}" {{ hx_page(section.path) }} class="hover:text-aegis-text transition-colors">{{ groups|length }} group{{ "s" if groups|length != 1 }} · back to accounts</a>
       {% endif %}

@@ -308,9 +308,11 @@ class TestFinanceStatusSummary:
         finally:
             event.remove(Engine, "before_cursor_execute", _on_exec)
 
-        # One aggregate per table: accounts + connections + insights for the
-        # card summary; accounts + connections for health.
-        assert status_queries == 3, f"status_summary issued {status_queries} queries"
+        # One read per table: accounts, their register totals (a balance
+        # never set falls back to them, as the pages do - #314),
+        # connections and insights for the card summary; accounts and
+        # connections for health.
+        assert status_queries == 4, f"status_summary issued {status_queries} queries"
         assert health_queries == 2, f"health issued {health_queries} queries"
 
         # Hidden account counts toward totals but not net worth.
@@ -696,7 +698,7 @@ class TestCategorization:
             (-1200, food),
             (-800, food),
             (-5000, shopping),
-            (3000, shopping),  # inflow — must be ignored
+            (2000, shopping),  # a return: it nets against its category (#316)
         ]:
             await svc.create_transaction(
                 owner_user_id=1,
@@ -707,7 +709,7 @@ class TestCategorization:
                 category_id=cat.id,
             )
         rows = await svc.spending_by_category(owner_user_id=1, days=30)
-        assert rows == [("General Merchandise", 5000), ("Food And Drink", 2000)]
+        assert rows == [("General Merchandise", 3000), ("Food And Drink", 2000)]
 
     @pytest.mark.asyncio
     async def test_spending_by_category_rolls_up_to_the_parent_segment(
@@ -993,12 +995,14 @@ class TestAccountScopedViews:
     async def test_cashflow_scopes_to_the_accounts(self, svc: FinanceService) -> None:
         checking, card = await self._two_accounts(svc)
         today = current_date()
+        salary = await svc.get_or_create_category_from_hint("Income:Salary")
         await svc.create_transaction(
             owner_user_id=1,
             account_id=checking.id,
             amount=50_000,
             txn_date=today,
             name="pay",
+            category_id=salary.id,
         )
         await svc.create_transaction(
             owner_user_id=1,

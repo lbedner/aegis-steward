@@ -65,6 +65,7 @@ def _account(client: TestClient, name: str, balance: str, whose: str = "") -> No
 
 class TestSomebodyElsesMoney:
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=4)  # the portfolio three times
     async def test_their_account_stays_out_of_our_net_worth(
         self, client: TestClient, person: Any
     ) -> None:
@@ -81,6 +82,7 @@ class TestSomebodyElsesMoney:
             one(client.get("/accounts").text, "#portfolio")
         )
 
+    @pytest.mark.queryspy(threshold=3)  # the portfolio before and after
     def test_our_own_account_still_counts(self, client: TestClient) -> None:
         before = text(one(client.get("/accounts").text, "[data-net-worth]"))
 
@@ -515,6 +517,7 @@ class TestItCanBeChangedAfterwards:
         ) == [james]
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # given, then handed back: two redraws
     async def test_it_can_be_handed_back_to_the_household(
         self, client: TestClient, person: Any, ledger: Any
     ) -> None:

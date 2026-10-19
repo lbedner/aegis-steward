@@ -78,6 +78,7 @@ class TestBulkSoftDeleteIsBatched:
         return ids
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # two deletes, one offers read each
     async def test_query_count_does_not_grow_with_deleted_rows(
         self, svc: FinanceService, async_engine
     ) -> None:

@@ -59,6 +59,7 @@ from app.services.finance.models.investments import (
 from app.services.finance.models.planning import (
     FinanceBudget,
     FinanceBudgetCategory,
+    FinanceBudgetMonth,
     FinanceInsight,
     FinanceRecurringStream,
     FinanceSpendingBaseline,
@@ -108,6 +109,7 @@ __all__ = [
     "FinanceRule",
     "FinanceSecurity",
     "FinanceSecurityPrice",
+    "FinanceBudgetMonth",
     "FinanceSpendingBaseline",
     "FinanceTag",
     "FinanceTrade",

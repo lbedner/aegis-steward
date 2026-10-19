@@ -100,10 +100,11 @@ class TestMonthToDate:
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
         account = await seed_account(svc)
-        await seed_txn(svc, account.id, 300_000, date(2026, 9, 1))  # paid
+        pay = (await svc.get_or_create_category_from_hint("Income:Salary")).id
+        await seed_txn(svc, account.id, 300_000, date(2026, 9, 1), category_id=pay)
         await seed_txn(svc, account.id, -20_000, date(2026, 9, 10))
         await seed_txn(svc, account.id, -90_000, date(2026, 9, 25))  # after the 15th
-        await seed_txn(svc, account.id, 300_000, date(2026, 10, 1))
+        await seed_txn(svc, account.id, 300_000, date(2026, 10, 1), category_id=pay)
         await seed_txn(svc, account.id, -25_000, date(2026, 10, 12))
 
         mtd = await cash_flow.month_to_date(

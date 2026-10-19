@@ -12,6 +12,7 @@ from fastapi import (
 
 from app.components.backend.api.finance.base import _NOT_FOUND
 from app.services.finance.deps import get_finance_service
+from app.services.finance.models import FinanceAccount
 from app.services.finance.schemas import (
     AccountListResponse,
     AccountResponse,
@@ -65,6 +66,7 @@ async def list_accounts(
     page: int = 1,
     page_size: int = 50,
     subject_id: int | None = HOUSEHOLD,
+    include_closed: bool = False,
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> AccountListResponse:
@@ -79,25 +81,29 @@ async def list_accounts(
         page=page,
         page_size=page_size,
         subject_id=subject_id,
+        include_closed=include_closed,
     )
-    # Scope the balance aggregate to just this page's accounts.
-    page_ids = [account.id for account in accounts]
-    totals = await service.account_transaction_totals(
-        owner_user_id=owner_user_id,
-        account_ids=page_ids,
-    )
-    liabilities = await service.liability_details(page_ids)
     return AccountListResponse(
-        items=[
-            AccountResponse.from_row(
-                a,
-                activity_balance=totals.get(a.id, 0),
-                liability=liabilities.get(a.id),
-            )
-            for a in accounts
-        ],
-        total=total,
+        items=await account_responses(service, owner_user_id, accounts), total=total
     )
+
+
+async def account_responses(
+    service: FinanceService, owner_user_id: int | None, accounts: list[FinanceAccount]
+) -> list[AccountResponse]:
+    """Rows as the listing draws them: the register balance and the
+    liability detail beside each, read once for all of them."""
+    ids = [account.id for account in accounts]
+    totals = await service.account_transaction_totals(
+        owner_user_id=owner_user_id, account_ids=ids
+    )
+    liabilities = await service.liability_details(ids)
+    return [
+        AccountResponse.from_row(
+            a, activity_balance=totals.get(a.id, 0), liability=liabilities.get(a.id)
+        )
+        for a in accounts
+    ]
 
 
 @router.patch("/accounts/{account_id}", response_model=AccountResponse)

@@ -57,6 +57,7 @@ class TestSheCanSayWhoseItIs:
         assert made["account"].subject_id is not None
 
     @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # given, then handed back: two redraws
     async def test_it_can_hand_the_account_back(
         self, async_db_session: AsyncSession
     ) -> None:

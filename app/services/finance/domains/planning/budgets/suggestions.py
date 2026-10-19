@@ -102,10 +102,12 @@ async def suggest_budget_lines(
     )
 
     per_month: dict[int, dict[int, int]] = {}
-    for txn in rows:
-        index = txn.date_.year * 12 + txn.date_.month - 1
-        per_month.setdefault(txn.category_id, {}).setdefault(index, 0)
-        per_month[txn.category_id][index] += -txn.amount
+    for category_id, day, amount in rows:
+        if category_id is None:
+            continue
+        index = day.year * 12 + day.month - 1
+        per_month.setdefault(category_id, {}).setdefault(index, 0)
+        per_month[category_id][index] += -amount
 
     # A category is "already billed" if any live stream carries it -
     # or if the category INFERRED from a stream's own transactions

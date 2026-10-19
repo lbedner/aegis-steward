@@ -6,14 +6,14 @@ and a range's totals and years for the Cash flow page (#344).
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from datetime import date
 from itertools import accumulate
 import statistics
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.finance.domains.ledger import queries, transactions
+from app.services.finance.domains.ledger import queries
+from app.services.finance.domains.ledger.queries.flows import FlowRow, money_flow
 from app.services.finance.schemas import (
     CashFlow,
     CashflowMonth,
@@ -39,7 +39,7 @@ async def spending_pace(
     today: date,
     months: int = 12,
     account_ids: list[int] | None = None,
-    rows: list[tuple[date, int]] | None = None,
+    rows: list[FlowRow] | None = None,
 ) -> SpendingPace:
     """This month's cumulative spending through ``today``, and for every
     day of this month the average, the median and last month's cumulative
@@ -58,8 +58,12 @@ async def spending_pace(
     daily: dict[int, list[int]] = {
         period: [0] * period_days(period) for period in [*earlier, current]
     }
-    for day, amount in rows:
-        if amount < 0 and (by_day := daily.get(current_period_month(day))) is not None:
+    for day, amount, kind in rows:
+        # A return the same month brings the day's spending down (#316).
+        if (
+            kind == "spending"
+            and (by_day := daily.get(current_period_month(day))) is not None
+        ):
             by_day[day.day - 1] -= amount
     running = {period: list(accumulate(by_day)) for period, by_day in daily.items()}
     days = len(daily[current])
@@ -102,7 +106,7 @@ async def overview_flows(
     )
     scope = {"owner_user_id": owner_user_id, "account_ids": account_ids, "rows": rows}
     return (
-        await transactions.monthly_cashflow(db, months=months, today=last, **scope),
+        await monthly_cashflow(db, months=months, today=last, **scope),
         await spending_pace(db, today=today, **scope),
     )
 
@@ -110,18 +114,6 @@ async def overview_flows(
 def _through(running: list[int], day: int) -> int:
     """A month's spending through ``day``: its total, past its own last day."""
     return running[min(day, len(running)) - 1]
-
-
-def _flow(rows: Iterable[tuple[date, int]]) -> dict[str, int]:
-    """Money in and money out of dated rows, both positive: the one place a
-    signed amount is told apart."""
-    income = spending = 0
-    for _day, amount in rows:
-        if amount >= 0:
-            income += amount
-        else:
-            spending -= amount
-    return {"income": income, "spending": spending}
 
 
 async def cash_flow(
@@ -141,13 +133,13 @@ async def cash_flow(
         end=end,
         account_ids=account_ids,
     )
-    years: dict[int, list[tuple[date, int]]] = {}
+    years: dict[int, list[FlowRow]] = {}
     for row in rows:
         years.setdefault(row[0].year, []).append(row)
     return CashFlowResponse(
-        **_flow(rows),
+        **money_flow(rows),
         years=[
-            CashFlowYear(year=year, **_flow(year_rows))
+            CashFlowYear(year=year, **money_flow(year_rows))
             for year, year_rows in sorted(years.items())
         ],
     )
@@ -159,7 +151,7 @@ async def month_to_date(
     owner_user_id: int | None,
     today: date,
     account_ids: list[int] | None = None,
-    rows: list[tuple[date, int]] | None = None,
+    rows: list[FlowRow] | None = None,
 ) -> MonthToDate:
     """This month through ``today`` beside last month through the same day
     (its last, when it is shorter), so a part-finished month is compared
@@ -179,8 +171,10 @@ async def month_to_date(
     rows = [r for r in rows if last_start <= r[0] <= today]
     return MonthToDate(
         through_day=today.day,
-        this_month=CashFlow(**_flow(r for r in rows if r[0] >= this_start)),
-        last_month_same_days=CashFlow(**_flow(r for r in rows if r[0] <= last_through)),
+        this_month=CashFlow(**money_flow(r for r in rows if r[0] >= this_start)),
+        last_month_same_days=CashFlow(
+            **money_flow(r for r in rows if r[0] <= last_through)
+        ),
     )
 
 
@@ -201,8 +195,69 @@ async def month_review(
         end=today,
     )
     return (
-        await transactions.monthly_cashflow(
+        await monthly_cashflow(
             db, owner_user_id=owner_user_id, months=months, today=today, rows=rows
         ),
         await month_to_date(db, owner_user_id=owner_user_id, today=today, rows=rows),
     )
+
+
+async def monthly_cashflow(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None = None,
+    months: int = 6,
+    today: date | None = None,
+    account_ids: list[int] | None = None,
+    rows: list[FlowRow] | None = None,
+) -> list[CashflowMonth]:
+    """Income and spend per calendar month, oldest first.
+
+    Transfers and report-excluded rows are out: a card payment is money
+    moved, and counting it as both income and spend would double the
+    bars. Months with no activity are still returned at zero so the
+    chart keeps an even time axis instead of skipping a quiet month.
+    ``account_ids`` narrows the bars to those accounts.
+
+    Bucketing runs in Python rather than SQL date-truncation, which is
+    dialect-specific - and at a few thousand rows the loop costs less
+    than a millisecond. ``rows`` are ``dated_amounts_in_window`` rows a
+    caller already read over a wider window (``cash_flow.overview_flows``).
+    """
+    today = today or current_date()
+    span = max(1, months)
+    start = month_start_before(today, span - 1)
+    first_year, first_month = start.year, start.month
+
+    if rows is None:
+        rows = await queries.dated_amounts_in_window(
+            db,
+            owner_user_id=owner_user_id,
+            start=start,
+            end=today,
+            account_ids=account_ids,
+        )
+
+    buckets: dict[str, list[FlowRow]] = {}
+    year, month = first_year, first_month
+    for _ in range(span):
+        buckets[f"{year:04d}-{month:02d}"] = []
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    for row in rows:
+        bucket = buckets.get(f"{row[0].year:04d}-{row[0].month:02d}")
+        if bucket is not None and row[0] <= today:
+            bucket.append(row)
+    flows = {key: money_flow(month_rows) for key, month_rows in buckets.items()}
+    return [
+        CashflowMonth(
+            month=key,
+            income=flow["income"],
+            expense=flow["spending"],
+            net=flow["income"] - flow["spending"],
+            unfiled=flow["unfiled"],
+        )
+        for key, flow in flows.items()
+    ]

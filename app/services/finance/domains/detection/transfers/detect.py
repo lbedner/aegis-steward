@@ -28,6 +28,7 @@ from app.services.finance.utils import current_date
 
 from .adjustments import _flag_adjustment_pairs
 from .categories import _flag_category_transfers
+from .loans import _split_loan_payments
 from .pairing import _pair_transfers
 from .payment_history import _pair_payment_history
 from .shared import TransferDetectionResult
@@ -71,4 +72,6 @@ async def detect_transfers(
         db, owner_user_id=owner_user_id
     )
     result.payment_paired = await _pair_payment_history(db, owner_user_id=owner_user_id)
+    # Last: it splits what the passes above paired (#318).
+    result.loan_split = await _split_loan_payments(db, owner_user_id=owner_user_id)
     return result

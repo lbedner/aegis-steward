@@ -60,6 +60,8 @@ class BudgetMonthActuals(BaseModel):
     period_month: int  # YYYYMM
     money_in: int
     money_out: int
+    # Credits nobody filed: in neither figure until they are (#316).
+    unfiled: int = 0
 
 
 class LineMonth(BaseModel):
