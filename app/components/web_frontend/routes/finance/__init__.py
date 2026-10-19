@@ -33,6 +33,7 @@ from app.components.web_frontend.routes.finance import (
     review,
     review_edit,
     review_resolve,
+    reviewing,
     settings,
     settings_comms,
     settings_payees,
@@ -46,6 +47,7 @@ router.include_router(cash_flow.router)
 router.include_router(usage.router)
 router.include_router(register_views.router)
 router.include_router(reimbursables.router)
+router.include_router(reviewing.router)
 router.include_router(changes_log.router)
 router.include_router(accounts.router)
 router.include_router(account_manage.router)

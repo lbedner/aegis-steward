@@ -61,9 +61,16 @@ class TestYourEditIsLogged:
 
         hx.post(f"/transactions/{mystery}/categorize", data={"category_id": groceries})
 
-        said = one(hx.get(f"/transactions/{mystery}/history").text, "[data-history] li")
-        assert "Category: nothing → Food:Groceries" in text(said)
-        assert "You" in text(said)
+        said = [
+            text(li)
+            for li in select_all(
+                hx.get(f"/transactions/{mystery}/history").text, "[data-history] li"
+            )
+        ]
+        # Filing it marks it reviewed too: both are the one edit's.
+        assert any("Category: nothing → Food:Groceries" in s for s in said)
+        assert any("Reviewed: no → yes" in s for s in said)
+        assert all("You" in s for s in said)
 
         page = client.get(CHANGES).text
         entry = one(page, "#changes li[data-batch]")
@@ -169,8 +176,9 @@ class TestWhoAndWhat:
         logged = (
             await async_db_session.exec(select(FinanceTransactionChangelog))
         ).all()
-        assert [(r.field, r.change_source) for r in logged] == [
-            ("category_id", "illiana")
+        assert sorted((r.field, r.change_source) for r in logged) == [
+            ("category_id", "illiana"),
+            ("is_reviewed", "illiana"),
         ]
 
 

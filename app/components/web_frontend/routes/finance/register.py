@@ -81,6 +81,8 @@ class RegisterFilters:
     # Dollars, by magnitude, as typed: "$8" finds the $8.00 charge.
     amount_min: str | None = None
     amount_max: str | None = None
+    # "yes" or "no": reviewed rows, or the ones not yet (#322).
+    reviewed: str | None = None
     from_date: date | None = None
     to_date: date | None = None
     # The chip row: a window in days, ALL for everything. An explicit
@@ -112,6 +114,7 @@ class RegisterFilters:
             self.accounts,
             self.amount_min,
             self.amount_max,
+            self.reviewed,
             self.from_date,
             self.to_date,
         )
@@ -165,6 +168,15 @@ class RegisterFilters:
         return self.from_date or ranges.since(self.days)
 
 
+# The reviewed filter's values, what they ask for, and how the select
+# names them (#322).
+REVIEWED = {"yes": True, "no": False}
+REVIEWED_OPTIONS = [
+    {"id": "yes", "name": "Reviewed"},
+    {"id": "no", "name": "Not reviewed"},
+]
+
+
 def _cents(dollars: str | None) -> int | None:
     cents = money_to_cents(dollars) if dollars else None
     return abs(cents) if cents is not None else None
@@ -184,6 +196,7 @@ def register_filters(
     exclude: Annotated[list[str], Query()] = [],  # noqa: B006
     amount_min: Annotated[str | None, Blank] = None,
     amount_max: Annotated[str | None, Blank] = None,
+    reviewed: Annotated[str | None, Blank] = None,
     # One value each, as links from elsewhere still name them.
     category_id: Annotated[int | None, Blank] = None,
     merchant_id: Annotated[int | None, Blank] = None,
@@ -211,6 +224,7 @@ def register_filters(
         exclude=tuple(a for a in AXES if a in exclude),
         amount_min=amount_min or None,
         amount_max=amount_max or None,
+        reviewed=reviewed if reviewed in REVIEWED else None,
         from_date=from_date,
         to_date=to_date,
         days=days,
@@ -260,6 +274,8 @@ def _row(
         "memo": txn.memo,
         "tags": txn.tags,
         "is_split": txn.is_split,
+        "pending": txn.pending,
+        "is_reviewed": txn.is_reviewed,
         "splits": txn.splits,
         "import_batch_id": txn.import_batch_id,
         "created_at": txn.created_at,
@@ -407,6 +423,7 @@ async def register_context(
         exclude=list(filters.exclude),
         amount_min=_cents(filters.amount_min),
         amount_max=_cents(filters.amount_max),
+        reviewed=REVIEWED.get(filters.reviewed or ""),
         include_transfers=not filters.hide_transfers,
         uncategorized=filters.uncategorized,
         page=filters.page,
@@ -445,6 +462,7 @@ async def register_context(
         "pager": _pager(path, filters, listing.total),
         "categories": categories,
         "tags": tags,
+        "reviewed_options": REVIEWED_OPTIONS,
         # Each axis's checklist (#326): every value, ticked where picked.
         "picks": {
             axis: _picks(rows, getattr(filters, axis))

@@ -157,6 +157,7 @@ class Narrowing:
     exclude: frozenset[str] = frozenset()
     amount_min: int | None = None
     amount_max: int | None = None
+    reviewed: bool | None = None  # reviewed rows, or not yet (#322)
 
     def clauses(self) -> list[Any]:
         txn = FinanceTransaction
@@ -188,4 +189,6 @@ class Narrowing:
             clauses.append(func.abs(txn.amount) >= self.amount_min)
         if self.amount_max is not None:
             clauses.append(func.abs(txn.amount) <= self.amount_max)
+        if self.reviewed is not None:
+            clauses.append(txn.is_reviewed.is_(self.reviewed))
         return clauses

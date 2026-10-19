@@ -52,6 +52,7 @@ LABELS = {
     "category_id": "Category",
     "memo": "Memo",
     "excluded_from_reports": "Left out of reports",
+    "is_reviewed": "Reviewed",
     "deleted_at": "Removed",
     "tag": "Tag",
 }
@@ -62,6 +63,7 @@ _TYPES: dict[str, type] = {
     "merchant_id": int,
     "category_id": int,
     "excluded_from_reports": bool,
+    "is_reviewed": bool,
     "deleted_at": datetime,
     "tag": int,
 }
