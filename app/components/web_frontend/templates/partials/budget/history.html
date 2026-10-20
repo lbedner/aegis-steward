@@ -9,7 +9,7 @@
 {% call card("History", "what each limit spent, month by month") %}
   {{ chip_nav("history-window", "Months back", windows, "#budget") }}
   {% if flexible.lines %}
-  <ul class="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
+  <ul class="rows grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
     {% for line in flexible.lines if history.get(line.id) %}
     {% set item = history[line.id] %}
     {% set peak = (item.months|map(attribute="spent_amount")|list + item.months|selectattr("allocated_amount")|map(attribute="allocated_amount")|list)|max or 1 %}

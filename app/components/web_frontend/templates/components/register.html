@@ -46,7 +46,7 @@
      re-renders this form and a fold that shut on every pick would hide
      what was just chosen. #}
   <form id="register-filters" method="get" action="{{ register.path }}"
-        x-data="{ more: {{ register.filters.folded }} }"
+        x-data="{ more: {{ (register.filters.folded > 0)|tojson }} }"
         {{ hx_replace(register.path, "#register") }}
         {# The search box asks for itself now (below), so a blur after
            typing must not swap the whole register a second time. #}

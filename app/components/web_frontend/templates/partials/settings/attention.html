@@ -9,7 +9,7 @@
   <ul class="flex flex-col gap-1">
     {% for row in rows %}
     <li class="flex flex-wrap items-center gap-2">
-      <span class="text-aegis-text">{{ row.name }}:</span>
+      {% if row.name %}<span class="text-aegis-text">{{ row.name }}:</span>{% endif %}
       <span class="text-error">{{ row.reason }}</span>
       {% if row.reconnect %}{{ action("Reconnect", hx_dialog_post(path ~ "/connections/" ~ row.id ~ "/reconnect")) }}
       {% else %}{{ page_link(path, "Open Settings", "text-xs") }}{% endif %}

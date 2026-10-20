@@ -417,3 +417,15 @@ class TestFiltersFoldOnAPhone:
         page = client.get(f"{REGISTER}?from={today}&hide_transfers=on").text
         toggle = one(page, "#register-filters [data-filters-toggle]")
         assert text(toggle) == "Filters · 2"
+
+    @pytest.mark.parametrize(
+        ("query", "more"), [("", "false"), ("?hide_transfers=on", "true")]
+    )
+    def test_the_fold_is_shut_until_a_filter_is_set(
+        self, client: TestClient, ledger: Ledger, query: str, more: str
+    ) -> None:
+        """#545: ``{ more: 0 }`` left Alpine writing ``data-open="0"`` -
+        it drops an attribute only for false, null or undefined - so the
+        fold never shut and the filters filled a phone's first screen."""
+        form = one(client.get(REGISTER + query).text, "#register-filters")
+        assert form.get("x-data") == f"{{ more: {more} }}"

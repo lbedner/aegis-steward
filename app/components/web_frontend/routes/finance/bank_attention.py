@@ -66,6 +66,14 @@ def _name(connection: Any) -> str:
     )
 
 
+def _unsaid(name: str, reason: str) -> str | None:
+    """The link's name, unless its reason already names one of its banks:
+    a link to six banks led the banner with all six before the one that
+    needed you (#547)."""
+    banks = [bank.strip() for bank in name.split(",")]
+    return None if any(bank and bank in reason for bank in banks) else name
+
+
 @router.get("/connections/attention", include_in_schema=False)
 async def attention(
     request: Request,
@@ -76,7 +84,7 @@ async def attention(
     rows = [
         {
             "id": c.id,
-            "name": _name(c),
+            "name": _unsaid(_name(c), reason),
             "reason": reason,
             "reconnect": reconnectable(c),
         }

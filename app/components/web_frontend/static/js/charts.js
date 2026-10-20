@@ -328,6 +328,19 @@ const eventMarks = {
   },
 };
 
+// A legend entry, unless it names a guide line. A doughnut's entries are
+// its slices, which carry ``index`` and no ``datasetIndex`` (issue 544).
+function legendShows(item, data) {
+  return !data.datasets[item.datasetIndex]?.guide;
+}
+
+// A doughnut's legend beside it, where there is room: on a phone it
+// squeezed the ring to nothing, so there it goes below.
+function legendPosition(kind, width) {
+  if (kind !== 'doughnut') return 'top';
+  return width < 480 ? 'bottom' : 'right';
+}
+
 function build(Chart, canvas) {
   const data = JSON.parse(document.getElementById(canvas.dataset.chartData).textContent);
   const kind = canvas.dataset.chart;
@@ -386,8 +399,8 @@ function build(Chart, canvas) {
           display:
             (kind !== 'line' || plainLines(data).length > 1 || data.series.some((s) => s.compare)) &&
             !data.series[0]?.tones,
-          position: kind === 'doughnut' ? 'right' : 'top',
-          labels: { color: muted, boxWidth: 10, filter: (item, chart) => !chart.datasets[item.datasetIndex].guide },
+          position: legendPosition(kind, canvas.clientWidth),
+          labels: { color: muted, boxWidth: 10, filter: legendShows },
         },
         tooltip: {
           // A time chart's tooltip is drawn in the theme, its title the time.
@@ -507,4 +520,4 @@ if (typeof document !== 'undefined') {
   document.addEventListener('theme-changed', () => mount(document));
 }
 
-if (typeof module !== 'undefined') module.exports = { datasets, formatValue, refresh, timeTicks, byteStep };
+if (typeof module !== 'undefined') module.exports = { datasets, formatValue, legendPosition, legendShows, refresh, timeTicks, byteStep };

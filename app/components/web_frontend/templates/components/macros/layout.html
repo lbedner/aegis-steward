@@ -333,7 +333,7 @@
    whatever the caller puts on the right (headline ``figures``, chips,
    actions) in the same row. Every section opens with one. #}
 {% macro page_header(title, subtitle=None) %}
-<header class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 pb-4 mb-6 border-b border-aegis-border">
+<header class="flex flex-wrap items-end justify-between gap-x-8 gap-y-3 sm:gap-y-4 pb-3 mb-4 sm:pb-4 sm:mb-6 border-b border-aegis-border">
   <div class="min-w-0">
     <h1 class="text-2xl font-semibold text-aegis-text">{{ title }}</h1>
     {% if subtitle %}<p class="mt-1 text-sm text-aegis-muted">{{ subtitle }}</p>{% endif %}

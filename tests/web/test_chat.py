@@ -673,6 +673,13 @@ class TestDrawer:
         assert "@click.stop" not in " ".join(panel.keys())
         assert panel.getparent().index(panel) > 0  # painted over the scrim
 
+    def test_the_chat_keeps_its_scroll_at_its_end(
+        self, client: TestClient, ledger: Ledger
+    ) -> None:
+        """#550: scrolled to the end, the chat handed the scroll on to the
+        page behind the sheet."""
+        one(client.get("/chat").text, "#chat-scroll.overscroll-contain")
+
     def test_the_chat_page_is_the_surface_and_the_drawer_steps_aside(
         self, client: TestClient
     ) -> None:
