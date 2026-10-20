@@ -22,7 +22,7 @@ build-static: ## Compile Tailwind CSS and fingerprint assets into static/dist
 
 app-icon: ## Redraw the iOS home-screen icon from favicon.svg on the page ground (macOS)
 	@ground=$$(uv run python -c "from tests.web.test_phone import icon_ground; print(icon_ground()[1:])") && \
-	sips -s format png -z 126 126 app/components/web_frontend/static/favicon.svg --out /tmp/aegis-shield.png >/dev/null && \
+	sips -s format png -z 176 176 app/components/web_frontend/static/favicon.svg --out /tmp/aegis-shield.png >/dev/null && \
 	sips --padToHeightWidth 180 180 --padColor $$ground /tmp/aegis-shield.png --out app/components/web_frontend/static/app-icon.png >/dev/null 2>&1 && \
 	echo "Redrawn on #$$ground; update FAVICON_DRAWN in tests/web/test_phone.py if favicon.svg changed"
 

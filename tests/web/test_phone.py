@@ -12,7 +12,7 @@ import hashlib
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageChops
 from starlette.requests import Request
 
 from app.components.web_frontend.assets import APP_ICON, STATIC_DIR
@@ -78,6 +78,17 @@ class TestHomeScreen:
         with Image.open(STATIC_DIR / APP_ICON) as icon:
             corner = "#" + icon.convert("RGB").tobytes()[:3].hex().upper()
         assert corner == icon_ground().upper(), "the page ground changed: make app-icon"
+
+    def test_the_shield_fills_the_icon_as_other_apps_do(self) -> None:
+        """Beside a bank's icon, whose mark fills about four fifths of its
+        tile, a shield drawn at three fifths read as shrunk."""
+        with Image.open(STATIC_DIR / APP_ICON) as icon:
+            drawn = icon.convert("RGB")
+        ground = Image.new("RGB", drawn.size, drawn.getpixel((0, 0)))
+        box = ImageChops.difference(drawn, ground).getbbox()
+        assert box is not None, "the icon is all ground"
+        _, top, _, bottom = box
+        assert bottom - top >= 0.85 * drawn.height
 
     def test_the_status_bar_has_a_color_to_follow(self, client: TestClient) -> None:
         """app.js sets it from the page's own background, so the bar

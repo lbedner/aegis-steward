@@ -26,6 +26,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 
 from app.components.web_frontend.build import (
+    APP_ICON,
     SOURCE_TREES,
     STATIC_DIR,
     TAILWIND_OUTPUT,
@@ -63,7 +64,7 @@ def _is_source(raw_path: str) -> bool:
         rel = Path(raw_path).resolve().relative_to(STATIC_DIR.resolve())
     except (ValueError, OSError):
         return False
-    if rel.as_posix() == TAILWIND_OUTPUT:
+    if rel.as_posix() in (TAILWIND_OUTPUT, APP_ICON):
         return True
     if not rel.parts or rel.parts[0] == "dist":
         return False
@@ -79,8 +80,9 @@ def _watched_dirs() -> list[tuple[Path, bool]]:
     The source trees are watched recursively so a newly added file is
     picked up without restarting. ``dist/`` is watched shallowly and only
     for the Tailwind output; its subdirectories hold generated copies.
+    ``static/`` itself is watched shallowly for the home-screen icon.
     """
-    dirs: list[tuple[Path, bool]] = []
+    dirs: list[tuple[Path, bool]] = [(STATIC_DIR, False)]
     for subdir, _ in SOURCE_TREES:
         path = STATIC_DIR / subdir
         if path.is_dir():

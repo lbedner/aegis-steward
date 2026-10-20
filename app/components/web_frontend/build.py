@@ -34,6 +34,9 @@ MANIFEST_PATH = DIST_DIR / "manifest.json"
 # Tailwind's compiled output. It already lives in dist/, so its
 # fingerprinted copy sits next to the original rather than nesting.
 TAILWIND_OUTPUT = "dist/app.css"
+# What a phone adds to its home screen (``make app-icon``): a redrawn icon
+# gets a URL of its own, not the old drawing from a cache.
+APP_ICON = "app-icon.png"
 
 # Directories scanned for assets, and the extension each holds. Add a file
 # to one and it is fingerprinted automatically; no list to keep in sync.
@@ -59,6 +62,8 @@ def iter_sources() -> list[tuple[str, str]]:
 
     if (STATIC_DIR / TAILWIND_OUTPUT).is_file():
         sources.append((TAILWIND_OUTPUT, "dist/app-{hash}.css"))
+    if (STATIC_DIR / APP_ICON).is_file():
+        sources.append((APP_ICON, "dist/app-icon-{hash}.png"))
 
     for subdir, suffix in SOURCE_TREES:
         root = STATIC_DIR / subdir
