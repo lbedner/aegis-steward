@@ -19,7 +19,7 @@ from app.services.finance.utils import current_date
 from tests.web.conftest import Ledger, Streams
 from tests.web.dom import none, one, oob, select, table_rows, text, triggers
 
-HEALTH = "Health"
+STATUS = "Status"
 
 
 def rows_by_name(page: str) -> dict[str, dict]:
@@ -45,7 +45,9 @@ class TestPage:
         assert text(rent["Account"]) == "Checking"
         assert text(rent["Amount"]) == "$1,500.00"
         assert text(rent["Cadence"]) == "Monthly"
-        assert text(rent[HEALTH]) == "Active"
+        assert text(rent[STATUS]) == "Active"
+        # One answer per bill (#546): Health and Status were two to read.
+        assert "Health" not in rent
 
     def test_name_cell_carries_the_brand_icon(
         self, client: TestClient, streams: Streams, monkeypatch: pytest.MonkeyPatch
@@ -58,11 +60,11 @@ class TestPage:
         none(rows["Rent"]["Name"], "img")
         assert one(rows["Rent"]["Name"], "[data-avatar]").get("data-avatar") == "R"
 
-    def test_health_reads_overdue_past_the_due_date(
+    def test_status_reads_overdue_past_the_due_date(
         self, client: TestClient, streams: Streams
     ) -> None:
         water = rows_by_name(client.get("/bills").text)["Water"]
-        badge = one(water[HEALTH], "[data-tone]")
+        badge = one(water[STATUS], "[data-tone]")
         assert text(badge) == "Overdue" and badge.get("data-tone") == "warn"
 
     def test_a_paused_bill_is_neither_overdue_nor_chased(self) -> None:
@@ -81,9 +83,8 @@ class TestPage:
         and the predicate takes the response schema too.
         """
         from app.components.web_frontend.routes.finance.bills import (
-            health,
             needs_review,
-            state,
+            status,
         )
 
         today = current_date()
@@ -98,8 +99,7 @@ class TestPage:
             next_expected_date = today - timedelta(days=9)
             paused_until = PAUSE_INDEFINITE
 
-        assert state(_Paused, today)["label"] == "Paused"
-        assert health(_Paused, today)["label"] != "Overdue"
+        assert status(_Paused, today)["label"] == "Paused"
         assert not needs_review(_Paused, today)
 
         # The API says "overdue" on its own, so guarding only the line
@@ -107,14 +107,14 @@ class TestPage:
         class _AlreadyCalledOverdue(_Paused):
             staleness = "overdue"
 
-        assert health(_AlreadyCalledOverdue, today)["label"] != "Overdue"
+        assert status(_AlreadyCalledOverdue, today)["label"] == "Paused"
 
         # Stale survives the pause: a bill nothing has paid in months is
         # stale either way, and that is worth saying.
         class _Stale(_Paused):
             staleness = "stale"
 
-        assert health(_Stale, today)["label"] == "Stale"
+        assert status(_Stale, today)["label"] == "Stale"
 
     def test_a_paused_bill_is_not_due_on_the_date_it_skipped(self) -> None:
         """Sep 3 on a bill paused indefinitely is not a date anybody is
@@ -261,7 +261,7 @@ class TestRowActions:
         row = one(response.text, f"tr#stream-{streams.netflix}")
         assert row.get("hx-swap-oob") is None
         assert "Confirm" not in menu(response.text, streams.netflix)
-        assert text(select(row, "[data-tone]")[-1]) == "Good"  # the Status cell
+        assert text(select(row, "[data-tone]")[-1]) == "Active"  # the Status cell
 
     def test_mute_then_unmute(self, client: TestClient, streams: Streams) -> None:
         muted = client.post(f"/bills/{streams.rent}/mute").text
@@ -421,7 +421,7 @@ class TestMatch:
         self, client: TestClient, hx: TestClient, streams: Streams
     ) -> None:
         before = rows_by_name(client.get("/bills").text)["Water"]
-        assert text(before[HEALTH]) == "Overdue"
+        assert text(before[STATUS]) == "Overdue"
 
         dialog = hx.get(f"/bills/{streams.water}/match").text
         assert "Water" in text(one(dialog, "h2"))
@@ -436,7 +436,7 @@ class TestMatch:
             f"/bills/{streams.water}/match", data={"transaction_id": transaction_id}
         )
         row = one(response.text, f"tr#stream-{streams.water}[hx-swap-oob]")
-        assert text(select(row, "[data-tone]")[0]) == "Active"  # the Health cell
+        assert text(select(row, "[data-tone]")[0]) == "Active"  # the Status cell
         fired = triggers(response)
         assert "dialog:close" in fired and "Matched" in fired["toast"]["text"]
         after = rows_by_name(client.get("/bills").text)["Water"]

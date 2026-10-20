@@ -97,6 +97,25 @@ class TestTheBanner:
         assert said in text(row)
         one(row, 'a[href="/settings/activity"]')
 
+    async def test_a_link_to_many_banks_names_only_the_one_its_reason_does_not(
+        self, hx: TestClient, async_db_session: AsyncSession, connection: int
+    ) -> None:
+        """#547: a link to six banks led the banner with all six before
+        the one that needed you - two lines of a phone's first screen.
+        Its reason names that bank already."""
+        await _set(
+            async_db_session,
+            connection,
+            label="First Bank, Hometown Bank",
+            status="error",
+            status_detail="Connection to Hometown Bank may need attention",
+            last_successful_sync_at=utcnow(),
+        )
+
+        row = one(hx.get(ATTENTION).text, "[data-attention] li")
+        assert "First Bank" not in text(row)
+        assert text(row).startswith("Connection to Hometown Bank")
+
     async def test_a_bank_that_stopped_syncing_is_stale(
         self, hx: TestClient, async_db_session: AsyncSession, connection: int
     ) -> None:

@@ -249,6 +249,9 @@ class TestLines:
         spent = 3_000 + (1_500 if current_date().day > 1 else 0)
         assert f"${spent / 100:,.2f}" in text(line)
         one(line, f'[hx-get="/budget/lines/{budget.line}/remove"]')
+        # A rule between limits on a phone (#548): spaced alone, one
+        # limit's name, bar, figures and checkbox ran into the next.
+        one(page, f"#limits ul.rows > #line-{budget.line}")
 
     def test_the_limit_opens_for_editing_on_a_click(
         self, client: TestClient, budget: Budget

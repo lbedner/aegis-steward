@@ -427,3 +427,38 @@ console.log(JSON.stringify([localTime('2026-10-19T02:19:05Z', now),
 
     assert "," not in today and ":" in today
     assert "," in earlier
+
+
+SHEET = (
+    STUBS
+    + """
+const factories = {};
+const effects = [];
+global.Alpine = { data: (name, make) => { factories[name] = make; },
+                  effect: (fn) => { effects.push(fn); fn(); } };
+const page = [];
+document.documentElement = { classList: { toggle: (name, on) => page.push([name, on]) } };
+require(APP_JS);
+fire('alpine:init');
+const shell = factories.shell('/chat', false);
+shell.init();
+const set = (fields) => { Object.assign(shell, fields); effects.forEach((fn) => fn()); };
+set({ illiana: true });
+set({ illiana: false, mobileOpen: true });
+set({ mobileOpen: false });
+console.log(JSON.stringify(page.map(([name, on]) => `${name}:${on}`)));
+"""
+)
+
+
+def test_an_open_sheet_holds_the_page_still() -> None:
+    """#550: with Illiana's sheet (or the menu) open on a phone, a swipe
+    on its header or composer scrolled the page under the scrim. While
+    either is open the page does not scroll - in both shells, so the
+    shell component holds it rather than one layout."""
+    assert run(SHEET, APP_JS=APP_JS) == [
+        "overflow-hidden:false",
+        "overflow-hidden:true",
+        "overflow-hidden:true",
+        "overflow-hidden:false",
+    ]

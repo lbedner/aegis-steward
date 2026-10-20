@@ -570,6 +570,26 @@
     max-width: 100%;
   }
 
+  /* A phone's type a step down (issue 547): at the theme's 17px every
+     page read large beside the phone's other apps, and its first screen
+     was chrome. Fields keep 16px (below), or iOS zooms into them. */
+  html {
+    font-size: calc(var(--aegis-scale) * 0.88);
+  }
+
+  /* A list's rows (``rows``) in one column, set apart by a rule as a
+     table's rows are (issue 548): spaced alone, a limit's name, bar,
+     figures and checkbox ran into the next limit's. */
+  .rows {
+    row-gap: 0;
+  }
+  .rows > * {
+    padding-block: 0.875rem;
+  }
+  .rows > * + * {
+    @apply border-t border-aegis-border;
+  }
+
   /* The register's finer filters (issue 466): part of the filter row on
      a wide screen, a fold behind the Filters toggle on a phone. */
   [data-more-filters] {

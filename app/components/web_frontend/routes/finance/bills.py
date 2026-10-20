@@ -69,15 +69,8 @@ COLUMNS = [
     {"key": "amount", "label": "Amount", "kind": "money", "align": "right"},
     {"key": "cadence", "label": "Cadence"},
     {"key": "next_due", "label": "Next due", "kind": "date"},
-    {"key": "health", "label": "Health", "kind": "status"},
     {"key": "state", "label": "Status", "kind": "status"},
 ]
-# staleness (the API's stream_staleness) -> what the Health cell says.
-HEALTH: dict[str, tuple[str, str]] = {
-    "fresh": ("Active", "ok"),
-    "overdue": ("Overdue", "warn"),
-    "stale": ("Stale", "error"),
-}
 DIRECTIONS = [{"id": "outflow", "name": "Bill"}, {"id": "inflow", "name": "Income"}]
 FREQUENCIES = [
     {"id": key, "name": label} for key, label in BILL_FREQUENCY_OPTIONS.items()
@@ -97,25 +90,33 @@ def tab_of(stream: RecurringStreamResponse) -> str:
     return "income" if stream.direction == "inflow" else "bills"
 
 
-def health(stream: RecurringStreamResponse, today: date) -> dict[str, str]:
-    """Display truth over grace: the API's "fresh" tolerates settlement
-    lag, but a row past its due date reading Active is a lie."""
-    key = stream.staleness
-    if key == "fresh" and past_due(stream, today):
-        key = "overdue"
-    # A paused bill is not late, whichever side said it was: "skip my
-    # investments for a few months" is the user saying not to expect it,
-    # and the due date it has already passed is exactly what they
-    # paused. Reading Paused in one column and Overdue in the next is
-    # the row arguing with itself. Applied AFTER, because the API's own
-    # staleness already says "overdue" on its own - guarding only the
-    # line above left the two live bills that prompted this still
-    # reading Overdue. Stale survives: a bill nothing has paid in months
-    # is stale whether or not it is paused, and that is worth saying.
-    if key == "overdue" and is_paused(stream, today):
-        key = "fresh"
-    label, tone = HEALTH.get(key, HEALTH["fresh"])
-    return {"label": label, "tone": tone}
+def status(stream: RecurringStreamResponse, today: date) -> dict[str, str]:
+    """One answer per bill (#546), the first that holds: Health and Status
+    were two columns to read, and two more lines a bill on a phone.
+
+    Overdue is display truth over grace: the API's "fresh" tolerates
+    settlement lag, but a row past its due date reading Active is a lie.
+    A paused bill is not late, whichever side said it was: "skip my
+    investments for a few months" is the user saying not to expect it,
+    and the due date it has already passed is exactly what they paused.
+    Stale survives the pause: a bill nothing has paid in months is stale
+    whether or not it is paused, and that is worth saying."""
+    late = stream.staleness == "overdue" or (
+        stream.staleness == "fresh" and past_due(stream, today)
+    )
+    if stream.is_muted:
+        return {"label": "Muted", "tone": "muted"}
+    if stream.staleness == "stale":
+        return {"label": "Stale", "tone": "error"}
+    if is_paused(stream, today):
+        return {"label": "Paused", "tone": "muted"}
+    if late:
+        return {"label": "Overdue", "tone": "warn"}
+    if stream.is_payment:
+        return {"label": "Payment", "tone": "accent"}
+    if stream.direction == "outflow" and not is_commitment(stream):
+        return {"label": "Detected", "tone": "warn"}
+    return {"label": "Active", "tone": "ok"}
 
 
 def next_due(stream: RecurringStreamResponse, today: date) -> date | None:
@@ -147,18 +148,6 @@ def next_due(stream: RecurringStreamResponse, today: date) -> date | None:
     return None
 
 
-def state(stream: RecurringStreamResponse, today: date) -> dict[str, str]:
-    if stream.is_muted:
-        return {"label": "Muted", "tone": "muted"}
-    if is_paused(stream, today):
-        return {"label": "Paused", "tone": "muted"}
-    if stream.is_payment:
-        return {"label": "Payment", "tone": "accent"}
-    if stream.direction == "inflow" or is_commitment(stream):
-        return {"label": "Good", "tone": "ok"}
-    return {"label": "Detected", "tone": "warn"}
-
-
 def row(stream: RecurringStreamResponse, today: date) -> dict[str, Any]:
     cadence = frequency_label(stream.frequency)
     if stream.amount_is_variable:
@@ -173,8 +162,7 @@ def row(stream: RecurringStreamResponse, today: date) -> dict[str, Any]:
         "currency": stream.currency,
         "cadence": cadence,
         "next_due": next_due(stream, today),
-        "health": health(stream, today),
-        "state": state(stream, today),
+        "state": status(stream, today),
         "direction": stream.direction,
         "curated": is_commitment(stream),
         "muted": stream.is_muted,

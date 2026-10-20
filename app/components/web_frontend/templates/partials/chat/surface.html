@@ -12,7 +12,7 @@
 <div id="chat" class="flex flex-col h-full"
      data-chat='{{ {"stream": stream_url, "defaults": turn_defaults, "urls": chat_urls, "composer": chat_composer}|tojson }}'>
   <div class="relative flex-1 min-h-0">
-    <div id="chat-scroll" class="h-full overflow-y-auto pr-2">
+    <div id="chat-scroll" class="h-full overflow-y-auto overscroll-contain pr-2">
       <ol id="chat-thread" class="space-y-6 pb-6">
         {% include "partials/chat/transcript.html" %}
       </ol>

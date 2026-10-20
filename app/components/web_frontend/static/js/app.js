@@ -34,6 +34,12 @@ document.addEventListener('alpine:init', () => {
     mobileOpen: false,
     illiana: false,
     onChat,
+    // A sheet over the page (Illiana, the menu) holds it still: on a
+    // phone a swipe on its header scrolled the page under the scrim
+    // (issue 550). Both shells (the app's, the Overseer's) are this one.
+    init() {
+      Alpine.effect(() => document.documentElement.classList.toggle('overflow-hidden', this.illiana || this.mobileOpen));
+    },
     settled() {
       this.onChat = !!document.querySelector('#app-content #chat');
       if (this.onChat) { this.illiana = false; this.$refs.illianaBody.innerHTML = ''; }
