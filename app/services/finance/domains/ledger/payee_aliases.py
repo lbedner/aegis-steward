@@ -19,7 +19,7 @@ from typing import Protocol
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.finance.domains.ledger import queries
+from app.services.finance.domains.ledger import changelog, queries
 from app.services.finance.models import (
     FinanceMerchantAlias,
     FinanceTransaction,
@@ -338,3 +338,42 @@ async def filed_under(db: AsyncSession, ids: Iterable[int]) -> dict[int, int]:
         if filed >= SETTLED_ROWS and count / filed >= SETTLED_SHARE:
             settled[merchant_id] = category_id
     return settled | defaults
+
+
+async def file_blank_rows(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    merchant_ids: Iterable[int] | None = None,
+) -> int:
+    """Every row a feed brought that nobody has filed, filed where its
+    payee now settles (#541) - named first, where the memory or the
+    provider's name now knows its payee. A sync asks only about the days
+    it reads, so a row that arrived before its payee was named, merged or
+    given a default stayed blank. ``merchant_ids`` narrows to those
+    payees' rows (a merge, a naming). How many were filed."""
+    rows = await queries.blank_synced_rows(
+        db, owner_user_id=owner_user_id, merchant_ids=merchant_ids
+    )
+    # The rule's work, not yours: an Undo of a naming takes back the naming,
+    # and would leave these neither filed nor ever filed again. Said before
+    # any write, which the reads below would flush.
+    for field in ("merchant_id", "category_id"):
+        changelog.quietly(db, rows, field)
+    unnamed = [row for row in rows if row.merchant_id is None]
+    payees = await payees_for(
+        db, [(wording(row), row.name) for row in unnamed], owner_user_id=owner_user_id
+    )
+    for row in unnamed:
+        row.merchant_id = payees.get((wording(row), row.name))
+    filed = await filed_under(db, {row.merchant_id for row in rows if row.merchant_id})
+    count = 0
+    for row in rows:
+        if row.merchant_id is None:
+            continue
+        if (category_id := filed.get(row.merchant_id)) is not None:
+            row.category_id, row.category_source = category_id, "rule"
+            count += 1
+        db.add(row)
+    await db.flush()
+    return count

@@ -85,6 +85,24 @@ async def offers_holding(db: AsyncSession, leg_ids: list[int]) -> list[FinanceTr
     )
 
 
+async def pairs_holding(db: AsyncSession, leg_ids: list[int]) -> list[FinanceTransfer]:
+    """Live pairs - confirmed, or offered (#317) - with a leg among
+    ``leg_ids``. A turned-down pair is not live: it keeps its legs."""
+    return list(
+        (
+            await db.exec(
+                select(FinanceTransfer).where(
+                    FinanceTransfer.status.in_(("confirmed", "suggested")),
+                    or_(
+                        FinanceTransfer.from_transaction_id.in_(leg_ids),
+                        FinanceTransfer.to_transaction_id.in_(leg_ids),
+                    ),
+                )
+            )
+        ).all()
+    )
+
+
 async def confirmed_transfers_into(
     db: AsyncSession, account_ids: list[int]
 ) -> list[FinanceTransfer]:

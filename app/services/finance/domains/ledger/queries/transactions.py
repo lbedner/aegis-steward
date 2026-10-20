@@ -7,6 +7,7 @@ transaction surfaces are built from.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from typing import Any
 
@@ -414,3 +415,28 @@ async def tags_by_transaction(
     for txn_id, tag in rows:
         by_txn[txn_id].append(tag)
     return by_txn
+
+
+async def blank_synced_rows(
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None,
+    merchant_ids: Iterable[int] | None = None,
+) -> list[FinanceTransaction]:
+    """Live rows a feed brought that nobody has filed (#541): no category
+    from anyone, not split, not a transfer, not the bank's copy of an
+    export's row. ``merchant_ids`` narrows to those payees' rows."""
+    txn = FinanceTransaction
+    query = select(txn).where(
+        txn.connection_id.is_not(None),
+        txn.deleted_at.is_(None),
+        not_duplicate(),
+        txn.category_id.is_(None),
+        txn.category_source == "unset",
+        txn.is_split.is_(False),
+        txn.is_transfer.is_(False),
+        *owner_filters(txn.owner_user_id, owner_user_id),
+    )
+    if merchant_ids is not None:
+        query = query.where(txn.merchant_id.in_(list(merchant_ids)))
+    return list((await db.exec(query)).all())

@@ -22,7 +22,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.time import utcnow
 from app.services.finance.adapters.providers import queries
 from app.services.finance.adapters.providers.connections import arrivals, placing
-from app.services.finance.adapters.providers.connections.posting import carry_edits
+from app.services.finance.adapters.providers.connections.posting import (
+    carry_edits,
+    retire,
+)
 from app.services.finance.constants import FILE_SOURCES
 from app.services.finance.domains.ledger import (
     bank_link,
@@ -480,19 +483,14 @@ async def apply_transactions(
     # rows go in together here, and get the ids the link needs.
     await db.flush()
     await two_feeds.pair_ids(db, [(same, row.id) for same, row in pairs])
-    now = utcnow()
+    retiring: list[int] = []
     for account_id, pending_id, posted in collapse:
         pending_row = lane1.get((account_id, pending_id))
-        if (
-            pending_row is None
-            or pending_row is posted
-            or pending_row.deleted_at is not None
-        ):
+        if pending_row is None or pending_row is posted or pending_row.id in retiring:
             continue
         posted.pending_transaction_id = pending_row.id
-        pending_row.deleted_at = now
-        await carry_edits(db, pending_row, posted)
-        db.add(posted)
-        db.add(pending_row)
+        await carry_edits(db, pending_row, posted)  # both rows are in the session
+        retiring.append(pending_row.id or 0)
     await db.flush()
+    await retire(db, retiring)  # as any row is deleted: a pair's partner too
     return added, reconciled

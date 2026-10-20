@@ -8,8 +8,6 @@ Each job opens its own session and commits (services never commit themselves).
 import logging
 from typing import Any
 
-from sqlmodel import select
-
 from app.core.db import get_async_session
 from app.services.finance.domains.detection import (
     detect_recurring,
@@ -17,7 +15,7 @@ from app.services.finance.domains.detection import (
     promote_curated_streams,
 )
 from app.services.finance.domains.ledger.accounts import redraw_line
-from app.services.finance.models import FinanceAccount
+from app.services.finance.domains.ledger.queries import account_owner_ids
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
 
@@ -34,13 +32,7 @@ async def finance_recompute_snapshots_job() -> None:
     """
     try:
         async with get_async_session() as session:
-            owners = (
-                await session.exec(
-                    select(FinanceAccount.owner_user_id)
-                    .where(FinanceAccount.deleted_at.is_(None))
-                    .distinct()
-                )
-            ).all()
+            owners = await account_owner_ids(session)
             days_written = 0
             for owner_user_id in owners:
                 await detect_recurring(session, owner_user_id=owner_user_id)
@@ -65,13 +57,7 @@ async def finance_goal_auto_contribute_job() -> None:
     try:
         async with get_async_session() as session:
             service = FinanceService(session)
-            owners = (
-                await session.exec(
-                    select(FinanceAccount.owner_user_id)
-                    .where(FinanceAccount.deleted_at.is_(None))
-                    .distinct()
-                )
-            ).all()
+            owners = await account_owner_ids(session)
             booked = 0
             for owner_user_id in owners:
                 booked += await service.auto_contribute_goals(
@@ -93,13 +79,7 @@ async def finance_budget_close_job() -> None:
 
     try:
         async with get_async_session() as session:
-            owners = (
-                await session.exec(
-                    select(FinanceAccount.owner_user_id)
-                    .where(FinanceAccount.deleted_at.is_(None))
-                    .distinct()
-                )
-            ).all()
+            owners = await account_owner_ids(session)
             ended = shift_period(current_period_month(), -1)
             for owner_user_id in owners:
                 await budgets.close_month(
@@ -113,6 +93,26 @@ async def finance_budget_close_job() -> None:
         logger.exception("Finance budget month close failed")
 
 
+async def finance_file_blank_rows_job() -> None:
+    """Daily: every synced row nobody filed, filed where its payee now
+    settles (#541). A sync names and files what it brings; a row that
+    arrived before its payee was named, merged or given a default stayed
+    blank, and the sync only reads the last few days."""
+    from app.services.finance.domains.ledger import payee_aliases
+
+    try:
+        async with get_async_session() as session:
+            filed = 0
+            for owner_user_id in await account_owner_ids(session):
+                filed += await payee_aliases.file_blank_rows(
+                    session, owner_user_id=owner_user_id
+                )
+            await session.commit()
+        logger.info("Finance: filed %d blank row(s)", filed)
+    except Exception:
+        logger.exception("Finance blank-row filing failed")
+
+
 async def finance_envelope_credit_job() -> None:
     """Monthly (the 1st): book each auto-credit-on envelope's monthly
     credit - the allowance arrives whether anyone logs in or not.
@@ -120,13 +120,7 @@ async def finance_envelope_credit_job() -> None:
     try:
         async with get_async_session() as session:
             service = FinanceService(session)
-            owners = (
-                await session.exec(
-                    select(FinanceAccount.owner_user_id)
-                    .where(FinanceAccount.deleted_at.is_(None))
-                    .distinct()
-                )
-            ).all()
+            owners = await account_owner_ids(session)
             booked = 0
             for owner_user_id in owners:
                 booked += await service.auto_credit_envelopes(
@@ -156,13 +150,7 @@ async def finance_analyst_note_job() -> None:
         # whole point - this job used to hold the write lock across every
         # model call it made, and SQLite has one writer (2026-09-20).
         async with get_async_session() as session:
-            owners = (
-                await session.exec(
-                    select(FinanceAccount.owner_user_id)
-                    .where(FinanceAccount.deleted_at.is_(None))
-                    .distinct()
-                )
-            ).all()
+            owners = await account_owner_ids(session)
 
         written = 0
         for owner_user_id in owners:
@@ -208,13 +196,7 @@ async def finance_bill_due_email_job() -> None:
     bills: list[dict[str, Any]] = []
     try:
         async with get_async_session() as session:
-            owners = (
-                await session.exec(
-                    select(FinanceAccount.owner_user_id)
-                    .where(FinanceAccount.deleted_at.is_(None))
-                    .distinct()
-                )
-            ).all()
+            owners = await account_owner_ids(session)
             service = FinanceService(session)
             for owner_user_id in owners:
                 try:

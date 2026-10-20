@@ -259,3 +259,138 @@ class TestASyncedRow:
 
         row = (await _rows(async_db_session))["p_farm"]
         assert (row.merchant_id, row.category_id) == (farm.id, groceries.id)
+
+
+class TestABlankRowIsFiledOnceItCanBe:
+    """A row that arrived with nothing to file it by stayed blank: a sync
+    only asks about the last few days, and naming or merging a payee
+    later moved its rows without filing them (#541)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # the row read before and after
+    async def test_the_nightly_pass_files_the_blank_rows_it_now_can(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """Named by hand, given a default since: no sync reads it again."""
+        _account, connection = await _linked(async_db_session)
+        groceries = await _category(async_db_session, "Groceries")
+        farm = await _payee(async_db_session, "Greenacre")
+        await _sync(
+            async_db_session,
+            connection,
+            [_txn("p_farm", "10", 10.0, BANK_WORDING, personal_finance_category={})],
+        )
+        row = (await _rows(async_db_session))["p_farm"]
+        row.merchant_id = farm.id
+        farm.default_category_id = groceries.id
+        async_db_session.add_all([row, farm])
+        await async_db_session.flush()
+
+        filed = await payee_aliases.file_blank_rows(async_db_session, owner_user_id=1)
+
+        row = (await _rows(async_db_session))["p_farm"]
+        assert (row.category_id, row.category_source) == (groceries.id, "rule")
+        assert filed == 1
+
+    def test_it_runs_every_night(self) -> None:
+        from app.services.finance.scheduled_jobs import JOBS
+
+        assert "finance_file_blank_rows" in {job.id for job in JOBS}
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # the row read before and after
+    async def test_merging_a_payee_files_its_blank_rows(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """SHOPRITE folded into Shop Rite, whose rows are groceries: the
+        two that arrived under SHOPRITE stayed blank."""
+        _account, connection = await _linked(async_db_session)
+        groceries = await _category(async_db_session, "Groceries")
+        keep = await _payee(async_db_session, "Shop Rite", default=groceries)
+        fold = await _payee(async_db_session, "SHOPRITE")
+        await _sync(
+            async_db_session,
+            connection,
+            [_txn("p_sr", "10", 40.0, "SHOPRITE 123", personal_finance_category={})],
+        )
+        row = (await _rows(async_db_session))["p_sr"]
+        assert row.category_id is None
+        row.merchant_id = fold.id
+        async_db_session.add(row)
+        await async_db_session.flush()
+        assert keep.id is not None and fold.id is not None
+
+        await FinanceService(async_db_session).merge_merchants(
+            [fold.id], keep.id, owner_user_id=1
+        )
+
+        row = (await _rows(async_db_session))["p_sr"]
+        assert (row.category_id, row.category_source) == (groceries.id, "rule")
+
+    @pytest.mark.asyncio
+    @pytest.mark.queryspy(threshold=3)  # the rows read before and after
+    async def test_undoing_a_merge_leaves_what_the_rule_filed_filed(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The rule's filings went into your action's batch: Undo emptied
+        their category and left them marked filed, so nothing filed them
+        again."""
+        from app.services.finance.domains.ledger import changelog
+
+        _account, connection = await _linked(async_db_session)
+        groceries = await _category(async_db_session, "Groceries")
+        keep = await _payee(async_db_session, "Shop Rite", default=groceries)
+        fold = await _payee(async_db_session, "SHOPRITE")
+        await _sync(
+            async_db_session,
+            connection,
+            [_txn("p_sr", "10", 40.0, "SHOPRITE 123", personal_finance_category={})],
+        )
+        row = (await _rows(async_db_session))["p_sr"]
+        row.merchant_id = fold.id
+        async_db_session.add(row)
+        await async_db_session.flush()
+        assert keep.id is not None and fold.id is not None
+
+        with changelog.acting("you"):
+            await FinanceService(async_db_session).merge_merchants(
+                [fold.id], keep.id, owner_user_id=1
+            )
+        await changelog.undo(async_db_session, 1)
+
+        row = (await _rows(async_db_session))["p_sr"]
+        assert (row.category_id, row.category_source) == (groceries.id, "rule")
+
+
+class TestAGenericLabelNamesNothing:
+    @pytest.mark.asyncio
+    async def test_every_atm_is_not_the_one_most_withdrawals_were_named(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        """The provider labels every withdrawal "ATM Withdrawal"; most were
+        cash for one payee. A label is not a payee (#541, #542)."""
+        account, connection = await _linked(async_db_session)
+        cash = await _category(async_db_session, "Cash")
+        shop = await _payee(async_db_session, "Corner Shop")
+        for day in (1, 2, 3, 4):
+            row = await _filed(async_db_session, account, shop, cash, day=day)
+            row.name = "ATM Withdrawal"
+            async_db_session.add(row)
+        await async_db_session.flush()
+
+        await _sync(
+            async_db_session,
+            connection,
+            [
+                _txn(
+                    "p_atm",
+                    "10",
+                    60.0,
+                    "ATM WITHDRAWAL 1234 ROUTE 9",
+                    merchant_name="ATM Withdrawal",
+                    personal_finance_category={},
+                )
+            ],
+        )
+
+        assert (await _rows(async_db_session))["p_atm"].merchant_id is None

@@ -188,6 +188,9 @@ async def test_removing_one_half_counts_the_other_again(
     await async_db_session.commit()
 
     assert await _flags(async_db_session, into) == {(False, False)}
+    # The pair is kept, so an Undo of the delete has it back.
+    (transfer,) = (await async_db_session.exec(select(FinanceTransfer))).all()
+    assert transfer.status == "confirmed"
 
 
 @pytest.mark.asyncio
