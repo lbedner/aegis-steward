@@ -141,6 +141,7 @@ class TestAssetFingerprinting:
         (tmp_path / "js" / "app.js").write_text("console.log(1)")
         (tmp_path / "js" / "pages" / "extra.js").write_text("console.log(2)")
         (tmp_path / "dist" / "app.css").write_text(".x{}")
+        (tmp_path / "app-icon.png").write_bytes(b"png")
 
         monkeypatch.setattr(build_mod, "STATIC_DIR", tmp_path)
         monkeypatch.setattr(build_mod, "DIST_DIR", tmp_path / "dist")
@@ -160,6 +161,17 @@ class TestAssetFingerprinting:
         assert re.fullmatch(r"dist/app-[0-9a-f]{8}\.css", manifest["dist/app.css"])
         for built in manifest.values():
             assert (static_tree / built).is_file(), built
+
+    def test_a_redrawn_home_screen_icon_has_a_url_of_its_own(
+        self, static_tree: Path
+    ) -> None:
+        """A phone adding the app fetches the icon; at one URL a cached copy
+        of the old drawing came back for an hour after a redraw."""
+        from app.components.web_frontend.build import build_assets
+
+        assert re.fullmatch(
+            r"dist/app-icon-[0-9a-f]{8}\.png", build_assets()["app-icon.png"]
+        )
 
     def test_globs_nested_sources_without_a_list_to_maintain(
         self, static_tree: Path
@@ -240,6 +252,15 @@ class TestBuildWatchSourceFilter:
         assert _is_source(str(STATIC_DIR / "dist" / "app.css"))
         assert _is_source(str(STATIC_DIR / "css" / "app.css"))
         assert _is_source(str(STATIC_DIR / "js" / "app.js"))
+
+    def test_reacts_to_a_redrawn_home_screen_icon(self) -> None:
+        """``make app-icon`` in dev: the manifest names the new drawing,
+        not the old one under a URL cached for a year."""
+        from app.components.web_frontend.build import APP_ICON, STATIC_DIR
+        from app.components.web_frontend.build_watch import _is_source, _watched_dirs
+
+        assert _is_source(str(STATIC_DIR / APP_ICON))
+        assert (STATIC_DIR, False) in _watched_dirs()
 
     def test_ignores_generated_output_and_noise(self) -> None:
         from app.components.web_frontend.build import STATIC_DIR

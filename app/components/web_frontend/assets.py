@@ -13,12 +13,13 @@ from typing import Any
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 
+from app.components.web_frontend.build import APP_ICON
+
 COMPONENT_DIR = Path(__file__).parent
 STATIC_DIR = COMPONENT_DIR / "static"
 MANIFEST_PATH = STATIC_DIR / "dist" / "manifest.json"
-# What a phone adds to its home screen: the icon (``make app-icon``) the
-# page and the manifest name, and the manifest's path. Template globals.
-APP_ICON = "app-icon.png"
+# What a phone adds to its home screen: the icon the page and the manifest
+# name, and the manifest's path. Template globals.
 WEB_MANIFEST = "/manifest.webmanifest"
 HOME_SCREEN = {"app_icon": APP_ICON, "web_manifest": WEB_MANIFEST}
 
