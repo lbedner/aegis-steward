@@ -1766,3 +1766,17 @@ def test_every_action_the_card_asks_is_titled() -> None:
     """``TITLES`` is the card's actions: the protocol's that are not kept."""
     asked = {a for a in PROTOCOL["actions"] if not is_kept(a)}
     assert set(actions.TITLES) == asked
+
+
+def test_a_deploy_can_keep_the_site_up(
+    redis: FakeRedis, app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Beside Deploy, a deploy without downtime (aegis-stack#1789): the
+    webserver is swapped for a healthy new one, so nobody is signed out."""
+    deployed(monkeypatch, {"server": BOX, "provision": READY})
+    card = _card(TestClient(app), PAGE)
+    rolling = one(card, '[data-ask="deploy-rolling"]')
+    assert rolling.get("hx-post") == f"{actions.PARTIALS}/deploy-rolling"
+    TestClient(app).post(f"{actions.PARTIALS}/deploy-rolling")
+    assert _queued(redis)[-1]["action"] == "deploy-rolling"
+    assert PROTOCOL["actions"]["deploy-rolling"]["command"] == ["deploy", "--rolling"]
