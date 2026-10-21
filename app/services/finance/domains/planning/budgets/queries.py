@@ -12,11 +12,12 @@ the first half of building the predicate.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from typing import Any
 
 from sqlalchemy import func
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.constants import add_months
@@ -177,6 +178,17 @@ async def budget_line_by_id(
         *owner_filters(FinanceBudgetCategory.owner_user_id, owner_user_id),
     ]
     return (await db.exec(select(FinanceBudgetCategory).where(*filters))).first()
+
+
+async def payee_lines_on(
+    db: AsyncSession, keys: Iterable[str]
+) -> list[FinanceBudgetCategory]:
+    """Every payee line on one of ``keys``, removed ones too: the unique
+    index counts them (#542)."""
+    query = select(FinanceBudgetCategory).where(
+        col(FinanceBudgetCategory.payee_key).in_(list(keys))
+    )
+    return list((await db.exec(query)).all())
 
 
 async def categorized_outflow_history(

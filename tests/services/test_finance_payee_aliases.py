@@ -62,6 +62,15 @@ def _flagged(rows: list[FinanceMerchantAlias]) -> set[str]:
     return {row.normalized_alias for row in rows if row.is_ambiguous}
 
 
+async def _resolve(
+    svc: FinanceService, descriptors: list[str | None], *, owner_user_id: int
+) -> dict[str, int]:
+    """descriptor -> payee, as the memory answers it: through its key."""
+    keys = {d: transaction_payee_key(None, d, None) for d in descriptors if d}
+    found = await svc.resolve_payee_keys(keys.values(), owner_user_id=owner_user_id)
+    return {d: found[key] for d, key in keys.items() if key in found}
+
+
 async def _aliases(session: AsyncSession) -> dict[str, int]:
     return _by_key(await _stored(session))
 
@@ -191,7 +200,7 @@ class TestResolvingADescriptor:
         shoprite = await svc.create_merchant("ShopRite", owner_user_id=1)
         await svc.assign_merchant([txn.id], shoprite.id, owner_user_id=1)
 
-        resolved = await svc.resolve_merchant_aliases([SHOPRITE], owner_user_id=1)
+        resolved = await _resolve(svc, [SHOPRITE], owner_user_id=1)
 
         assert resolved == {SHOPRITE: shoprite.id}
 
@@ -206,7 +215,7 @@ class TestResolvingADescriptor:
         shoprite = await svc.create_merchant("ShopRite", owner_user_id=1)
         await svc.assign_merchant([txn.id], shoprite.id, owner_user_id=1)
 
-        resolved = await svc.resolve_merchant_aliases([SHOPRITE_AGAIN], owner_user_id=1)
+        resolved = await _resolve(svc, [SHOPRITE_AGAIN], owner_user_id=1)
 
         assert resolved == {SHOPRITE_AGAIN: shoprite.id}
 
@@ -223,15 +232,13 @@ class TestResolvingADescriptor:
         await svc.assign_merchant([txn.id], first.id, owner_user_id=1)
         await svc.assign_merchant([txn.id], second.id, owner_user_id=1)
 
-        assert await svc.resolve_merchant_aliases([SHOPRITE], owner_user_id=1) == {}
+        assert await _resolve(svc, [SHOPRITE], owner_user_id=1) == {}
 
     @pytest.mark.asyncio
     async def test_an_unknown_descriptor_is_absent_rather_than_none(
         self, svc: FinanceService
     ) -> None:
-        resolved = await svc.resolve_merchant_aliases(
-            ["WHO KNOWS", "", None], owner_user_id=1
-        )
+        resolved = await _resolve(svc, ["WHO KNOWS", "", None], owner_user_id=1)
         assert resolved == {}
 
     @pytest.mark.asyncio
@@ -243,7 +250,7 @@ class TestResolvingADescriptor:
         shoprite = await svc.create_merchant("ShopRite", owner_user_id=1)
         await svc.assign_merchant([txn.id], shoprite.id, owner_user_id=1)
 
-        assert await svc.resolve_merchant_aliases([SHOPRITE], owner_user_id=2) == {}
+        assert await _resolve(svc, [SHOPRITE], owner_user_id=2) == {}
 
 
 def _qif(payee: str) -> bytes:
@@ -319,7 +326,9 @@ SHOPRITE_INSTORE = [
     "SHPRTE MAIN ST&ELM GT ANYTOWN NYXX8683 07/22",
     "SHPRTE MAIN ST&ELM GT XXX-XXX-4474 NY 08/03",
 ]
-# The same store through Apple Pay - a DIFFERENT key, and correctly so.
+# The same store through Apple Pay, which spells it out ("SHOPRITE", not
+# "SHPRTE"): the wallet's "AplPay" is no part of the key (#542), but its
+# wording is another key.
 SHOPRITE_APPLE_PAY = "AplPay SHOPRITE ANYTANYTOWN"
 
 # One prefix, four real payees: the ledger's worst case.
@@ -335,11 +344,13 @@ class TestTheShapesTheLedgerActuallyHas:
         assert keys == {KEY}
         assert len({normalize_payee(d) for d in SHOPRITE_INSTORE}) == 3
 
-    def test_apple_pay_is_a_separate_key_from_the_same_store(self) -> None:
-        """Naming the in-store rows must NOT silently claim the wallet
-        rows: the prefix groups what a person confirmed, and nobody
-        confirmed these together."""
-        assert transaction_payee_key(None, SHOPRITE_APPLE_PAY, None) != KEY
+    def test_a_wallet_that_spells_the_store_out_is_another_key(self) -> None:
+        """Naming the in-store rows does not claim the wallet rows when
+        the bank words the store differently: the key groups what a
+        person confirmed, and nobody confirmed these together."""
+        assert transaction_payee_key(None, SHOPRITE_APPLE_PAY, None) == (
+            "SHOPRITE ANYTANYTOWN"
+        )
 
     @pytest.mark.asyncio
     async def test_naming_one_swipe_covers_the_rest_of_that_store(
@@ -352,8 +363,8 @@ class TestTheShapesTheLedgerActuallyHas:
         shoprite = await svc.create_merchant("Shop Rite", owner_user_id=1)
         await svc.assign_merchant([seen.id], shoprite.id, owner_user_id=1)
 
-        resolved = await svc.resolve_merchant_aliases(
-            [*SHOPRITE_INSTORE[1:], SHOPRITE_APPLE_PAY], owner_user_id=1
+        resolved = await _resolve(
+            svc, [*SHOPRITE_INSTORE[1:], SHOPRITE_APPLE_PAY], owner_user_id=1
         )
 
         assert resolved == {d: shoprite.id for d in SHOPRITE_INSTORE[1:]}
@@ -377,12 +388,7 @@ class TestTheShapesTheLedgerActuallyHas:
         await svc.assign_merchant([second.id], chase.id, owner_user_id=1)
 
         assert await _ambiguous(async_db_session) == {"NON CHASE ATM WITHDRAW"}
-        assert (
-            await svc.resolve_merchant_aliases(
-                [ATM_RIVERBEND, ATM_CHASE], owner_user_id=1
-            )
-            == {}
-        )
+        assert await _resolve(svc, [ATM_RIVERBEND, ATM_CHASE], owner_user_id=1) == {}
 
     @pytest.mark.asyncio
     async def test_an_aggregator_that_sometimes_means_the_restaurant(
@@ -400,7 +406,7 @@ class TestTheShapesTheLedgerActuallyHas:
         await svc.assign_merchant([a.id], doordash.id, owner_user_id=1)
         await svc.assign_merchant([b.id], wingstop.id, owner_user_id=1)
 
-        assert await svc.resolve_merchant_aliases(["Doordash"], owner_user_id=1) == {}
+        assert await _resolve(svc, ["Doordash"], owner_user_id=1) == {}
 
 
 class TestTheImportAsksOnce:
@@ -525,7 +531,7 @@ class TestRebuildingTheMemoryFromWhatIsAlreadyNamed:
 
         assert counts["ambiguous"] == 1
         assert await _ambiguous(async_db_session) == {"NON CHASE ATM WITHDRAW"}
-        assert await svc.resolve_merchant_aliases([ATM_CHASE], owner_user_id=1) == {}
+        assert await _resolve(svc, [ATM_CHASE], owner_user_id=1) == {}
 
     @pytest.mark.asyncio
     @pytest.mark.queryspy(threshold=3)  # two rebuilds

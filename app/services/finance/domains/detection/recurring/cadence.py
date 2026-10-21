@@ -25,7 +25,7 @@ import statistics
 from app.services.finance.constants import CADENCES
 from app.services.finance.models import FinanceTransaction
 from app.services.finance.pay_days import next_pay_day, pay_days_of
-from app.services.finance.utils import normalize_payee
+from app.services.finance.utils import row_payee_key
 
 MIN_OCCURRENCES = 3
 
@@ -155,16 +155,6 @@ def _rhythm_ratio(gaps: list[int], canonical: int) -> float:
     return sum(1 for g in gaps if abs(g - canonical) <= slack) / len(gaps)
 
 
-# Descriptor churn the fallback key must survive: embedded statement
-# dates ("CA 05/25" becomes "CA 06/25" next month), masked card
-# references that reformat ("XXXX--X4013", "XXXX4013"), and long
-# reference numbers. Each makes one bill a parade of unique keys that
-# never reaches MIN_OCCURRENCES.
-_EMBEDDED_DATE = re.compile(r"\b\d{1,2}[/-]\d{2,4}\b")
-_KEY_NOISE = re.compile(r"\b(?:X{2,}\w*|\w*\d{3,}\w*)\b")
-_SPACES = re.compile(r"\s+")
-
-
 _FEE_PFC = "BANK_FEES"
 # Whole words: as bare letters "FEE" sat inside every "COFFEE".
 _FEE_RE = re.compile(r"\bFEES?\b|INTEREST CHARGE|FINANCE CHARGE", re.IGNORECASE)
@@ -174,15 +164,6 @@ def is_fee(txn: FinanceTransaction) -> bool:
     """A charge the account's own bank levied - a fee or interest - read
     from the provider's category or the descriptor."""
     return txn.pfc_primary == _FEE_PFC or bool(_FEE_RE.search(txn.name or ""))
-
-
-def _descriptor_key(raw: str) -> str:
-    """``normalize_payee`` minus the parts that change between charges.
-
-    Only the detection KEY - stored aliases and display names keep the
-    full normalization, so nothing already persisted re-keys."""
-    base = normalize_payee(_EMBEDDED_DATE.sub(" ", raw))
-    return _SPACES.sub(" ", _KEY_NOISE.sub(" ", base)).strip()
 
 
 def _payee_key(txn: FinanceTransaction) -> str:
@@ -200,18 +181,16 @@ def _payee_key(txn: FinanceTransaction) -> str:
     a unique string, so it never reached MIN_OCCURRENCES and was never
     detected at all.
 
-    The normalized-descriptor fallback is what still auto-detects
-    everything nobody has named a payee for - so assigning payees is an
-    improvement you opt into per merchant, not a prerequisite for the
-    feature working at all. The fallback strips descriptor churn first
-    (see ``_descriptor_key``): without that, the YouTube case above is
-    every unassigned vendor's fate.
+    The payee key fallback (``transaction_payee_key``, #542) is what still
+    auto-detects everything nobody has named a payee for - so assigning
+    payees is an improvement you opt into per merchant, not a
+    prerequisite for the feature working at all. The key drops what
+    changes per charge: without that, the YouTube case above is every
+    unassigned vendor's fate.
     """
     if txn.merchant_id is not None:
         return f"merchant:{txn.merchant_id}"
-    return _descriptor_key(
-        txn.merchant_name or txn.original_description or txn.name or ""
-    )
+    return row_payee_key(txn) or ""
 
 
 def _has_gone_quiet(last_date: date, canonical: int | None, today: date) -> bool:

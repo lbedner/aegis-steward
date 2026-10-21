@@ -53,14 +53,14 @@ from app.services.finance.adapters.importers.base import (
 )
 from app.services.finance.adapters.importers.plan import plan_transactions
 from app.services.finance.constants import PROVIDER_LABELS, sync_source
-from app.services.finance.domains.ledger import changelog, payee_aliases, two_feeds
+from app.services.finance.domains.ledger import changelog, two_feeds
 from app.services.finance.models import (
     FinanceImportBatch,
     FinanceImportBatchRow,
     FinanceImportProfile,
     FinanceTransactionTag,
 )
-from app.services.finance.utils import current_date
+from app.services.finance.utils import current_date, row_payee_key
 from app.services.shared.queries import stored_owner
 from app.services.system.jobs import SetLabel, unwatched
 
@@ -310,7 +310,7 @@ async def ingest_transactions(
         return category_cache[hint]
 
     # A payee already named on this ledger lands already named, keyed on
-    # the same four-token grouping the user confirmed when they named it.
+    # the same payee key the user confirmed when they named it.
     # A key they have since taught a second payee stops resolving; see
     # ``_remember_payee_keys``.
     #
@@ -320,8 +320,8 @@ async def ingest_transactions(
     # nearly all distinct (the card tail and date vary per swipe), so a
     # cache would miss on almost every row and turn this into the N+1
     # ``test_ingest_query_count_is_flat_in_row_count`` exists to catch.
-    merchant_by_descriptor = await service.resolve_merchant_aliases(
-        [payee_aliases.wording(r.txn) for r in plan.rows],
+    merchant_by_key = await service.resolve_payee_keys(
+        [row_payee_key(r.txn) for r in plan.rows],
         owner_user_id=owner_user_id,
     )
 
@@ -332,7 +332,7 @@ async def ingest_transactions(
     # "Food & Dining:Groceries" while the payee itself said
     # "Bills & Utilities:Productivity" and four earlier rows agreed.
     payee_default_category = await service.merchant_default_categories(
-        set(merchant_by_descriptor.values())
+        set(merchant_by_key.values())
     )
 
     # Memoize tag rows the same way (Quicken tags repeat heavily).
@@ -508,7 +508,7 @@ async def ingest_transactions(
             )
             continue
 
-        merchant_id = merchant_by_descriptor.get(payee_aliases.wording(txn) or "")
+        merchant_id = merchant_by_key.get(row_payee_key(txn) or "")
         category_id = payee_default_category.get(
             merchant_id or 0
         ) or await _category_for(txn.category_hint)

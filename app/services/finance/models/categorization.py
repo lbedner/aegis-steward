@@ -197,8 +197,8 @@ class FinanceMerchantAlias(SQLModel, table=True):
     chokepoint every naming path routes through) and read when an import
     creates a transaction.
 
-    ``normalized_alias`` is the four-token ``transaction_payee_key``, not
-    the whole descriptor. Measured on this ledger, the full descriptor is
+    ``normalized_alias`` is the row's ``transaction_payee_key`` (#542),
+    not the whole descriptor. Measured on this ledger, the full descriptor is
     nearly useless as a memory: ShopRite's 407 transactions carry 211
     distinct descriptors, because the card tail and date are baked into
     each one, so half of next month's rows would arrive as text nobody

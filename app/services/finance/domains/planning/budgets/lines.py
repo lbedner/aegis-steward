@@ -8,7 +8,8 @@ is ``summary``, proposing new lines is ``suggestions``.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Literal
 
@@ -408,3 +409,27 @@ async def _remove(db: AsyncSession, line: FinanceBudgetCategory) -> None:
     line.deleted_at = line.updated_at = utcnow()
     db.add(line)
     await db.flush()
+
+
+async def follow_payee_keys(db: AsyncSession, moves: Mapping[str, Counter[str]]) -> int:
+    """Each payee line on a key a newer payee key retired, moved to the
+    key most of its rows now carry (#542): a line keyed by a key no row
+    has any more counts nothing. A line whose budget already limits the
+    new key that month stays: one key, one line. How many moved."""
+    wanted = {old: keys.most_common(1)[0][0] for old, keys in moves.items() if keys}
+    lines = await queries.payee_lines_on(db, {*wanted, *wanted.values()})
+    taken = {(line.budget_id, line.payee_key, line.period_month) for line in lines}
+    moved = 0
+    for line in lines:
+        key = wanted.get(line.payee_key or "")
+        if key is None or key == line.payee_key:
+            continue
+        if (line.budget_id, key, line.period_month) in taken:
+            continue
+        taken.discard((line.budget_id, line.payee_key, line.period_month))
+        taken.add((line.budget_id, key, line.period_month))
+        line.payee_key = key
+        db.add(line)
+        moved += 1
+    await db.flush()
+    return moved

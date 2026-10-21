@@ -32,6 +32,8 @@ class ServiceJob:
     ``timeout`` is how long a worker lets it run; None keeps the queue's.
     ``server_only``: it reaches real banks, inboxes or storage, so a dev
     stack never schedules it - the server's ledger owns the data (#532).
+    ``at_start``: it also runs as the scheduler starts, so a deploy's
+    change shows at once rather than at its next run (#542).
     """
 
     func: Callable[[], Awaitable[Any]]
@@ -41,6 +43,7 @@ class ServiceJob:
     timeout: int | None = None
     server_only: bool = False
     app_service: str | None = None
+    at_start: bool = False
 
     async def run(self) -> Any:
         """Execute with the discovered owner, restoring context even on failure."""

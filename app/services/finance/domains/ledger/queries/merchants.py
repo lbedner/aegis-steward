@@ -297,6 +297,18 @@ async def named_transactions(
     return list((await db.exec(query)).all())
 
 
+async def stale_payee_keys(db: AsyncSession, version: int) -> list[FinanceTransaction]:
+    """Every row whose stored payee key an older version made (#542),
+    deleted ones too: a restore brings them back."""
+    query = select(FinanceTransaction).where(
+        or_(
+            FinanceTransaction.payee_key_version.is_(None),
+            FinanceTransaction.payee_key_version != version,
+        )
+    )
+    return list((await db.exec(query)).all())
+
+
 async def paired_payees(
     db: AsyncSession, *, owner_user_id: int | None = None
 ) -> list[tuple[FinanceTransaction, int]]:

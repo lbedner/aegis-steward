@@ -157,3 +157,23 @@ def test_interval_jobs_keep_their_times_across_restarts(
     assert len(next_runs) == 1
     (next_run,) = next_runs
     assert next_run - min(started) < timedelta(hours=24, seconds=1)
+
+
+def test_a_job_that_runs_at_start_runs_as_the_scheduler_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deploy's change shows at once, not at the job's next hour (#542):
+    the job runs as the scheduler starts, then on its own schedule."""
+    from datetime import UTC, datetime, timedelta
+
+    import app.components.scheduler.main as scheduler_main
+
+    async def nightly() -> None:
+        """A nightly chore."""
+
+    job = ServiceJob(
+        nightly, "nightly", "Nightly", {"trigger": "cron", "hour": 1}, at_start=True
+    )
+    monkeypatch.setattr(scheduler_main, "service_jobs", lambda: (job,))
+    next_run = _scheduled()["nightly"].next_run_time
+    assert next_run - datetime.now(UTC) < timedelta(seconds=5)

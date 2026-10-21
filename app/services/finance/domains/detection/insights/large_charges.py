@@ -28,9 +28,9 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.insights.formatting import format_usd
-from app.services.finance.domains.detection.recurring.cadence import _descriptor_key
 from app.services.finance.domains.ledger.queries.filters import not_duplicate
 from app.services.finance.models import FinanceTransaction
+from app.services.finance.utils import row_payee_key
 
 # large_transaction: an outlier is judged against its OWN account, because a
 # normal charge on a grocery card and a normal charge on a mortgage account are
@@ -50,10 +50,8 @@ PAYEE_MULTIPLE = 2
 
 
 def _described(txn: Any) -> str:
-    """The description key the recurring detector groups by."""
-    return _descriptor_key(
-        txn.merchant_name or txn.original_description or txn.name or ""
-    )
+    """The payee key the recurring detector groups by."""
+    return row_payee_key(txn) or ""
 
 
 @dataclass

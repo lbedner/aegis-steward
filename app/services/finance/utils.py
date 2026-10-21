@@ -126,31 +126,49 @@ def current_date() -> date:
     return utcnow().date()
 
 
+# The version of ``transaction_payee_key`` a row's stored key was made
+# by. Raise it with any change to the key: a recompute then re-keys the
+# rows it changes, and what was stored under their old key (#542).
+PAYEE_KEY_VERSION = 1
+
+# What a bank writes before the payee: a card's "POS DEBIT", a wallet's
+# "AplPay", a processor's "SQ", "TST", "SP" or "DD", an ACH's "ORIG CO NAME".
+_BANK_PREFIX = re.compile(
+    r"^(?:POS DEBIT|POS PURCHASE|APL ?PAY|PAYPAL|ORIG CO NAME|SQ|TST|SP|DD)\s+"
+)
+# What changes between one payee's charges: an embedded date, a card
+# reference ("XXXX3007"), a store or reference number.
+_EMBEDDED_DATE = re.compile(r"\b\d{1,2}[/-]\d{2,4}\b")
+_KEY_NOISE = re.compile(r"\b(?:X{2,}\w*|\w*\d{3,}\w*)\b")
+
+
 def transaction_payee_key(
     merchant_name: str | None,
     original_description: str | None,
     name: str | None,
 ) -> str:
-    """First-4-normalized-token payee grouping key for a transaction.
+    """How every grouping knows a payee (#542): the provider's name for
+    it, else the bank's wording, without the bank's own words and what
+    changes per charge, to its first four words.
 
-    ``normalize_payee`` only folds case/accents/punctuation - it doesn't know
-    a bank-generated descriptor's trailing tokens (a masked card ref,
-    city/state, or date) vary per swipe even for the exact same merchant
-    ("SHPRTE MAIN ST&ELM GT XXX-XXX-6086 NY 06/28" vs "...GT ANYTOWN
-    NYXX8683 07/22" - same store, different card/day). The merchant name is
-    reliably at the START of these descriptors; the noise is reliably
-    appended at the END, so a first-N-token prefix groups them without a
-    real merchant-recognition step. Verified against this app's real
-    imported data: 395 Shoprite transactions were splitting into 201
-    distinct "payees" under the full normalized string; a 4-token prefix
-    collapses them to 6 (the genuine variants - in-store vs. Apple Pay vs.
-    Google Pay). Shared by ``suggest_categories`` and the Budget goal
-    parser/summary, so a payee grouping never drifts between the two.
+    The provider's name is its ``merchant_name``, or the ``name`` a feed
+    gives beside its raw wording ("Dunkin'" for "POS DEBIT DUNKIN #346509
+    Q35 ANYTOWN NY"): every store, one key. An export's row carries
+    one name for both, and keys on it. The wording keeps a store's place,
+    so two ATMs stay two; four words absorb the city, state and card tail
+    a bank appends, which grouped ShopRite's 395 rows as 6 where the
+    whole wording made 201. Stored on each row (``payee_key``) at
+    ``PAYEE_KEY_VERSION``.
     """
-    from app.services.finance.utils import normalize_payee
-
-    normalized = normalize_payee(merchant_name or original_description or name or "")
-    return " ".join(normalized.split()[:4])
+    labelled = (
+        name if name and original_description and name != original_description else None
+    )
+    said = merchant_name or labelled or original_description or name or ""
+    normalized = normalize_payee(_EMBEDDED_DATE.sub(" ", said))
+    while prefix := _BANK_PREFIX.match(normalized):
+        normalized = normalized[prefix.end() :]
+    words = _KEY_NOISE.sub(" ", normalized).split() or normalized.split()
+    return " ".join(words[:4])
 
 
 # -- payee vocabulary ---------------------------------------------------------
@@ -164,9 +182,12 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def row_payee_key(txn: Any) -> str | None:
-    """A transaction row's payee key: ``transaction_payee_key`` off the
-    row's own three fields, so no caller spells them out again."""
-    return transaction_payee_key(txn.merchant_name, txn.original_description, txn.name)
+    """A row's payee key - a stored, a synced or an imported one:
+    ``transaction_payee_key`` off its own fields, so no caller spells them
+    out again."""
+    return transaction_payee_key(
+        getattr(txn, "merchant_name", None), txn.original_description, txn.name
+    )
 
 
 def normalize_payee(raw: str | None) -> str:

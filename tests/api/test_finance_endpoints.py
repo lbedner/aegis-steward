@@ -1794,7 +1794,9 @@ async def test_budget_goal_parses_natural_language(
     async_db_session: AsyncSession,
     acting_owner_user_id: int | None,
 ) -> None:
-    from datetime import date
+    from datetime import timedelta
+
+    from app.services.finance.utils import current_date
 
     service = FinanceService(async_db_session)
     account = await service.create_manual_account(
@@ -1803,12 +1805,14 @@ async def test_budget_goal_parses_natural_language(
         account_type="checking",
         classification="asset",
     )
-    for day in (1, 8, 15, 22):
+    # Inside the parser's 90-day baseline, whatever day it runs: fixed July
+    # dates aged out of it.
+    for weeks in (1, 2, 3, 4):
         await service.create_transaction(
             owner_user_id=acting_owner_user_id,
             account_id=account.id,
             amount=-600,
-            txn_date=date(2026, 7, day),
+            txn_date=current_date() - timedelta(weeks=weeks),
             name="Starbucks",
         )
     await async_db_session.commit()

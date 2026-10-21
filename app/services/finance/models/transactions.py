@@ -16,6 +16,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Index,
+    event,
 )
 from sqlmodel import Field, SQLModel
 
@@ -25,6 +26,7 @@ from app.services.finance.models.base import (
     _SCHEMA,
     _bigint,
 )
+from app.services.finance.utils import PAYEE_KEY_VERSION, row_payee_key
 
 # ---------------------------------------------------------------------------
 # Group C (core) — transactions, splits, transfers
@@ -167,6 +169,11 @@ class FinanceTransaction(SQLModel, table=True):
     # Forward FK (finance_merchant, FIN-08) — plain column here.
     merchant_id: int | None = Field(default=None)
     merchant_name: str | None = Field(default=None)
+    # How every grouping knows this row's payee (``transaction_payee_key``),
+    # and the version that made it (#542): a newer key re-keys the row, and
+    # what was stored under the old one follows it.
+    payee_key: str | None = Field(default=None, max_length=191)
+    payee_key_version: int | None = Field(default=None)
     # A brand logo the source attached to this transaction, provider-neutral:
     # each adapter translates its own enrichment into this one URL, and the
     # ledger hands it to the payee on attribution (merchants.py).
@@ -221,6 +228,15 @@ class FinanceTransaction(SQLModel, table=True):
     )
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+
+@event.listens_for(FinanceTransaction, "before_insert")
+@event.listens_for(FinanceTransaction, "before_update")
+def _key_payee(_mapper: Any, _connection: Any, txn: FinanceTransaction) -> None:
+    """Every row written carries the current payee key: one place, so no
+    path that makes or changes a row can store it without."""
+    txn.payee_key = row_payee_key(txn) or None
+    txn.payee_key_version = PAYEE_KEY_VERSION
 
 
 class FinanceTransactionSplit(SQLModel, table=True):

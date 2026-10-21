@@ -6,7 +6,7 @@ own in ``app/services/<service>/scheduled_jobs.py``.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 from typing import Any
 
@@ -107,6 +107,8 @@ def register_service_jobs(scheduler: AsyncIOScheduler) -> None:
         trigger = dict(job.trigger)
         if trigger.get("trigger") == "interval":
             trigger.setdefault("start_date", INTERVAL_ANCHOR)
+        if job.at_start:
+            trigger["next_run_time"] = datetime.now(UTC)
         scheduler.add_job(
             enqueue_task,
             args=[job.task_name, QueueName.SYSTEM],

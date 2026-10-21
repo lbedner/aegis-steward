@@ -103,7 +103,14 @@ async def finance_file_blank_rows_job() -> None:
     try:
         async with get_async_session() as session:
             filed = 0
-            for owner_user_id in await account_owner_ids(session):
+            owners = await account_owner_ids(session)
+            # A newer payee key re-keys the rows first, and the memory
+            # follows, so tonight's filing reads the new keys (#542).
+            service = FinanceService(session)
+            if await service.rekey_payees():
+                for owner_user_id in owners:
+                    await service.recompute_payee_aliases(owner_user_id=owner_user_id)
+            for owner_user_id in owners:
                 filed += await payee_aliases.file_blank_rows(
                     session, owner_user_id=owner_user_id
                 )

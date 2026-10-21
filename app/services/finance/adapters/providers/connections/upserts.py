@@ -83,12 +83,6 @@ class ProviderTransaction:
     logo_url: str | None = None
 
 
-def _asks(txn: ProviderTransaction) -> tuple[str | None, str | None]:
-    """What a synced row asks the payee memory (``payees_for``): its
-    wording, and the provider's name for it."""
-    return payee_aliases.wording(txn), txn.name
-
-
 async def _category(
     service: FinanceService,
     txn: ProviderTransaction,
@@ -379,7 +373,7 @@ async def apply_transactions(
     # knew its wording - is named and filed by your own history (#324):
     # the memory, else the provider's name for it.
     arriving = [
-        _asks(txn)
+        payee_aliases.asks(txn)
         for account_id, txn in prepared
         if (held := lane1.get((account_id, txn.external_id))) is None
         # Not the bank's copy of an export's row: that one is named there.
@@ -411,7 +405,7 @@ async def apply_transactions(
                 existing.merchant_id is None
                 and existing.canonical_transaction_id is None
             ):
-                existing.merchant_id = payees.get(_asks(txn))
+                existing.merchant_id = payees.get(payee_aliases.asks(txn))
             # A refresh never clobbers a rule- or user-assigned category.
             if existing.category_source in ("provider", "unset"):
                 category_id, source_ = await _category(
@@ -446,7 +440,7 @@ async def apply_transactions(
 
         same = None if txn.pending else await export_row(account_id, txn)
         # One the export brings is named there: its row stays in view.
-        merchant_id = None if same is not None else payees.get(_asks(txn))
+        merchant_id = None if same is not None else payees.get(payee_aliases.asks(txn))
         category_id, category_source = await _category(service, txn, merchant_id, filed)
         created = await service.create_transaction(
             owner_user_id=connection.owner_user_id,
