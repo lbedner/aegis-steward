@@ -38,12 +38,14 @@ JOBS: tuple[ServiceJob, ...] = (
         {"trigger": "cron", "day": 5, "hour": 3, "minute": 0},
     ),
     # Payees: a row that arrived blank, filed once its payee says where
-    # (#541) - before the snapshots, so the night's figures have it.
+    # (#541) - before the snapshots, so the night's figures have it. And as
+    # a deploy starts: a newer payee key re-keys the rows first (#542).
     ServiceJob(
         finance_file_blank_rows_job,
         "finance_file_blank_rows",
         "Finance: File New Rows",
         {"trigger": "cron", "hour": 1, "minute": 50},
+        at_start=True,
     ),
     # Envelopes: the allowance arrives on its cadence (weekly credits land
     # Mondays), so the job checks daily and its per-period idempotency

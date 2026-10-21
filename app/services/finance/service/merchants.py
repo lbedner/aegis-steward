@@ -12,6 +12,7 @@ from typing import Any
 from app.services.finance.domains.ledger import merchants, payee_aliases
 from app.services.finance.domains.ledger.merchants import _UNSET
 from app.services.finance.domains.ledger.queries import merchants as ledger_queries
+from app.services.finance.domains.planning.budgets import lines
 from app.services.finance.models import (
     FinanceMerchant,
     FinanceTransaction,
@@ -125,19 +126,29 @@ class MerchantsMixin(FinanceServiceBase):
             if m.default_category_id is not None
         }
 
-    async def resolve_merchant_aliases(
+    async def resolve_payee_keys(
         self,
-        descriptors: Iterable[str | None],
+        keys: Iterable[str | None],
         *,
         owner_user_id: int | None = None,
     ) -> dict[str, int]:
-        return await payee_aliases.resolve_merchant_aliases(
-            self.db, descriptors, owner_user_id=owner_user_id
+        return await payee_aliases.resolve_payee_keys(
+            self.db, keys, owner_user_id=owner_user_id
         )
+
+    async def rekey_payees(self) -> int:
+        """Rows an older payee key keyed, keyed again, and the budget
+        lines on their old keys moved with them (#542). How many rows."""
+        moves = await payee_aliases.rekey_rows(self.db)
+        await lines.follow_payee_keys(self.db, moves)
+        return sum(keys.total() for keys in moves.values())
 
     async def recompute_payee_aliases(
         self, *, owner_user_id: int | None = None
     ) -> dict[str, int]:
+        """The payee memory rebuilt from the rows, keyed by the current
+        payee key."""
+        await self.rekey_payees()
         return await payee_aliases.recompute_payee_aliases(
             self.db, owner_user_id=owner_user_id
         )

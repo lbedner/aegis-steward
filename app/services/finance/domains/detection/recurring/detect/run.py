@@ -13,7 +13,6 @@ from app.services.finance.domains.detection import queries
 from app.services.finance.domains.detection.recurring.cadence import (
     _SUBSCRIPTION_FREQUENCIES,
     MIN_STREAM_AMOUNT,
-    _descriptor_key,
     _payee_key,
     amount_profile,
     is_fee,
@@ -40,7 +39,7 @@ from app.services.finance.models import (
     FinanceRecurringStream,
     FinanceTransaction,
 )
-from app.services.finance.utils import current_date
+from app.services.finance.utils import current_date, transaction_payee_key
 from app.services.shared.queries import owner_clause, stored_owner
 
 
@@ -189,7 +188,10 @@ async def detect_recurring(
         payee_id = members[-1].merchant_id
         if _is_the_bill_again(
             confirmed_by_slot.get((account_id, direction), []),
-            (payee, _descriptor_key(merchant_names.get(payee_id or 0) or "")),
+            (
+                payee,
+                transaction_payee_key(merchant_names.get(payee_id or 0), None, None),
+            ),
             frequency,
             median_amount,
             payee_id=payee_id,

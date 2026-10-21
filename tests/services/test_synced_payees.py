@@ -27,6 +27,7 @@ from app.services.finance.models import (
     FinanceTransaction,
 )
 from app.services.finance.service import FinanceService
+from app.services.finance.utils import transaction_payee_key
 from tests.services.test_finance_plaid import _ACCOUNTS, FakePlaidClient, _connect
 from tests.services.test_two_feeds import _quicken, _rows, _sync, _txn
 
@@ -93,11 +94,12 @@ class TestAPairTeaches:
             async_db_session, connection, [_txn("p_farm", "02", 10.0, BANK_WORDING)]
         )
 
-        assert await payee_aliases.resolve_merchant_aliases(
-            async_db_session,
-            ["GREENACRE FARMS 555-555-0000 NY 10/03"],
-            owner_user_id=1,
-        ) == {"GREENACRE FARMS 555-555-0000 NY 10/03": farm.id}
+        later = transaction_payee_key(
+            None, "GREENACRE FARMS 555-555-0000 NY 10/03", None
+        )
+        assert await payee_aliases.resolve_payee_keys(
+            async_db_session, [later], owner_user_id=1
+        ) == {later: farm.id}
 
     @pytest.mark.asyncio
     async def test_a_rebuilt_memory_keeps_what_pairs_taught(
@@ -116,9 +118,10 @@ class TestAPairTeaches:
 
         await payee_aliases.recompute_payee_aliases(async_db_session, owner_user_id=1)
 
-        assert await payee_aliases.resolve_merchant_aliases(
-            async_db_session, [BANK_WORDING], owner_user_id=1
-        ) == {BANK_WORDING: farm.id}
+        key = transaction_payee_key(None, BANK_WORDING, None)
+        assert await payee_aliases.resolve_payee_keys(
+            async_db_session, [key], owner_user_id=1
+        ) == {key: farm.id}
 
 
 class TestASyncedRow:

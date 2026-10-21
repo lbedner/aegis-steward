@@ -25,8 +25,9 @@ from app.services.finance.models import (
     FinanceTransaction,
 )
 from app.services.finance.utils import (
+    PAYEE_KEY_VERSION,
     normalize_payee,
-    transaction_payee_key,
+    row_payee_key,
     utcnow,
 )
 
@@ -45,10 +46,10 @@ class Worded(Protocol):
     name: str | None
 
 
-def wording(row: Worded) -> str | None:
-    """What a row says, as the memory reads it: its descriptor, else its
-    name."""
-    return row.original_description or row.name
+def asks(row: Worded) -> tuple[str, str | None]:
+    """What a row asks the memory (``payees_for``): its payee key, and the
+    provider's name for it."""
+    return row_payee_key(row) or "", row.name
 
 
 def _wanted(
@@ -71,17 +72,13 @@ def _wanted(
 def _from_pairs(
     pairs: Iterable[tuple[FinanceTransaction, int]],
 ) -> list[tuple[str, int, str]]:
-    """What each bank row an export's row stands for teaches: its wording
-    means the export row's payee (#324). Keyed as a synced row is
-    resolved (``resolve_merchant_aliases`` on its ``wording``)."""
+    """What each bank row an export's row stands for teaches: its key -
+    the feed's name for the payee, where it gives one (#542) - means the
+    export row's payee (#324)."""
     return [
-        (
-            transaction_payee_key(None, None, said),
-            merchant_id,
-            said,
-        )
+        (key, merchant_id, bank.name or bank.original_description or "")
         for bank, merchant_id in pairs
-        if (said := wording(bank))
+        if (key := row_payee_key(bank))
     ]
 
 
@@ -142,9 +139,7 @@ def _payee_key_samples(
 
     samples: dict[str, str] = {}
     for txn in rows:
-        key = transaction_payee_key(
-            txn.merchant_name, txn.original_description, txn.name
-        )
+        key = row_payee_key(txn)
         if key:
             samples.setdefault(
                 key, txn.merchant_name or txn.original_description or txn.name or ""
@@ -162,12 +157,12 @@ async def remember_payee_keys(
     """Record what each payee key being named MEANS, so the next import
     does not ask again.
 
-    Keyed on ``transaction_payee_key`` - the same four-token grouping the
-    user was shown when they named it, which is the point: they confirmed
-    a GROUP, so the group is what was taught. Keying on the whole
-    descriptor instead was measured against this ledger and is close to
-    useless as a memory: ShopRite's 407 rows carry 211 distinct
-    descriptors and only 8 prefixes.
+    Keyed on ``transaction_payee_key`` - the same grouping the user was
+    shown when they named it, which is the point: they confirmed a GROUP,
+    so the group is what was taught. Keying on the whole descriptor
+    instead was measured against this ledger and is close to useless as a
+    memory: ShopRite's 407 rows carry 211 distinct descriptors and only 8
+    prefixes.
 
     A key taught a SECOND payee is not a correction to apply silently -
     it is a conflict ("NON CHASE ATM WITHDRAW" covers four real payees
@@ -215,12 +210,7 @@ async def recompute_payee_aliases(
     named = [
         (key, txn.merchant_id, samples[key])
         for txn in rows
-        if txn.merchant_id is not None
-        and (
-            key := transaction_payee_key(
-                txn.merchant_name, txn.original_description, txn.name
-            )
-        )
+        if txn.merchant_id is not None and (key := row_payee_key(txn))
     ]
     # And what the bank's wording was taught by the charges both feeds
     # brought: a rebuild that forgot it would leave synced rows unnamed.
@@ -236,31 +226,43 @@ async def recompute_payee_aliases(
     }
 
 
-async def resolve_merchant_aliases(
+async def rekey_rows(db: AsyncSession) -> dict[str, Counter[str]]:
+    """Every row an older ``transaction_payee_key`` keyed, keyed again
+    (#542). Answers each old key with the new keys its rows now carry,
+    for what was stored under it to follow (``follow_payee_keys``)."""
+    moves: dict[str, Counter[str]] = defaultdict(Counter)
+    for row in await queries.stale_payee_keys(db, PAYEE_KEY_VERSION):
+        key = row_payee_key(row) or None
+        if row.payee_key and key:
+            moves[row.payee_key][key] += 1
+        row.payee_key, row.payee_key_version = key, PAYEE_KEY_VERSION
+        db.add(row)
+    await db.flush()
+    return moves
+
+
+async def resolve_payee_keys(
     db: AsyncSession,
-    descriptors: Iterable[str | None],
+    keys: Iterable[str | None],
     *,
     owner_user_id: int | None = None,
 ) -> dict[str, int]:
-    """descriptor -> payee id for the ones already named unambiguously,
+    """payee key -> payee id for the ones already named unambiguously,
     one query for the whole batch.
 
-    Unmatched descriptors are ABSENT rather than mapped to None, so a
-    caller cannot mistake "never taught" for "taught to be nothing". A
-    key flagged ambiguous is treated as never taught: the ledger has
-    been shown it means two different payees, and naming by hand is
-    better than a confident wrong answer.
+    Unmatched keys are ABSENT rather than mapped to None, so a caller
+    cannot mistake "never taught" for "taught to be nothing". A key
+    flagged ambiguous is treated as never taught: the ledger has been
+    shown it means two different payees, and naming by hand is better
+    than a confident wrong answer.
     """
-
-    by_descriptor = {
-        text: transaction_payee_key(None, None, text) for text in descriptors if text
-    }
+    wanted = {key for key in keys if key}
     rows = await queries.merchant_aliases_by_normalized(
-        db, by_descriptor.values(), owner_user_id=owner_user_id
+        db, wanted, owner_user_id=owner_user_id
     )
     return {
-        text: rows[key].merchant_id
-        for text, key in by_descriptor.items()
+        key: rows[key].merchant_id
+        for key in wanted
         if key in rows and not rows[key].is_ambiguous
     }
 
@@ -287,13 +289,13 @@ async def payees_for(
     *,
     owner_user_id: int | None = None,
 ) -> dict[tuple[str | None, str | None], int]:
-    """``(wording, provider's name)`` -> payee, for synced rows (#324):
-    what the memory was taught the wording means, else the payee the
-    provider's own name for it is - when you have one called that. Absent
-    when neither says. Two reads for the batch."""
+    """``(payee key, provider's name)`` (``asks``) -> payee, for synced
+    rows (#324): what the memory was taught the key means, else the payee
+    the provider's own name for it is - when you have one called that.
+    Absent when neither says. Two reads for the batch."""
     rows = set(rows)
-    taught = await resolve_merchant_aliases(
-        db, [said for said, _name in rows], owner_user_id=owner_user_id
+    taught = await resolve_payee_keys(
+        db, [key for key, _name in rows], owner_user_id=owner_user_id
     )
     called = await queries.merchants_by_normalized_names(
         db,
@@ -301,12 +303,12 @@ async def payees_for(
         owner_user_id=owner_user_id,
     )
     found: dict[tuple[str | None, str | None], int] = {}
-    for said, name in rows:
-        payee = taught.get(said or "")
+    for key, name in rows:
+        payee = taught.get(key or "")
         if payee is None and (by_name := called.get(normalize_payee(name or ""))):
             payee = by_name.id
         if payee is not None:
-            found[(said, name)] = payee
+            found[(key, name)] = payee
     return found
 
 
@@ -362,10 +364,10 @@ async def file_blank_rows(
         changelog.quietly(db, rows, field)
     unnamed = [row for row in rows if row.merchant_id is None]
     payees = await payees_for(
-        db, [(wording(row), row.name) for row in unnamed], owner_user_id=owner_user_id
+        db, [asks(row) for row in unnamed], owner_user_id=owner_user_id
     )
     for row in unnamed:
-        row.merchant_id = payees.get((wording(row), row.name))
+        row.merchant_id = payees.get(asks(row))
     filed = await filed_under(db, {row.merchant_id for row in rows if row.merchant_id})
     count = 0
     for row in rows:

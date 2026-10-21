@@ -269,9 +269,9 @@ class FinanceBudgetCategory(SQLModel, table=True):
     category_id: int | None = Field(
         default=None, foreign_key=f"{_FK}finance_category.id"
     )
-    # First-4-normalized-token payee grouping key (see
-    # ``transaction_payee_key`` in utils.py) - a payee-scoped
-    # target ("Starbucks") when category_id is NULL.
+    # The payee key (``transaction_payee_key`` in utils.py, #542) - a
+    # payee-scoped target ("Starbucks") when category_id is NULL. A newer
+    # key moves it with its rows (``follow_payee_keys``).
     payee_key: str | None = Field(default=None, max_length=96)
     payee_label: str | None = Field(default=None, max_length=191)
     period_month: int | None = Field(default=None)

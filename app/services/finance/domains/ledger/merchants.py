@@ -549,11 +549,9 @@ async def similar_unassigned(
     """Other payee-less transactions whose descriptor looks like this
     one's, for the picker's "also apply to N similar" offer.
 
-    Uses ``transaction_payee_key``'s loose 4-token prefix, which is a
-    HEURISTIC - deliberately so, and deliberately only here: the user
+    Uses ``transaction_payee_key``, which is a HEURISTIC: the user
     confirms the list before anything is written, so a false match costs
-    a glance rather than a silently mis-grouped bill. Detection itself
-    never relies on it; it keys off the assigned ``merchant_id``.
+    a glance rather than a silently mis-grouped bill.
     """
     txn = await transactions.get_transaction(
         db, transaction_id, owner_user_id=owner_user_id
