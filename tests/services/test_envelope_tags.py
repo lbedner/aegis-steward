@@ -18,6 +18,8 @@ from app.services.finance.utils import current_date
 from tests.services._finance_factories import seed_account, seed_txn
 
 # Finance's one clock, not the machine's: in UTC it can already be tomorrow.
+# A seed date; what the code stamps is read off the clock when asserted,
+# as a run that crosses UTC midnight sees a new day.
 TODAY = current_date()
 
 
@@ -143,13 +145,16 @@ class TestTheCardCanPointItAtATag:
             row.label: row.value
             for row in await envelope_update_describe(async_db_session, payload, None)
         }
-        assert said["Pays for"] == f"- → what is tagged Robin, from {TODAY.isoformat()}"
+        assert (
+            said["Pays for"]
+            == f"- → what is tagged Robin, from {current_date().isoformat()}"
+        )
 
         await envelope_update_execute(async_db_session, payload, None)
         await async_db_session.refresh(envelope)
         meta = envelope_metadata(envelope.metadata_)
         assert meta is not None and meta.tag_id is not None
-        assert meta.tag_since == TODAY
+        assert meta.tag_since == current_date()
 
 
 class TestCountingFrom:
@@ -260,7 +265,10 @@ class TestCountingFrom:
             row.label: row.value
             for row in await envelope_update_describe(async_db_session, payload, None)
         }
-        assert said["Counting from"] == f"{TODAY.isoformat()} → {start.isoformat()}"
+        assert (
+            said["Counting from"]
+            == f"{current_date().isoformat()} → {start.isoformat()}"
+        )
 
         await envelope_update_execute(async_db_session, payload, None)
         from app.services.finance.domains.planning.envelopes import envelope_metadata

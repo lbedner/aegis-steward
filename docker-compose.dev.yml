@@ -16,6 +16,9 @@ services:
     environment:
       - WATCHFILES_FORCE_POLLING=true
       - PLAID_TUNNEL_METRICS_URL=http://plaid-tunnel:20241
+      # The machine running Docker (make serve names it): Local's mark.
+      - HOST_OS=${HOST_OS:-}
+      - HOST_OS_URL=${HOST_OS_URL:-}
     # Hot reload runs the app twice: the reloader keeps an imported copy
     # beside the worker it restarts (636 MiB idle of production's 768M,
     # 2026-10-05). At the limit the kernel kills the worker, the reloader
