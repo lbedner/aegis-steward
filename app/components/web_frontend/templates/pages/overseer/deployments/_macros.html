@@ -66,7 +66,7 @@
 
 {% macro place(where) %}
 <div class="flex items-center gap-3">
-  {{ avatar(where.name, where.logo, large=True) }}
+  {{ avatar(where.name, where.logo, "lg") }}
   <span class="text-sm font-semibold text-aegis-text">{{ where.name }}</span>
   {% if where.console %}<a href="{{ where.console }}" target="_blank" rel="noopener" class="ml-auto text-xs text-aegis-muted hover:text-aegis-teal">Open console</a>{% endif %}
 </div>

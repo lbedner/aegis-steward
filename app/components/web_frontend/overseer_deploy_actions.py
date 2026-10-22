@@ -22,7 +22,6 @@ from app.components.deploy.protocol import (
     PROVISION_STEPS,
     RefusedError,
 )
-from app.core.config import settings
 from app.core.formatting import format_relative_time
 from app.core.log import logger
 from app.services.system import hosting
@@ -62,10 +61,6 @@ TITLES = {
 # A restore is rehearsed on the nightly off-site copy: only a project with
 # that job (deploy, a database and the scheduler) has one to rehearse.
 DRILLS = find_spec("app.services.system.offsite") is not None
-
-
-def deployed() -> bool:
-    return settings.BUILD_ID != hosting.LOCAL
 
 
 def server_name(statuses: tuple[str, ...] = LIVE) -> str | None:

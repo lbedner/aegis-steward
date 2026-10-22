@@ -444,21 +444,28 @@
 {# A row's mark: every row (a dict or a response object) carries
    ``icon_url``, ``category`` and, for a transaction, the payee's usual
    ``payee_category`` to borrow when it has no category of its own. #}
-{% macro mark(row, name) %}{{ avatar(name, row.icon_url, row.category or row.payee_category) }}{% endmacro %}
+{% macro mark(row, name) %}{{ avatar(name, row.icon_url, category=row.category or row.payee_category) }}{% endmacro %}
 
-{% macro avatar(name, icon_url=None, category=None, glyph=None, large=False) %}
+{# ``size``: ``xs`` a footer's tiny tile, ``sm`` a table row's, ``lg`` a
+   group heading's. Each is (tile, mark, letter, mark px), spelled out so
+   Tailwind sees every class. #}
+{% set _avatar_sizes = {
+  "xs": ("w-3.5 h-3.5", "w-2.5 h-2.5", "text-[8px]", 10),
+  "sm": ("w-5 h-5", "w-3.5 h-3.5", "text-xxs", 14),
+  "lg": ("w-7 h-7", "w-5 h-5", "text-xs", 20),
+} %}
+{% macro avatar(name, icon_url=None, size="sm", category=None, glyph=None) %}
 {# ``glyph`` is for a row whose fallback is not a CATEGORY: an account
    falls back to what kind of account it is. An explicit one wins; a
    category still resolves its own. #}
 {% set glyph = None if icon_url else (glyph or category_glyph(category)) %}
-{# ``large``: a group's mark (a vendor heading), a size up from a row's. #}
-{% set box = "w-7 h-7" if large else "w-5 h-5" %}
+{% set tile, mark, letter, px = _avatar_sizes[size] %}
 {% if icon_url %}
-<span class="inline-flex shrink-0 {{ box }} rounded-full brand-tile items-center justify-center overflow-hidden align-middle" aria-hidden="true"><img src="{{ icon_url }}" alt="" width="{{ 20 if large else 14 }}" height="{{ 20 if large else 14 }}" loading="lazy" class="{{ 'w-5 h-5' if large else 'w-3.5 h-3.5' }} object-contain"></span>
+<span class="inline-flex shrink-0 {{ tile }} rounded-full brand-tile items-center justify-center overflow-hidden align-middle" aria-hidden="true"><img src="{{ icon_url }}" alt="" width="{{ px }}" height="{{ px }}" loading="lazy" class="{{ mark }} object-contain"></span>
 {% elif glyph %}
-<span data-glyph="{{ category }}" class="inline-flex shrink-0 {{ box }} rounded-full bg-aegis-border/60 text-aegis-muted items-center justify-center align-middle" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="{{ glyph }}"/></svg></span>
+<span data-glyph="{{ category }}" class="inline-flex shrink-0 {{ tile }} rounded-full bg-aegis-border/60 text-aegis-muted items-center justify-center align-middle" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3 h-3"><path stroke-linecap="round" stroke-linejoin="round" d="{{ glyph }}"/></svg></span>
 {% else %}
-<span data-avatar="{{ (name or "?")|trim|first|upper }}" class="inline-flex shrink-0 {{ box }} rounded-full bg-aegis-border/60 text-aegis-muted {{ 'text-xs' if large else 'text-xxs' }} font-semibold items-center justify-center align-middle before:content-[attr(data-avatar)]" aria-hidden="true"></span>
+<span data-avatar="{{ (name or "?")|trim|first|upper }}" class="inline-flex shrink-0 {{ tile }} rounded-full bg-aegis-border/60 text-aegis-muted {{ letter }} font-semibold items-center justify-center align-middle before:content-[attr(data-avatar)]" aria-hidden="true"></span>
 {% endif %}
 {% endmacro %}
 

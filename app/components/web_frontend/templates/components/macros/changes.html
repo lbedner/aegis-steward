@@ -57,7 +57,7 @@
    then what the caller says of it. #}
 {% macro subject_line(name, icon_url, category) %}
 <p class="flex items-baseline gap-2 text-sm font-medium text-aegis-text">
-  <span class="shrink-0 self-center">{{ avatar(name, icon_url, category) }}</span>
+  <span class="shrink-0 self-center">{{ avatar(name, icon_url, category=category) }}</span>
   <span data-subject>{{ caller() }}</span>
 </p>
 {% endmacro %}
