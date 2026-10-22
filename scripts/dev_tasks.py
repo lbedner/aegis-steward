@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -57,6 +58,23 @@ def _plaid_configured() -> bool:
     return env_file.exists() and bool(dotenv_values(env_file).get("PLAID_CLIENT_ID"))
 
 
+def _host_os() -> tuple[str, str]:
+    """This machine's OS and its home page (for its mark), which the
+    containers cannot see: they run Linux whatever runs Docker. Omarchy
+    keeps Arch's os-release, so its own directory names it."""
+    if sys.platform == "darwin":
+        return "macOS", "https://apple.com"
+    if sys.platform == "win32":
+        return "Windows", "https://microsoft.com"
+    if (Path.home() / ".local/share/omarchy").is_dir():
+        return "Omarchy", "https://omarchy.org"
+    try:
+        release = platform.freedesktop_os_release()
+    except OSError:
+        return "Linux", "https://kernel.org"
+    return release.get("NAME", "Linux"), release.get("HOME_URL", "https://kernel.org")
+
+
 def _deploy_agent_ready(env: dict[str, str]) -> None:
     """What the ``deploy-agent`` service takes from this machine: the
     checkout at its own path (``AEGIS_PROJECT_ROOT``), ``known_hosts``
@@ -100,6 +118,7 @@ def serve(*, detach: bool = False) -> None:
     cmd = [*_COMPOSE_DEV, *profiles, "up", "--remove-orphans"]
     if detach:
         cmd.append("-d")
+    env["HOST_OS"], env["HOST_OS_URL"] = _host_os()
     _deploy_agent_ready(env)
     subprocess.run(cmd, env=env, check=True)
 
