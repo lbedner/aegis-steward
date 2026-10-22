@@ -19,6 +19,7 @@ from app.components.deploy.protocol import (
     is_kept,
     validate,
 )
+from app.core import exposure
 from app.core.config import settings
 from app.core.formatting import format_bytes, format_relative_time
 from app.services.system import deploy_fit, deploy_spend, hosting, ui_deployments
@@ -26,7 +27,6 @@ from app.services.system import deploy_fit, deploy_spend, hosting, ui_deployment
 from .overseer_deploy_actions import (
     AGENT_COMMAND,
     PARTIALS,
-    deployed,
     server_name,
     stopped,
 )
@@ -453,7 +453,7 @@ async def _confirmed(form: dict[str, str]) -> dict[str, str]:
 async def request_args(action: str, form: dict[str, str]) -> dict[str, str]:
     """What to ask the agent for ``action``, from its form, checked as far
     as the app can (the agent checks again); refused with the reason."""
-    if deployed():
+    if exposure.deployed():
         raise RefusedError(DEPLOYED)
     beat = await _listening()
     if form.get("provider") and form["provider"] not in await held(beat):

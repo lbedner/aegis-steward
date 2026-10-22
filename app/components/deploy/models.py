@@ -1,5 +1,6 @@
 """Deploy history's tables: a row per build that went live, and a row per
-everything else done to the server."""
+everything else done to the server.
+"""
 
 from datetime import datetime
 from typing import Any

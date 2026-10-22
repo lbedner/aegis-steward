@@ -20,6 +20,7 @@ from typing import Any
 
 from markupsafe import Markup, escape
 
+from app.core import exposure
 from app.core.concurrency import background
 from app.core.config import settings
 from app.services.system import source_index, ui_deployments, ui_runtime
@@ -189,7 +190,7 @@ templates.env.globals.update(
 
 
 def enabled() -> bool:
-    return settings.is_dev or settings.OVERSEER_CODE_ENABLED
+    return exposure.shown(exposure.CODE)
 
 
 def _source(name: str) -> bool:
@@ -248,7 +249,7 @@ def version() -> str:
     one, else the files as they are (dev's working tree)."""
     if live := ui_deployments.commit():
         return f"at {live}"
-    if settings.BUILD_ID == ui_deployments.LOCAL:
+    if not exposure.deployed():
         return "working tree"
     return f"build {settings.BUILD_ID}"
 

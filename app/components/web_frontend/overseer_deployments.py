@@ -11,7 +11,7 @@ from collections.abc import Iterable, Set
 from typing import Any
 
 from app.components.deploy.protocol import record_dns_provider
-from app.core import secrets
+from app.core import exposure, secrets
 from app.services.system import hosting, ui_deployments
 from app.services.system.models import ComponentStatus
 
@@ -90,7 +90,7 @@ async def section_context(
 ) -> dict[str, Any]:
     if section == "history":
         # The protocol's ``history``: a deployed server reads its own.
-        deployed = actions.deployed()
+        deployed = exposure.deployed()
         found = (
             await ui_deployments.history() if deployed else deploy_form.HISTORY_WAITING
         )
@@ -105,7 +105,7 @@ async def section_context(
             "secrets_url": overseer_secrets.ITEM.url,
             "backup_columns": BACKUP_COLUMNS,
         }
-    if section not in AS_DEPLOYED and actions.deployed():
+    if section not in AS_DEPLOYED and exposure.deployed():
         return {"actions": actions.DEPLOYED_VIEW}
     if section == "settings":
         return {
@@ -147,7 +147,7 @@ async def _deployed() -> dict[str, Any]:
     """The Overview's card: a deployed server (redeploys come from
     elsewhere), the server this project deploys to and what can be done to
     it, or none yet."""
-    if actions.deployed():
+    if exposure.deployed():
         return actions.DEPLOYED_VIEW
     found = await actions.shared()
     if actions.creating(found["job"]):  # New server shows it, step by step
