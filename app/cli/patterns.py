@@ -5,17 +5,35 @@ agent (or a person) to read before building: each pattern's steps, its
 rules with their reasons and every violation, the canonical example's
 source, and every instance; then the shared macros with their examples.
 Markdown by default, JSON with ``--format json``.
+
+``patterns touches``: what a change's files touch, read from the
+ontology (its parts, what depends on them, its tables, routes and jobs),
+for a pull request's job summary.
+
+``patterns check``: the findings not in the known debt (``pattern_check``).
+
+``patterns review``: Illiana's write-up of those findings (``pattern_review``).
 """
 
 import contextlib
 import io
 import json
+import os
+from pathlib import Path
+import sys
 from typing import Annotated, Any
 
 import typer
 
+from app.core import source_index
+from app.core.ontology import current, touches
 from app.i18n import lazy_t
-from app.services.system import patterns
+from app.services.system import (
+    pattern_check,
+    pattern_findings,
+    pattern_review,
+    patterns,
+)
 
 app = typer.Typer(
     name="patterns", help=lazy_t("patterns.help"), invoke_without_command=True
@@ -57,6 +75,7 @@ def _pattern(report: patterns.Report) -> dict[str, Any]:
             {"label": i.label, "findings": [titles[k] for k in i.findings]}
             for i in report.instances
         ],
+        "findings": [f.model_dump() for f in pattern_findings.findings(report)],
     }
 
 
@@ -83,15 +102,14 @@ def _macros() -> list[dict[str, Any]] | None:
     ]
 
 
+def _reports() -> list[patterns.Report]:
+    routes = _routes()
+    return [patterns.report(p, routes) for p in patterns.installed_patterns().values()]
+
+
 def collect() -> dict[str, Any]:
     """Every installed pattern's report, and the macros if there are any."""
-    routes = _routes()
-    brief: dict[str, Any] = {
-        "patterns": [
-            _pattern(patterns.report(p, routes))
-            for p in patterns.installed_patterns().values()
-        ]
-    }
+    brief: dict[str, Any] = {"patterns": [_pattern(r) for r in _reports()]}
     macros = _macros()
     if macros is not None:
         brief["macros"] = macros
@@ -156,15 +174,91 @@ def markdown(brief: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _quiet() -> contextlib.redirect_stdout[io.StringIO]:
+    """Building the app and loading the queues log to stdout; that noise is
+    kept out of a report meant to be read by a program."""
+    return contextlib.redirect_stdout(io.StringIO())
+
+
+Format = Annotated[str, typer.Option("--format", help=lazy_t("patterns.opt_format"))]
+
+
 @app.callback(help=lazy_t("patterns.help_show"))
-def show(
-    fmt: Annotated[
-        str,
-        typer.Option("--format", help=lazy_t("patterns.opt_format")),
-    ] = "markdown",
-) -> None:
-    # Building the app and loading the queues log to stdout; that noise is
-    # kept out of a report meant to be read by a program.
-    with contextlib.redirect_stdout(io.StringIO()):
+def show(ctx: typer.Context, fmt: Format = "markdown") -> None:
+    if ctx.invoked_subcommand:
+        return
+    with _quiet():
         brief = collect()
     typer.echo(json.dumps(brief, indent=2) if fmt == "json" else markdown(brief))
+
+
+@app.command("touches", help=lazy_t("patterns.help_touches"))
+async def touched(
+    paths: Annotated[list[str] | None, typer.Argument()] = None,
+    fmt: Format = "markdown",
+) -> None:
+    files = paths or [line.strip() for line in sys.stdin if line.strip()]
+    with _quiet():
+        found = touches.touched(current(), files)
+    typer.echo(
+        found.model_dump_json(indent=2) if fmt == "json" else touches.summary(found)
+    )
+
+
+@app.command("check", help=lazy_t("patterns.help_check"))
+async def check(
+    changed: Annotated[list[str] | None, typer.Argument()] = None,
+    strict: bool = False,
+    update: bool = False,
+) -> None:
+    summarised = changed and not update and "GITHUB_STEP_SUMMARY" in os.environ
+    out, code = pattern_check.check(
+        _findings(),
+        source_index.project(),
+        touched=_reach(changed) if summarised else "",
+        strict=strict,
+        update=update,
+        env=os.environ,
+    )
+    typer.echo(out)
+    if code:
+        raise typer.Exit(code)
+
+
+@app.command("review", help=lazy_t("patterns.help_review"))
+async def review(
+    changed: Annotated[list[str] | None, typer.Argument()] = None,
+    previous: Path | None = None,
+    commit: str = "",
+) -> None:
+    if not _writes():
+        typer.echo("patterns review needs the AI service on PydanticAI.", err=True)
+        return
+    fresh = pattern_check.new_spots(_findings(), source_index.project())
+    earlier = previous.read_text() if previous and previous.is_file() else ""
+    said = await pattern_review.review(fresh, _reach(changed), earlier, commit)
+    typer.echo(said, nl=False)
+
+
+def _writes() -> bool:
+    """Whether this stack's AI service has the one-shot writer a review
+    runs on (PydanticAI, with a database)."""
+    try:
+        from app.services.ai import service as ai
+    except ImportError:  # no AI service
+        return False
+    return "writer" in ai.__all__
+
+
+def _findings() -> list[pattern_findings.Finding]:
+    """Every installed pattern's findings."""
+    with _quiet():
+        return [f for r in _reports() for f in pattern_findings.findings(r)]
+
+
+def _reach(changed: list[str] | None) -> str:
+    """What ``changed`` touches, as Markdown; none given, nothing."""
+    if not changed:
+        return ""
+    with _quiet():
+        return touches.summary(touches.touched(current(), changed))
