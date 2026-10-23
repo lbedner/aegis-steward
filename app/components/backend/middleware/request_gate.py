@@ -36,8 +36,7 @@ from app.components.backend.startup.finance_webhook_tunnel import (
 from app.core.config import settings
 from app.core.db import get_async_db
 from app.core.security import SESSION_COOKIE
-from app.services.auth.service import get_current_user_from_token
-from app.services.auth.users import UserService
+from app.services.auth.service import UserService, get_current_user_from_token
 
 LOGIN = "/login"
 OVERSEER_LOGIN = "/overseer/login"

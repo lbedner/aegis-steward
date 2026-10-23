@@ -27,7 +27,7 @@ def outbox(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     async def _send(**kwargs: Any) -> None:
         sent.append(kwargs)
 
-    monkeypatch.setattr("app.services.comms.email.send_email_simple", _send)
+    monkeypatch.setattr("app.services.comms.service.send_email_simple", _send)
     return sent
 
 
@@ -142,7 +142,7 @@ async def test_a_provider_failure_never_escapes_the_job(
     async def _boom(**_kwargs: Any) -> None:
         raise RuntimeError("Resend is down.")
 
-    monkeypatch.setattr("app.services.comms.email.send_email_simple", _boom)
+    monkeypatch.setattr("app.services.comms.service.send_email_simple", _boom)
     await jobs.finance_bill_due_email_job()
 
 

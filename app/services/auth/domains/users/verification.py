@@ -8,7 +8,7 @@ from sqlmodel import select
 from app.core.config import settings
 from app.core.time import utcnow
 from app.models.user import EmailVerificationToken
-from app.services.auth.user_service_base import (
+from app.services.auth.domains.users.base import (
     UserServiceBase,
 )
 

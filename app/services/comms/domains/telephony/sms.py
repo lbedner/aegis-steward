@@ -12,9 +12,12 @@ from typing import Any
 from twilio.base.exceptions import TwilioRestException
 
 from app.core.log import logger
-from app.services.comms.twilio import credential_errors, twilio_client, twilio_config
-
-from .models import MessageStatus, SendSMSRequest, SMSResponse
+from app.services.comms.adapters.twilio.client import (
+    credential_errors,
+    twilio_client,
+    twilio_config,
+)
+from app.services.comms.models import MessageStatus, SendSMSRequest, SMSResponse
 
 
 class SMSError(Exception):

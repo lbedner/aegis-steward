@@ -8,8 +8,11 @@ These are stubs that can be customized for your application needs.
 from typing import Any
 
 from app.core.log import logger
-
-from .models import CallWebhookEvent, EmailWebhookEvent, SMSWebhookEvent
+from app.services.comms.models import (
+    CallWebhookEvent,
+    EmailWebhookEvent,
+    SMSWebhookEvent,
+)
 
 
 async def handle_email_webhook(event: EmailWebhookEvent) -> dict[str, Any]:

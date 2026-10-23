@@ -2,7 +2,7 @@
 
 Keeps the ``refresh_token`` row count bounded by deleting rows whose
 ``expires_at`` is older than ``REFRESH_TOKEN_RETENTION_DAYS`` (defined
-in :mod:`app.services.auth.refresh_tokens` and shared between this
+in :mod:`app.services.auth.domains.sessions.tokens` and shared between this
 module and the rotation-path lazy sweep). Revoked rows stay visible
 for that grace window so audit / forensic queries
 ("who-signed-out-when") still work.
@@ -20,7 +20,7 @@ from app.core.db import db_session
 from app.core.log import logger
 from app.core.time import utcnow
 from app.models.refresh_token import RefreshToken
-from app.services.auth.refresh_tokens import REFRESH_TOKEN_RETENTION_DAYS
+from app.services.auth.domains.sessions.tokens import REFRESH_TOKEN_RETENTION_DAYS
 
 
 def _cutoff() -> datetime:

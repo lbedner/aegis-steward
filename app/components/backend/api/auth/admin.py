@@ -18,8 +18,11 @@ from app.services.auth.deps import (
     get_session_token,
     get_user_service,
 )
-from app.services.auth.service import get_current_user_from_token
-from app.services.auth.users import RestoreConflictError, UserService
+from app.services.auth.service import (
+    RestoreConflictError,
+    UserService,
+    get_current_user_from_token,
+)
 
 router = APIRouter()
 

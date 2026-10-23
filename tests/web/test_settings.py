@@ -739,7 +739,7 @@ class TestComms:
             sent.append(kwargs)
             raise AssertionError("the preview must not send")
 
-        monkeypatch.setattr("app.services.comms.email.send_email_simple", _send)
+        monkeypatch.setattr("app.services.comms.service.send_email_simple", _send)
         client.get("/settings/comms")
         assert sent == []
 

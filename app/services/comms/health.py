@@ -7,8 +7,8 @@ Checks provider configuration, API key validation, and service readiness.
 
 from app.core import secrets
 from app.core.log import logger
-from app.services.comms.email import RESEND_KEYS
-from app.services.comms.twilio import TWILIO_KEYS
+from app.services.comms.adapters.resend.messages import RESEND_KEYS
+from app.services.comms.adapters.twilio.client import TWILIO_KEYS
 from app.services.system.models import ComponentStatus, ComponentStatusType
 
 # Every channel's keys: email's, and Twilio's for SMS and voice.

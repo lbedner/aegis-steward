@@ -21,7 +21,7 @@ from app.core.db import get_async_session
 from app.i18n import lazy_t, t
 from app.models.user import User, UserCreate
 from app.services.auth.deps import is_admin
-from app.services.auth.users import UserService
+from app.services.auth.service import UserService
 
 app = typer.Typer(help=lazy_t("auth.help"))
 console = theme.console()

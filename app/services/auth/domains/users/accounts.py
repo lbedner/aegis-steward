@@ -1,24 +1,26 @@
 """User management service."""
 
+from collections.abc import Iterable
+
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.security import get_password_hash
 from app.core.time import utcnow
 from app.models.user import User, UserCreate
-from app.services.auth.hooks import run_post_user_created
-from app.services.auth.user_deletion import DeletionMixin
-from app.services.auth.user_passwords import PasswordsMixin
-from app.services.auth.user_service_base import (
+from app.services.auth.domains.users.base import (
     RegistrationClosedError as RegistrationClosedError,
 )
-from app.services.auth.user_service_base import (
+from app.services.auth.domains.users.base import (
     RestoreConflictError as RestoreConflictError,
 )
-from app.services.auth.user_service_base import (
+from app.services.auth.domains.users.base import (
     UserServiceBase,
 )
-from app.services.auth.user_verification import VerificationMixin
+from app.services.auth.domains.users.deletion import DeletionMixin
+from app.services.auth.domains.users.hooks import run_post_user_created
+from app.services.auth.domains.users.passwords import PasswordsMixin
+from app.services.auth.domains.users.verification import VerificationMixin
 
 
 class UserService(
@@ -89,6 +91,19 @@ class UserService(
         )
         result = await self.db.exec(statement)
         return {user.id: user for user in result.all() if user.id is not None}
+
+    async def get_user_ids_by_emails(self, emails: Iterable[str]) -> dict[str, int]:
+        """``{email: id}`` for the given emails (any case) in one query;
+        soft-deleted and unknown emails are absent."""
+        wanted = {email.lower() for email in emails}
+        if not wanted:
+            return {}
+        statement = select(User.email, User.id).where(
+            User.email.in_(wanted),  # type: ignore[attr-defined]
+            User.deleted_at.is_(None),
+        )
+        result = await self.db.exec(statement)
+        return dict(result.all())  # type: ignore[arg-type]
 
     async def update_user(self, user_id: int, **updates) -> User | None:
         """Update user data asynchronously."""

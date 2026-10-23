@@ -851,7 +851,7 @@ async def user_factory(async_db_session: AsyncSession):
     import uuid
 
     from app.models.user import UserCreate
-    from app.services.auth.users import UserService
+    from app.services.auth.service import UserService
 
     user_service = UserService(async_db_session)
     counter = {"n": 0}
@@ -913,7 +913,7 @@ async def auth_user(async_db_session: AsyncSession):
     """Create a generic authenticated user. Basic auth has no role
     concept, so this is just "a logged-in user" — no admin claim."""
     from app.models.user import UserCreate
-    from app.services.auth.users import UserService
+    from app.services.auth.service import UserService
 
     user_service = UserService(async_db_session)
     return await user_service.create_user(

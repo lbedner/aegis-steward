@@ -8,9 +8,9 @@ from app.core.config import settings
 from app.core.db import get_async_db
 from app.core.security import SESSION_COOKIE
 from app.models.user import User
-from app.services.auth.refresh_tokens import RefreshService
+from app.services.auth.domains.sessions.tokens import RefreshService
+from app.services.auth.domains.users.accounts import UserService
 from app.services.auth.service import get_current_user_from_token
-from app.services.auth.users import UserService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 

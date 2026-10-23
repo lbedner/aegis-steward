@@ -20,8 +20,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password, verify_token
 from app.models.user import User, UserCreate
+from app.services.auth.domains.users.accounts import RestoreConflictError, UserService
 from app.services.auth.service import get_current_user_from_token
-from app.services.auth.users import RestoreConflictError, UserService
 
 
 @pytest.fixture(autouse=True)
@@ -438,7 +438,7 @@ class TestPasswordResetRevokesSessions:
         self, async_db_session: AsyncSession, user_factory
     ):
         from app.models.refresh_token import RefreshToken
-        from app.services.auth.refresh_tokens import RefreshService
+        from app.services.auth.domains.sessions.tokens import RefreshService
 
         user = await user_factory(password="oldpassword123")
         user_service = UserService(async_db_session)
@@ -497,7 +497,7 @@ class TestPasswordResetRevokesSessions:
         If this helper ever starts committing on its own, a revoke
         failure mid-reset would leave the password changed and the
         token consumed while the response 500s."""
-        from app.services.auth.refresh_tokens import RefreshService
+        from app.services.auth.domains.sessions.tokens import RefreshService
 
         user = await user_factory()
         refresh_service = RefreshService(async_db_session)
@@ -529,7 +529,7 @@ class TestPasswordResetRevokesSessions:
         the actual rollback semantics belong to the per-request session
         in production; here we just prove reset_password never reached
         the commit point on its sad path."""
-        from app.services.auth.refresh_tokens import RefreshService
+        from app.services.auth.domains.sessions.tokens import RefreshService
 
         user = await user_factory(password="oldpassword123")
         user_service = UserService(async_db_session)

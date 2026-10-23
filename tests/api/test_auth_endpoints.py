@@ -23,8 +23,11 @@ from app.core.client_session import REFRESH_COOKIE, SESSION_COOKIE
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.models.refresh_token import RefreshToken
-from app.services.auth.refresh_tokens import REUSE_GRACE_SECONDS, RefreshService
-from app.services.auth.users import UserService
+from app.services.auth.domains.sessions.tokens import (
+    REUSE_GRACE_SECONDS,
+    RefreshService,
+)
+from app.services.auth.domains.users.accounts import UserService
 from tests.conftest import DEFAULT_USER_PASSWORD as _PASSWORD
 
 
@@ -836,7 +839,7 @@ class TestSessionsEndpoints:
 
         # Plant a second session for the user directly via the service
         # so we don't have to juggle two cookie jars in the same TestClient.
-        from app.services.auth.refresh_tokens import RefreshService
+        from app.services.auth.domains.sessions.tokens import RefreshService
 
         rs = RefreshService(async_db_session)
         await rs.mint(user.id, source="oauth:github", user_agent="other-device")
@@ -946,7 +949,7 @@ class TestSessionsEndpoints:
     ):
         """Without the refresh cookie, "sign out everywhere else" used to
         sign out the caller as well."""
-        from app.services.auth.refresh_tokens import RefreshService
+        from app.services.auth.domains.sessions.tokens import RefreshService
 
         user = await user_factory()
         await RefreshService(async_db_session).mint(user.id, source="password")
@@ -1235,7 +1238,7 @@ class TestAdminSessions:
     forgotten device) or all of them. Audited like every admin action."""
 
     async def _signed_in(self, async_db_session: AsyncSession, user_factory) -> tuple:
-        from app.services.auth.refresh_tokens import RefreshService
+        from app.services.auth.domains.sessions.tokens import RefreshService
 
         user = await user_factory()
         service = RefreshService(async_db_session)
