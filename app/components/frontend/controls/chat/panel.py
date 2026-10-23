@@ -19,7 +19,7 @@ from app.components.frontend.controls.text import SecondaryText
 from app.components.frontend.theme import AegisTheme as Theme
 from app.core.log import logger
 from app.core.sse import stream_sse_post
-from app.services.ai.domains.llm.picker import model_label
+from app.services.ai.service import model_label
 
 from .attachments_ui import AttachmentsMixin, attachment_payload
 from .change_api import ChangeApi

@@ -256,8 +256,8 @@ class STTService:
         """
         try:
             from app.core.db import get_async_session
-            from app.services.ai import usage_recording
-            from app.services.ai.models.voice_usage import STTUsage
+            from app.services.ai.domains.spend import recording as usage_recording
+            from app.services.ai.models.voice.usage import STTUsage
         except ImportError:
             # A project generated without a database has no stt_usage table
             # (and no app.core.db at all). The recording call stays in the

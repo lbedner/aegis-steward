@@ -24,8 +24,8 @@ async def check_ai_service_health() -> ComponentStatus:
         # the live conversation state rather than a second service's.
         # Read FRESH config for provider/model (not cached from server startup)
         from app.core.config import settings
-        from app.services.ai.config import get_ai_config
         from app.services.ai.deps import ai_service
+        from app.services.ai.domains.llm.config import get_ai_config
 
         current_config = get_ai_config(settings)
 

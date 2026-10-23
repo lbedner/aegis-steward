@@ -22,7 +22,7 @@ from typing import Any
 from app.core.db import get_async_session
 from app.core.formatting import iso_date
 from app.core.tools import register_tool
-from app.services.ai.domains.chat.pastes import document_text
+from app.services.ai.service import document_text
 from app.services.documents.domains.extraction.dispatch import (
     start_extraction,
     wait_for_extraction,

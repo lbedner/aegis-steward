@@ -16,7 +16,8 @@ from app.core.voice_settings import (
     TTS_SPEED_MIN,
     setting_default,
 )
-from app.services.ai.models.live_engine import KEY_LENGTH
+
+from .live_engine import KEY_LENGTH
 
 
 class VoiceProfile(SQLModel, table=True):

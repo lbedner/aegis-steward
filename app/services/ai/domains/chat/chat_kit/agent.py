@@ -41,7 +41,7 @@ from pydantic_ai.usage import UsageLimits
 
 from app.core.log import logger
 from app.services.ai.domains.chat.user_memory import memory_user
-from app.services.ai.usage_recording import extract_usage, record_usage
+from app.services.ai.domains.spend.recording import extract_usage, record_usage
 
 from .context import ContextProvider, compose_context, gather_context
 from .models import (

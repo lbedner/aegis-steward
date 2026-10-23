@@ -19,9 +19,7 @@ from app.components.web_frontend.routes.chat import CHAT_URLS, SECTION
 from app.components.web_frontend.routes.chat_speech import spoken
 from app.core.config import settings
 from app.core.db import get_async_db
-from app.services.ai.domains.voice import profiles
-from app.services.ai.domains.voice.tts import TTSService
-from app.services.ai.models.voice_profile import VoiceProfile
+from app.services.ai.service import TTSService, VoiceProfile, profiles
 
 router = APIRouter()
 

@@ -95,7 +95,7 @@ class TestOneClientForEveryOpenAICompatibleProvider:
     ) -> None:
         """The regression guard: construction, not just configuration."""
         from app.core.config import settings
-        from app.services.ai.config import get_ai_config
+        from app.services.ai.domains.llm.config import get_ai_config
         from app.services.ai.domains.llm.providers import model_for
 
         config = get_ai_config(settings)
@@ -121,7 +121,7 @@ class TestOneClientForEveryOpenAICompatibleProvider:
         import os
 
         from app.core.config import settings
-        from app.services.ai.config import get_ai_config
+        from app.services.ai.domains.llm.config import get_ai_config
         from app.services.ai.domains.llm.providers import model_for
 
         monkeypatch.setenv("OPENAI_API_KEY", "the-real-openai-key")
@@ -144,7 +144,7 @@ class TestOneClientForEveryOpenAICompatibleProvider:
         import os
 
         from app.core.config import settings
-        from app.services.ai.config import get_ai_config
+        from app.services.ai.domains.llm.config import get_ai_config
         from app.services.ai.domains.llm.providers import model_for
 
         env_var = PROVIDERS[provider].env_var

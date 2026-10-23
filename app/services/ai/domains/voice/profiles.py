@@ -26,7 +26,7 @@ from app.services.ai.domains.voice.catalog import (
     get_tts_voices,
 )
 from app.services.ai.domains.voice.models import STTProvider, TTSProvider
-from app.services.ai.models.voice_profile import VoiceProfile
+from app.services.ai.models.voice.profile import VoiceProfile
 
 SEEDED_NAME = "Illiana"
 

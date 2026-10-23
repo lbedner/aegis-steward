@@ -20,8 +20,8 @@ from app.core.config import settings
 from app.core.db import OpenSession, get_async_session
 from app.core.log import logger
 from app.models.conversation import Conversation
-from app.services.ai.config import AIServiceConfig
 from app.services.ai.domains.chat import queries
+from app.services.ai.domains.llm.config import AIServiceConfig
 from app.services.ai.models.sentiment import (
     PERFORMANCE_VALUES,
     SENTIMENT_VALUES,

@@ -9,8 +9,8 @@ caller) imports them from one place.
 
 from typing import Any
 
-from app.services.ai.config import AIServiceConfig, get_ai_config
 from app.services.ai.domains.chat.conversation import ConversationManager
+from app.services.ai.domains.llm.config import AIServiceConfig, get_ai_config
 from app.services.ai.domains.voice import STTService, TTSService
 
 

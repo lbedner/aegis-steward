@@ -18,7 +18,7 @@ from app.components.web_frontend.routes import chat_voices
 from app.components.web_frontend.routes.chat_voices import VOICES
 from app.core.config import settings
 from app.services.ai.domains.voice import profiles
-from app.services.ai.models.voice_profile import VoiceProfile
+from app.services.ai.models.voice.profile import VoiceProfile
 from tests.web.dom import none, one, oob, select, text
 
 

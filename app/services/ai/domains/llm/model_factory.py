@@ -16,11 +16,11 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import RunContext
 
-from app.services.ai.config import AIServiceConfig
 from app.services.ai.domains.llm.base import (
     ProviderError,
     require_api_key,
 )
+from app.services.ai.domains.llm.config import AIServiceConfig
 from app.services.ai.models import PROVIDERS, AIProvider
 
 

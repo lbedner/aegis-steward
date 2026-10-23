@@ -19,7 +19,7 @@ from app.core.log import logger
 from app.core.voice_settings import setting_default
 from app.services.ai.domains.llm.queries import latest_prices_by_llm_ids
 from app.services.ai.domains.voice import queries
-from app.services.ai.models.live_engine import LiveEngine
+from app.services.ai.models.voice.live_engine import LiveEngine
 
 Transport = Literal["gpt_live", "realtime", "relay"]
 DEFAULT = setting_default("VOICE_LIVE_ENGINE")

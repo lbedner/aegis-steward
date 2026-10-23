@@ -14,7 +14,7 @@ from typing import Any
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.llm import queries
-from app.services.ai.usage_recording import LIVE_ACTION, REALTIME_ACTION
+from app.services.ai.domains.spend.recording import LIVE_ACTION, REALTIME_ACTION
 
 KIND_LABELS = {
     "chat": "Chat and agents",

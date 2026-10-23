@@ -12,8 +12,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.services.ai.domains.spend.report import KIND_LABELS, usage_report
 from app.services.ai.models.llm import LLMUsage
-from app.services.ai.usage_report import KIND_LABELS, usage_report
 
 NOW = datetime(2026, 9, 27, 18, 0, tzinfo=UTC)
 

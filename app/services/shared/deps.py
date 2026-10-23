@@ -14,9 +14,13 @@ from dataclasses import dataclass
 
 from fastapi import Depends, Request
 
+from app.core.config import settings
+from app.core.db import get_async_session
+from app.core.tools import current_admin, current_owner_user_id
 from app.models.user import User
 from app.services.auth.deps import (
     get_current_active_user,
+    is_admin,
     require_admin,
 )
 
@@ -85,3 +89,19 @@ async def get_owner_user_id(
 # The app's gate (``middleware/request_gate``) admits nobody signed out, so
 # no route serves an anonymous caller: one scope either way.
 get_optional_owner_user_id = get_owner_user_id
+
+
+async def caller_is_admin() -> bool:
+    """Whether the tool call being run acts for an admin: what its runner
+    bound (``current_admin``: MCP's token, the CLI's shell, an admin-only
+    socket), else its owner by ``is_admin``. Where sign-in is off,
+    everyone is one; nobody signed in is not."""
+    bound = current_admin.get()
+    if bound is not None:
+        return bound
+    owner = current_owner_user_id.get()
+    if not settings.AUTH_ENABLED or owner is None:
+        return not settings.AUTH_ENABLED
+    async with get_async_session() as session:
+        user = await session.get(User, owner)
+    return user is not None and is_admin(user)

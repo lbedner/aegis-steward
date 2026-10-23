@@ -163,12 +163,12 @@ class SlashCommandHandler:
             logger.debug(f"Ollama not available: {e}")
 
         # Check for cloud providers with API keys (requires LLM catalog)
-        from app.services.ai.domains.llm.llm_service import list_models
-        from app.services.ai.domains.llm.provider_management import (
+        from app.services.ai.service import (
+            AIProvider,
             check_provider_dependency_installed,
             get_existing_api_key,
+            list_models,
         )
-        from app.services.ai.models import AIProvider
 
         provider_to_vendor = {
             "openai": "OpenAI",
@@ -305,7 +305,7 @@ class SlashCommandHandler:
 
         # Use set_active_model which auto-detects provider from model
         # (requires LLM catalog)
-        from app.services.ai.domains.llm.llm_service import set_active_model
+        from app.services.ai.service import set_active_model
 
         result = await set_active_model(model)
         if not result.success and result.vendor is None:  # not in catalog: force it

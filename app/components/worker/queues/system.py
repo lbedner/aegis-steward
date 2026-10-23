@@ -36,7 +36,7 @@ async def _start_on_the_picked_model() -> None:
     Read here, before the job opens a session of its own - asked inside
     one, the read waits on that job's write lock.
     """
-    from app.services.ai.domains.llm import active_model
+    from app.services.ai.service import active_model
 
     await active_model.sync_from_db(settings)
 

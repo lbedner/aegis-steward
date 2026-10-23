@@ -33,19 +33,29 @@ steward last caught up to, 2026-10-22.
   effect is `proposes`.
 - **Steward's own services' parts**: matters and mail are part of
   documents, insurance of finance (`PART_OF`).
+- **The AI service's turn and voice** (`ai/service/` beneath the facade,
+  `ai/domains/voice/`, the prompt's context blocks, the chat API in
+  `api/ai/router.py`): steward's chat runs on them, so they stay steward's.
+  The template's later work there (the turn built in `turn.py`, nothing
+  live in the prompt, a tool's `ValueError` answered rather than raised,
+  voice usage in `llm_usage` alone) lands only as steward's chat takes it.
+- **The one `AIService`** lives in `app/services/ai/deps.py`, not the
+  template's `api/ai/service.py`: a service (its health check) must not
+  import a component for it.
 
 ## Not yet in line
 
 Each is a slice of #505; a port touching one still needs a hand.
 
-- **Services** (AI, documents, finance, meetings): the template's service
-  layout (domains, adapters, a facade callers import from) and their
-  Overseer pages; the service-layout test is still steward's. Auth and
-  comms are in line; comms' web push (`push.py`, `call.py`, `queries.py`)
-  is steward's own and sits beside the template's layout.
-- **Overseer's reads as agent tools** (`app.services.system.tools`, the
-  plugin directory, `shared.deps.caller_is_admin`): they wait for the AI
-  slice.
+- **Services** (documents, finance, meetings): the template's service
+  layout (domains, adapters, a lazy facade callers import from,
+  `app.services.shared.facade`) and their Overseer pages. Auth, comms and
+  AI are in line; comms' web push (`push.py`, `call.py`, `queries.py`) is
+  steward's own and sits beside the template's layout.
+  `tests/services/test_service_layout.py` is the template's, with
+  steward's debts as ratchets: `REACHING_DEBT` and `FACADE_DEBT` are
+  finance's and documents' callers past a facade, and AI's three into
+  theirs.
 - **CLI**: `patterns check/review/touches`, `ontology export`, and the
   locale strings they bring.
 - **Config and boot**: the webserver engine and loop as Overseer

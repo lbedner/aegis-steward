@@ -131,7 +131,7 @@ async def chat_entry(
 ) -> dict[str, Any] | None:
     """The user's index entry a paste id names: a read document, or a
     photo kept from a chat turn (#285); None for anything else."""
-    from app.services.ai.domains.chat.user_memory import load_user_pastes
+    from app.services.ai.service import load_user_pastes
     from app.services.finance.domains.detection.analyst.shared import user_id_for
 
     # The same mapping the agent's own deps use, not a second guess at
@@ -161,7 +161,7 @@ async def _as_document(
     """The document a kept photo becomes: its bytes on the shelf, the
     index entry pointing at it so the next filing finds it."""
     from app.core.storage import get_storage
-    from app.services.ai.domains.chat.pastes import store_document
+    from app.services.ai.service import store_document
     from app.services.documents.service import DocumentService
     from app.services.finance.domains.detection.analyst.shared import user_id_for
 

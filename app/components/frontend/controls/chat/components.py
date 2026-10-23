@@ -33,7 +33,7 @@ from app.core.chat_transcript import (
     card_outcome,
     proposer_line,
 )
-from app.services.ai.domains.chat.cards import markers_of
+from app.services.ai.service import markers_of
 from app.services.ai.service.trace import CARD_TOOLS
 
 # on_action(change_id, "approve" | "reject") -> the updated change dict

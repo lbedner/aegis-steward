@@ -22,7 +22,7 @@ from app.components.frontend.controls.data_table import (
 from app.components.frontend.controls.table import TableNameText
 from app.components.frontend.theme import AegisTheme as Theme
 from app.components.inference.formatting import format_model_id, format_quantization
-from app.services.ai.domains.llm.picker import format_context_window
+from app.services.ai.service import format_context_window
 from app.services.system.models import ComponentStatus
 
 from .cells import (

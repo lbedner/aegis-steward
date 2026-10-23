@@ -19,7 +19,7 @@ from app.components.web_frontend.routes.chat import (
     component_url,
     owned,
 )
-from app.services.ai.domains.chat import cards
+from app.services.ai.service import cards
 
 router = APIRouter()
 

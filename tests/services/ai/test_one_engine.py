@@ -10,8 +10,8 @@ was the emergency fix; one engine is the real one, and this keeps it.
 
 import inspect
 
-from app.services.ai import usage_recording
 from app.services.ai.domains.chat import conversation, llm_catalog_context
+from app.services.ai.domains.spend import recording as usage_recording
 from app.services.ai.service import contexts, status, usage
 
 
