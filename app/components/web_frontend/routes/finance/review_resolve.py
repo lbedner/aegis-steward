@@ -21,10 +21,12 @@ from app.components.web_frontend.rendering import (
     where_from,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning import queries
-from app.services.finance.domains.planning.insights import resolve_insight
-from app.services.finance.models.planning import INSIGHT_RESOLUTIONS
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    INSIGHT_RESOLUTIONS,
+    FinanceService,
+    resolve_insight,
+)
+from app.services.finance.service import planning_queries as queries
 
 SECTION = section("review")
 router = APIRouter(prefix=SECTION.path)

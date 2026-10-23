@@ -41,14 +41,6 @@ from app.components.web_frontend.routes.finance.valuations import (
     valuation_row,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger.accounts import (
-    statement_balance as as_register_holds,
-)
-from app.services.finance.domains.ledger.properties import (
-    PROPERTY_KINDS,
-    VALUATION_SOURCES,
-)
-from app.services.finance.models import FinanceAccount
 from app.services.finance.schemas import (
     AccountResponse,
     PropertyDetailsUpdate,
@@ -56,7 +48,13 @@ from app.services.finance.schemas import (
     SecuredDebtUpdate,
     ValuationBulkRequest,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    PROPERTY_KINDS,
+    VALUATION_SOURCES,
+    FinanceAccount,
+    FinanceService,
+)
+from app.services.finance.service import statement_balance as as_register_holds
 from app.services.finance.utils import current_date
 
 SECTION = section("accounts")
@@ -405,7 +403,7 @@ async def _terms_dialog(
     values: dict[str, str] | None = None,
 ) -> Response:
     """The shape this kind of debt has, filled with what is on record."""
-    from app.services.finance.domains.writes.terms import shape_for, shown
+    from app.services.finance.service import shape_for, shown
 
     terms = shape_for(account.account_type)
     current = await _liability_detail(service, account.id)
@@ -438,7 +436,7 @@ def _as_input(term: Any, value: Any) -> str:
 
 
 async def _liability_detail(service: FinanceService, account_id: int) -> Any:
-    from app.services.finance.domains.ledger.accounts import liability_details
+    from app.services.finance.service import liability_details
 
     details = await liability_details(service.db, [account_id])
     return details.get(account_id)
@@ -468,7 +466,7 @@ async def terms_save(
     so a field cannot be written that the shape does not name - and the
     parse rule for a rate lives beside the rule that displays one.
     """
-    from app.services.finance.domains.writes.terms import (
+    from app.services.finance.service import (
         LoanTermsPayload,
         loan_terms_execute,
         shape_for,

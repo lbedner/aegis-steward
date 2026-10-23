@@ -323,7 +323,7 @@ def said_value(value_cents: int | None, period: str = "once", text: str = "") ->
     renderings of one number agree by coincidence rather than by
     construction.
     """
-    from app.services.finance.domains.detection.insights.formatting import format_usd
+    from app.services.finance.service import format_usd
 
     if value_cents is None:
         return text or ""

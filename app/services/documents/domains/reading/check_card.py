@@ -56,10 +56,7 @@ async def check_execute(
     from app.core.storage import get_storage
     from app.services.documents.service import DocumentService
     from app.services.finance.constants import transaction_tag
-    from app.services.finance.domains.writes.curation import (
-        AssignPayeePayload,
-        assign_payee_execute,
-    )
+    from app.services.finance.service import AssignPayeePayload, assign_payee_execute
 
     store = get_storage()
     documents = DocumentService(db)
@@ -107,7 +104,7 @@ async def check_scan(
 async def check_describe(
     db: AsyncSession, payload: CheckPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    from app.services.finance.domains.writes.display import txn_row
+    from app.services.finance.service import txn_row
 
     _txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     rows = [

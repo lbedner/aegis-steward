@@ -13,9 +13,7 @@ from app.core.log import logger
 async def startup_hook() -> Any:
     from app.core.db import get_async_session
     from app.services.ai.service import live_engines
-    from app.services.finance.domains.detection.analyst.live_engines import (
-        ENGINE_SEEDS,
-    )
+    from app.services.finance.service import ENGINE_SEEDS
 
     try:
         async with get_async_session() as session:

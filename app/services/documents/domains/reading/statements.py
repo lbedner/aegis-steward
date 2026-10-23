@@ -44,9 +44,7 @@ async def check_filed_statement(
     printed date (#321), for any account it names by its last four; the
     gap, 0 for none. A paper that prints no closing balance, or no date
     beside it, is not a statement to check."""
-    from app.services.finance.domains.detection.insights.statement_gaps import (
-        check_statement,
-    )
+    from app.services.finance.service import check_statement
 
     stated = stated or await stated_balance(db, document_id)
     if stated is None or stated.balance.as_of is None:
@@ -66,9 +64,7 @@ async def record_card_statement(
 ) -> bool:
     """Keep what a filed card statement says is due, when it is one of
     the household's cards; False for anything else."""
-    from app.services.finance.domains.planning.recurring.statements import (
-        record_statement,
-    )
+    from app.services.finance.service import record_statement
 
     # A balance AND a due date: what a card statement always prints, and
     # a letter that mentions a card's balance does not. Not its kind,

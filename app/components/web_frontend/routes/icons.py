@@ -17,9 +17,8 @@ from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import Response
 
 from app.services.finance.deps import get_finance_service
-from app.services.finance.domains.ledger import queries
-from app.services.finance.domains.ledger.merchant_icon import ICON_PATH
-from app.services.finance.service import FinanceService
+from app.services.finance.service import ICON_PATH, FinanceService
+from app.services.finance.service import ledger_queries as queries
 
 router = APIRouter()
 

@@ -30,9 +30,11 @@ from app.components.web_frontend.rendering import (
 )
 from app.components.web_frontend.routes.finance.bills import _row_response, _stream
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning.recurring.review import review_queue
-from app.services.finance.models import FinanceRecurringStream
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    FinanceRecurringStream,
+    FinanceService,
+    review_queue,
+)
 
 SECTION = section("bills")
 router = APIRouter(prefix=SECTION.path)

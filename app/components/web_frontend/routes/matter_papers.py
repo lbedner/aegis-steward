@@ -20,7 +20,7 @@ from app.components.web_frontend.routes.requests import ACCEPTS
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.matters import MatterService
-from app.services.matters.models import matter_tag
+from app.services.matters.service import matter_tag
 
 SECTION = section("matters")
 router = APIRouter(prefix=SECTION.path)

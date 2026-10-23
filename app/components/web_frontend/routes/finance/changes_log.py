@@ -21,18 +21,16 @@ from app.components.web_frontend.rendering import dialog, render, with_toast
 from app.components.web_frontend.routes.finance.settings import SECTION
 from app.core.formatting import payee_label
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger import changelog
-from app.services.finance.domains.ledger.queries.accounts import account_names
-from app.services.finance.domains.ledger.queries.categories import (
-    category_names_by_id,
-)
-from app.services.finance.domains.ledger.queries.merchants import merchants_by_ids
-from app.services.finance.domains.ledger.queries.transactions import transactions_by_ids
-from app.services.finance.models import (
+from app.services.finance.service import (
+    FinanceService,
     FinanceTag,
     FinanceTransactionChangelog,
+    account_names,
+    category_names_by_id,
+    changelog,
+    merchants_by_ids,
+    transactions_by_ids,
 )
-from app.services.finance.service import FinanceService
 
 router = APIRouter()
 CHANGES = f"{SECTION.path}/changes"

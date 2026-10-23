@@ -179,7 +179,7 @@ async def _figure_stated(db: AsyncSession, document_id: int) -> Any | None:
     the figure, its attribute, its page and its line are all there, and
     two readings of one number is two facts about one thing.
     """
-    from app.services.finance.domains.writes.queue import list_changes
+    from app.services.finance.service import list_changes
 
     for change in await list_changes(db, status="pending"):
         if change.change_type != FIGURE:
@@ -193,7 +193,7 @@ async def _figure_stated(db: AsyncSession, document_id: int) -> Any | None:
 async def _already_proposed(db: AsyncSession) -> set[tuple[str, Any, Any]]:
     """Every join already waiting, so a second pass over the same
     arrival does not stack a card on top of one."""
-    from app.services.finance.domains.writes.queue import list_changes
+    from app.services.finance.service import list_changes
 
     waiting: set[tuple[str, Any, Any]] = set()
     for change in await list_changes(db, status="pending"):
@@ -215,7 +215,7 @@ async def _answer_the_ask(
     pending: set[tuple[str, Any, Any]],
     owner_user_id: int | None,
 ) -> Any | None:
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.service import propose
 
     key = (EVIDENCE, document_id, int(item.id))
     if key in pending:
@@ -247,7 +247,7 @@ async def _name_the_ask(
     and account balance" is two asks written as one, and picking either
     is the guess this pass refuses to make.
     """
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.service import propose
 
     key = (AMEND, int(item.id), None)
     if key in pending:

@@ -36,14 +36,14 @@ from app.components.web_frontend.routes.finance.valuations import (
 from app.components.web_frontend.seen import remember, watermark
 from app.services.finance.constants import PROPERTY_ACCOUNT_TYPE
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger.numbers import reveal_number
-from app.services.finance.domains.planning.recurring.upcoming import (
+from app.services.finance.schemas import AccountResponse
+from app.services.finance.service import (
+    FinanceService,
     Total,
+    reveal_number,
     scheduled_by_account,
     totalled,
 )
-from app.services.finance.schemas import AccountResponse
-from app.services.finance.service import FinanceService
 
 SECTION = section("accounts")
 router = APIRouter()
@@ -57,7 +57,7 @@ def loan_terms(account: AccountResponse) -> list[dict[str, str]]:
     started had nowhere to appear at all. A debt whose cost is invisible
     is one nobody can weigh against another.
     """
-    from app.services.finance.domains.detection.insights.formatting import format_apr
+    from app.services.finance.service import format_apr
 
     liability = account.liability
     if liability is None:
@@ -138,7 +138,7 @@ def cash_terms(account: AccountResponse, scheduled: Total) -> list[dict[str, str
     restating the balance the header already carries.
     """
     from app.services.finance.constants import CASH_ACCOUNT_TYPES
-    from app.services.finance.domains.ledger.accounts import effective_balance
+    from app.services.finance.service import effective_balance
 
     if account.classification != "asset" or account.account_type not in (
         CASH_ACCOUNT_TYPES
@@ -255,9 +255,11 @@ async def secured_strip(
     Nothing at all when no debt is linked: an unlinked property showing
     100% equity is a claim nobody made.
     """
-    from app.services.finance.domains.detection.insights.formatting import format_apr
-    from app.services.finance.domains.ledger.accounts import liability_details
-    from app.services.finance.domains.ledger.properties import secured_position
+    from app.services.finance.service import (
+        format_apr,
+        liability_details,
+        secured_position,
+    )
 
     value = balance(account)
     if account.account_type != PROPERTY_ACCOUNT_TYPE or not value:
@@ -399,7 +401,7 @@ def payoff_terms(account: AccountResponse) -> list[dict[str, str]]:
     nobody has checked must not read as a loan with no penalty, because
     that is the reading a payoff plan would be built on.
     """
-    from app.services.finance.domains.writes.terms import EXTRA_PAYMENT, PREPAYMENT
+    from app.services.finance.service import EXTRA_PAYMENT, PREPAYMENT
 
     liability = account.liability
     if liability is None or account.classification != "liability":

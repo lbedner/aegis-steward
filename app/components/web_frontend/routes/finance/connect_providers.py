@@ -20,13 +20,12 @@ from app.components.backend.api.finance.connections import (
     snaptrade_connect_complete,
 )
 from app.core.config import settings
-from app.services.finance.adapters.providers.simplefin import DEMO_PAGE
 from app.services.finance.constants import PROVIDER_LABELS
 from app.services.finance.schemas import (
     HostedLinkCompleteRequest,
     SimpleFINConnectRequest,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import DEMO_PAGE, FinanceService
 
 
 async def _plaid_start(

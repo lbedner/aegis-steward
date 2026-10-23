@@ -22,8 +22,7 @@ from app.services.documents.domains.extraction.dispatch import read_quietly
 from app.services.documents.domains.reading.identity import parties_by_email
 from app.services.documents.models import DocumentPage
 from app.services.documents.service import DocumentService
-from app.services.finance.domains.writes.queue import propose
-from app.services.finance.models.changes import FinancePendingChange
+from app.services.finance.service import FinancePendingChange, propose
 from app.services.mail import parse
 from app.services.mail.models import MailAttachment, MailBatch, MailMessage
 from app.services.matters.models.core import party_tag

@@ -137,7 +137,7 @@ async def receipt_describe(
     db: AsyncSession, payload: ReceiptPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
     from app.core.money import format_money
-    from app.services.finance.domains.writes.display import txn_row
+    from app.services.finance.service import txn_row
 
     _txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
     return [
@@ -158,7 +158,7 @@ async def match_waiting(
     """Look again for every waiting receipt's charge; propose the ones
     found as one batch, and put the ones done waiting in front of a
     person. Returns how many cards were made."""
-    from app.services.finance.domains.writes.queue import propose_many
+    from app.services.finance.service import propose_many
     from app.services.finance.utils import current_date
 
     today = today or current_date()
@@ -275,7 +275,7 @@ async def _waiting(
 async def _asked(db: AsyncSession) -> tuple[set[int], set[tuple[int, int]]]:
     """Receipts with a card still pending, and the matches already
     turned down - neither is asked again."""
-    from app.services.finance.models import FinancePendingChange as C
+    from app.services.finance.service import FinancePendingChange as C
 
     rows = (
         await db.exec(
@@ -301,8 +301,8 @@ async def _charges(
     of their totals, inside the widest window, wearing no receipt."""
     from app.services.documents.queries import tagged_with
     from app.services.finance.constants import transaction_tag
-    from app.services.finance.domains.ledger.queries.filters import not_duplicate
-    from app.services.finance.models import FinanceTransaction as T
+    from app.services.finance.service import FinanceTransaction as T
+    from app.services.finance.service import not_duplicate
 
     if not waiting:
         return []
@@ -329,10 +329,7 @@ async def _done_waiting(
     """A receipt nothing matched in ``WAIT_DAYS``: an Attention item,
     once, saying what it is and what to do with it."""
     from app.core.money import format_money
-    from app.services.finance.domains.detection.insights.rules.shared import (
-        create_insight_if_new,
-    )
-    from app.services.finance.models import FinanceInsight
+    from app.services.finance.service import FinanceInsight, create_insight_if_new
     from app.services.shared.queries import stored_owner
 
     if not done:

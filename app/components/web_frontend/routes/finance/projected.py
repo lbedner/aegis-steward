@@ -19,9 +19,8 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import render
 from app.components.web_frontend.routes.finance import subjects
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger.merchant_icon import Icon, payee_icons_by_name
 from app.services.finance.schemas import ProjectionPoint, ProjectionResponse
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, Icon, payee_icons_by_name
 
 SECTION = section("projected")
 router = APIRouter()

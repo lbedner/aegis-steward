@@ -43,14 +43,12 @@ from app.components.web_frontend.routes.finance.budget_display import (
 )
 from app.services.finance.constants import GOAL_CONTRIBUTION_KINDS, GOAL_TARGET_RULES
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning.goals import goal_metadata
-from app.services.finance.models import FinanceAccount
 from app.services.finance.schemas import (
     GoalCreate,
     GoalResponse,
     GoalUpdate,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceAccount, FinanceService, goal_metadata
 from app.services.finance.utils import positive_cents
 
 router = APIRouter(prefix=SECTION.path)

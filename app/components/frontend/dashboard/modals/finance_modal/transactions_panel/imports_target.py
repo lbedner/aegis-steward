@@ -32,7 +32,7 @@ from app.components.frontend.dashboard.modals.finance_modal.transactions_panel.b
     TransactionsPanelState,
 )
 from app.components.frontend.theme import AegisTheme as Theme
-from app.services.finance.domains.imports_job import NEEDS_ACCOUNT
+from app.services.finance.service import NEEDS_ACCOUNT
 
 PREVIEW_PATH = "/api/v1/finance/import/preview"
 

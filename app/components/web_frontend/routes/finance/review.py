@@ -49,15 +49,17 @@ from app.components.web_frontend.routes.finance.register import (
     uncategorized_total,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning import queries as planning_queries
-from app.services.finance.models.planning import INSIGHT_RESOLUTIONS
 from app.services.finance.schemas import (
     BatchResolveRequest,
     PayeeGroupAssign,
     PendingChangeResponse,
     SuggestCategoriesRequest,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    INSIGHT_RESOLUTIONS,
+    FinanceService,
+    planning_queries,
+)
 
 SECTION = section("review")
 router = APIRouter(prefix=SECTION.path)

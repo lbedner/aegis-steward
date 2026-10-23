@@ -7,7 +7,7 @@ those live with the pointers.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlmodel import col, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -15,6 +15,31 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.schema import require_one_of
 from app.core.time import utcnow
 from app.services.matters.models import PARTY_KINDS, Party, sort_name_for
+from app.services.shared import facade
+
+# What callers outside matters reach for beside the service, each loaded on
+# first use (``app.services.shared.facade``).
+if TYPE_CHECKING:
+    from app.services.matters.models import (  # noqa: F401
+        FACT_ATTRIBUTES,
+        FACT_PERIODS,
+        FACT_PROVENANCE,
+        ITEM_KINDS,
+        MATTER_CADENCES,
+        MATTER_EVENT_KINDS,
+        PARTICIPANT_ROLES,
+        DocumentParty,
+        Fact,
+        Matter,
+        MatterParticipant,
+        Request,
+        RequestItem,
+        SignIn,
+        matter_tag,
+        party_tag,
+    )
+
+__getattr__ = facade.lazy(__name__, __file__)[0]
 
 
 class PartyService:

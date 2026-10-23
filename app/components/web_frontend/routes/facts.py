@@ -27,12 +27,13 @@ from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import FactService, drawn, one_line, place_book
 from app.services.matters.matters import MatterService
-from app.services.matters.models import (
+from app.services.matters.service import (
     FACT_ATTRIBUTES,
     FACT_PERIODS,
     FACT_PROVENANCE,
+    PartyService,
+    party_or_new,
 )
-from app.services.matters.service import PartyService, party_or_new
 from app.services.matters.words import word
 
 SECTION = section("matters")
@@ -92,7 +93,7 @@ async def _form(
     **typed: Any,
 ) -> Response:
     from app.services.documents.service import DocumentService
-    from app.services.matters.models import matter_tag
+    from app.services.matters.service import matter_tag
 
     filed, _ = (
         await DocumentService(db).list_documents(tag=matter_tag(matter_id))
@@ -271,7 +272,7 @@ accounts = APIRouter(prefix="/accounts")
 async def _account_subject(db: AsyncSession, account_id: int) -> tuple[int, int | None]:
     """The party whose account this is, and the open case they are the
     subject of - so a figure recorded here lands where it is asked for."""
-    from app.services.finance.models import FinanceAccount, FinanceSubject
+    from app.services.finance.service import FinanceAccount, FinanceSubject
     from app.services.matters.matters import MatterService
 
     account = await db.get(FinanceAccount, account_id)

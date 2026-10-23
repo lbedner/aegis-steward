@@ -20,11 +20,13 @@ from starlette.responses import Response
 from app.components.web_frontend.filters import as_options
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done, or_404
-from app.services.finance.adapters.providers import connections
-from app.services.finance.adapters.providers.connections import placing
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.models import FinanceConnection
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    FinanceConnection,
+    FinanceService,
+    connections,
+    placing,
+)
 
 SECTION = section("settings")
 router = APIRouter(prefix=SECTION.path)

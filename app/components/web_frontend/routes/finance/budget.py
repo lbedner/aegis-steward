@@ -53,14 +53,13 @@ from app.components.web_frontend.routes.finance.budget_display import (
 )
 from app.components.web_frontend.routes.finance.overview import TXN_COLUMNS
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning.budgets import strip
 from app.services.finance.schemas import (
     BudgetLineUpsert,
     BudgetSuggestionIds,
     GoalParseRequest,
     PeriodMonth,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, strip
 from app.services.finance.utils import (
     current_period_month,
     period_label,

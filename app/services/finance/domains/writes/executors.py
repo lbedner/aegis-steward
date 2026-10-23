@@ -9,8 +9,7 @@ debt costs); importing this module arms the whole surface.
 from __future__ import annotations
 
 from app.services.ai.service import memory_changes as memory
-from app.services.documents.domains import reading
-from app.services.documents.domains.reading import check_card, checks, receipts
+from app.services.documents.service import check_card, checks, reading, receipts
 from app.services.finance.domains.writes import (
     accounts,
     budgets,

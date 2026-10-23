@@ -188,7 +188,7 @@ async def metadata_execute(
 ) -> dict[str, Any]:
     from app.services.documents.service import DocumentService
     from app.services.finance.constants import account_tag
-    from app.services.finance.domains.ledger.numbers import set_last_four
+    from app.services.finance.service import set_last_four
     from app.services.matters.models import matter_tag, party_tag
 
     document = await _document(db, payload.document_id)
@@ -227,7 +227,7 @@ async def _matter_of(db: AsyncSession, payload: MetadataPayload) -> Any:
 
 async def _account_of(db: AsyncSession, payload: MetadataPayload) -> Any:
     """The account this card would file the document on, or None."""
-    from app.services.finance.domains.ledger.queries.accounts import account_by_id
+    from app.services.finance.service import account_by_id
 
     if payload.account is None:
         return None

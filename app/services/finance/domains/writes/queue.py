@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.documents.domains.reading import filing
+from app.services.documents.service import filing
 from app.services.finance.domains.ledger import changelog
 from app.services.finance.domains.writes.queries import (
     batch_rows,
@@ -358,7 +358,7 @@ async def approve(
         and (row.payload.get("kind") or {}).get("value") == "receipt"
     ):
         # Paper just called a receipt waits for its charge from here (#330).
-        from app.services.documents.domains.reading import receipts
+        from app.services.documents.service import receipts
 
         await receipts.match_waiting(db, owner_user_id=row.owner_user_id)
     return row

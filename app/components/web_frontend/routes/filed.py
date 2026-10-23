@@ -12,9 +12,7 @@ from typing import Any
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.components.web_frontend.routes.finance.overview import TXN_COLUMNS
-from app.services.finance.domains.ledger import links
-from app.services.finance.domains.ledger.hydrate import hydrate_transactions
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, hydrate_transactions, links
 
 
 async def filed(db: AsyncSession, label: str) -> dict[str, Any]:

@@ -28,8 +28,7 @@ def snaptrade_connect(owner_user_id: int | None = OWNER_OPT) -> None:
 
 async def _snaptrade_connect(owner_user_id: int | None) -> None:
     from app.core.db import get_async_session
-    from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+    from app.services.finance.service import SnapTradeError, connections
 
     async with get_async_session() as session:
         try:
@@ -53,8 +52,7 @@ def snaptrade_complete(owner_user_id: int | None = OWNER_OPT) -> None:
 
 async def _snaptrade_complete(owner_user_id: int | None) -> None:
     from app.core.db import get_async_session
-    from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.snaptrade import SnapTradeError
+    from app.services.finance.service import SnapTradeError, connections
 
     async with get_async_session() as session:
         try:

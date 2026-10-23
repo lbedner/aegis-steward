@@ -26,10 +26,7 @@ from app.core.db import get_async_session
 from app.core.log import logger
 from app.core.uploads import read_upload
 from app.services.ai.service import AudioFormat, AudioInput, SpeechRequest, to_spoken
-from app.services.finance.domains.detection.analyst.shared import (
-    FINANCE_VOICE_AGENT_SLUG,
-    STANDALONE_USER_ID,
-)
+from app.services.finance.service import FINANCE_VOICE_AGENT_SLUG, STANDALONE_USER_ID
 from app.services.matters.service import PartyService
 
 router = APIRouter()

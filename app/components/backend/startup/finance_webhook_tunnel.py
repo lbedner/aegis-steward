@@ -38,7 +38,7 @@ import httpx
 from app.core import secrets
 from app.core.config import settings
 from app.core.log import logger
-from app.services.finance.adapters.providers.plaid import PLAID_WEBHOOK_PATH
+from app.services.finance.service import PLAID_WEBHOOK_PATH
 
 # The tunnel sidecar usually answers within ~2s of boot; the backend and
 # sidecar start concurrently, so poll briefly before giving up.
@@ -74,8 +74,7 @@ async def discover_tunnel_hostname(metrics_url: str) -> str | None:
 
 
 async def _discover_and_reconcile(metrics_url: str) -> None:
-    from app.services.finance.adapters.providers import connections
-    from app.services.finance.adapters.providers.plaid import set_runtime_webhook_url
+    from app.services.finance.service import connections, set_runtime_webhook_url
 
     hostname: str | None = None
     for _ in range(_DISCOVERY_ATTEMPTS):

@@ -256,7 +256,7 @@ async def finance_sync_connections_job() -> None:
     are internally throttled to one pull per account per day (their polling
     budget), so a more frequent schedule stays within it.
     """
-    from app.services.documents.domains.reading import receipts
+    from app.services.documents.service import receipts
     from app.services.finance.adapters.providers import connections
     from app.services.finance.adapters.providers.queries import connected_owner_ids
 

@@ -22,8 +22,7 @@ from app.components.web_frontend.rendering import (
 )
 from app.components.web_frontend.routes.finance.review import SECTION, nav_context
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger import reimbursements
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, reimbursements
 from app.services.finance.utils import money_to_cents
 
 router = APIRouter()

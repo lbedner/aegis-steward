@@ -11,7 +11,7 @@ from app.components.web_frontend.glyphs import (
     file_badge_table,
 )
 from app.components.web_frontend.nav import NAV
-from app.services.documents.models import kind_label
+from app.services.documents.service import kind_label
 from app.services.finance.constants import account_sections
 from app.services.matters.facts import rate_suffix
 from app.services.matters.words import (

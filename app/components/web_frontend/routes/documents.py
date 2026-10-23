@@ -36,7 +36,7 @@ from app.core.config import settings
 from app.core.db import get_async_session
 from app.core.storage import get_storage
 from app.core.uploads import read_upload
-from app.services.documents.domains.extraction.dispatch import start_extraction
+from app.services.documents.service import start_extraction
 from app.services.finance.deps import get_owner_user_id
 from app.services.mail.jobs import start_mail_import
 from app.services.mail.parse import is_mail_export
@@ -56,7 +56,7 @@ COLUMNS = (
 def _row(document: Any, filed: list[dict[str, str]]) -> dict[str, Any]:
     from app.components.web_frontend.filters import short_date
     from app.components.web_frontend.glyphs import file_badge
-    from app.services.documents.models import kind_label
+    from app.services.documents.service import kind_label
 
     return {
         "id": document.id,
@@ -82,9 +82,7 @@ async def page(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """Everything on file, newest first, narrowed where it stands."""
-    from app.services.documents import queries
-    from app.services.documents.models import DOCUMENT_KINDS
-    from app.services.documents.service import DocumentService
+    from app.services.documents.service import DOCUMENT_KINDS, DocumentService, queries
 
     async with get_async_session() as db:
         documents, _total = await DocumentService(db).list_documents(
@@ -134,7 +132,7 @@ async def _filed(db: Any, document_id: int) -> Any:
 
 @router.get("/new", include_in_schema=False)
 async def new_document(request: Request) -> Response:
-    from app.services.documents.models import DOCUMENT_KINDS
+    from app.services.documents.service import DOCUMENT_KINDS
 
     return dialog(
         request,
@@ -245,7 +243,7 @@ async def delete(
     """The rows in one transaction; the bytes after it commits, so a
     crash between the two leaves an orphan blob and never a row that
     names paper that is gone."""
-    from app.services.documents.domains.shelf.destroy import destroy
+    from app.services.documents.service import destroy
 
     async with get_async_session() as db:
         orphaned = or_404(await destroy(db, document_id, owner_user_id=owner_user_id))

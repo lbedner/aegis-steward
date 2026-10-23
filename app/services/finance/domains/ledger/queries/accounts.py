@@ -366,7 +366,7 @@ async def institution_contacts(
     """``{institution id: its contact's details}`` in one read: website,
     phone, address - how to reach a bank lives on its contact and only
     there (#412)."""
-    from app.services.matters.models import Party
+    from app.services.matters.service import Party
 
     wanted = {i for i in institution_ids if i is not None}
     if not wanted:

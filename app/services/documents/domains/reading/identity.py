@@ -167,7 +167,7 @@ async def known_strings(db: Any) -> list[Known]:
     Read once per document and matched in memory: four small queries
     beat a query per line of every page.
     """
-    from app.services.finance.domains.ledger import queries
+    from app.services.finance.service import ledger_queries as queries
     from app.services.matters.reach import reach_lines
     from app.services.matters.service import PartyService
 

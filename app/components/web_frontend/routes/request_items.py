@@ -35,8 +35,8 @@ from app.components.web_frontend.routes.requests import (
 )
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
-from app.services.matters.models import ITEM_KINDS, matter_tag
 from app.services.matters.requests import RequestService
+from app.services.matters.service import ITEM_KINDS, matter_tag
 
 SECTION = section("matters")
 router = APIRouter(prefix=SECTION.path)

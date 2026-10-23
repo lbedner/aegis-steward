@@ -40,8 +40,8 @@ async def unproven_figures(
     subject: whose accounts these are is the whole question, and every
     account in the app is not an answer to it.
     """
-    from app.services.finance.domains.ledger import queries
-    from app.services.finance.domains.ledger.accounts import register_balance_as_of
+    from app.services.finance.service import ledger_queries as queries
+    from app.services.finance.service import register_balance_as_of
     from app.services.matters.matters import MatterService
 
     if item.ask not in FROM_THE_REGISTER or item.as_of is None:
@@ -80,8 +80,8 @@ async def _accounts_of(db: AsyncSession, party_id: int) -> list[Any]:
     that knows what "whose accounts" means - including that a hidden or
     deleted row is not one.
     """
-    from app.services.finance.domains.ledger import queries
-    from app.services.finance.domains.ledger.subjects import subject_of
+    from app.services.finance.service import ledger_queries as queries
+    from app.services.finance.service import subject_of
 
     subject = await subject_of(db, party_id)
     if subject is None:

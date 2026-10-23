@@ -47,7 +47,7 @@ from app.services.ai.service import (
     newest_first,
     profiles,
 )
-from app.services.finance.domains.detection.analyst.live_engines import ENGINE_SEEDS
+from app.services.finance.service import ENGINE_SEEDS
 
 router = APIRouter()
 

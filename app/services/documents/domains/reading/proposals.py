@@ -50,7 +50,7 @@ async def _already_asked(
     Reading again must not stack a second one on top of it. ``key`` is
     the payload field that names the thing asked about, for a card that
     is about an account rather than the paper."""
-    from app.services.finance.domains.writes.queue import list_changes
+    from app.services.finance.service import list_changes
 
     return any(
         change.payload.get(key) == document_id
@@ -162,7 +162,7 @@ async def _propose_demands(
     last, and the lock with it.
     """
     from app.services.documents.domains.reading.letters import checked
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.service import propose
     from app.services.matters.matters import MatterService
     from app.services.matters.requests import RequestService
 
@@ -221,7 +221,7 @@ async def _propose_metadata(
     """
     from app.services.documents.domains.reading import banks
     from app.services.documents.service import DocumentService
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.service import propose
 
     document = await DocumentService(db).get(document_id)
     if document is None or await _already_asked(db, METADATA, document_id):
@@ -385,7 +385,7 @@ async def _propose_contact(
     already. A letterhead read off a page and taken as an organization
     is how a second address book starts.
     """
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.service import propose
 
     if await _already_asked(db, CONTACT, document_id):
         return None
@@ -420,8 +420,8 @@ async def _brands(db: AsyncSession) -> list[str]:
     who money and paper come from - and a household does not think of
     them as three.
     """
-    from app.services.finance.domains.ledger import queries
-    from app.services.finance.domains.ledger.merchants import list_merchants
+    from app.services.finance.service import ledger_queries as queries
+    from app.services.finance.service import list_merchants
     from app.services.matters.service import PartyService
 
     known = {

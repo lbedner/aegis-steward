@@ -48,7 +48,7 @@ async def _import(
     owner_user_id: int | None,
     on_label: SetLabel | None,
 ) -> dict[str, Any]:
-    from app.services.documents.domains.reading import receipts
+    from app.services.documents.service import receipts
     from app.services.finance.schemas import import_result_payload
     from app.services.finance.service import FinanceService
 

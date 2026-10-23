@@ -15,12 +15,12 @@ from app.components.frontend.dashboard.modals.finance_modal.budget_panel.base im
     BudgetPanelState,
 )
 from app.components.frontend.theme import AegisTheme as Theme
-from app.services.finance.domains.planning.budgets import strip
 from app.services.finance.schemas import (
     BudgetMonthOutlook,
     BudgetStatDetailsResponse,
     BudgetSummaryResponse,
 )
+from app.services.finance.service import strip
 
 # The colour a strip cell's or a pager chip's tone wears here.
 _TONES = {"ok": Theme.Colors.ACCENT, "error": Theme.Colors.ERROR}

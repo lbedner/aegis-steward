@@ -7,8 +7,8 @@ from typing import Any
 
 from app.components.web_frontend.filters import money
 from app.services.finance.constants import account_sections
-from app.services.finance.domains.ledger.accounts import effective_balance
 from app.services.finance.schemas import AccountResponse
+from app.services.finance.service import effective_balance
 
 
 def balance(account: AccountResponse) -> int:

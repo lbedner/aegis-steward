@@ -265,9 +265,7 @@ async def remove_form(
     service: FinanceService = Depends(get_finance_service),
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    from app.services.finance.domains.ledger.queries import (
-        account_ids_for_connection,
-    )
+    from app.services.finance.service import account_ids_for_connection
 
     card = await _connection_card(service, owner_user_id, connection_id)
     # What the purge would delete: a connect left half done fed nothing,
@@ -408,11 +406,7 @@ async def activity(
     from sqlmodel import select
 
     from app.components.web_frontend.filters import freshness
-    from app.services.finance.adapters.importers.imports import (
-        run_summary,
-        run_title,
-    )
-    from app.services.finance.models.imports import FinanceImportBatch
+    from app.services.finance.service import FinanceImportBatch, run_summary, run_title
 
     runs = (
         await service.db.exec(
@@ -460,11 +454,7 @@ async def run_detail(
     one click from the row rather than a page away.
     """
     from app.components.web_frontend.filters import freshness
-    from app.services.finance.adapters.importers.imports import (
-        run_summary,
-        run_title,
-    )
-    from app.services.finance.models.imports import FinanceImportBatch
+    from app.services.finance.service import FinanceImportBatch, run_summary, run_title
 
     run = await service.db.get(FinanceImportBatch, run_id)
     or_404(run)
@@ -503,7 +493,7 @@ async def institutions(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """The address book: who you bank with, and how to reach them."""
-    from app.services.finance.domains.ledger.merchant_icon import institution_icons
+    from app.services.finance.service import institution_icons
 
     rows = await service.institution_usage(owner_user_id=owner_user_id)
     # The directory already read each bank's website off its contact.

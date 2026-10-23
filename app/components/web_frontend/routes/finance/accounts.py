@@ -63,13 +63,13 @@ from app.services.finance.constants import (
     account_classification,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger.institutions import websites
-from app.services.finance.domains.ledger.net_worth_rule import (
+from app.services.finance.schemas import AccountResponse
+from app.services.finance.service import (
+    FinanceService,
     counts_in_net_worth,
     net_of,
+    websites,
 )
-from app.services.finance.schemas import AccountResponse
-from app.services.finance.service import FinanceService
 
 SECTION = section("accounts")
 router = APIRouter()
@@ -225,14 +225,10 @@ async def _last_updated(
     if account is None:
         return {}
     if account.connection_id:
-        from app.services.finance.adapters.providers.queries import (
-            connection_by_id_live,
-        )
+        from app.services.finance.service import connection_by_id_live
 
         connection = await connection_by_id_live(service.db, account.connection_id)
-        from app.services.finance.domains.ledger.queries.accounts import (
-            recent_transaction_dates,
-        )
+        from app.services.finance.service import recent_transaction_dates
 
         # A sync that runs and brings nothing is not fresh: beside when it
         # last ran, when it last brought a transaction, stale once that
@@ -252,9 +248,7 @@ async def _last_updated(
         history = await valuation_history(service, account, None)
         newest = max((row["as_of_date"] for row in history), default=None)
         return freshness(newest, "valuation")
-    from app.services.finance.domains.ledger.queries.transactions import (
-        newest_transaction_date,
-    )
+    from app.services.finance.service import newest_transaction_date
 
     return freshness(await newest_transaction_date(service.db, account.id))
 

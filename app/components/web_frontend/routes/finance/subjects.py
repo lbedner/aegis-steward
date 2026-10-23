@@ -15,9 +15,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.finance.domains.ledger.queries.accounts import EVERYONE, HOUSEHOLD
-from app.services.finance.domains.ledger.subjects import subject_filter
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    EVERYONE,
+    HOUSEHOLD,
+    FinanceService,
+    subject_filter,
+)
 
 __all__ = [
     "EVERYONE",
@@ -70,7 +73,7 @@ async def held_by(
     a father's checking account read as ours and nothing but SQL could
     say otherwise (2026-09-18).
     """
-    from app.services.finance.domains.ledger.subjects import subject_for_party
+    from app.services.finance.service import subject_for_party
     from app.services.matters.service import PartyService
 
     if party_id is None:
@@ -93,7 +96,7 @@ async def holder(service: FinanceService, account: Any) -> int | str:
     silently shows "Ours" for an account already in somebody's name is
     worse than no picker.
     """
-    from app.services.finance.domains.ledger.subjects import get_subject
+    from app.services.finance.service import get_subject
 
     if not account.subject_id:
         return ""

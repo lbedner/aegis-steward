@@ -20,15 +20,15 @@ from app.components.web_frontend.rendering import (
     where_from,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.detection import queries as detection_queries
-from app.services.finance.domains.detection.transfers.answers import (
+from app.services.finance.service import (
+    FinanceService,
+    account_names,
     break_pair,
     confirm_pair,
     decline_offer,
+    detection_queries,
+    transactions_by_ids,
 )
-from app.services.finance.domains.ledger.queries import transactions_by_ids
-from app.services.finance.domains.ledger.queries.accounts import account_names
-from app.services.finance.service import FinanceService
 
 router = APIRouter()
 

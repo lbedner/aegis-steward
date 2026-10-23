@@ -20,7 +20,7 @@ async def finance_import_task(
 ) -> dict[str, Any]:
     """A file import, or its review (``imports_job.RUNS``). ``kind`` is
     last and defaulted so a job queued before it existed still runs."""
-    from app.services.finance.domains.imports_job import run_import_job
+    from app.services.finance.service import run_import_job
 
     return await run_import_job(
         job_id, storage_key, file_name, account_id, owner_user_id, kind
@@ -33,8 +33,8 @@ async def finance_sync_connection_task(
     """One connection, synced from where it stands: after accounts are
     placed (``connections.placing``), the whole history they held."""
     from app.core.db import get_async_session
-    from app.services.documents.domains.reading import filing, receipts
-    from app.services.finance.adapters.providers import connections
+    from app.services.documents.service import filing, receipts
+    from app.services.finance.service import connections
 
     async with get_async_session() as db:
         result = await connections.sync_one_connection(

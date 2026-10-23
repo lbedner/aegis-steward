@@ -55,7 +55,7 @@ from app.services.ai.service import (
     lift_pastes,
 )
 from app.services.ai.service.trace import BATCH_MARKER, CHANGE_MARKER
-from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
+from app.services.finance.service import STANDALONE_USER_ID
 
 SECTION = section("chat")
 router = APIRouter()

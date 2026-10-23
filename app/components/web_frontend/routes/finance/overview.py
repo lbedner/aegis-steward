@@ -27,12 +27,6 @@ from app.components.web_frontend.rendering import hx_dialog, render, templates
 from app.components.web_frontend.rendering import ranked as bar_ratios
 from app.components.web_frontend.routes.finance.portfolio import balance
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger.merchant_icon import Icon, payee_icons_by_name
-from app.services.finance.domains.ledger.net_worth_rule import (
-    assets_and_owed,
-    counts_in_net_worth,
-)
-from app.services.finance.domains.planning.recurring.forecast import upcoming_outflows
 from app.services.finance.schemas import (
     AccountResponse,
     CashflowMonth,
@@ -43,7 +37,14 @@ from app.services.finance.schemas import (
     SpendingCategory,
     SpendingPace,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    FinanceService,
+    Icon,
+    assets_and_owed,
+    counts_in_net_worth,
+    payee_icons_by_name,
+    upcoming_outflows,
+)
 from app.services.finance.utils import current_date
 from app.services.matters.deadlines import due_soon, expected_soon
 

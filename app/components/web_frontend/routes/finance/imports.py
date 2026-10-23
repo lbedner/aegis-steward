@@ -21,8 +21,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import templates
 from app.services.finance.constants import PREVIEW_DETAIL_CAP
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains import imports_job
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, imports_job
 
 SECTION = section("accounts")
 router = APIRouter(prefix=SECTION.path + "/import")

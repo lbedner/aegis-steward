@@ -18,9 +18,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from starlette.responses import Response
 
 from app.components.web_frontend.rendering import dialog
-from app.services.documents.domains.extraction.dispatch import (
-    read_quietly,
-)
+from app.services.documents.service import read_quietly
 
 # The API route that serves the bytes. One place, because the viewer,
 # the "open the original" link and the fallback all point at it.
@@ -84,10 +82,13 @@ async def document_dialog(
     making them click twice to do one thing.
     """
     from app.components.web_frontend.filters import short_date
-    from app.services.documents.domains.extraction.pages import how_read
-    from app.services.documents.models import DOCUMENT_KINDS, TAX_FORMS
-    from app.services.documents.queries import pages_for
-    from app.services.documents.service import DocumentService
+    from app.services.documents.service import (
+        DOCUMENT_KINDS,
+        TAX_FORMS,
+        DocumentService,
+        how_read,
+        pages_for,
+    )
 
     pages = await pages_for(db, document.id)
     tags = await DocumentService(db).tags_for(document.id)
@@ -214,8 +215,8 @@ def _homes() -> dict[str, tuple[Any, str, str, str]]:
     """Where a document can be filed: tag prefix -> (model, name field,
     section path, what to call it). Bound in a function, never at import."""
     from app.components.web_frontend.nav import section
-    from app.services.finance.models.accounts import FinanceAccount
-    from app.services.matters.models import Matter, Party
+    from app.services.finance.service import FinanceAccount
+    from app.services.matters.service import Matter, Party
 
     return {
         "party": (Party, "name", section("contacts").path, "contact"),
@@ -276,8 +277,7 @@ async def papers_on(db: AsyncSession, tag: str, open_base: str) -> list[dict[str
     """The paper filed under ``tag``, each row opening at ``open_base/<id>``."""
     from app.components.web_frontend.filters import short_date
     from app.components.web_frontend.glyphs import file_badge
-    from app.services.documents.models import kind_label
-    from app.services.documents.service import DocumentService
+    from app.services.documents.service import DocumentService, kind_label
 
     documents, _ = await DocumentService(db).list_documents(tag=tag)
     return [

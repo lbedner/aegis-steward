@@ -175,9 +175,7 @@ class FinanceDetailDialog(BaseDetailPopup):
             # is the one id that resolves in a single-tenant install. The
             # generic default ("api-user") is unparseable and would skip
             # the briefing entirely.
-            from app.services.finance.domains.detection.analyst.shared import (
-                STANDALONE_USER_ID,
-            )
+            from app.services.finance.service import STANDALONE_USER_ID
 
             factories.append(
                 (

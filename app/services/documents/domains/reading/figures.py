@@ -168,8 +168,7 @@ async def propose_figure(
     accounts propose nothing - a fact is about SOMEBODY, and a card
     asking whose this is would be a question rather than a proposal.
     """
-    from app.services.finance.domains.ledger.subjects import get_subject
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.service import get_subject, propose
     from app.services.matters.service import PartyService
 
     if await asked(db, FIGURE, document_id):
@@ -212,7 +211,7 @@ async def propose_figure(
 
 async def account_on(db: AsyncSession, read: list[Page]) -> Any:
     """The account this paper says it is about, by its printed last four."""
-    from app.services.finance.domains.ledger.queries.accounts import account_by_id
+    from app.services.finance.service import account_by_id
 
     for known, _finding in identify(read, await known_strings(db)):
         if known.kind == "account":
