@@ -229,6 +229,14 @@ async def startup_database_init() -> None:
         except Exception as e:
             logger.warning(f"Agent registry seed failed: {e}")
 
+        # Remote catalog and local Ollama tags, each only when missing.
+        try:
+            from app.components.backend.startup.llm_catalog import seed_llm_catalog
+
+            await seed_llm_catalog()
+        except Exception as e:
+            logger.warning(f"LLM catalog startup skipped: {e}")
+
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
