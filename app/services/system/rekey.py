@@ -58,8 +58,8 @@ def _secrets() -> tuple[Encrypted, ...]:
     """The registry, bound at call time so importing this module does
     not drag every service in with it."""
     from app.services.finance.constants import ENCRYPTED_COLUMNS
-    from app.services.finance.models import FinanceAccount, FinanceConnection
-    from app.services.matters.models import SignIn
+    from app.services.finance.service import FinanceAccount, FinanceConnection
+    from app.services.matters.service import SignIn
 
     return (
         Encrypted(

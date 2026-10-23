@@ -21,9 +21,7 @@ from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done, or_404
 from app.components.web_frontend.routes.finance.account_manage import _account
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger import merging
-from app.services.finance.models import FinanceAccount
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceAccount, FinanceService, merging
 
 SECTION = section("accounts")
 router = APIRouter(prefix=SECTION.path)

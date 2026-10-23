@@ -51,9 +51,9 @@ from app.services.ai.service import (
     usage_recording,
 )
 from app.services.ai.service.trace import record_tool_call
-from app.services.finance.domains.detection.analyst.prompts import LIVE_SIGN_OFF
-from app.services.finance.domains.detection.analyst.shared import (
+from app.services.finance.service import (
     FINANCE_VOICE_AGENT_SLUG,
+    LIVE_SIGN_OFF,
     STANDALONE_USER_ID,
 )
 

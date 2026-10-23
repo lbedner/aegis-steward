@@ -16,11 +16,14 @@ from app.components.web_frontend import overseer_documents
 from app.components.web_frontend.rendering import dialog, go_to, toast_response
 from app.core.formatting import safe_filename
 from app.core.uploads import read_upload, stored_file
-from app.services.documents import queries
 from app.services.documents.deps import get_document_service
-from app.services.documents.domains.extraction.dispatch import start_extraction
-from app.services.documents.models import DocumentPage
-from app.services.documents.service import DocumentService, ProtectedDocumentError
+from app.services.documents.service import (
+    DocumentPage,
+    DocumentService,
+    ProtectedDocumentError,
+    queries,
+    start_extraction,
+)
 
 router = APIRouter(prefix=overseer_documents.PARTIALS)
 

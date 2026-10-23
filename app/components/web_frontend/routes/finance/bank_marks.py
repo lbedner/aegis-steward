@@ -8,9 +8,8 @@ and a page reads those websites once and hands them to both
 
 from __future__ import annotations
 
-from app.services.finance.domains.ledger.institutions import websites
 from app.services.finance.schemas import AccountResponse
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, websites
 
 
 async def institution_logos(
@@ -23,7 +22,7 @@ async def institution_logos(
     a stored logo or domain, else a guess from the bank's name. The one
     path every bank's mark comes through - the portfolio's and the
     Place dialog's alike."""
-    from app.services.finance.domains.ledger.merchant_icon import institution_icons
+    from app.services.finance.service import institution_icons
 
     if not wanted:
         return {}

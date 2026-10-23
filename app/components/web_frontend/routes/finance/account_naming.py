@@ -28,12 +28,10 @@ from app.components.web_frontend.rendering import (
     where_from,
 )
 from app.components.web_frontend.routes.finance import subjects
-from app.services.documents.domains.reading import filing
+from app.services.documents.service import filing
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger.numbers import set_number
-from app.services.finance.models import FinanceAccount
 from app.services.finance.schemas import AccountUpdate
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceAccount, FinanceService, set_number
 from app.services.matters.service import party_or_new
 
 SECTION = section("accounts")
@@ -51,8 +49,7 @@ async def _account(
 async def _routed(service: FinanceService, account: Any, routing: str) -> bool:
     """Write the routing number to the BANK the account is held with.
     False when it cannot be one; nothing is written then."""
-    from app.services.finance.domains.ledger.numbers import aba_ok
-    from app.services.finance.domains.ledger.queries.accounts import institution_by_id
+    from app.services.finance.service import aba_ok, institution_by_id
 
     if not aba_ok(routing):
         return False
@@ -80,7 +77,7 @@ async def _naming(
     that is the pair people think in - but it belongs to the BANK, so
     it is read from there and only offered once a bank is set.
     """
-    from app.services.finance.domains.ledger.queries.accounts import institution_by_id
+    from app.services.finance.service import institution_by_id
 
     if routing is None and account.institution_id:
         bank = await institution_by_id(service.db, account.institution_id)

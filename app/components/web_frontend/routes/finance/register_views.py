@@ -18,8 +18,7 @@ from starlette.responses import Response
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import templates
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.ledger import views
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, views
 
 SECTION = section("accounts")
 router = APIRouter(prefix=f"{SECTION.path}/views")

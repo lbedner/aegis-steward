@@ -41,7 +41,6 @@ from app.components.web_frontend.routes.finance.register import (
     uncategorized_total,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import (
     DeclareRecurring,
     MerchantAssign,
@@ -49,7 +48,7 @@ from app.services.finance.schemas import (
     SplitPart,
     TransactionSplitRequest,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import FinanceService, FinanceTransaction
 
 router = APIRouter(prefix="/transactions")
 

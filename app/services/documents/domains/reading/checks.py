@@ -262,7 +262,7 @@ async def propose_checks(
     session is the whole app's write lock."""
     from app.core.storage import get_storage
     from app.services.documents.service import DocumentService
-    from app.services.finance.domains.writes.queue import MAX_BATCH_SIZE, propose_many
+    from app.services.finance.service import MAX_BATCH_SIZE, propose_many
 
     async with open_session() as db:
         document = await DocumentService(db).get(document_id)
@@ -363,12 +363,12 @@ async def _ledger(
 
     from app.services.documents.queries import tagged_with
     from app.services.finance.constants import transaction_tag
-    from app.services.finance.domains.ledger.queries.filters import not_duplicate
-    from app.services.finance.domains.ledger.queries.merchants import (
+    from app.services.finance.service import FinanceTransaction as T
+    from app.services.finance.service import (
+        list_changes,
         merchants_for_owner,
+        not_duplicate,
     )
-    from app.services.finance.domains.writes.queue import list_changes
-    from app.services.finance.models import FinanceTransaction as T
 
     query = select(T).where(
         col(T.deleted_at).is_(None),
@@ -402,9 +402,8 @@ async def _renamed(
     read for every unmatched check."""
     from sqlmodel import col, select
 
-    from app.services.finance.domains.ledger.queries.filters import not_duplicate
-    from app.services.finance.models import FinanceAccount
-    from app.services.finance.models import FinanceTransaction as T
+    from app.services.finance.service import FinanceAccount, not_duplicate
+    from app.services.finance.service import FinanceTransaction as T
 
     masks = {r.account[-4:] for r in lost if r.account}
     amounts = {-r.amount_cents for r in lost if r.amount_cents}

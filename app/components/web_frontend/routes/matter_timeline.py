@@ -26,7 +26,7 @@ from app.services.finance.deps import get_owner_user_id
 from app.services.finance.utils import current_date
 from app.services.matters.answers import answer_sheet
 from app.services.matters.matters import MatterService
-from app.services.matters.models import MATTER_EVENT_KINDS
+from app.services.matters.service import MATTER_EVENT_KINDS
 from app.services.matters.timeline import MatterEventService, timeline
 
 SECTION = section("matters")

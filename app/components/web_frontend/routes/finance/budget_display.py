@@ -22,12 +22,16 @@ from app.components.web_frontend.rendering import (
     templates,
     with_toast,
 )
-from app.services.finance.domains.planning import budgets
-from app.services.finance.domains.planning.budgets import strip
-from app.services.finance.domains.planning.budgets.closing import ClosedMonth
-from app.services.finance.models import FinanceAccount
 from app.services.finance.schemas import BudgetSummaryResponse, GoalResponse
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    ClosedMonth,
+    FinanceAccount,
+    FinanceService,
+    strip,
+)
+from app.services.finance.service import (
+    planning_budgets as budgets,
+)
 
 SECTION = section("budget")
 

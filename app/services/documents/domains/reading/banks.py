@@ -45,8 +45,7 @@ async def propose_bank(
         _sender,
     )
     from app.services.documents.service import DocumentService
-    from app.services.finance.domains.ledger.queries.accounts import account_by_id
-    from app.services.finance.domains.writes.queue import propose
+    from app.services.finance.service import account_by_id, propose
 
     document = await DocumentService(db).get(document_id)
     if document is None:
@@ -88,9 +87,7 @@ async def named_account(
     with. Both cited, so the card can be checked line by line.
     """
     from app.services.documents.domains.reading.identity import _MASK, front_lines
-    from app.services.finance.domains.ledger.queries.networth import (
-        live_accounts_for_owner,
-    )
+    from app.services.finance.service import live_accounts_for_owner
 
     front = front_lines(read)
     named: dict[int, tuple[Any, int, str]] = {}

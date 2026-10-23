@@ -11,7 +11,7 @@ from app.services.ai.fixtures.llm_fixtures import load_all_llm_fixtures
 from app.services.ai.fixtures.memory_module_fixtures import (
     load_memory_module_fixtures,
 )
-from app.services.finance.domains.detection.analyst import (
+from app.services.finance.service import (
     load_finance_agent_fixtures,
     memory_module_definitions,
 )

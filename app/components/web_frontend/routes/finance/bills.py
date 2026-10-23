@@ -40,18 +40,16 @@ from app.services.finance.constants import (
     frequency_label,
 )
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.detection.insights.commitments import (
+from app.services.finance.schemas import RecurringPause, RecurringStreamResponse
+from app.services.finance.service import (
+    FinanceRecurringStream,
+    FinanceService,
+    hydrate_streams,
     is_commitment,
     is_paused,
-)
-from app.services.finance.domains.planning.recurring.review import (
-    hydrate_streams,
     needs_review,
     past_due,
 )
-from app.services.finance.models import FinanceRecurringStream
-from app.services.finance.schemas import RecurringPause, RecurringStreamResponse
-from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date, stream_step
 
 SECTION = section("bills")

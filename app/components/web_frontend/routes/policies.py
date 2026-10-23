@@ -24,10 +24,12 @@ from app.components.web_frontend.rendering import dialog, hx_swap, or_404
 from app.core.db import get_async_session
 from app.core.formatting import iso_date, payee_label
 from app.services.finance.deps import get_owner_user_id
-from app.services.insurance.models import CLAIM_STATUSES, POLICY_KINDS
-from app.services.insurance.service import InsuranceService
-from app.services.matters.models import party_tag
-from app.services.matters.service import PartyService
+from app.services.insurance.service import (
+    CLAIM_STATUSES,
+    POLICY_KINDS,
+    InsuranceService,
+)
+from app.services.matters.service import PartyService, party_tag
 
 SECTION = section("contacts")
 router = APIRouter(prefix=SECTION.path)
@@ -86,7 +88,7 @@ async def _drawn(
     """One policy as the page draws it. ``owner`` says the page is the
     insurer's, where claims are recorded; a person's page reads only."""
     from app.components.web_frontend.glyphs import file_badge
-    from app.services.finance.domains.planning.recurring import streams
+    from app.services.finance.service import streams
     from app.services.matters.drawing import titles
 
     service = InsuranceService(db)
@@ -176,8 +178,7 @@ async def _payments(db: AsyncSession, ids: list[int | None]) -> dict[int, str]:
     query per kind, never one per claim."""
     from sqlmodel import col, select
 
-    from app.services.finance.domains.ledger.queries.accounts import account_names
-    from app.services.finance.models import FinanceTransaction
+    from app.services.finance.service import FinanceTransaction, account_names
 
     wanted = [i for i in ids if i]
     if not wanted:
@@ -198,7 +199,7 @@ async def _candidates(
     from sqlmodel import col, select
 
     from app.components.web_frontend.filters import money
-    from app.services.finance.models import FinanceAccount
+    from app.services.finance.service import FinanceAccount
 
     rows = await InsuranceService(db).claim_candidates(
         claim_id, owner_user_id=owner_user_id

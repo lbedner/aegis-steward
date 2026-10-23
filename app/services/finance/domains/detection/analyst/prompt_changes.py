@@ -7,7 +7,7 @@ change-type registry (``writes/executors.py``), the rest of the prompt
 does not.
 """
 
-from app.services.documents.models import DOCUMENT_KINDS
+from app.services.documents.service import DOCUMENT_KINDS
 from app.services.finance.domains.detection.analyst.prompt_matters import (
     MATTER_CHANGES,
 )

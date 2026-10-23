@@ -160,7 +160,7 @@ async def arrivals_by_account(
         return {}
     from sqlmodel import col, select
 
-    from app.services.finance.models import FinanceTransaction
+    from app.services.finance.service import FinanceTransaction
 
     floor = since.replace(tzinfo=None) if since.tzinfo else since
     rows = (
@@ -208,7 +208,7 @@ async def mark_new(
     if ids:
         from sqlmodel import select
 
-        from app.services.finance.models.imports import FinanceImportBatch
+        from app.services.finance.service import FinanceImportBatch
 
         found = (
             await db.exec(

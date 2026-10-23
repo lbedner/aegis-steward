@@ -33,17 +33,6 @@ LOOSE_DEBT = {
     "service:comms": 2,
     "service:finance": 6,
 }
-FACADE = "parts.through-facade"
-# Files each part imports another service's internals from, rather than
-# its facade, held the same way: lower an entry as finance's and
-# documents' facades offer what they reach for (#505).
-FACADE_DEBT = {
-    "service:ai": 3,
-    "service:documents": 10,
-    "service:documents.mail": 1,
-    "service:documents.matters": 6,
-    "service:finance": 8,
-}
 JOBS = "parts.jobs-wired"
 # Jobs modules each part keeps a job in that nothing runs.
 JOBS_DEBT = {
@@ -54,110 +43,7 @@ JOBS_DEBT = {
 # INTERNALS``) rather than its facade. The parts rule holds a service's own
 # folder; this holds everything else (components, the CLI, core, shared
 # code), the same ratchet: a file may only leave the list.
-REACHING_DEBT = frozenset(
-    {
-        "app/cli/finance_snaptrade.py",
-        "app/components/backend/api/llm/routes.py",
-        "app/components/backend/shutdown/finance_webhook_tunnel.py",
-        "app/components/backend/startup/database_init.py",
-        "app/components/backend/startup/finance_webhook_tunnel.py",
-        "app/components/backend/startup/live_engine.py",
-        "app/components/frontend/dashboard/modals/documents_activity.py",
-        "app/components/frontend/dashboard/modals/documents_detail_pane.py",
-        "app/components/frontend/dashboard/modals/documents_modal.py",
-        "app/components/frontend/dashboard/modals/finance_modal/budget_panel/header.py",
-        "app/components/frontend/dashboard/modals/finance_modal/budget_panel/lines_tab.py",
-        "app/components/frontend/dashboard/modals/finance_modal/connect.py",
-        "app/components/frontend/dashboard/modals/finance_modal/dialog.py",
-        "app/components/frontend/dashboard/modals/finance_modal/formatting.py",
-        "app/components/frontend/dashboard/modals/finance_modal/transactions_panel/imports_target.py",
-        "app/components/web_frontend/app_globals.py",
-        "app/components/web_frontend/documents.py",
-        "app/components/web_frontend/filters.py",
-        "app/components/web_frontend/routes/chat.py",
-        "app/components/web_frontend/routes/chat_changes.py",
-        "app/components/web_frontend/routes/chat_live.py",
-        "app/components/web_frontend/routes/chat_models.py",
-        "app/components/web_frontend/routes/chat_speech.py",
-        "app/components/web_frontend/routes/contacts.py",
-        "app/components/web_frontend/routes/documents.py",
-        "app/components/web_frontend/routes/facts.py",
-        "app/components/web_frontend/routes/filed.py",
-        "app/components/web_frontend/routes/finance/account_manage.py",
-        "app/components/web_frontend/routes/finance/account_merge.py",
-        "app/components/web_frontend/routes/finance/account_naming.py",
-        "app/components/web_frontend/routes/finance/accounts.py",
-        "app/components/web_frontend/routes/finance/bank_attention.py",
-        "app/components/web_frontend/routes/finance/bank_marks.py",
-        "app/components/web_frontend/routes/finance/bills.py",
-        "app/components/web_frontend/routes/finance/bills_match.py",
-        "app/components/web_frontend/routes/finance/budget.py",
-        "app/components/web_frontend/routes/finance/budget_display.py",
-        "app/components/web_frontend/routes/finance/budget_envelopes.py",
-        "app/components/web_frontend/routes/finance/budget_goals.py",
-        "app/components/web_frontend/routes/finance/changes_log.py",
-        "app/components/web_frontend/routes/finance/connect_providers.py",
-        "app/components/web_frontend/routes/finance/connection_placing.py",
-        "app/components/web_frontend/routes/finance/cover.py",
-        "app/components/web_frontend/routes/finance/imports.py",
-        "app/components/web_frontend/routes/finance/institutions.py",
-        "app/components/web_frontend/routes/finance/overview.py",
-        "app/components/web_frontend/routes/finance/portfolio.py",
-        "app/components/web_frontend/routes/finance/positions.py",
-        "app/components/web_frontend/routes/finance/projected.py",
-        "app/components/web_frontend/routes/finance/register.py",
-        "app/components/web_frontend/routes/finance/register_views.py",
-        "app/components/web_frontend/routes/finance/reimbursables.py",
-        "app/components/web_frontend/routes/finance/review.py",
-        "app/components/web_frontend/routes/finance/review_edit.py",
-        "app/components/web_frontend/routes/finance/review_resolve.py",
-        "app/components/web_frontend/routes/finance/settings.py",
-        "app/components/web_frontend/routes/finance/settings_comms.py",
-        "app/components/web_frontend/routes/finance/subjects.py",
-        "app/components/web_frontend/routes/finance/transactions.py",
-        "app/components/web_frontend/routes/finance/transfer_pairs.py",
-        "app/components/web_frontend/routes/finance/valuations.py",
-        "app/components/web_frontend/routes/icons.py",
-        "app/components/web_frontend/routes/matter_papers.py",
-        "app/components/web_frontend/routes/matter_timeline.py",
-        "app/components/web_frontend/routes/matters.py",
-        "app/components/web_frontend/routes/partials/overseer_documents.py",
-        "app/components/web_frontend/routes/policies.py",
-        "app/components/web_frontend/routes/request_items.py",
-        "app/components/web_frontend/routes/requests.py",
-        "app/components/worker/tasks/document_tasks.py",
-        "app/components/worker/tasks/finance_tasks.py",
-        "app/services/ai/domains/chat/attachments.py",
-        "app/services/ai/domains/chat/pastes.py",
-        "app/services/ai/fixtures/__init__.py",
-        "app/services/documents/domains/reading/banks.py",
-        "app/services/documents/domains/reading/changes.py",
-        "app/services/documents/domains/reading/check_card.py",
-        "app/services/documents/domains/reading/checks.py",
-        "app/services/documents/domains/reading/figures.py",
-        "app/services/documents/domains/reading/identity.py",
-        "app/services/documents/domains/reading/joins.py",
-        "app/services/documents/domains/reading/proposals.py",
-        "app/services/documents/domains/reading/receipts.py",
-        "app/services/documents/domains/reading/statements.py",
-        "app/services/finance/domains/detection/analyst/prompt_changes.py",
-        "app/services/finance/domains/imports_job.py",
-        "app/services/finance/domains/ledger/queries/accounts.py",
-        "app/services/finance/domains/writes/combining.py",
-        "app/services/finance/domains/writes/executors.py",
-        "app/services/finance/domains/writes/filing.py",
-        "app/services/finance/domains/writes/queue.py",
-        "app/services/finance/jobs.py",
-        "app/services/mail/ingest.py",
-        "app/services/matters/changes.py",
-        "app/services/matters/deadlines.py",
-        "app/services/matters/facts.py",
-        "app/services/matters/ledger_figures.py",
-        "app/services/matters/lookup.py",
-        "app/services/matters/tools.py",
-        "app/services/system/rekey.py",
-    }
-)
+REACHING_DEBT: frozenset[str] = frozenset()
 
 
 def _findings() -> list[pattern_findings.Finding]:
@@ -184,18 +70,13 @@ def test_loose_modules_never_grow() -> None:
     assert not over, f"modules left loose beside the standard, past the debt: {over}"
 
 
-def test_facade_breaches_never_grow() -> None:
-    over = _past(FACADE, FACADE_DEBT)
-    assert not over, f"internals imported past a facade, past the debt: {over}"
-
-
 def test_unwired_jobs_never_grow() -> None:
     over = _past(JOBS, JOBS_DEBT)
     assert not over, f"jobs nothing runs, past the debt: {over}"
 
 
 def test_every_other_enforced_rule_holds() -> None:
-    held = {READS, FACADE, JOBS}
+    held = {READS, JOBS}
     broken = [
         (f.check, f.subject, f.evidence) for f in _errors() if f.check not in held
     ]

@@ -99,8 +99,7 @@ async def place(
     from app.services.finance.constants import account_tag
     from app.services.finance.domains.ledger.accounts import get_account
     from app.services.matters.matters import MatterService
-    from app.services.matters.models import matter_tag, party_tag
-    from app.services.matters.service import PartyService
+    from app.services.matters.service import PartyService, matter_tag, party_tag
 
     if account_id is not None:
         account = await get_account(db, account_id, owner_user_id=owner_user_id)
@@ -218,7 +217,7 @@ async def file_document_execute(
 async def file_document_read(result: dict[str, Any]) -> None:
     """After the commit: read the document a filed photo became, like any
     upload. Before it, the worker could look for a row not there yet."""
-    from app.services.documents.domains.extraction import dispatch
+    from app.services.documents.service import dispatch
 
     if result.get("read") and result.get("document_id"):
         await dispatch.start_extraction(

@@ -32,7 +32,6 @@ from app.core.db import get_async_session
 from app.services.ai.service.trace import CHANGE_MARKER
 from app.services.finance.deps import get_owner_user_id
 from app.services.matters.facts import web_address
-from app.services.matters.models import PARTY_KINDS, party_tag
 from app.services.matters.reach import (
     CONTACT_FIELDS,
     CONTACT_LINES,
@@ -40,7 +39,7 @@ from app.services.matters.reach import (
     reach_lines,
 )
 from app.services.matters.relations import relations_for
-from app.services.matters.service import PartyService
+from app.services.matters.service import PARTY_KINDS, PartyService, party_tag
 
 SECTION = section("contacts")
 router = APIRouter(prefix=SECTION.path)
@@ -277,11 +276,12 @@ async def contact(
     are read together. The one thing that is theirs alone is the paper
     filed against them, and that is the shelf at the bottom.
     """
-    from app.services.finance.domains.ledger.queries.accounts import (
+    from app.services.finance.service import (
         EVERYONE,
         accounts_page,
+        institution_of,
+        subject_of,
     )
-    from app.services.finance.domains.ledger.subjects import institution_of, subject_of
     from app.services.matters.facts import FactService, drawn, place_book
     from app.services.matters.matters import MatterService
     from app.services.matters.requests import RequestService

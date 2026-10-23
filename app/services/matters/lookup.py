@@ -333,7 +333,7 @@ async def propose_look_up(open_session: OpenSession, party_id: int) -> Any | Non
     write lock (see ``OpenSession``).
     """
     from app.services.documents.service import DocumentService
-    from app.services.finance.domains.writes.queue import list_changes, propose
+    from app.services.finance.service import list_changes, propose
     from app.services.matters.domain_lookup import on_record, web_offers
     from app.services.matters.service import PartyService
 

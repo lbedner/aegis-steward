@@ -30,7 +30,7 @@ from app.services.documents.domains.extraction.dispatch import (
 from app.services.documents.models import DOCUMENT_KINDS
 from app.services.documents.queries import tagged_with
 from app.services.documents.service import DocumentService
-from app.services.finance.domains.ledger import links
+from app.services.finance.service import links
 from app.services.finance.utils import current_date
 from app.services.matters.drawing import titles as paper_titles
 from app.services.matters.facts import FactService, monthly_cents

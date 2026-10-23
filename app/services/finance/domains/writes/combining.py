@@ -95,7 +95,7 @@ async def _pages(
     """Each page as {title, key, document_id}, in order: one read for
     shelf photos, the chat index for the rest. A page that is not a photo
     is refused by name."""
-    from app.services.documents.queries import documents_by_ids
+    from app.services.documents.service import documents_by_ids
 
     if payload.document_ids:
         found = await documents_by_ids(db, payload.document_ids)
@@ -142,9 +142,12 @@ async def combine_execute(
     db: AsyncSession, payload: CombinePayload, owner_user_id: int | None
 ) -> dict[str, Any]:
     from app.core.storage import get_storage
-    from app.services.documents.models import DocumentPage
-    from app.services.documents.queries import first_pages, tags_for_many
-    from app.services.documents.service import DocumentService
+    from app.services.documents.service import (
+        DocumentPage,
+        DocumentService,
+        first_pages,
+        tags_for_many,
+    )
 
     pages = await _pages(db, payload, owner_user_id)
     store = get_storage()

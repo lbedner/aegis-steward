@@ -10,7 +10,7 @@ again, a user who clicks upload twice all cost one document.
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -24,6 +24,44 @@ from app.services.documents.models import (
     DocumentTag,
     utcnow,
 )
+from app.services.shared import facade
+
+# What callers outside documents reach for beside the service, each loaded on
+# first use (``app.services.shared.facade``).
+if TYPE_CHECKING:
+    from app.services.documents.domains import reading  # noqa: F401
+    from app.services.documents.domains.extraction import dispatch  # noqa: F401
+    from app.services.documents.domains.extraction.activity import (  # noqa: F401
+        ActivityRow,
+        activity_rows,
+        document_id_of,
+    )
+    from app.services.documents.domains.extraction.dispatch import (  # noqa: F401
+        read_quietly,
+        start_extraction,
+    )
+    from app.services.documents.domains.extraction.jobs import (  # noqa: F401
+        run_extraction,
+        run_extraction_job,
+    )
+    from app.services.documents.domains.extraction.pages import how_read  # noqa: F401
+    from app.services.documents.domains.reading import (  # noqa: F401
+        check_card,
+        checks,
+        filing,
+        receipts,
+    )
+    from app.services.documents.domains.shelf.destroy import destroy  # noqa: F401
+    from app.services.documents.models import DocumentPage, kind_label  # noqa: F401
+    from app.services.documents.queries import (  # noqa: F401
+        documents_by_ids,
+        first_pages,
+        pages_for,
+        tagged_with,
+        tags_for_many,
+    )
+
+__getattr__ = facade.lazy(__name__, __file__)[0]
 
 
 # The columns a client may change after the fact. Storage, hash, size and

@@ -261,8 +261,7 @@ async def ingest_and_read(
     """
     from app.core.db import get_async_session
     from app.services.ai.domains.chat import pastes
-    from app.services.documents.domains.extraction.jobs import run_extraction
-    from app.services.documents.service import DocumentService
+    from app.services.documents.service import DocumentService, run_extraction
 
     async with get_async_session() as session:
         document = await DocumentService(session).ingest(

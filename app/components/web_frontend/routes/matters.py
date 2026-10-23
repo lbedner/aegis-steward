@@ -32,9 +32,13 @@ from app.services.finance.deps import get_owner_user_id
 from app.services.matters.answers import answer_sheet
 from app.services.matters.drawing import drawn as drawn_request
 from app.services.matters.matters import MatterService, summarised
-from app.services.matters.models import PARTICIPANT_ROLES, matter_tag
 from app.services.matters.requests import RequestService
-from app.services.matters.service import PartyService, party_or_new
+from app.services.matters.service import (
+    PARTICIPANT_ROLES,
+    PartyService,
+    matter_tag,
+    party_or_new,
+)
 
 SECTION = section("matters")
 router = APIRouter(prefix=SECTION.path)
@@ -232,7 +236,7 @@ def _cadence_dialog(
     status_code: int = 200,
     errors: list[str] | None = None,
 ) -> Response:
-    from app.services.matters.models import MATTER_CADENCES
+    from app.services.matters.service import MATTER_CADENCES
 
     return dialog(
         request,
@@ -260,7 +264,7 @@ async def cadence_dialog(
     was already typed. The rule lives here, not in the browser.
     """
     from app.services.matters.matters import suggested_next
-    from app.services.matters.models import MATTER_CADENCES
+    from app.services.matters.service import MATTER_CADENCES
 
     async with get_async_session() as db:
         found = or_404(await MatterService(db).get(matter_id))

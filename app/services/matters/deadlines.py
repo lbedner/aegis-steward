@@ -153,10 +153,7 @@ async def nag(
     """
     from sqlmodel import col, select
 
-    from app.services.finance.domains.detection.insights.rules import (
-        create_insight_if_new,
-    )
-    from app.services.finance.models import FinanceInsight
+    from app.services.finance.service import FinanceInsight, create_insight_if_new
     from app.services.finance.utils import current_date
     from app.services.matters.matters import MatterService
     from app.services.matters.requests import overdue as is_overdue

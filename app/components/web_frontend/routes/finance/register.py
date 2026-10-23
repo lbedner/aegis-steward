@@ -32,11 +32,13 @@ from app.components.web_frontend import ranges
 from app.components.web_frontend.filters import mark_new
 from app.core.formatting import payee_label
 from app.services.finance.constants import INVESTMENT_ACCOUNT_TYPES
-from app.services.finance.domains.ledger.queries.accounts import account_names
-from app.services.finance.domains.ledger.queries.filters import AXES
-from app.services.finance.models import FinanceTransaction
 from app.services.finance.schemas import AccountResponse, TransactionResponse
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    AXES,
+    FinanceService,
+    FinanceTransaction,
+    account_names,
+)
 from app.services.finance.utils import money_to_cents
 
 PAGE_SIZE = 50
@@ -248,7 +250,7 @@ async def receipts(service: FinanceService, txns: list[Any]) -> dict[int, int]:
     """``{transaction id: its receipt's document id}`` for a page of rows,
     one read (#331): the paper filed on each by ``transaction_tag``. The
     page and every row action shape rows through ``_row`` with this."""
-    from app.services.documents.queries import tagged_with
+    from app.services.documents.service import tagged_with
     from app.services.finance.constants import transaction_tag
 
     filed = await tagged_with(service.db, [transaction_tag(t.id) for t in txns])

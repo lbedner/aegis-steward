@@ -38,13 +38,15 @@ from app.components.web_frontend.routes.finance.budget_display import (
 )
 from app.services.finance.constants import ENVELOPE_CADENCES
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning.envelopes import envelope_metadata
-from app.services.finance.models import FinanceAccount
 from app.services.finance.schemas import (
     EnvelopeCreate,
     EnvelopeUpdate,
 )
-from app.services.finance.service import FinanceService
+from app.services.finance.service import (
+    FinanceAccount,
+    FinanceService,
+    envelope_metadata,
+)
 from app.services.finance.utils import positive_cents
 
 router = APIRouter(prefix=SECTION.path)
@@ -210,7 +212,7 @@ async def envelope_move(
 async def _envelope_values(
     service: FinanceService | None, account: FinanceAccount | None
 ) -> dict[str, str]:
-    from app.services.finance.domains.planning.envelope_tags import tag_name
+    from app.services.finance.service import tag_name
 
     if account is None or service is None:
         return {

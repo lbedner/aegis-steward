@@ -34,7 +34,7 @@ async def valuation_history(
     fell to and what it recovered to is the reason for keeping the
     history, and a history nobody passes is a history nobody reads.
     """
-    from app.services.finance.domains.ledger.valuations import list_valuations
+    from app.services.finance.service import list_valuations
 
     if account.classification != "asset":
         return []

@@ -141,7 +141,7 @@ async def record_fact_describe(
     """The card: whose, what, how much, and how it is known - because
     the source is what makes the number usable, and a card that hides it
     is asking for approval of half the claim."""
-    from app.services.finance.domains.detection.insights.formatting import format_usd
+    from app.services.finance.service import format_usd
     from app.services.matters.service import PartyService
 
     parties = PartyService(db)
@@ -202,7 +202,7 @@ async def _already_said(db: AsyncSession, payload: RecordFactPayload) -> str | N
     """
     if payload.value_cents is None:
         return None
-    from app.services.finance.domains.detection.insights.formatting import format_usd
+    from app.services.finance.service import format_usd
     from app.services.matters.facts import FactService
 
     same = [

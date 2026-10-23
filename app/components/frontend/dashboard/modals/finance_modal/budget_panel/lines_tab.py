@@ -43,8 +43,8 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import (
 )
 from app.components.frontend.dashboard.modals.modal_sections import status_dot
 from app.components.frontend.theme import AegisTheme as Theme
-from app.services.finance.domains.planning.budgets import strip
 from app.services.finance.schemas import BudgetSummaryResponse
+from app.services.finance.service import strip
 
 
 class LinesTabMixin(BudgetPanelState):

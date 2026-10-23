@@ -294,7 +294,7 @@ async def document_text(
     to tell a page that said nothing from one nobody could read.
     """
     from app.services.ai.domains.chat.user_memory import session_or
-    from app.services.documents.queries import pages_for
+    from app.services.documents.service import pages_for
 
     async with session_or(session) as db:
         pages = await pages_for(db, document_id)

@@ -47,15 +47,14 @@ steward last caught up to, 2026-10-22.
 
 Each is a slice of #505; a port touching one still needs a hand.
 
-- **Services** (documents, finance, meetings): the template's service
-  layout (domains, adapters, a lazy facade callers import from,
-  `app.services.shared.facade`) and their Overseer pages. Auth, comms and
-  AI are in line; comms' web push (`push.py`, `call.py`, `queries.py`) is
-  steward's own and sits beside the template's layout.
-  `tests/services/test_service_layout.py` is the template's, with
-  steward's debts as ratchets: `REACHING_DEBT` and `FACADE_DEBT` are
-  finance's and documents' callers past a facade, and AI's three into
-  theirs.
+- **Services**: every caller outside a service imports it through its
+  facade (finance's lazy `service/` package as the template's;
+  documents', matters' and insurance's `service.py`), and
+  `tests/services/test_service_layout.py` is the template's with no
+  facade debt. Left as ratchets there: reads outside `queries` modules
+  (`READS_DEBT`), finance's and comms' loose modules (`LOOSE_DEBT`: comms'
+  `push.py` and `call.py` are steward's own) and one
+  finance job nothing runs (`JOBS_DEBT`).
 - **CLI**: `patterns check/review/touches`, `ontology export`, and the
   locale strings they bring.
 - **Config and boot**: the webserver engine and loop as Overseer

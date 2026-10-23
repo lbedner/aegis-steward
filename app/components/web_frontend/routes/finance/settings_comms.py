@@ -19,11 +19,11 @@ from app.core.formatting import counted
 from app.services.auth.deps import require_admin
 from app.services.comms import push
 from app.services.finance.deps import get_finance_service, get_owner_user_id
-from app.services.finance.domains.planning.recurring.forecast import (
+from app.services.finance.service import (
+    FinanceService,
     bill_reminder,
     upcoming_outflows,
 )
-from app.services.finance.service import FinanceService
 
 router = APIRouter(prefix=SECTION.path)
 
