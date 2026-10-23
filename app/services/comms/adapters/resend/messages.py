@@ -15,8 +15,7 @@ from app.core import secrets
 from app.core.config import settings
 from app.core.log import logger
 from app.core.secrets import Secret, SecretRejectedError, SecretUncheckedError, probe
-
-from .models import EmailResponse, MessageStatus, SendEmailRequest
+from app.services.comms.models import EmailResponse, MessageStatus, SendEmailRequest
 
 
 async def _verify_resend(key: str) -> None:

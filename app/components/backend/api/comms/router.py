@@ -14,21 +14,6 @@ from app.core.db import get_async_db
 from app.models.user import User
 from app.services.auth.deps import get_current_active_user, require_admin
 from app.services.comms import push
-from app.services.comms.calls import (
-    CallConfigurationError,
-    CallError,
-    get_call_status,
-    make_call,
-    validate_call_config,
-)
-from app.services.comms.email import (
-    EmailConfigurationError,
-    EmailError,
-    get_email_status,
-    send_email,
-    validate_email_config,
-)
-from app.services.comms.health import read_channel_keys
 from app.services.comms.models import (
     CallResponse,
     EmailResponse,
@@ -38,11 +23,22 @@ from app.services.comms.models import (
     SendSMSRequest,
     SMSResponse,
 )
-from app.services.comms.sms import (
+from app.services.comms.service import (
+    CallConfigurationError,
+    CallError,
+    EmailConfigurationError,
+    EmailError,
     SMSConfigurationError,
     SMSError,
+    get_call_status,
+    get_email_status,
     get_sms_status,
+    make_call,
+    read_channel_keys,
+    send_email,
     send_sms,
+    validate_call_config,
+    validate_email_config,
     validate_sms_config,
 )
 

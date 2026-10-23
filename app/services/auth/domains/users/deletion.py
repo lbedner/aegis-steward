@@ -5,7 +5,7 @@ from sqlmodel import delete, select, update
 from app.core.time import utcnow
 from app.models.refresh_token import RefreshToken
 from app.models.user import EmailVerificationToken, PasswordResetToken, User
-from app.services.auth.user_service_base import (
+from app.services.auth.domains.users.base import (
     RestoreConflictError,
     UserServiceBase,
 )

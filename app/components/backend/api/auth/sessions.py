@@ -26,9 +26,13 @@ from app.services.auth.deps import (
     get_session_token,
     get_user_service,
 )
-from app.services.auth.refresh_tokens import RefreshService, access_token
-from app.services.auth.service import get_current_user_from_token, session_id_of
-from app.services.auth.users import UserService
+from app.services.auth.service import (
+    RefreshService,
+    UserService,
+    access_token,
+    get_current_user_from_token,
+    session_id_of,
+)
 
 router = APIRouter()
 

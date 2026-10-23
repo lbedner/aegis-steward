@@ -11,7 +11,7 @@ How to subscribe
 At app startup (e.g. in your integrations module or a startup hook),
 register a coroutine::
 
-    from app.services.auth.hooks import register_post_user_created
+    from app.services.auth.service import register_post_user_created
 
     async def ensure_default_workspace(db, user):
         ...  # stage rows on db; do NOT commit

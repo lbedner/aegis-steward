@@ -1,4 +1,5 @@
-"""Authentication service utilities."""
+"""Authentication service: who the caller is, and the one way in to its
+domains (``auth.domains``) for callers outside it."""
 
 from fastapi import HTTPException, status
 
@@ -6,8 +7,25 @@ from app.core.config import settings
 from app.core.db import release_lock
 from app.core.security import verify_token
 from app.models.user import User
-from app.services.auth.refresh_tokens import RefreshService
-from app.services.auth.users import UserService
+from app.services.auth.domains.sessions import history as session_history
+from app.services.auth.domains.sessions.tokens import RefreshService, access_token
+from app.services.auth.domains.users.accounts import (
+    RegistrationClosedError,
+    RestoreConflictError,
+    UserService,
+)
+from app.services.auth.domains.users.hooks import register_post_user_created
+
+# What callers outside the service use of its domains.
+__all__ = [
+    "RefreshService",
+    "RegistrationClosedError",
+    "RestoreConflictError",
+    "UserService",
+    "access_token",
+    "register_post_user_created",
+    "session_history",
+]
 
 
 def _build_dev_user() -> User:

@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.core.time import utcnow
 from app.models.user import PasswordResetToken, User
-from app.services.auth.user_service_base import (
+from app.services.auth.domains.users.base import (
     UserServiceBase,
 )
 
@@ -72,7 +72,7 @@ class PasswordsMixin(UserServiceBase):
         # revoke commit together or not at all. Otherwise a revoke
         # failure leaves the password changed and the reset token
         # consumed while the response 500s, blocking retry.
-        from app.services.auth.refresh_tokens import RefreshService
+        from app.services.auth.domains.sessions.tokens import RefreshService
 
         await RefreshService(self.db).revoke_all_for_user(reset_token.user_id)
 

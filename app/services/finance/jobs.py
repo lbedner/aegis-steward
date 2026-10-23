@@ -191,7 +191,7 @@ async def finance_bill_due_email_job() -> None:
     """
     from app.core.config import settings
     from app.services.comms import push
-    from app.services.comms.email import send_email_simple
+    from app.services.comms.service import send_email_simple
     from app.services.finance.domains.planning.recurring.forecast import (
         bill_reminder,
         upcoming_outflows,

@@ -38,10 +38,11 @@ steward last caught up to, 2026-10-22.
 
 Each is a slice of #505; a port touching one still needs a hand.
 
-- **Services** (AI, auth, comms, documents, finance, meetings): the
-  template's service layout (domains, facades in `app.services.shared.facade`,
-  adapters) and their Overseer pages; the service-layout test is still
-  steward's.
+- **Services** (AI, documents, finance, meetings): the template's service
+  layout (domains, adapters, a facade callers import from) and their
+  Overseer pages; the service-layout test is still steward's. Auth and
+  comms are in line; comms' web push (`push.py`, `call.py`, `queries.py`)
+  is steward's own and sits beside the template's layout.
 - **Overseer's reads as agent tools** (`app.services.system.tools`, the
   plugin directory, `shared.deps.caller_is_admin`): they wait for the AI
   slice.

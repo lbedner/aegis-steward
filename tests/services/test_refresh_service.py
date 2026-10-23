@@ -11,7 +11,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.models.refresh_token import RefreshToken
-from app.services.auth.refresh_tokens import (
+from app.services.auth.domains.sessions.tokens import (
     REUSE_GRACE_SECONDS,
     RefreshService,
     token_digest,
