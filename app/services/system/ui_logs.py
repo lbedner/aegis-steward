@@ -9,8 +9,8 @@ merged by time, newest first. ``follow(pages, query)`` yields new lines in
 batches as the containers write them; Docker pushes them, so following
 polls nothing. Both fold a traceback into the line it belongs to and
 apply the filters a query carries: ``window`` (one of ``WINDOWS``),
-``level`` (the levels picked), ``q`` (text), ``from`` and ``to`` (a
-time range in ms, a volume bar's) and ``order`` (one of ``ORDERS``).
+``level`` (the levels picked), ``q`` (text) and ``order`` (one of
+``ORDERS``).
 ``recent`` also counts the window's lines by tone (``volume``). No UI
 framework imports.
 """
@@ -25,15 +25,16 @@ import time
 from typing import Any, Self
 
 from app.core import runtime, series
+from app.core.constants import CHART_RAMP
 from app.core.formatting import format_relative_time, format_timestamp
 from app.core.log import logger
 from app.core.log_records import LogAssembler, LogRecord
 from app.core.log_records import split_lead as _split_lead
+from app.core.ownership import component_of
 from app.core.runtime import (
-    METADATA_KEYS,
     LogLine,
     RuntimeUnavailableError,
-    without_metadata,
+    message_of,
 )
 from app.core.time import utcnow
 from app.services.system import ui_runtime
@@ -69,23 +70,9 @@ FLUSH_SECONDS = 0.5
 # counted in its tone's stack.
 VOLUME_BARS = 60
 VOLUME_TONES = ("error", "warn", "other")
-# The chart ramp both UIs draw with (--aegis-chart-1..8, ChartColors.RAMP):
-# a service's lines take one of its colors.
-RAMP = 8
+# A service's lines take one of the chart ramp's colors.
+RAMP = CHART_RAMP
 _PAGES = sorted(runtime.PAGES)
-
-
-def _presentation(
-    line: LogLine, message: str
-) -> tuple[str, list[tuple[str, str]], list[tuple[str, str]]]:
-    """Keep attribution metadata out of the collapsed message in both renderers."""
-    if line.event is None and line.level:
-        message = without_metadata(message)
-    return (
-        message,
-        [(key, value) for key, value in line.fields if key not in METADATA_KEYS],
-        [(key, value) for key, value in line.fields if key in METADATA_KEYS],
-    )
 
 
 def color_of(page: str) -> int:
@@ -96,7 +83,7 @@ def color_of(page: str) -> int:
 
 def title_of(page: str) -> str:
     """A page's name, as its component's (``redis`` is the Cache)."""
-    return get_component_title(ui_runtime.component_of(page))
+    return get_component_title(component_of(page))
 
 
 @dataclass
@@ -116,20 +103,23 @@ class _Row:
             ("", self.line.event) if self.line.event else _split_lead(self.line.text)
         )
         copy_text = lead + message
-        message, fields, metadata = _presentation(self.line, message)
+        if self.line.event is None and self.line.level:
+            message = message_of(self.line, message)
+        fields = dict(self.line.fields)
         return {
             "at": format_timestamp(when.isoformat()) if when else "-",
             "ms": _ms(when) if when else None,
             "page": self.page,
-            "app_service": dict(self.line.fields).get("app_service"),
+            **{key: fields.get(key) for key in OWNER_PICKS},
             "color": color_of(self.page),
             "instance": self.instance,
             "source": self.source,
             "level": self.line.level,
+            "logger": fields.pop("logger", None),
             "prefix": lead,
             "message": message,
-            "fields": fields,
-            "metadata": metadata,
+            # The rest, the attribution among them, as the console orders them.
+            "fields": sorted(fields.items()),
             "copy_text": copy_text,
             "trace": self.trace,
         }
@@ -175,32 +165,49 @@ def number_of(query: Mapping[str, str], key: str) -> int | None:
     return int(value) if value.isdigit() else None
 
 
+# What a line or error is picked by, as a query names it: its runtime (a
+# page), its container, and who owns the code it came from.
+OWNER_PICKS = ("app_service", "app_component")
+PICKS = ("service", "container", *OWNER_PICKS)
+
+
 @dataclass(frozen=True)
 class Picked:
-    """The services (pages), containers and application services a query
-    ticks: a line or error from any of them is kept, every one when none is."""
+    """The services (pages), containers and application services and
+    components a query ticks: a line or error from any of them is kept,
+    every one when none is."""
 
     services: frozenset[str]
     containers: frozenset[str]
     app_services: frozenset[str]
+    app_components: frozenset[str]
 
     @classmethod
     def of(cls, query: Mapping[str, str]) -> Self:
-        return cls(
-            frozenset(listed(query, "service")),
-            frozenset(listed(query, "container")),
-            frozenset(listed(query, "app_service")),
-        )
+        return cls(*(frozenset(listed(query, key)) for key in PICKS))
 
     def __bool__(self) -> bool:
-        return bool(self.services or self.containers or self.app_services)
+        return bool(self.services or self.containers or self.by_owner)
 
-    def keeps(self, page: str, container: str | None, app_service: str | None) -> bool:
+    @property
+    def by_owner(self) -> bool:
+        """Whether it ticks an application service or component, which
+        can be in any container."""
+        return bool(self.app_services or self.app_components)
+
+    def keeps(
+        self,
+        page: str,
+        container: str | None,
+        app_service: str | None,
+        app_component: str | None,
+    ) -> bool:
         return (
             not self
             or page in self.services
             or container in self.containers
             or app_service in self.app_services
+            or app_component in self.app_components
         )
 
 
@@ -213,13 +220,10 @@ def levels_of(query: Mapping[str, str]) -> list[str]:
 @dataclass(frozen=True)
 class _Filter:
     """A query's filters, read once: exactly the levels picked (``NO_LEVEL``
-    for a line with none), the text (any of what the row shows), and the
-    ``from``/``to`` range (ms, ``to`` excluded) a volume bar picks."""
+    for a line with none) and the text (any of what the row shows)."""
 
     levels: frozenset[str]
     text: str
-    start: int | None
-    end: int | None
     picked: Picked
 
     @classmethod
@@ -227,17 +231,18 @@ class _Filter:
         return cls(
             frozenset(levels_of(query)),
             query.get("q", "").strip().lower(),
-            number_of(query, "from"),
-            number_of(query, "to"),
             Picked.of(query),
         )
 
     def keeps(self, row: _Row) -> bool:
-        """The level and text filters, and with application services ticked,
-        the sources (the pages read and their containers narrow the rest)."""
-        app_service = dict(row.line.fields).get("app_service")
-        if self.picked.app_services and not self.picked.keeps(
-            row.page, row.instance, app_service
+        """The level and text filters, and with application services or
+        components ticked, the sources (the pages read and their containers narrow the rest)."""
+        fields = dict(row.line.fields)
+        if self.picked.by_owner and not self.picked.keeps(
+            row.page,
+            row.instance,
+            fields.get("app_service"),
+            fields.get("app_component"),
         ):
             return False
         if self.levels and (row.line.level or NO_LEVEL) not in self.levels:
@@ -245,16 +250,6 @@ class _Filter:
         if not self.text:
             return True
         return self.text in " ".join([row.line.text, row.trace or ""]).lower()
-
-    def in_range(self, row: _Row) -> bool:
-        if self.start is None and self.end is None:
-            return True
-        if row.line.timestamp is None:
-            return False
-        at = _ms(row.line.timestamp)
-        return (self.start is None or at >= self.start) and (
-            self.end is None or at < self.end
-        )
 
 
 def order_of(query: Mapping[str, str]) -> str:
@@ -271,13 +266,9 @@ def _ordered(rows: list[_Row], order: str) -> list[dict[str, Any]]:
     return [row.view() for row in rows]
 
 
-def _volume(
-    kept: list[_Row], since: datetime | None, picked: _Filter
-) -> list[dict[str, Any]]:
+def _volume(kept: list[_Row], since: datetime | None) -> list[dict[str, Any]]:
     """The window in ``VOLUME_BARS`` bars (``from`` and ``to`` in ms), each
-    counting the lines the level and text filters keep, by tone, whatever
-    range a bar narrowed the lines to; a bar inside that range is
-    ``picked``."""
+    counting the lines the level and text filters keep, by tone."""
     end = utcnow()
     first = min((r.line.timestamp for r in kept if r.line.timestamp), default=end)
     start = (
@@ -286,11 +277,9 @@ def _volume(
         else min(first, end - timedelta(seconds=DEFAULT_WINDOW))
     )
     step = max((end - start) / VOLUME_BARS, timedelta(milliseconds=1))
-    lo, hi = picked.start, picked.end
     bars = []
     for i in range(VOLUME_BARS):
         frm, to = _ms(start + i * step), _ms(start + (i + 1) * step)
-        middle = (frm + to) // 2
         bars.append(
             {
                 "from": frm,
@@ -299,7 +288,6 @@ def _volume(
                 "at": format_relative_time(
                     start + i * step, now=end.replace(tzinfo=UTC)
                 ),
-                "picked": lo is not None and hi is not None and lo <= middle < hi,
                 **dict.fromkeys(VOLUME_TONES, 0),
             }
         )
@@ -361,8 +349,8 @@ def _narrowed(
 ) -> list[tuple[str, str]]:
     """``names`` with a page that has a ``container`` picked keeping only the
     picked ones."""
-    if listed(query, "app_service"):
-        return names  # Service origins can occur in any container; filter rows below.
+    if Picked.of(query).by_owner:
+        return names  # Owners can occur in any container; filter rows below.
     picked = set(listed(query, "container"))
     narrowed = {page for page, name in names if name in picked}
     return [(p, n) for p, n in names if p not in narrowed or n in picked]
@@ -422,8 +410,8 @@ async def recent(
     picked = _Filter.of(query)
     kept = [row for row in rows if picked.keeps(row)]
     return {
-        "lines": _ordered([r for r in kept if picked.in_range(r)], order_of(query)),
-        "volume": _volume(kept, since, picked) if volume else [],
+        "lines": _ordered(kept, order_of(query)),
+        "volume": _volume(kept, since) if volume else [],
         "note": None,
     }
 
@@ -450,9 +438,7 @@ async def follow(
             _Row(page_by_name[r.source], r.source, r.line, source[r.source], r.trace)
             for r in records
         ]
-        return _ordered(
-            [r for r in rows if picked.keeps(r) and picked.in_range(r)], order
-        )
+        return _ordered([r for r in rows if picked.keeps(r)], order)
 
     arrived: asyncio.Queue[tuple[str, LogLine | None]] = asyncio.Queue()
     pumps = [asyncio.create_task(_pump(name, arrived)) for _, name in names]

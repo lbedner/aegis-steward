@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.formatting import format_money
+from app.core.money import format_money
 from app.services.finance.constants import CADENCES, ENVELOPE_CADENCES
 from app.services.finance.domains.ledger import accounts, valuations
 from app.services.finance.domains.ledger import queries as ledger_queries

@@ -9,12 +9,13 @@
 {% block overseer_content %}
 {% call page_header("Overview", "Your stack at a glance") %}
 {{ range_form(overview_views, overview_view, request.url.path, "#overseer-main", field="view", aria="View", id="overview-view") }}
+{% if overview_view == "map" %}<a data-replay-link href="{{ replay_url() }}" {{ hx_replace(replay_url(), "#overseer-main") }} class="text-sm text-aegis-muted hover:text-aegis-teal">Replay a request</a>{% endif %}
 {% endcall %}
 {# Everything in the sidebar (overseer_container.overview), as cards, a
    map or the flow of work, kept live. The cards can put trouble first (the default) or
    show only it, client side (input.css orders them by tone). #}
 {% set cards = overview_cards %}
-<div id="overview-stack" hx-ext="sse" sse-connect="{{ overview_events }}"
+<div id="overview-stack" hx-ext="sse" sse-connect="{{ overview_events }}"{% if overview_lit %} data-lit="{{ overview_lit }}"{% endif %}
      {% if cards %}x-data="{ first: true, only: false }" data-order="trouble" data-only="false"
      x-bind:data-order="first ? 'trouble' : 'sidebar'" x-bind:data-only="only"{% endif %}>
   {% if cards %}

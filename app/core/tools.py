@@ -1,0 +1,201 @@
+"""The tool registry: what a model or an outside assistant may call.
+
+Maps tool names to Python callables and the effect each declares. A grant
+decides WHICH tools a caller may use (an agent's ``agent_tool`` rows, an
+MCP client's grant); this module decides WHAT each name executes and
+whether it may be served at all. It lives in core so any service can
+register tools and any surface can serve them, with or without the AI
+service. Entries are plain callables; nothing here imports an AI framework.
+
+Services register their own tools at import time:
+
+    from app.core.tools import register_tool
+
+    async def lookup_order(order_id: str) -> str:
+        \"\"\"Fetch an order summary.\"\"\"
+        ...
+
+    register_tool("lookup_order", lookup_order, effect="read")
+"""
+
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from app.core.discovery import import_modules_named
+from app.core.log import logger
+
+ToolFunc = Callable[..., Any]
+
+# Who a tool call acts for, bound by whatever runs the tool: a chat turn
+# (``memory_user``) or the MCP server, per call.
+#
+# The owner is whose data it reads and whose cards it files: the signed-in
+# user, never a name a client sends. ``None`` (a single-tenant install, or
+# MCP with no MCP_OWNER_USER_ID) reads every row.
+current_owner_user_id: ContextVar[int | None] = ContextVar(
+    "current_owner_user_id", default=None
+)
+# The author of the writes it proposes: which agent asked (an MCP client
+# files as ``mcp:<client>``), in which conversation. A write with no
+# author cannot be audited, and a card is withdrawable only by its author.
+current_agent_slug: ContextVar[str | None] = ContextVar(
+    "current_agent_slug", default=None
+)
+current_conversation_id: ContextVar[str | None] = ContextVar(
+    "current_conversation_id", default=None
+)
+# What the turn is about, beside whose it is: an app's own scope key (a
+# project's id, say), decided by the server like the user and bound by
+# ``memory_user``. None when the app has no such scope.
+current_subject: ContextVar[str | None] = ContextVar("current_subject", default=None)
+# Whether it acts for an admin, where its runner knows (MCP: the token's
+# admin claim); ``None`` leaves it to the owner (``caller_is_admin`` in
+# ``app.services.shared.deps``). An ``admin`` tool answers anyone else so.
+current_admin: ContextVar[bool | None] = ContextVar("current_admin", default=None)
+ADMIN_ONLY = "Only an admin can use this tool."
+
+
+@contextmanager
+def acting_as(
+    owner_user_id: int | None,
+    agent_slug: str | None,
+    conversation_id: str | None = None,
+    admin: bool | None = None,
+) -> Iterator[None]:
+    """Bind who the tool calls in the block act for, and restore the outer
+    binding after. Every field is set, so nothing leaks in from outside:
+    an MCP call binds no conversation, whatever a caller had."""
+    owner = current_owner_user_id.set(owner_user_id)
+    agent = current_agent_slug.set(agent_slug)
+    conversation = current_conversation_id.set(conversation_id)
+    is_admin = current_admin.set(admin)
+    try:
+        yield
+    finally:
+        current_admin.reset(is_admin)
+        current_conversation_id.reset(conversation)
+        current_agent_slug.reset(agent)
+        current_owner_user_id.reset(owner)
+
+
+# What a call does to the app's state, declared by the tool itself:
+# ``read`` changes nothing, ``proposes`` files work for the user's
+# approval (nothing lands until they act), ``writes`` changes state at once.
+ToolEffect = Literal["read", "proposes", "writes"]
+
+# Effects an outside assistant may reach over MCP. An allowlist, so an
+# effect added later is unservable until someone decides otherwise.
+_MCP_SERVABLE_EFFECTS: frozenset[str] = frozenset({"read", "proposes"})
+
+
+@dataclass(frozen=True)
+class RegisteredTool:
+    """A named tool entry: the callable plus registry metadata.
+
+    Every non-read tool stays a visible native call even in code mode - a
+    write or proposal the user has to see in the tool trail is never
+    dispatched from inside the sandbox. The tool declares its ``effect`` at
+    registration; the agent loader and the MCP server ask the registry
+    rather than keeping their own lists.
+    """
+
+    name: str
+    func: ToolFunc
+    description: str | None = None
+    effect: ToolEffect = "writes"
+    # Shown to admins only, as Overseer shows it: an MCP token reaches it
+    # only when its owner is an admin (``mcp.server``).
+    admin: bool = False
+
+
+_registry: dict[str, RegisteredTool] = {}
+
+
+def register_tool(
+    name: str,
+    func: ToolFunc,
+    *,
+    description: str | None = None,
+    effect: ToolEffect | None = None,
+    admin: bool = False,
+    replace: bool = False,
+) -> None:
+    """Register a callable under a tool name.
+
+    A tool that declares no ``effect`` is treated as ``writes``: default-deny,
+    so a write that forgets to say so stays a visible native call and never
+    reaches an outside assistant. Raises ValueError on a duplicate name
+    unless ``replace=True``, and a rebind may not change the effect, so a
+    later import can't quietly turn a proposal into a read.
+    """
+    if effect is None:
+        logger.warning(f"Tool {name!r} declares no effect; treated as 'writes'")
+        effect = "writes"
+    existing = _registry.get(name)
+    if existing is not None and not replace:
+        raise ValueError(
+            f"Tool '{name}' is already registered; pass replace=True to rebind it"
+        )
+    if existing is not None and existing.effect != effect:
+        raise ValueError(
+            f"Tool '{name}' is registered as {existing.effect!r}; a rebind "
+            f"may not change its effect to {effect!r}"
+        )
+    _registry[name] = RegisteredTool(
+        name=name, func=func, description=description, effect=effect, admin=admin
+    )
+
+
+def unregister_tool(name: str) -> None:
+    """Remove a registered tool. Raises KeyError if the name is unknown."""
+    try:
+        del _registry[name]
+    except KeyError:
+        raise KeyError(f"Tool '{name}' is not registered") from None
+
+
+def get_tool(name: str) -> RegisteredTool | None:
+    """Return the registry entry for a name, or None if unregistered."""
+    return _registry.get(name)
+
+
+def native_write_tool_names() -> frozenset[str]:
+    """Every registered tool that must stay native in code mode."""
+    return frozenset(t.name for t in _registry.values() if t.effect != "read")
+
+
+def mcp_servable(
+    names: Iterable[str], effects: Iterable[str] = _MCP_SERVABLE_EFFECTS
+) -> list[str]:
+    """The granted names an MCP client may call: reads and proposals only,
+    narrowed to ``effects`` (a token's scope) when given.
+
+    The one gate for MCP. A ``writes`` tool is dropped whatever the grant
+    or ``effects`` says, and so is a name with no registered tool. Order is
+    preserved.
+    """
+    allowed = _MCP_SERVABLE_EFFECTS & frozenset(effects)
+    return [
+        name
+        for name in names
+        if (tool := _registry.get(name)) is not None and tool.effect in allowed
+    ]
+
+
+def registered_tool_names() -> list[str]:
+    """All currently registered tool names, in registration order."""
+    return list(_registry)
+
+
+def load_tools() -> None:
+    """Import every service's ``tools`` module, so the registry is whole in
+    any process: a chat turn, the MCP server, a seed script. Found on disk
+    (``app.core.discovery``), so a service or a plugin registers tools in
+    its own ``tools.py`` and nothing else lists it. A module registers at
+    import, and importing twice is a no-op."""
+    import app.services as services
+
+    import_modules_named(services, "tools")

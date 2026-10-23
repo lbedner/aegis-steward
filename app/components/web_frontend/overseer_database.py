@@ -1,9 +1,11 @@
 """Context for the Overseer Database page's sections.
 
-The same four views as the Flet database modal's tabs, built by the same helpers
-(``app.services.system.ui_database``) from the health check's metadata; and
+Overview, Migrations, Engine and Activity, built by the Flet database
+modal's helpers (``app.services.system.ui_database``) from the health
+check's metadata;
 Transactions, what is open right now (``db_transactions``), kept live over
-SSE, each with the way to end it.
+SSE, each with the way to end it; Tables and Query, the database browser
+(``overseer_database_browser``).
 """
 
 from typing import Any
@@ -16,6 +18,8 @@ from app.services.system.models import ComponentStatus
 from app.services.system.ui import get_database_subtitle
 
 from . import overseer_container
+from . import overseer_database_browser as browser
+from .overseer_database_browser import QUERY, TABLES
 from .overseer_live import fragments_events
 from .overseer_nav import SectionRequest
 from .rendering import fragment, status_cell
@@ -33,7 +37,8 @@ SECTIONS = (
         None,
         {
             "overview": "Overview",
-            "schema": "Schema",
+            TABLES: "Tables",
+            QUERY: "Query",
             "migrations": "Migrations",
             "engine": "Engine",
             "activity": "Activity",
@@ -52,8 +57,6 @@ async def section_context(
     if section == "overview":
         url = ui_database.display_url(str(metadata.get("url", "Unknown")))
         context["overview"] = ui_database.overview(metadata) | {"url": url}
-    elif section == "schema":
-        context["tables"] = ui_database.tables(metadata)
     elif section == "migrations":
         context["migrations"] = ui_database.migrations(metadata)
     elif section == "engine":
@@ -61,6 +64,10 @@ async def section_context(
     elif section == "activity":
         context["activity"] = ui_database.activity(metadata)
         context["threshold"] = settings.DATABASE_SLOW_TRANSACTION_SECONDS
+    elif section == TABLES:
+        context |= await browser.tables(req, metadata)
+    elif section == QUERY:
+        context |= browser.query_page(req, metadata)
     elif section == "transactions":
         context |= await transactions() | {
             "transactions_events": EVENTS,

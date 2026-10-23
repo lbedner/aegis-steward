@@ -17,13 +17,14 @@ from app.core.formatting import (
     format_timestamp,
     page_number,
 )
-from app.services.system import ui_worker
+from app.services.system import topology, ui_worker
 from app.services.system.models import ComponentStatus, ComponentStatusType
+from app.services.system.ui import get_component_label, get_component_title
 
-from . import overseer_worker_load_tests
-from .filters import color_tone
+from . import overseer_runs, overseer_worker_load_tests
+from .filters import color_tone, health_tone
 from .overseer_live import fragment_events
-from .overseer_nav import SectionRequest
+from .overseer_nav import NavItem, SectionRequest
 from .rendering import fragment, pager, status_cell, with_query
 
 SECTIONS = (
@@ -138,6 +139,8 @@ async def queues_view() -> dict[str, Any]:
         q["success_tone"] = color_tone(q["success_color"])
         q["pile"] = ui_worker.pile(q["queued"], PILE_CELLS)
         q["oldest"] = format_span(q["oldest_waiting"]) if q["queued"] else None
+    # A failing queue is the one to look at: first, the rest as declared.
+    view["queues"].sort(key=lambda q: q["tone"] != "error")
     return view
 
 
@@ -194,6 +197,9 @@ def _task_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "job_id": r.get("job_id"),
                 "started": format_timestamp(r.get("started_at")),
                 "finished": format_timestamp(r.get("finished_at")),
+                "log": overseer_runs.log_url(
+                    str(r.get("job_id")), live=r.get("status") == "running"
+                ),
             }
         )
     return rows
@@ -309,3 +315,23 @@ async def section_context(
     if section == "lifecycle":
         return await _lifecycle(req)
     return {}
+
+
+def queue_node(worker: NavItem) -> dict[str, Any]:
+    """The worker's queue (``topology.QUEUE``) as a node, from the worker's
+    own health check (``ui_worker.backlog``): drawn on Overseer's map."""
+    found = ui_worker.backlog(worker.component)
+    holder = topology.INSIDE[topology.QUEUE]
+    return {
+        "key": topology.QUEUE,
+        "registry": topology.QUEUE,
+        "title": get_component_title(topology.QUEUE),
+        "url": worker.url,
+        "status": found.status.value,
+        "tone": health_tone(found.status.value),
+        "message": found.message,
+        "figure": f"{found.queued} queued",
+        "note": f"In {get_component_label(holder)}, beside the "
+        f"{get_component_title(holder)}",
+        "glance": None,
+    }

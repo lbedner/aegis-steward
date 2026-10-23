@@ -7,17 +7,13 @@ from sqlmodel import Session, col, select
 
 from app.core.log import logger
 from app.core.seed import missing_rows, seed_rows
+from app.core.tools import load_tools
 from app.services.ai.domains.chat.agent_registry import seed_agent
 from app.services.ai.models.agents import (
     Agent,
     AgentTool,
     Tool,
 )
-
-# Registers the finance host tools (ledger/accounts/quote) by import, so a
-# bare seeding process gets their ``tool`` rows and the grants below
-# resolve. Same reason the ai fixtures import their built-ins.
-import app.services.finance.ai_tools  # noqa: F401
 from app.services.finance.domains.detection.analyst.prompts import (
     ANALYST_MAX_TOKENS,
     ANALYST_SYSTEM_PROMPT,
@@ -40,8 +36,10 @@ from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_VOICE_AGENT_SLUG,
     SNAPSHOT_MODULE_SLUG,
 )
-import app.services.insurance.ai_tools  # noqa: F401
-import app.services.matters.ai_tools  # noqa: F401
+
+# Every service's tools registered, so a bare seeding process gets their
+# ``tool`` rows and the grants below resolve.
+load_tools()
 
 SNAPSHOT_TOKEN_ESTIMATE = 1_200
 
@@ -143,7 +141,7 @@ def deep_dive_agent_definition() -> dict[str, Any]:
 
 
 # The chat agent's data surface: the finance host tools registered by
-# ``app.services.finance.ai_tools``. Attachment is by name against the
+# ``app.services.finance.tools``. Attachment is by name against the
 # tool rows the fixture sync seeds; a missing row is skipped, never an
 # error, so seed order cannot brick the chat tab.
 FINANCE_CHAT_TOOL_NAMES = (
@@ -186,7 +184,7 @@ FINANCE_CHAT_TOOL_NAMES = (
     "forget_memory",
     # The one LEDGER write, and it does not write: it files a pending
     # change the user approves in the app (FW-05). Registered
-    # native_write, so it surfaces as its own visible call.
+    # as a proposal, so it surfaces as its own visible call.
     "propose",
     # Same contract, many rows, one approval card with per-row veto.
     "propose_many",

@@ -7,6 +7,7 @@ there runs it to its end (#455).
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core.tools import load_tools
 from app.services.ai.config import AIServiceConfig
 from app.services.ai.domains.chat.self_context import current_turn
 from app.services.ai.domains.chat.summary import enqueue_if_due
@@ -17,16 +18,9 @@ from app.services.ai.service.base import (
 )
 from app.services.ai.service.prompt import PromptMixin
 
-# Importing registers the finance host tools (ledger, accounts, quote)
-# so DB-granted names resolve in every process that serves chat - the
-# API, the CLI, and code-mode agents alike.
-import app.services.finance.ai_tools  # noqa: F401
-
-# And the matter tools (parties, matters, requests, facts): the case
-# surface is read the same way, by name, in every process that chats.
-import app.services.insurance.ai_tools  # noqa: F401
-import app.services.mail.ai_tools  # noqa: F401
-import app.services.matters.ai_tools  # noqa: F401
+# Every service's tools registered, so DB-granted names resolve in every
+# process that serves chat - the API, the CLI, and code-mode agents alike.
+load_tools()
 
 
 class ChatMixin(PromptMixin):

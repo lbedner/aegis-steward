@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 
-from app.core.formatting import format_money
+from app.core.money import format_money
 from app.services.finance.schemas import (
     BudgetMonthActuals,
     BudgetMonthOutlook,

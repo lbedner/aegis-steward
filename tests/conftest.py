@@ -139,6 +139,7 @@ import_all_models()
 # queryspy's baseline knows a repeated statement by its shape, so a new
 # column does not turn every known entry into a new one.
 from tests import _queryspy_shape  # noqa: E402
+from tests._files import forget  # noqa: E402
 
 # ``--shard K/N`` for CI's parallel test jobs; importing the hooks registers them.
 from tests._shard import (  # noqa: E402, F401
@@ -225,9 +226,7 @@ def fake_service(
         return package
 
     yield make
-    for name in list(sys.modules):
-        if any(name == m or name.startswith(f"{m}.") for m in made):
-            del sys.modules[name]
+    forget(*made)
 
 
 @pytest.fixture
@@ -237,10 +236,7 @@ def clean_registry() -> Generator[None]:
     Opt-in, never autouse: a module first imported during a test registers
     its tools then, and unregistering them would leave the cached module's
     tools missing for every later test."""
-    from app.services.ai.domains.chat.tools import (
-        registered_tool_names,
-        unregister_tool,
-    )
+    from app.core.tools import registered_tool_names, unregister_tool
 
     before = set(registered_tool_names())
     yield
@@ -264,6 +260,7 @@ def _no_background_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
     sampled history starts empty."""
     from app.core import series
     from app.core.cache import CacheService
+    from app.core.series_store import SeriesStore
 
     async def idle(samplers: Any) -> None:
         return None
@@ -271,9 +268,10 @@ def _no_background_sampling(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "ERROR_TRACKING_ENABLED", False)
-    history = CacheService()
+    cache, history = CacheService(), SeriesStore()
     monkeypatch.setattr(series, "run", idle)
-    monkeypatch.setattr(series, "get_cache", lambda: history)
+    monkeypatch.setattr(series, "get_cache", lambda: cache)
+    monkeypatch.setattr(series, "get_store", lambda: history)
 
 
 @pytest.fixture(autouse=True)
@@ -293,6 +291,18 @@ def _unread_push_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
+def run_log_sink() -> Generator[Any]:
+    """A run log of this test's own (``run_log.MemorySink``), put back after."""
+    from app.core import run_log
+
+    previous = run_log.sink()
+    memory = run_log.MemorySink()
+    run_log.use(memory)
+    yield memory
+    run_log.use(previous)
+
+
+@pytest.fixture
 async def store() -> AsyncGenerator[Any]:
     """The error store's Lua against a real Redis, only when one is named:
     the suite never writes to the developer's running Redis. Point
@@ -308,7 +318,11 @@ async def store() -> AsyncGenerator[Any]:
     redis = pytest.importorskip("redis.asyncio")
     client = redis.from_url(url, socket_connect_timeout=1)
     repository = ErrorStore(
-        client, "test-" + uuid4().hex, max_occurrences=3, retention_seconds=7 * 86400
+        client,
+        "test-" + uuid4().hex,
+        max_occurrences=3,
+        retention_seconds=7 * 86400,
+        max_bytes=1 << 20,
     )
     yield repository
     keys = [key async for key in client.scan_iter(repository.prefix + "*")]
@@ -326,6 +340,7 @@ def _no_real_redis():
     stand-in is one in-memory Redis, as one server would be."""
     from app.components.backend.middleware import traffic
     from app.components.worker import pools
+    from app.core import run_log
     import app.core.cache as cache_module
     from app.services.system.job_store import RedisJobStore
     from tests._fake_redis import FakeRedis
@@ -344,6 +359,8 @@ def _no_real_redis():
         patch.setattr(
             RedisJobStore, "from_url", classmethod(lambda cls, _url: cls(memory))
         )
+        # The run log stays in this process (``run_log_sink`` for a test's own).
+        patch.setattr(run_log, "attach_redis", lambda *_args, **_kwargs: None)
         yield
 
 

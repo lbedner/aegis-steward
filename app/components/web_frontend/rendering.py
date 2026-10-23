@@ -10,6 +10,7 @@ from hashlib import sha1
 import json
 from typing import Any, TypeVar
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
@@ -18,19 +19,14 @@ from starlette.responses import Response
 
 from app.components.backend.middleware.security_headers import csp_nonce
 from app.components.web_frontend import ranges
+from app.components.web_frontend.app_globals import register_app_globals
 from app.components.web_frontend.assets import COMPONENT_DIR, HOME_SCREEN, static_url
 from app.components.web_frontend.filters import FILTERS, assistant
-from app.components.web_frontend.glyphs import (
-    account_glyph,
-    category_glyph,
-    file_badge,
-    file_badge_table,
-)
-from app.components.web_frontend.nav import NAV, native, section
+from app.components.web_frontend.nav import native, section
 from app.core import series
 from app.core.config import settings
+from app.core.time import zone_named
 from app.services.finance.account_menu import ACCOUNT_THINGS
-from app.services.finance.constants import account_sections
 from app.services.shared.deps import operator_refusal
 from app.services.system import topology, ui_runtime
 
@@ -99,40 +95,8 @@ templates.env.globals["appearance"] = APPEARANCE
 templates.env.globals["appearance_choices"] = {
     key: [value for value, _ in choices] for key, (_, choices) in APPEARANCE.items()
 }
-# The sidebar loops this; see nav.py.
-templates.env.globals["nav"] = NAV
-templates.env.globals["category_glyph"] = category_glyph
-templates.env.globals["account_glyph"] = account_glyph
-templates.env.globals["file_badge"] = file_badge
-templates.env.globals["file_badge_table"] = file_badge_table
-
-# The matters vocabulary: every string those pages say comes from one module, so a
-# status spelled in a template cannot drift from the same status spelled in another.
-from app.services.matters.words import (  # noqa: E402
-    fact_attributes,
-    item_status,
-    item_verb,
-    moment_tone,
-    role_label,
-    word,
-)
-
-templates.env.globals["word"] = word
-templates.env.globals["fact_attributes"] = fact_attributes
-templates.env.filters["role_label"] = role_label
-templates.env.filters["item_status"] = item_status
-templates.env.filters["item_verb"] = item_verb
-templates.env.filters["moment_tone"] = moment_tone
-
-from app.services.matters.facts import rate_suffix  # noqa: E402
-
-templates.env.filters["rate_suffix"] = rate_suffix
-
-from app.services.documents.models import kind_label  # noqa: E402
-
-# One label for a document's kind, in the tables and the dialog alike.
-templates.env.filters["kind_label"] = kind_label
-templates.env.globals["account_sections"] = account_sections
+# Steward's own pages' vocabulary (sidebar, glyphs, matters, documents).
+register_app_globals(templates.env)
 # The chat section's path and the assistant's name, for the shell's drawer
 # and the sidebar's trigger, which render on every page.
 templates.env.globals["chat_path"] = section("chat").path
@@ -169,16 +133,15 @@ def hx_dialog(url: str, extra: str = "") -> Markup:
     ``extra`` rides along for the openers that carry more (an
     ``hx-include`` of the checked rows, a role for a clickable cell).
 
-    ``hx-swap`` is stated, not left to the default, because htmx
-    INHERITS it from ancestors: an opener inside a row form that swaps
-    itself ``outerHTML`` borrowed that and replaced ``#dialog-body``
-    with the dialog's own content. The modal opened once and then every
-    later open failed with ``htmx:targetError``, because the element it
-    targets no longer existed - "I can't open a new one until I
-    refresh". Saying it here costs nothing and cannot be borrowed
-    against.
-    """
-    return _hx_open(url, "#dialog-body", extra)
+    The swap is stated, not left to default. htmx INHERITS ``hx-swap``
+    from ancestors, so an opener that sits inside a form swapping ITSELF
+    ``outerHTML`` borrows that and REPLACES ``#dialog-body`` with the
+    dialog's content - the element is gone, and every later open fails
+    with ``htmx:targetError`` until the page is reloaded. Found live on
+    a row-form's opener ("I can't open a new one until I refresh").
+    Saying ``innerHTML`` here costs nothing and cannot be borrowed
+    against, and it fixes every opener at once."""
+    return hx_into(url, "#dialog-body", extra)
 
 
 def hx_drawer(url: str) -> Markup:
@@ -186,10 +149,12 @@ def hx_drawer(url: str) -> Markup:
     is edited in beside the page, without the address bar naming it (the
     list-driven ``drawer_sync`` does that). Same stated swap as
     ``hx_dialog``, for the same reason."""
-    return _hx_open(url, "#drawer-body")
+    return hx_into(url, "#drawer-body")
 
 
-def _hx_open(url: str, target: str, extra: str = "") -> Markup:
+def hx_into(url: str, target: str, extra: str = "") -> Markup:
+    """The attributes for "get ``url`` into ``target``": its swap stated
+    (``hx_dialog`` says why), ``extra`` riding along."""
     return Markup(
         f'hx-get="{escape(url)}" hx-target="{target}" hx-swap="innerHTML" {extra}'
     )
@@ -635,3 +600,13 @@ def or_404(row: T | None) -> T:
     if row is None:
         raise HTTPException(status_code=404)
     return row
+
+
+# The browser's time zone, set by app.js on every page: for times of day.
+TZ_COOKIE = "tz"
+
+
+def viewer_zone(request: Request) -> ZoneInfo:
+    """The viewer's time zone, from their browser; UTC until it has said
+    (the first page they ever load) or when it names no zone."""
+    return zone_named(request.cookies.get(TZ_COOKIE)) or ZoneInfo("UTC")

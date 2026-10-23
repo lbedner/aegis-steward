@@ -10,8 +10,7 @@ from datetime import date, timedelta
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.ai.domains.chat.tools import registered_tool_names
-import app.services.finance.ai_tools as ai_tools
+from app.core.tools import registered_tool_names
 from app.services.finance.domains.ledger.properties import set_property_metadata
 from app.services.finance.domains.planning.envelopes import create_envelope
 from app.services.finance.domains.planning.goals import set_goal_metadata
@@ -23,6 +22,7 @@ from app.services.finance.models.investments import (
 )
 from app.services.finance.models.reference import FinanceCurrency
 from app.services.finance.service import FinanceService
+import app.services.finance.tools as ai_tools
 from app.services.finance.utils import (
     current_date,
     current_period_month,
@@ -553,7 +553,7 @@ async def test_a_proposal_naming_a_row_that_does_not_exist_is_refused(
 async def test_propose_registers_as_a_native_write_tool() -> None:
     """Code mode must dispatch propose as a visible native call - a
     write from inside the sandbox is invisible in the tool trail."""
-    from app.services.ai.domains.chat.tools import native_write_tool_names
+    from app.core.tools import native_write_tool_names
 
     assert "propose" in native_write_tool_names()
 
@@ -779,7 +779,7 @@ async def test_pending_lists_cards_not_rows(
 async def test_pending_is_a_visible_native_call() -> None:
     """The listing is how a card is shown again: the UI rebuilds cards
     from the trail's marker, and only a native call leaves one."""
-    from app.services.ai.domains.chat.tools import native_write_tool_names
+    from app.core.tools import native_write_tool_names
 
     assert "pending" in native_write_tool_names()
 

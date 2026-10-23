@@ -3,7 +3,9 @@ and Logs, ``overseer_logs``) on every page with a container behind it, of
 Overseer > Logs and of Overseer > Resources; and a container row's Restart confirm.
 Mounted by ``routes/pages.py`` behind Overseer's gate (``overseer_access``)."""
 
-from fastapi import APIRouter, HTTPException, Request
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from app.components.web_frontend import (
@@ -14,7 +16,7 @@ from app.components.web_frontend import (
 from app.components.web_frontend.overseer_live import event_stream
 from app.components.web_frontend.rendering import dialog
 from app.core import runtime, series
-from app.services.system import ui_runtime
+from app.services.system import ui_resources, ui_runtime
 
 router = APIRouter()
 
@@ -25,11 +27,18 @@ def _known(page: str) -> None:
 
 
 @router.get(overseer_container.EVENTS, include_in_schema=False)
-async def container_events(page: str, window: str | None = None) -> StreamingResponse:
+async def container_events(
+    page: str,
+    window: str | None = None,
+    charts: Annotated[list[str] | None, Query()] = None,
+) -> StreamingResponse:
     """The page's containers over SSE, charted over the window its range
-    chips chose."""
+    chips chose; just the ``charts`` asked for, given any (its Overview)."""
     _known(page)
-    return event_stream(overseer_container.events(page, series.window_of(window)))
+    seconds, _ = await ui_runtime.window_of(page, window)
+    return event_stream(
+        overseer_container.events(page, seconds, charts=tuple(charts or ()))
+    )
 
 
 @router.get(overseer_container.GLANCE_EVENTS, include_in_schema=False)
@@ -40,34 +49,31 @@ async def glance_events(page: str) -> StreamingResponse:
 
 
 @router.get(overseer_logs.EVENTS, include_in_schema=False)
-async def logs_events(page: str, request: Request) -> StreamingResponse:
-    """The page's new log lines over SSE, through its level and text
-    filters."""
+async def logs_events(page: str) -> StreamingResponse:
+    """The page's new log lines over SSE, every one: the page filters them."""
     _known(page)
-    return event_stream(overseer_logs.events(page, request.query_params))
+    return event_stream(overseer_logs.events(page))
 
 
 @router.get(overseer_logs.EVERY_EVENTS, include_in_schema=False)
-async def every_logs_events(request: Request) -> StreamingResponse:
-    """Overseer > Logs' new lines over SSE, through its service, level and
-    text filters."""
-    return event_stream(overseer_logs.everything_events(request.query_params))
+async def every_logs_events() -> StreamingResponse:
+    """Overseer > Logs' new lines over SSE, every one: the page filters them."""
+    return event_stream(overseer_logs.everything_events())
 
 
 @router.get(overseer_container.OVERVIEW_EVENTS, include_in_schema=False)
-async def overview_events(
-    view: str | None = None, zoom: str | None = None
-) -> StreamingResponse:
-    """Overseer's home: every page's glance over SSE, in its view (and
-    zoom)."""
-    return event_stream(overseer_container.overview_events(view, zoom))
+async def overview_events(request: Request) -> StreamingResponse:
+    """Overseer's home: every page's glance over SSE, as its query asks
+    (``overseer_container.map_state``)."""
+    return event_stream(overseer_container.overview_events(request.query_params))
 
 
 @router.get(overseer_resources.EVENTS, include_in_schema=False)
 async def resources_events(window: str | None = None) -> StreamingResponse:
     """Overseer > Resources over SSE, charted over the window its range
     chips chose."""
-    return event_stream(overseer_resources.events(series.window_of(window)))
+    seconds = series.window_of(window, ui_resources.WINDOWS)
+    return event_stream(overseer_resources.events(seconds))
 
 
 @router.get(overseer_container.RESTART, response_class=HTMLResponse)

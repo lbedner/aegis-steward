@@ -24,7 +24,7 @@ from app.core.config import settings
 from app.core.constants import ComponentName
 from app.core.log import logger
 
-# The component this client fronts (``service_links``).
+# The component this client fronts (``ownership``, ``ontology.calls``).
 FRONTS = ComponentName.DATABASE
 
 

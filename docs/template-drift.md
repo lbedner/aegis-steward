@@ -5,8 +5,9 @@ Steward is an Aegis Stack project ported by hand, not by `aegis update`
 only where steward's shared files read as the template's do (#505). This
 page is the one list of where they still differ, and why.
 
-Measured against aegis-stack main rendered with steward's answers
-(`.copier-answers.yml`), 2026-10-21.
+Measured against aegis-stack main (850d687) rendered with steward's
+answers (`.copier-answers.yml`), three ways from 44a3670, the commit
+steward last caught up to, 2026-10-22.
 
 ## On purpose
 
@@ -16,20 +17,40 @@ Measured against aegis-stack main rendered with steward's answers
 - **`avatar`'s fallbacks** (`macros/layout.html`): the template's
   signature (`name, icon_url, size`), plus `category=` and `glyph=` for a
   payee's category and an account's kind when there is no logo.
+- **The look**: steward's surfaces are `raised` and `floating`, lit by its
+  finish (matte, lustre) and held there by `tests/web/test_theme.py`; a
+  page taken from the template wears them in place of `hover-card` and a
+  spelled-out card. The template's theme files (`web_frontend/themes/`,
+  `WEB_THEME`) are not taken.
+- **No landing page**: `/` opens Overview, so the template's landing,
+  `tests/shell.py`'s shell and the site route stay out.
+- **The change queue is finance's own**, not `app.services.change_queue`,
+  so the system model (`app.core.ontology`) has no change-type nodes.
+- **The LLM picker** is steward's, not `app.core.model_picker`.
+- **The tool registry** is the template's (`app.core.tools`), but an
+  agent's tools resolve through steward's `resolve_tools`, which adds each
+  `*_usd` beside its cents; steward's memory tools file a card, so their
+  effect is `proposes`.
+- **Steward's own services' parts**: matters and mail are part of
+  documents, insurance of finance (`PART_OF`).
 
 ## Not yet in line
 
 Each is a slice of #505; a port touching one still needs a hand.
 
-- **Parts and concerns** (`app.core.parts`, `app.core.ownership`,
-  `Category`): the template's sidebar groups pages by concern and maps
-  containers to pages through `PARTS`; steward's `runtime.py`, nav and
-  Overseer pages predate it.
-- **Macros and styles** (`macros/layout.html`, `macros/form.html`,
-  `macros/table.html`, `static/input.css`, `static/js/app.js`): both
-  sides changed them. `menu_item` and `dropdown` differ (steward's
-  dropdown carries `tone`, `size`, `panel`; the template's closes from
-  Alpine).
-- **Template features steward lacks**: the run log (`app.core.run_log`,
-  Overseer's runs), `source_index` in core, and the rest new since
-  steward's last update; each is a choice to adopt, not drift.
+- **Services** (AI, auth, comms, documents, finance, meetings): the
+  template's service layout (domains, facades in `app.services.shared.facade`,
+  adapters) and their Overseer pages; the service-layout test is still
+  steward's.
+- **Overseer's reads as agent tools** (`app.services.system.tools`, the
+  plugin directory, `shared.deps.caller_is_admin`): they wait for the AI
+  slice.
+- **CLI**: `patterns check/review/touches`, `ontology export`, and the
+  locale strings they bring.
+- **Config and boot**: the webserver engine and loop as Overseer
+  settings (`configurable`, `loops`, `boot.apply_before_serving`),
+  `scripts/dev_tasks.py`, compose, `pyproject.toml`.
+- **Macros, styles and scripts** beyond what the Overseer pages need
+  (`macros/layout.html`, `form.html`, `table.html`, `base.html`,
+  `input.css`, `charts.js`, `theme.js`): `menu_item` and `dropdown` differ
+  (steward's dropdown carries `tone`, `size`, `panel`).

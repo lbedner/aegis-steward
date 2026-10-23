@@ -1,5 +1,8 @@
 """
-Application cache service.
+Application cache: one TTL store every process shares, in Redis when it is
+configured, else in memory. Which is fixed at startup: while Redis is down
+its calls fail, they do not fall back to memory. The same Redis holds the
+worker's queue.
 
 Process-shared TTL cache. Backed by Redis in production (so the
 webserver, the scheduler, the CLI, and any future worker all read
@@ -37,16 +40,15 @@ accidentally take down the worker, and arq purges can't blow away
 view cache.
 """
 
-from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
-from operator import itemgetter
 import pickle
 import time
 from typing import Any, NamedTuple
 
 from app.core.constants import ComponentName
+from app.core.log import logger
 
-# The component this client fronts (``service_links``).
+# The component this client fronts (``ownership``, ``ontology.calls``).
 FRONTS = ComponentName.CACHE
 
 # Entries the Overseer's Cache view reads before sampling, like the Redis
@@ -67,6 +69,12 @@ class CacheStats:
     hits: int = 0
     misses: int = 0
     sets: int = 0
+
+    @property
+    def hit_rate(self) -> float | None:
+        """Hits as a percentage of reads; None before any read."""
+        reads = self.hits + self.misses
+        return round(100 * self.hits / reads, 1) if reads else None
 
 
 def family(key: str) -> str:
@@ -128,7 +136,14 @@ class CacheService:
             blob = await self._redis.get(key)
             if blob is None:
                 return None
-            return pickle.loads(blob)
+            try:
+                return pickle.loads(blob)
+            except (pickle.UnpicklingError, AttributeError, ImportError) as exc:
+                # Pickled by another build (a class since moved, or one this
+                # build lacks): no reading, so whoever asked takes a fresh one.
+                logger.warning("cache.unreadable", key=key, error=str(exc))
+                await self._redis.delete(key)
+                return None
         assert self._store is not None
         entry = self._store.get(key)
         if entry is None:
@@ -228,81 +243,6 @@ class CacheService:
                 if blob is not None
             }
         return dict(self._live(prefix))
-
-    async def append_many(
-        self,
-        points: dict[str, float],
-        *,
-        at: float,
-        keep_seconds: int,
-        index: str | None = None,
-    ) -> None:
-        """Add one point at ``at`` to each time series in ``points`` (key to
-        value) and drop the ones older than ``keep_seconds`` before ``at``
-        (``app.core.series`` writes these). Redis keeps a sorted set per
-        series scored by time, listed in the set ``index`` names so a read
-        finds them without scanning the keyspace, all in one round trip."""
-        if self._redis is not None:
-            pipe = self._redis.pipeline(transaction=False)
-            for key, value in points.items():
-                pipe.zadd(key, {f"{at}:{value}": at})
-                pipe.zremrangebyscore(key, "-inf", at - keep_seconds)
-                pipe.expire(key, keep_seconds)
-            if index is not None and points:
-                pipe.sadd(index, *points)
-                pipe.expire(index, keep_seconds)
-            await pipe.execute()
-            return
-        assert self._store is not None
-        for key, value in points.items():
-            kept, _ = self._store.get(key, ([], 0.0))
-            # Points arrive in time order: drop the stale ones from the front.
-            del kept[: bisect_right(kept, at - keep_seconds, key=itemgetter(0))]
-            kept.append((at, value))
-            self._store[key] = (kept, time.time() + keep_seconds)
-
-    async def points_with_prefix(
-        self,
-        prefix: str,
-        *,
-        since: float,
-        index: str | None = None,
-        ending: tuple[str, ...] = (),
-    ) -> dict[str, list[tuple[float, float]]]:
-        """Every time series whose key starts with ``prefix`` (and, given
-        ``ending``, ends with one of those), by key: its points from
-        ``since`` on, oldest first. With ``index`` (the set ``append``
-        listed them in) Redis reads that set, not the keyspace."""
-        if self._redis is None:
-            found = {
-                key: points[bisect_left(points, since, key=itemgetter(0)) :]
-                for key, points in self._live(prefix)
-                if not ending or key.endswith(ending)
-            }
-            return {key: points for key, points in found.items() if points}
-        keys = (
-            sorted(
-                k
-                for k in await self._redis.smembers(index)
-                if k.decode().startswith(prefix)
-            )
-            if index is not None
-            else await self._keys(prefix)
-        )
-        if ending:
-            keys = [key for key in keys if key.decode().endswith(ending)]
-        pipe = self._redis.pipeline(transaction=False)
-        for key in keys:
-            pipe.zrangebyscore(key, since, "+inf")
-        replies = await pipe.execute()
-        gone = [key for key, members in zip(keys, replies, strict=True) if not members]
-        if index is not None and gone:  # expired series still listed
-            await self._redis.srem(index, *gone)
-        return {
-            key.decode(): [_point(member) for member in members]
-            for key, members in zip(keys, replies, strict=True)
-            if members
-        }
 
     async def claim(self, key: str, ttl: int) -> bool:
         """Take ``key`` for ``ttl`` seconds if nobody holds it: one process
@@ -405,12 +345,6 @@ class CacheService:
         """
         if self._redis is not None:
             await self._redis.aclose()
-
-
-def _point(member: bytes) -> tuple[float, float]:
-    """A time-series member as stored: ``b"<at>:<value>"``."""
-    at, value = member.decode().split(":")
-    return float(at), float(value)
 
 
 def _pickled_size(value: Any) -> int:

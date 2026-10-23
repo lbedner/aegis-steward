@@ -29,7 +29,7 @@ from app.core.constants import ComponentName
 if TYPE_CHECKING:
     from sqlmodel.ext.asyncio.session import AsyncSession
 
-# The component this client fronts (``service_links``).
+# The component this client fronts (``ownership``, ``ontology.calls``).
 FRONTS = ComponentName.STORAGE
 
 DIGEST_ALGORITHM = "sha256"

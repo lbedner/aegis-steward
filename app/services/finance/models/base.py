@@ -44,14 +44,26 @@ _FK = ""
 _OWNER_FK: str | None = None
 
 
-def _bigint(name: str, *, nullable: bool = True, default: Any = None) -> Any:
+def _bigint(
+    name: str,
+    *,
+    nullable: bool = True,
+    default: Any = None,
+    description: str | None = None,
+) -> Any:
     """A BigInteger money / scaled-integer column.
 
     Net worth and brokerage balances (and ``*_e8`` quantities/rates) overflow
     int32, so all money columns are BigInteger. Values are integer minor units
-    (cents), never floats.
+    (cents), never floats, which ``description`` says to whoever reads the
+    model; an ``*_e8`` column says its own scale.
     """
-    return Field(default=default, sa_column=Column(name, BigInteger, nullable=nullable))
+    scale = "Units times 10^8." if name.endswith("_e8") else "Integer cents."
+    return Field(
+        default=default,
+        sa_column=Column(name, BigInteger, nullable=nullable),
+        description=description or scale,
+    )
 
 
 # Ciphertext columns on FinanceConnection: encrypted in the service layer,

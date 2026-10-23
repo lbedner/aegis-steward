@@ -31,6 +31,7 @@ REDIS_KEYS = (
         "Job and worker lifecycle events, fanned out to the browser over SSE",
         "Worker events",
         columns=("Entry", "Event"),
+        holds="event",
     ),
 )
 

@@ -14,6 +14,7 @@ from pydantic_settings import SettingsConfigDict
 from app.core.configurable import Configurable, timezones
 from app.core.constants import DEV_ENVS, AppEnv, ComponentName, QueueName
 from app.core.formatting import format_slug
+from app.core.overseer_settings import OverseerSettings
 from app.core.queue_workers import DEFAULT_QUEUES, QueueWorker
 from app.core.settings_base import SettingsBase
 from app.core.voice_settings import VoiceSettings
@@ -29,6 +30,7 @@ LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 class Settings(
     VoiceSettings,
+    OverseerSettings,
     SettingsBase,
 ):
     """
@@ -226,13 +228,6 @@ class Settings(
     PROJECT_DESCRIPTION: str = (
         "A production-ready async Python application built with Aegis Stack"
     )
-    OVERSEER_CODE_ENABLED: Annotated[
-        bool,
-        Configurable(
-            ComponentName.WEB_FRONTEND,
-            "Show the project's source on Overseer > Code outside dev (admins only)",
-        ),
-    ] = False
 
     # Authentication settings
     # Set false in .env (dev only) and a dev user is synthesized

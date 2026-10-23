@@ -30,11 +30,13 @@ from app.components.worker.heartbeat import (
     mark_idle,
     worker_id,
 )
+from app.components.worker.registry import queue_tasks
 from app.components.worker.task_history import (
     record_task_finished,
     record_task_started,
     resolve_arq_task_name,
 )
+from app.core import edges, run_log
 from app.core.boot import apply_saved_overrides
 from app.core.config import settings
 from app.core.log import logger
@@ -111,18 +113,22 @@ def for_queue(
         its history."""
         if before_job is not None:
             await before_job()
+        job_id = str(ctx.get("job_id", "unknown"))
+        run_log.bind(job_id)
         if "events_redis" not in ctx:
             return
         redis = ctx["events_redis"]
-        job_id = str(ctx.get("job_id", "unknown"))
         await mark_busy(redis)
         await publish_event(redis, "job.started", queue, {"job_id": job_id})
         task_name = await resolve_arq_task_name(redis, job_id)
         await record_task_started(redis, job_id, task_name=task_name, queue_name=queue)
+        if task_name:
+            edges.into(queue_tasks(queue).get(task_name), source=edges.QUEUE)
 
     async def after_job_end(ctx: dict[str, Any]) -> None:
         """Publish job.completed or job.failed, record how it ended, and mark
         the process one job less busy."""
+        run_log.unbind()
         if "events_redis" not in ctx:
             return
         redis = ctx["events_redis"]

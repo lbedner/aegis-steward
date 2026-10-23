@@ -31,6 +31,10 @@ from .models import (
     SystemStatus,
 )
 
+# Shared code, not a service (``ownership``).
+PART_OF = "shared"
+
+
 __all__ = [
     # Health functions
     "check_system_status",

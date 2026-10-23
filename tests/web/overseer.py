@@ -118,6 +118,8 @@ def sign_in(
         user.role = "admin" if admin else "user"
     monkeypatch.setattr(settings, "AUTH_ENABLED", True)
     monkeypatch.setattr(settings, "ADMIN_USER_EMAILS", [user.email] if admin else [])
+    # Signed in as a session cookie signs in: on every route, the strict
+    # dependency (an owner's own rows) as much as the optional one.
     app.dependency_overrides[get_optional_user] = lambda: user
     # The app's gate reads the session itself, ahead of any route.
     monkeypatch.setattr(request_gate, "signed_in", _signed_in)

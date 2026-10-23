@@ -14,11 +14,11 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.ai.domains.chat.tools import registered_tool_names
+from app.core.tools import registered_tool_names
 from app.services.mail import ingest
-import app.services.mail.ai_tools as ai_tools
 from app.services.mail.arrivals import arrivals as page_arrivals
 from app.services.mail.models import MailMessage
+import app.services.mail.tools as ai_tools
 from tests._mbox import PDF, eml_bytes, mbox_bytes, message
 from tests._session import opens
 

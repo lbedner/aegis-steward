@@ -20,6 +20,8 @@ from app.core.time import utcnow
 
 
 class ChatCard(SQLModel, table=True):
+    """A card drawn in a reply, its data frozen as it was computed."""
+
     __tablename__ = "chat_card"
 
     id: str = Field(

@@ -138,7 +138,6 @@ class TestTheMessage:
             {"kind": "pending_change", "id": "7"},
         ]
 
-
     def test_a_redraw_replaces_the_card_before_it(self) -> None:
         """One card per answer: she drew a pie, saw a finance charge had
         slipped past her filter, and drew it again - and both showed
@@ -153,7 +152,7 @@ class TestTheMessage:
 
 
 def test_she_is_granted_it_and_told_when_to_use_it() -> None:
-    from app.services.ai.domains.chat.tools import get_tool
+    from app.core.tools import get_tool
     from app.services.finance.domains.detection.analyst.prompts import (
         FINANCE_CHAT_SYSTEM_PROMPT,
     )
@@ -164,5 +163,5 @@ def test_she_is_granted_it_and_told_when_to_use_it() -> None:
     assert "draw_card" in FINANCE_CHAT_TOOL_NAMES
     # Called from inside run_code, so it must not be a native-only write.
     tool = get_tool("draw_card")
-    assert tool is not None and not tool.native_write
+    assert tool is not None and tool.effect == "read"
     assert "draw_card" in FINANCE_CHAT_SYSTEM_PROMPT

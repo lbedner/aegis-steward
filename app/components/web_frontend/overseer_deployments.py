@@ -12,6 +12,7 @@ from typing import Any
 
 from app.components.deploy.protocol import record_dns_provider
 from app.core import exposure, secrets
+from app.core.parts import Category
 from app.services.system import hosting, ui_deployments
 from app.services.system.models import ComponentStatus
 
@@ -42,6 +43,7 @@ ITEM = NavItem(
     url=actions.PAGE,
     status="",
     component=ComponentStatus(name="deployments", message=""),
+    concern=Category.STACK,
 )
 NEW_URL = f"{ITEM.url}/new"
 SETTINGS_URL = f"{ITEM.url}/settings"

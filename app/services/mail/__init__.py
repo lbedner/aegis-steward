@@ -10,3 +10,8 @@ Distinct from ``comms``, which SENDS. Steward-shaped only in that
 steward has the shelf; the reader belongs upstream once it has proved
 itself here (backport ledger).
 """
+
+from app.core.constants import ServiceName
+
+# Part of documents: mail read into the shelf (``ownership``).
+PART_OF = ServiceName.DOCUMENTS

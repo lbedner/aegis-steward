@@ -8,6 +8,7 @@ import pytest
 from app.components.web_frontend import overseer_sections
 from app.components.web_frontend.rendering import templates
 from app.core.constants import ComponentName, ServiceName
+from app.core.parts import Category
 from app.services.system.models import ComponentStatus
 from tests.web.dom import one, select, text
 from tests.web.overseer import page_html, reported_only, sign_in, status_with
@@ -71,7 +72,8 @@ def test_by_concern_every_page_in_its_section_at_its_own_address(
     assert list(sections) == ["Stack", "Compute", "Data", "App", "Platform"]
     assert sections["Stack"][0] == "Overview"
     assert sections["Data"] == ["Cache", "Documents"]
-    assert sections[overseer_sections.APP][-1] == "crm".title()
+    app = overseer_sections.HEADINGS[Category.APP]
+    assert sections[app][-1] == "crm".title()
     assert _hrefs(html) == _hrefs(kind)
     assert _grouping(html) == {overseer_sections.Grouping.CONCERN}
 
@@ -95,10 +97,11 @@ def test_collapse_sits_in_the_head_and_the_rest_in_one_menu(
 
 
 def test_every_entry_has_an_icon_of_its_own() -> None:
-    """AI and Inference both drew the sparkle: no two names share one."""
+    """AI and Inference both drew the sparkle, and Meetings the generic
+    grid: every name draws one, and no two share it."""
     module = templates.env.get_template("components/macros/layout.html").module
     names = [*ComponentName, *ServiceName]
     drawn = {name: str(module.sidebar_icon(name)) for name in names}
     default = str(module.sidebar_icon("unknown"))
-    own = [icon for icon in drawn.values() if icon != default]
-    assert len(own) == len(set(own))
+    assert [name for name, icon in drawn.items() if icon == default] == []
+    assert len(set(drawn.values())) == len(drawn)

@@ -21,3 +21,8 @@ without its provenance. The same number means different things
 depending on whether it came from a deposit, a statement or a benefit
 letter, and only one of those is fit to put on a government form.
 """
+
+from app.core.constants import ServiceName
+
+# Part of documents: what the paper on the shelf means (``ownership``).
+PART_OF = ServiceName.DOCUMENTS

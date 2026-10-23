@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.core.formatting import format_money
+from app.core.money import format_money
 from app.services.finance.models import FinanceLiabilityDetail
 
 

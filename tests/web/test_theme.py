@@ -317,6 +317,6 @@ class TestHidden:
         this the empty pending-changes banner reads "0 changes awaiting
         your review"."""
         css = INPUT_CSS.read_text()
-        assert "[hidden]" in css
-        rule = css[css.index("[hidden]") :]
+        assert "[hidden] {" in css
+        rule = css[css.index("[hidden] {") :]
         assert "display: none !important" in rule.split("}")[0]

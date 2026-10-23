@@ -7,7 +7,18 @@ Checks provider configuration, API key validation, and service readiness.
 
 from app.core import secrets
 from app.core.log import logger
+from app.services.comms.email import RESEND_KEYS
+from app.services.comms.twilio import TWILIO_KEYS
 from app.services.system.models import ComponentStatus, ComponentStatusType
+
+# Every channel's keys: email's, and Twilio's for SMS and voice.
+CHANNEL_KEYS = (*RESEND_KEYS, *TWILIO_KEYS)
+
+
+async def read_channel_keys() -> dict[str, str | None]:
+    """Every channel's keys in one store read; a channel's own read after it
+    comes from the cache this fills."""
+    return await secrets.get_many(*CHANNEL_KEYS)
 
 
 async def check_comms_service_health() -> ComponentStatus:
@@ -18,14 +29,7 @@ async def check_comms_service_health() -> ComponentStatus:
         ComponentStatus indicating comms service health
     """
     try:
-        cfg = await secrets.get_many(
-            "RESEND_API_KEY",
-            "RESEND_FROM_EMAIL",
-            "TWILIO_ACCOUNT_SID",
-            "TWILIO_AUTH_TOKEN",
-            "TWILIO_PHONE_NUMBER",
-            "TWILIO_MESSAGING_SERVICE_SID",
-        )
+        cfg = await read_channel_keys()
         config_errors: list[str] = []
         config_warnings: list[str] = []
 

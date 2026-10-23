@@ -343,13 +343,47 @@
   }
   pre.code-block--wrap,
   .code-block--wrap pre { @apply whitespace-pre-wrap; overflow-wrap: anywhere; }
-  .code-block .highlight :is(.k, .kc, .kd, .kn, .kp, .kr, .ow) { @apply text-aegis-teal; }
-  .code-block .highlight :is(.s, .s1, .s2, .sa, .sb, .sd, .se, .si, .dl) { @apply text-aegis-amber; }
-  .code-block .highlight :is(.c, .c1, .cm, .cs, .ch) { @apply text-aegis-muted italic; }
+  /* Database > Query's editor (sql.js, CodeMirror): the box's height and
+     colours, its tokens coloured as a code block's are, its completions on
+     the card. Three classes deep, past CodeMirror's own. */
+  .sql-editor .cm-editor { @apply h-full bg-aegis-bg border border-aegis-border rounded text-sm text-aegis-text; }
+  .sql-editor .cm-editor.cm-focused { @apply outline-none border-aegis-teal; }
+  .sql-editor .cm-editor .cm-content { @apply font-mono px-1 py-1.5; }
+  /* Its own cursor (the native caret is hidden), black by default. */
+  .sql-editor .cm-editor .cm-cursor,
+  .sql-editor .cm-editor .cm-dropCursor { @apply border-l-2 border-aegis-teal; }
+  .sql-editor .cm-editor .cm-placeholder { @apply text-aegis-muted/50; }
+  .sql-editor .cm-editor .cm-selectionBackground,
+  .sql-editor .cm-editor.cm-focused .cm-selectionBackground { @apply bg-aegis-teal/25; }
+  .sql-editor .cm-editor .cm-tooltip { @apply floating text-xs font-mono text-aegis-text; }
+  .sql-editor .cm-editor .cm-tooltip-autocomplete > ul > li[aria-selected] { @apply bg-aegis-teal/20 text-aegis-text; }
+  .sql-editor .cm-editor .cm-completionDetail { @apply text-aegis-muted; }
+  /* ... and its statements' tabs (sql.js draws them). */
+  .sql-tab { @apply flex items-center gap-1.5 px-3 pt-1 cursor-pointer select-none; }
+  .sql-tab-close { @apply invisible text-aegis-muted hover:text-aegis-text; }
+  .sql-tab:hover .sql-tab-close, .sql-tab[aria-selected="true"] .sql-tab-close { @apply visible; }
+  .sql-tab-new { @apply px-2 pt-1 pb-2 text-sm text-aegis-muted hover:text-aegis-teal; }
+  .sql-tab-name { @apply w-32 bg-transparent border-b border-aegis-teal text-sm text-aegis-text outline-none; }
+  /* A table's rows' headers (rows_table): each sorts them, the one sorted
+     marked by its arrow (rows.js; on Rows, the server's order). */
+  .rows-sort { @apply inline-flex items-center gap-1 hover:text-aegis-text; }
+  .rows-sort-up, .rows-sort-down { @apply hidden text-aegis-teal; }
+  th[aria-sort] .rows-sort { @apply text-aegis-text; }
+  th[aria-sort="ascending"] .rows-sort-up,
+  th[aria-sort="descending"] .rows-sort-down { @apply inline; }
+
+  /* Pygments' classes, and CodeMirror's (the Query editor, tok-*). */
+  .code-block .highlight :is(.k, .kc, .kd, .kn, .kp, .kr, .ow),
+  .sql-editor :is(.tok-keyword, .tok-bool) { @apply text-aegis-teal; }
+  .code-block .highlight :is(.s, .s1, .s2, .sa, .sb, .sd, .se, .si, .dl),
+  .sql-editor .tok-string { @apply text-aegis-amber; }
+  .code-block .highlight :is(.c, .c1, .cm, .cs, .ch),
+  .sql-editor .tok-comment { @apply text-aegis-muted italic; }
   .code-block .highlight :is(.nf, .nc, .fm, .nd) { @apply font-semibold; }
   /* JSON (a response body): keys as names, numbers with the keywords. */
   .code-block .highlight .nt { @apply text-aegis-text font-semibold; }
-  .code-block .highlight :is(.m, .mi, .mf, .mh, .mo, .mb) { @apply text-aegis-teal; }
+  .code-block .highlight :is(.m, .mi, .mf, .mh, .mo, .mb),
+  .sql-editor .tok-number { @apply text-aegis-teal; }
   /* A Python traceback: its heading and carets quiet, the exception in red. */
   .code-block .highlight :is(.gt, .pm) { @apply text-aegis-muted; }
   .code-block .highlight .gr { @apply text-error font-semibold; }
@@ -443,6 +477,44 @@
   [data-only="true"] [data-card]:not([data-tone="warn"], [data-tone="error"]) { display: none; }
   .log-row[data-tone="warn"] > td:first-child { @apply border-l-aegis-amber; }
   .log-row[data-tone="error"] > td:first-child { @apply border-l-aegis-error; }
+  /* A map node under a heat (overseer_heat): filled in its tone, so the
+     hot ones read across the room, a data shape's outline filled too. */
+  [data-heat][data-tone="ok"] { @apply bg-aegis-teal/10; }
+  [data-heat][data-tone="warn"] { @apply bg-aegis-amber/20; }
+  [data-heat][data-tone="error"] { @apply bg-aegis-error/25; }
+  [data-heat][data-tone="ok"] .map-shape { @apply fill-aegis-teal/10; }
+  [data-heat][data-tone="warn"] .map-shape { @apply fill-aegis-amber/20; }
+  [data-heat][data-tone="error"] .map-shape { @apply fill-aegis-error/25; }
+  /* A flagged line's hover target (opening its why): wider than it, unseen. */
+  .map-hit { fill: none; stroke: transparent; stroke-width: 12; vector-effect: non-scaling-stroke; pointer-events: stroke; }
+  /* The map, at least the rest of the window (``.overseer-fill``'s sums,
+     plus its breadcrumb and overlay rows, 2rem and 2.5rem, and the shell's
+     bottom padding it keeps); taller when its nodes need it, and below md
+     its own height. Its nodes sit by share of its height, so it stretches
+     as one. */
+  .map-fill {
+    @apply md:min-h-[calc(100dvh-14.75rem)] lg:min-h-[calc(100dvh-16.25rem)];
+  }
+  /* The player (timeline.js, macros/player.html): what a step lights. A
+     part running now is ringed in teal, the slowest held in amber and
+     breathing, a failure flashing red, what ran before ringed softly;
+     while it plays, the rest steps back. A line running carries a moving
+     dash, the way the call went. */
+  [data-player][data-playing] :is([data-node], .map-link):not([data-play-state]) { opacity: 0.35; }
+  [data-player] [data-node][data-play-state="active"] { @apply ring-2 ring-aegis-teal; }
+  [data-player] [data-node][data-play-state="refused"] { @apply ring-2 ring-aegis-amber; }  /* answered no (4xx) */
+  [data-player] [data-node][data-play-state="stall"] { @apply ring-2 ring-aegis-amber text-aegis-amber; animation: clock-next 1.2s ease-in-out infinite; }
+  [data-player] [data-node][data-play-state="failed"] { @apply ring-2 ring-aegis-error; animation: play-flash 0.5s ease-in-out 3; }
+  [data-player] [data-node][data-play-state="done"] { @apply ring-1 ring-aegis-teal/40; }
+  .map-link[data-play-state] { @apply opacity-100; }
+  .map-link:is([data-play-state="active"], [data-play-state="stall"], [data-play-state="refused"]) { stroke-width: 2.5; stroke-dasharray: 6 6; animation: play-flow 0.6s linear infinite; }
+  .map-link[data-play-state="failed"] { @apply text-aegis-error; stroke-width: 2.5; }
+  .map-link[data-play-state="refused"] { @apply text-aegis-amber; }
+  .map-link[data-observed] { stroke-dasharray: 2 4; }  /* ran, though the model has no such call */
+  [data-play-chapter][aria-current] { @apply bg-aegis-teal/15 text-aegis-text; }  /* the scene showing */
+  [data-play-scene]:not([hidden]) { animation: play-scene 0.5s ease-out; }  /* a scene fades in */
+  [data-player]:not([data-playing]) [data-when-playing],
+  [data-player][data-playing] [data-when-paused] { display: none; }
   /* A line drawn small or between nodes: one stroke, in its colour. */
   :is(.spark polyline, .map-link) { fill: none; stroke: currentColor; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
   .map-link { @apply text-aegis-teal opacity-60; }
@@ -464,10 +536,22 @@
      (Wrap), whole, with its traceback. A volume bar stacks its tones. */
   .log-line { @apply truncate; }
   :is(.logs-wrap, .log-row[data-open]) .log-line { @apply whitespace-normal break-all; }
-  .log-row:not([data-open]) .log-trace, :is(.logs-wrap, .log-row[data-open]) .log-trace-hint { @apply hidden; }
+  /* What a row holds beyond its line (a trace; a table row's keys, the row under it) shows while it is open. */
+  .log-row:not([data-open]) .log-trace, .log-row:not([data-open]) + tr[data-links], :is(.logs-wrap, .log-row[data-open]) .log-trace-hint { @apply hidden; }
+  /* A log line in the development console's colors: its level in its
+     tone (``.toned``; info green), a message structlog wrote bold (its
+     logger after it), its logger blue, each field's key cyan and value
+     magenta. */
+  .log-line [data-message]:has(+ [data-logger]) { @apply font-semibold; }
+  .log-line [data-level="info"] { color: var(--aegis-chart-6); }
+  .log-line [data-logger] { @apply text-secondary; }
+  .log-line [data-field-key] { @apply text-info; }
+  .log-line [data-field-value] { color: var(--aegis-chart-5); }
   .logs-wrap .log-row .log-trace { @apply block; }
   .volume-bar span { @apply block w-full bg-current; }
   .volume-bar span[data-tone="muted"] { @apply opacity-40; }
+  /* Every bar holds each tone, so the page can recount it as filters change. */
+  .volume-bar span[data-count="0"] { @apply hidden; }
   .volume-bar:hover span, .volume-bar:is([aria-current], [data-selecting]) span { @apply opacity-80 outline outline-1 outline-aegis-teal; }
   /* The lines on screen, like a minimap's viewport: a dark wash of the
      accent; a picked or dragged range is outlined in it. */
@@ -751,4 +835,14 @@ html:not([data-assistant="hide"])
 }
 @media (prefers-reduced-motion: reduce) {
   progress:indeterminate { animation: none; background-position: 50% 0; }
+}
+
+/* The player's motion (see [data-play-state]): a running line's dash
+   travels; the slowest part breathes (clock-next); a failure flashes. Reduced motion
+   keeps the states and drops the motion. */
+@keyframes play-flow { to { stroke-dashoffset: -12; } }
+@keyframes play-flash { 50% { opacity: 0.4; } }
+@keyframes play-scene { from { opacity: 0; transform: scale(0.98); } }
+@media (prefers-reduced-motion: reduce) {
+  :is([data-play-state], [data-play-scene]) { animation: none !important; }
 }

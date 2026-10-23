@@ -178,6 +178,14 @@ def test_format_span_reads_in_its_two_largest_units() -> None:
     assert format_span(None) is None
 
 
+def test_format_clock_reads_as_a_stopwatch() -> None:
+    from app.core.formatting import format_clock
+
+    assert format_clock(0) == "00:00"
+    assert format_clock(65.9) == "01:05"
+    assert format_clock(3725) == "62:05"
+
+
 class TestSafeFilename:
     """A name bound for Content-Disposition cannot end the header or the
     quoted value: a newline there is header injection."""
@@ -279,6 +287,7 @@ def test_only_a_path_on_this_site_is_local(target: str | None, lands: str) -> No
     """What a ``next`` or a redirect may send someone to: a path here, never
     an address that leaves the site, however it is spelled. A backslash is
     read the way a browser reads it, as a slash."""
-    from app.core.formatting import site_path
+    from app.core.formatting import is_local_path, site_path
 
     assert site_path(target, "/home") == lands
+    assert is_local_path(target) is (lands == target)

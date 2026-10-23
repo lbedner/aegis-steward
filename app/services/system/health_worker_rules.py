@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 from app.core.constants import ComponentName
 from app.core.formatting import format_span
 from app.services.system.models import ComponentStatus, ComponentStatusType
+from app.services.system.redis_facts import entry_time
 
 # Failure rates (%) past which a live queue is degraded, then failing.
 FAILURE_RATE_WARNING = 10
@@ -54,8 +55,7 @@ def last_delivered(groups: list[dict[str, Any]]) -> str:
 
 def stream_age(entry_id: bytes | str, now_ms: int) -> float:
     """Seconds since a stream entry arrived: its id starts with that time."""
-    text = entry_id.decode() if isinstance(entry_id, bytes) else entry_id
-    return round((now_ms - int(text.split("-", 1)[0])) / 1000, 1)
+    return round(now_ms / 1000 - entry_time(entry_id), 1)
 
 
 def broken_queue_status() -> ComponentStatus | None:

@@ -197,7 +197,7 @@ class TestAgentGrantsReachTheApiChatPath:
     async def test_code_mode_agent_gets_capability_and_tools(
         self, harness: tuple[AIService, MagicMock, dict[str, Any], pytest.MonkeyPatch]
     ) -> None:
-        from app.services.ai.domains.chat.tools import register_tool, unregister_tool
+        from app.core.tools import register_tool, unregister_tool
 
         service, _recorder, captured, monkeypatch = harness
 
@@ -205,7 +205,7 @@ class TestAgentGrantsReachTheApiChatPath:
             """Look up a value."""
             return f"val-{key}"
 
-        register_tool("lookup", lookup, replace=True)
+        register_tool("lookup", lookup, effect="read", replace=True)
         try:
             _stub_resolve(
                 monkeypatch,

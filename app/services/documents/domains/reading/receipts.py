@@ -136,7 +136,7 @@ async def receipt_execute(
 async def receipt_describe(
     db: AsyncSession, payload: ReceiptPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
-    from app.core.formatting import format_money
+    from app.core.money import format_money
     from app.services.finance.domains.writes.display import txn_row
 
     _txn, subject = await txn_row(db, payload.transaction_id, owner_user_id)
@@ -328,7 +328,7 @@ async def _done_waiting(
 ) -> None:
     """A receipt nothing matched in ``WAIT_DAYS``: an Attention item,
     once, saying what it is and what to do with it."""
-    from app.core.formatting import format_money
+    from app.core.money import format_money
     from app.services.finance.domains.detection.insights.rules.shared import (
         create_insight_if_new,
     )

@@ -179,16 +179,13 @@ class TestTheRegistryWrapsWhatItResolves:
     ) -> None:
         """Wrapping happens at the registry, so a tool added later is
         measured by existing."""
-        from app.services.ai.domains.chat.tools import (
-            register_tool,
-            resolve_tools,
-            unregister_tool,
-        )
+        from app.core.tools import register_tool, unregister_tool
+        from app.services.ai.domains.chat.tools import resolve_tools
 
         async def probe(_ctx: Any) -> str:
             return "probe"
 
-        register_tool("ledger_probe", probe, replace=True)
+        register_tool("ledger_probe", probe, effect="read", replace=True)
         try:
             resolved = resolve_tools(["ledger_probe"])
             assert len(resolved) == 1

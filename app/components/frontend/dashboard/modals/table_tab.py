@@ -25,7 +25,8 @@ class TableTab(ft.Container):
     """``rows`` as a table; the first column reads as each row's name, and
     ``actions`` (a row's buttons) adds a last column, as htmx's
     ``data_table`` does. ``color_of(row, key)`` colours a cell (a figure
-    past its threshold); None leaves it plain."""
+    past its threshold); None leaves it plain. ``detail(row)`` is what a
+    row opens to, built when it is first opened."""
 
     def __init__(
         self,
@@ -34,6 +35,7 @@ class TableTab(ft.Container):
         empty: str,
         actions: Callable[[dict[str, str]], ft.Control] | None = None,
         color_of: Callable[[dict[str, str], str], str | None] | None = None,
+        detail: Callable[[dict[str, str]], ft.Control] | None = None,
     ) -> None:
         super().__init__()
         headers = [DataTableColumn(header, width=width) for header, _, width in columns]
@@ -41,7 +43,7 @@ class TableTab(ft.Container):
             columns=[*headers, DataTableColumn("", width=60)] if actions else headers,
             rows=[
                 [
-                    TableNameText(row[key]) if index == 0 else _cell(row, key, color_of)
+                    _name(row, key) if index == 0 else _cell(row, key, color_of)
                     for index, (_, key, _) in enumerate(columns)
                 ]
                 + ([actions(row)] if actions else [])
@@ -49,10 +51,20 @@ class TableTab(ft.Container):
             ],
             row_padding=6,
             empty_message=empty,
+            expandable_content=(lambda index: detail(rows[index])) if detail else None,
         )
         self.content = ft.Column([table], scroll=ft.ScrollMode.AUTO)
         self.padding = ft.padding.all(Theme.Spacing.MD)
         self.expand = True
+
+
+def _name(row: dict[str, str], key: str) -> ft.Control:
+    """The row's name; a row's part (``child``, as htmx's ``data_table``
+    indents it) sits indented under the row it belongs to."""
+    name = TableNameText(row[key])
+    if not row.get("child"):
+        return name
+    return ft.Container(name, padding=ft.padding.only(left=Theme.Spacing.MD))
 
 
 def _cell(

@@ -1,4 +1,5 @@
-"""Tests for the agent tool registry (name -> callable resolution).
+"""An agent's tools resolved from the registry (name -> callable); the
+registry itself is ``tests/core/test_tools.py``.
 
 ``resolve_tools`` hands back instrumented callables, not the registered
 objects themselves: every call is wrapped for the tool-call ledger on the
@@ -13,12 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.ai.domains.chat.tools import (
-    register_tool,
-    registered_tool_names,
-    resolve_tools,
-    unregister_tool,
-)
+from app.core.tools import register_tool, registered_tool_names, unregister_tool
+from app.services.ai.domains.chat.tools import resolve_tools
 
 
 def unwrapped(tools: list[Callable[..., Any]]) -> list[Callable[..., Any]]:
@@ -42,25 +39,19 @@ def _echo(text: str) -> str:
 
 class TestRegistration:
     def test_register_and_resolve(self) -> None:
-        register_tool("echo", _echo, description="Echo a string")
+        register_tool("echo", _echo, description="Echo a string", effect="read")
 
         assert "echo" in registered_tool_names()
         assert unwrapped(resolve_tools(["echo"])) == [_echo]
 
-    def test_duplicate_registration_is_an_error(self) -> None:
-        register_tool("echo", _echo)
-
-        with pytest.raises(ValueError, match="already registered"):
-            register_tool("echo", _echo)
-
     def test_replace_allows_rebinding(self) -> None:
-        register_tool("echo", _echo)
+        register_tool("echo", _echo, effect="read")
 
         def other(text: str) -> str:
             """Alternative echo."""
             return text.upper()
 
-        register_tool("echo", other, replace=True)
+        register_tool("echo", other, effect="read", replace=True)
         assert unwrapped(resolve_tools(["echo"])) == [other]
 
     @pytest.mark.asyncio
@@ -77,16 +68,12 @@ class TestRegistration:
             """A count."""
             return {"spent_cents": 1_920}
 
-        register_tool("bill", bill)
-        register_tool("count", count)
+        register_tool("bill", bill, effect="read")
+        register_tool("count", count, effect="read")
         resolved_bill, resolved_count = resolve_tools(["bill", "count"])
 
         assert (await resolved_bill())["bills"][0]["amount_usd"] == "$250.00"
         assert resolved_count()["spent_usd"] == "$19.20"
-
-    def test_unregister_unknown_is_an_error(self) -> None:
-        with pytest.raises(KeyError):
-            unregister_tool("never-registered")
 
 
 class TestResolution:
@@ -98,7 +85,7 @@ class TestResolution:
 
         warned = MagicMock()
         monkeypatch.setattr(tools_module.logger, "warning", warned)
-        register_tool("echo", _echo)
+        register_tool("echo", _echo, effect="read")
 
         resolved = resolve_tools(["echo", "missing-tool"])
 
@@ -117,7 +104,7 @@ class TestResolution:
             """Second tool."""
             return text
 
-        register_tool("second", second)
-        register_tool("first", first)
+        register_tool("second", second, effect="read")
+        register_tool("first", first, effect="read")
 
         assert unwrapped(resolve_tools(["first", "second"])) == [first, second]

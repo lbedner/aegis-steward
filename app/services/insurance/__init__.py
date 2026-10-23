@@ -6,3 +6,9 @@ holds what the plan documents say, a claim holds what an EOB says, and
 the EOB's last figure - what the patient owes - is money owed to the
 PROVIDER that no bill stream will ever show.
 """
+
+from app.core.constants import ServiceName
+
+# Part of finance: claims are matched to the charges that paid them
+# (``ownership``).
+PART_OF = ServiceName.FINANCE

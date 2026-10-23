@@ -41,7 +41,9 @@ class ComponentName(StrEnum):
     SECRETS = "secrets"
     OBSERVABILITY = "observability"
     MCP = "mcp"
+    BROWSER = "browser"
     OLLAMA = "ollama"
+    DEPLOY = "deploy"
 
 
 class ServiceName(StrEnum):
@@ -56,6 +58,7 @@ class ServiceName(StrEnum):
     FINANCE = "finance"
     DOCUMENTS = "documents"
     RESEARCH = "research"
+    MEETINGS = "meetings"
 
 
 class QueueName(StrEnum):
@@ -225,3 +228,8 @@ class HTTP:
     # Headers
     CONTENT_TYPE_JSON = "application/json"
     USER_AGENT = "AegisStack-CLI/1.0"
+
+
+# The chart ramp both UIs draw with (--aegis-chart-1..9, ChartColors.RAMP):
+# a logs page's services, a meeting's speakers.
+CHART_RAMP = 9

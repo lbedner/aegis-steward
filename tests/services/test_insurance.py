@@ -277,8 +277,8 @@ class TestIllianaReadsPolicies:
     async def test_the_tool_lists_policies_with_their_claims(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.services.ai.domains.chat.tools import registered_tool_names
-        from app.services.insurance import ai_tools
+        from app.core.tools import registered_tool_names
+        from app.services.insurance import tools as ai_tools
 
         monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
         insurer, alex, _ = await _insured(async_db_session)

@@ -1,6 +1,6 @@
 """The balance sheet tool: every account, with everything hanging off it.
 
-Split from ``ai_tools`` at the budget, and the seam is the shape of the
+Split from ``tools`` at the budget, and the seam is the shape of the
 answer: the other read tools return rows, this one assembles an account
 with its holdings, its envelope, its goal, its liability terms, the
 equity a property carries and the bills about to hit it. One wide
@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import get_async_session
-from app.services.ai.domains.chat.tools import register_tool
+from app.core.tools import register_tool
 from app.services.finance.domains.investments.securities import list_current_holdings
 from app.services.finance.domains.ledger.accounts import (
     account_transaction_totals,
@@ -311,5 +311,6 @@ register_tool(
     "accounts",
     accounts,
     description="All accounts with balances, holdings, envelopes and goals",
+    effect="read",
     replace=True,
 )

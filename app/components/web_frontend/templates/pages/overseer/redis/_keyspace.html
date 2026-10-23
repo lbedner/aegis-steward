@@ -1,5 +1,6 @@
 {# The keyspace map, re-sent over SSE when it changes. ``selected`` belongs
    to the Alpine scope outside, so a picked family stays picked. #}
+{% from "pages/overseer/_macros.html" import named %}
 {% set k = keyspace %}
 <div class="flex items-baseline justify-between gap-3">
   <h2 class="text-xxs caps tracking-[0.3em] text-aegis-muted">Keyspace</h2>
@@ -25,13 +26,12 @@
           class="keyspace__row{% if not f.count %} opacity-60{% endif %}">
     <span class="keyspace__swatch" data-shade="{{ f.id % 4 }}" {% if f.active %}data-active="true"{% endif %}></span>
     <span class="min-w-0 flex-1 text-left">
-      <span class="block text-sm font-semibold text-aegis-text truncate">{{ f.name }}</span>
-      <span class="block font-mono text-xxs text-aegis-muted truncate">{{ f.pattern }} · {{ f.kind }} · db {{ f.db }}{% if f.ttl_label %} · {{ f.ttl_label }} TTL{% endif %}</span>
+      {{ named(f.family.name, f.family.purpose, f.where) }}
     </span>
     <span class="shrink-0 text-right">
       {% if f.count %}
       <span class="block text-sm tabular-nums text-aegis-text">{{ "~" if k.estimated }}{{ "{:,}".format(f.count) }} {{ "key" if f.count == 1 else "keys" }}</span>
-      <span class="block text-xxs text-aegis-muted tabular-nums">{{ f.memory|filesizeformat }}{% if f.idle_label %} · {{ "live" if f.active else f.idle_label ~ " ago" }}{% endif %}</span>
+      <span class="block text-xxs text-aegis-muted tabular-nums">{{ f.memory|filesizeformat }}{% if f.idle_ago %} · {{ "live" if f.active else f.idle_ago }}{% endif %}</span>
       {% else %}
       <span class="block text-xxs text-aegis-muted">no keys yet</span>
       {% endif %}

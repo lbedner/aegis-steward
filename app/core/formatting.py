@@ -3,7 +3,6 @@
 from collections.abc import Iterable
 from datetime import UTC, datetime
 import re
-from typing import Any
 from urllib.parse import urlparse
 
 
@@ -30,7 +29,7 @@ def counted(count: int, noun: str, plural: str | None = None) -> str:
     """``count`` and its noun, singular for exactly one: ``1 draft``,
     ``2 drafts``; ``plural`` where it is not the noun and an s
     (``watches``)."""
-    return f"{count} {noun if count == 1 else plural or noun + 's'}"
+    return f"{count:,} {noun if count == 1 else plural or noun + 's'}"
 
 
 def format_cost(cost: float) -> str:
@@ -97,72 +96,6 @@ def format_date(value: object) -> str:
         except ValueError:
             return str(value)
     return f"{value.strftime('%b')} {value.day}, {value.year}"
-
-
-ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
-# Symbols for the codes a household ledger actually sees; anything else
-# shows its code.
-CURRENCY_SYMBOLS = {"USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥"}
-
-
-def cents_named(data: dict[str, Any], *keys: str) -> dict[str, Any]:
-    """``data`` with each of ``keys`` renamed to ``<key>_cents``: a shape
-    built elsewhere, named for a model that must not guess its unit (#291).
-    """
-    return {f"{k}_cents" if k in keys else k: v for k, v in data.items()}
-
-
-def with_dollars(value: Any) -> Any:
-    """``value`` with every ``*_cents`` whole number joined by its dollars
-    as ``*_usd`` (``-149203`` -> ``"-$1,492.03"``), all the way down.
-
-    What a model reads (#291): tools keep cents - scripts, cards and
-    proposals compute with them - and a model left to convert read an
-    unlabelled 297614 as dollars and put -149203 at -$149. The cents stay
-    so a later script can reuse the exact figure. Anything else, printed
-    text included, passes through."""
-    if isinstance(value, list):
-        return [with_dollars(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    out: dict[Any, Any] = {}
-    for key, item in value.items():
-        out[key] = with_dollars(item)
-        if (
-            isinstance(key, str)
-            and key.endswith("_cents")
-            and isinstance(item, int)
-            and not isinstance(item, bool)
-        ):
-            out[f"{key.removesuffix('_cents')}_usd"] = format_money(item)
-    return out
-
-
-def format_money(
-    cents: int | None, currency: str = "USD", whole: bool = False, signed: bool = False
-) -> str:
-    """Minor units -> ``-$1,234.56`` (the Flet register's ``_usd`` rule,
-    widened to honour the currency code).
-
-    ``whole`` rounds the cents away for somewhere they are noise rather
-    than precision - a month chip reading ``Nov $4,208`` where the
-    figure is a projection, not a statement. It is the only reason to
-    format money any other way, which is why it lives here instead of in
-    the f-string that wanted it. ``signed`` marks money arriving with a
-    ``+``, for a figure whose sign is the point.
-    """
-    code = (currency or "USD").upper()
-    if code in ZERO_DECIMAL_CURRENCIES:
-        value, number = cents or 0, f"{abs(cents or 0):,}"
-    elif whole:
-        value = (cents or 0) / 100
-        number = f"{abs(round(value)):,}"
-    else:
-        value = (cents or 0) / 100
-        number = f"{abs(value):,.2f}"
-    sign = "-" if value < 0 else "+" if signed and value > 0 else ""
-    symbol = CURRENCY_SYMBOLS.get(code)
-    return f"{sign}{symbol}{number}" if symbol else f"{sign}{code} {number}"
 
 
 def iso_date(value: object) -> str | None:
@@ -304,6 +237,12 @@ def format_relative_time(
 FREE = "$0.00"
 
 
+def first_sentence(doc: str | None) -> str:
+    """A docstring's first sentence on one line, however its lines wrap."""
+    lead = " ".join((doc or "").strip().split("\n\n")[0].split())
+    return re.split(r"(?<=\.)\s", lead, maxsplit=1)[0]
+
+
 def slugify(value: str) -> str:
     """Lowercase, hyphen-separated, ASCII; empty when nothing survives."""
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
@@ -427,6 +366,12 @@ def format_timestamp(iso_str: str | None) -> str:
         return "\u2014"
 
 
+def format_clock(seconds: float) -> str:
+    """Elapsed time as a stopwatch reads it: ``65.9`` -> ``"01:05"``."""
+    minutes, rest = divmod(int(seconds), 60)
+    return f"{minutes:02d}:{rest:02d}"
+
+
 def format_span(seconds: float | None) -> str | None:
     """A length of time in its two largest units: ``90061`` -> ``"1d 1h"``."""
     if seconds is None or seconds < 0:
@@ -441,6 +386,12 @@ def format_span(seconds: float | None) -> str | None:
         if len(parts) == 2:
             break
     return " ".join(parts)
+
+
+def format_ago(seconds: float | None) -> str | None:
+    """How long ago, in ``format_span``'s two units: ``"1m 30s ago"``."""
+    span = format_span(seconds)
+    return None if span is None else f"{span} ago"
 
 
 # Anything that could end a header line or a quoted filename.
@@ -470,6 +421,12 @@ def site_path(target: str | None, home: str = "/") -> str:
     ):
         return target
     return home
+
+
+def is_local_path(target: str | None) -> bool:
+    """Whether ``target`` is a path on this site (``site_path``), for a
+    check that refuses rather than replaces."""
+    return bool(target) and site_path(target, "") == target
 
 
 def row_matches(query: str, values: Iterable[object]) -> bool:

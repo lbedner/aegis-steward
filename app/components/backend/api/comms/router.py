@@ -28,6 +28,7 @@ from app.services.comms.email import (
     send_email,
     validate_email_config,
 )
+from app.services.comms.health import read_channel_keys
 from app.services.comms.models import (
     CallResponse,
     EmailResponse,
@@ -208,6 +209,7 @@ async def comms_health() -> dict[str, Any]:
 
     Returns comprehensive health status for all communication channels.
     """
+    await read_channel_keys()
     email_status = await get_email_status()
     sms_status = await get_sms_status()
     call_status = await get_call_status()
@@ -252,6 +254,7 @@ async def comms_status() -> dict[str, Any]:
     """
     Get current communications service status and configuration.
     """
+    await read_channel_keys()
     email_status = await get_email_status()
     sms_status = await get_sms_status()
     call_status = await get_call_status()

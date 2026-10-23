@@ -753,13 +753,13 @@ class TestFixtures:
         """The chat agent seeds flagged for code mode with the finance
         tools attached, provided the tool rows exist (registry sync)."""
         from app.services.ai.fixtures.agent_fixtures import load_agent_fixtures
-        import app.services.finance.ai_tools  # noqa: F401 - registers tools
         from app.services.finance.domains.detection.analyst.seeds import (
             FINANCE_CHAT_TOOL_NAMES,
         )
         from app.services.finance.domains.detection.analyst.shared import (
             FINANCE_CHAT_AGENT_SLUG,
         )
+        import app.services.finance.tools  # noqa: F401 - registers tools
 
         load_agent_fixtures(db_session)  # seeds tool rows from the registry
         counts = analyst.load_finance_agent_fixtures(db_session)
@@ -788,7 +788,7 @@ class TestFixtures:
 
         script = (
             "from app.services.ai import fixtures  # noqa: F401\n"
-            "from app.services.ai.domains.chat.tools import registered_tool_names\n"
+            "from app.core.tools import registered_tool_names\n"
             "from app.services.finance.domains.detection.analyst.seeds import (\n"
             "    FINANCE_CHAT_TOOL_NAMES,\n"
             ")\n"

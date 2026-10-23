@@ -14,7 +14,7 @@
    wrapping: a key, a rule, a command) or ``link`` (the value is
    ``{"label", "url"}``; the link replaces ``target``, default
    ``#app-content``, the way a list's row opens its item; ``mark`` puts
-   the row's mark before it); ``render`` is a macro taking the value, for
+   the row's mark before it); ``render`` is a macro taking the value (the row, with ``row``), for
    a cell no kind covers; ``header`` is a macro rendering the column's
    heading in place of ``label``. A row marked ``group`` reads as a
    heading and the ``child`` rows after it are indented (a total and its
@@ -56,7 +56,7 @@
 {%- if value is undefined or value is none or value == "" -%}
 -
 {%- elif col.render -%}
-{{ col.render(value) }}
+{{ col.render(row if col.row else value) }}
 {%- elif col.kind == "money" -%}
 {%- set currency = row.currency -%}
 {{ value|money(currency if currency is string else "USD", signed=col.signed) }}
@@ -281,12 +281,13 @@ text-aegis-text
 
 
 {# Page navigation for a listed table. ``pager`` is the route's
-   ``{start, end, total, prev, next}`` (``None`` when one page); the links
+   ``{start, end, total, prev, next}`` (``None`` when one page), and a
+   ``summary`` in place of the count where it has one; the links
    re-request the same URL and swap ``target`` in place. #}
 {% macro pager(pager, target) %}
 {% if pager %}
 <nav aria-label="Pagination" class="flex items-center justify-between px-5 pt-3 text-xs text-aegis-muted">
-  <span>{{ pager.start }}-{{ pager.end }} of {{ pager.total }}</span>
+  <span>{{ pager.summary if pager.summary else pager.start ~ "-" ~ pager.end ~ " of " ~ pager.total }}</span>
   <span class="flex items-center gap-2">
     {% if pager.prev %}<a rel="prev" href="{{ pager.prev }}" {{ hx_replace(pager.prev, target) }} class="hover:text-aegis-text transition-colors">Previous</a>{% endif %}
     {% if pager.next %}<a rel="next" href="{{ pager.next }}" {{ hx_replace(pager.next, target) }} class="hover:text-aegis-text transition-colors">Next</a>{% endif %}

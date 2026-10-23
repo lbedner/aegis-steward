@@ -55,6 +55,9 @@ from app.components.web_frontend.routes.partials import (
     overseer_redis as overseer_redis_partials,
 )
 from app.components.web_frontend.routes.partials import (
+    overseer_runs as overseer_runs_partials,
+)
+from app.components.web_frontend.routes.partials import (
     overseer_runtime as overseer_runtime_partials,
 )
 from app.components.web_frontend.routes.partials import (
@@ -82,9 +85,7 @@ from app.core.security import (
 )
 from app.models.user import UserCreate
 from app.services.auth.deps import get_refresh_service, get_user_service
-from app.services.auth.refresh_tokens import RefreshService
-from app.services.auth.service import session_id_of
-from app.services.auth.users import UserService
+from app.services.auth.service import RefreshService, UserService, session_id_of
 
 # Every Overseer page, stream and action passes one gate (overseer_access).
 router = APIRouter(dependencies=[Depends(overseer_gate)])
@@ -153,6 +154,7 @@ router.include_router(overseer_server_partials.router)
 router.include_router(overseer_server_partials.load_tests_router)
 router.include_router(overseer_server_partials.requests_router)
 router.include_router(overseer_runtime_partials.router)
+router.include_router(overseer_runs_partials.router)
 router.include_router(overseer_database_partials.router)
 router.include_router(overseer_documents_partials.router)
 router.include_router(overseer_comms_partials.router)

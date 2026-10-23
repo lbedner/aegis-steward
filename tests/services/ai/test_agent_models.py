@@ -7,12 +7,9 @@ import sys
 import pytest
 from sqlmodel import Session, select
 
+from app.core.tools import register_tool, unregister_tool
 from app.services.ai.domains.chat.prompts import get_default_system_prompt
-from app.services.ai.domains.chat.tools import (
-    register_tool,
-    resolve_tools,
-    unregister_tool,
-)
+from app.services.ai.domains.chat.tools import resolve_tools
 from app.services.ai.fixtures.agent_fixtures import (
     DEFAULT_AGENT_SLUG,
     load_agent_fixtures,
@@ -78,7 +75,9 @@ class TestAgentSeed:
             """Probe tool."""
             return "ok"
 
-        register_tool("cm_probe", probe, description="Probe tool", replace=True)
+        register_tool(
+            "cm_probe", probe, description="Probe tool", effect="read", replace=True
+        )
         try:
             counts = load_agent_fixtures(session)
             assert counts["tools"] >= 1
@@ -170,7 +169,7 @@ class TestBuiltinToolRowsSeed:
         """
         script = (
             "from app.services.ai.fixtures import agent_fixtures\n"
-            "from app.services.ai.domains.chat.tools import registered_tool_names\n"
+            "from app.core.tools import registered_tool_names\n"
             "names = set(registered_tool_names())\n"
             "missing = {'save_memory', 'replace_memory'} - names\n"
             "assert not missing, f'unregistered: {sorted(missing)}'\n"
@@ -207,7 +206,7 @@ class TestAgentToolLink:
             """Greet someone by name."""
             return f"hi {name}"
 
-        register_tool("greet", greet)
+        register_tool("greet", greet, effect="read")
         try:
             load_agent_fixtures(session)
             agent = session.exec(

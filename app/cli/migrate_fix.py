@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 
 from sqlmodel import SQLModel
+import typer
 
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
@@ -233,6 +234,13 @@ def downgrade() -> None:
     return migration_path
 
 
+def _apply_now() -> bool:
+    """Ask before applying; with no terminal to answer, take the default."""
+    return not sys.stdin.isatty() or typer.confirm(
+        f"\n{t('migrate.apply_now')}", default=True
+    )
+
+
 def main() -> None:
     """Check for schema mismatches and generate fix migration."""
     print(t("migrate.checking_schema"))
@@ -262,9 +270,7 @@ def main() -> None:
     if migration_path:
         print(f"\n{t('migrate.generated_migration', name=migration_path.name)}")
 
-        # Prompt to apply
-        apply = input(f"\n{t('migrate.apply_now')} [Y/n] ").strip().lower()
-        if apply in ("", "y", "yes"):
+        if _apply_now():
             from alembic import command as alembic_command
 
             alembic_cfg = Config("alembic/alembic.ini")

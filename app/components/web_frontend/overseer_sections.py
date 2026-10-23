@@ -13,7 +13,10 @@ from typing import Any, NamedTuple
 from starlette.requests import Request
 
 from app.core.client_session import cookie_name
-from app.core.constants import ComponentName, ServiceName
+from app.core.constants import ComponentName
+from app.core.ontology import Kind
+from app.core.ontology.parts import concern_of
+from app.core.parts import Category
 from app.services.system import ui_runtime
 from app.services.system.models import ComponentStatus
 from app.services.system.ui import registry_key
@@ -54,8 +57,12 @@ class SectionedPage(NamedTuple):
     # A glance at its containers above its Overview (``overseer_container``).
     glance: bool = False
     # The data is the page (Logs, Deployments): it takes the whole canvas
-    # rather than the reading column (``_shell.html``'s ``data-width``).
-    workspace: bool = False
+    # rather than the reading column (``_shell.html``'s ``data-width``); or
+    # only the sections named (a table's rows on the Database page).
+    workspace: bool | frozenset[str] = False
+
+    def takes_canvas(self, section: str) -> bool:
+        return self.workspace is True or section in (self.workspace or ())
 
     @property
     def single(self) -> bool:
@@ -98,6 +105,14 @@ def _optional_pages() -> dict[tuple[str, str], SectionedPage]:
     except ImportError:  # no documents service in this project
         pass
     try:
+        from . import overseer_meetings
+
+        pages[("services", "meetings")] = SectionedPage(
+            "meetings", overseer_meetings.SECTIONS, overseer_meetings.section_context
+        )
+    except ImportError:  # no meetings service in this project
+        pass
+    try:
         from . import overseer_comms
 
         pages[("services", "comms")] = SectionedPage(
@@ -137,6 +152,8 @@ def _optional_pages() -> dict[tuple[str, str], SectionedPage]:
         )
     except ImportError:  # no AI service in this project
         pass
+    # A plugin's own pages (``PluginWiring.overseer_pages``): its files
+    # arrive with it, so no import to try.
     return pages
 
 
@@ -190,68 +207,8 @@ class MenuChoice(NamedTuple):
 
 GROUPING_COOKIE = cookie_name("overseer_grouping")
 GROUPINGS = ((Grouping.KIND, "By kind"), (Grouping.CONCERN, "By concern"))
-# Where an entry no concern names goes: a plugin's service, most likely.
-APP = "App"
-# Overview heads the first.
-CONCERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "Stack",
-        tuple(
-            i.name
-            for i in (
-                overseer_logs.ITEM,
-                overseer_errors.ITEM,
-                overseer_resources.ITEM,
-                overseer_deployments.ITEM,
-            )
-        ),
-    ),
-    (
-        "Compute",
-        (
-            ComponentName.BACKEND,
-            ComponentName.WORKER,
-            ComponentName.SCHEDULER,
-            ComponentName.INGRESS,
-        ),
-    ),
-    (
-        "Data",
-        (
-            ComponentName.DATABASE,
-            ComponentName.CACHE,
-            ComponentName.STORAGE,
-            ServiceName.DOCUMENTS,
-        ),
-    ),
-    (
-        "AI",
-        (ServiceName.AI, ComponentName.OLLAMA, ComponentName.MCP, ServiceName.RESEARCH),
-    ),
-    (
-        APP,
-        (
-            ComponentName.WEB_FRONTEND,
-            ComponentName.FRONTEND,
-            ServiceName.AUTH,
-            ServiceName.PAYMENT,
-            ServiceName.COMMS,
-            ServiceName.BLOG,
-            ServiceName.FINANCE,
-            ServiceName.INSIGHTS,
-        ),
-    ),
-    (
-        "Platform",
-        (
-            overseer_secrets.ITEM.name,
-            overseer_patterns.ITEM.name,
-            overseer_code.ITEM.name,
-            overseer_settings.ITEM.name,
-            ComponentName.OBSERVABILITY,
-        ),
-    ),
-)
+# Each concern's heading, in the sidebar's order (Overview heads the first).
+HEADINGS = {c: "AI" if c is Category.AI else c.value.title() for c in Category}
 
 
 def grouping(request: Request) -> Grouping:
@@ -272,8 +229,8 @@ def sidebar_sections(
 ) -> list[tuple[str | None, list[NavItem]]]:
     """The sidebar's sections, ``(heading, entries)``, in order; empty ones
     left out. By kind, the rail's own pages head it without a heading; by
-    concern, every entry is under its own (``CONCERNS``), and one no
-    concern names joins ``APP``."""
+    concern, every entry is under its own (a page's own ``concern``, a
+    part's declared one), and a part no spec places joins the app's."""
     pages = rail()
     if grouping(request) is Grouping.KIND:
         sections = [
@@ -282,19 +239,15 @@ def sidebar_sections(
             ("Services", navigation["services"]),
         ]
     else:
-        entries = {
-            e.name: e
-            for e in (*pages, *navigation["components"], *navigation["services"])
-        }
-        named = {name for _, names in CONCERNS for name in names}
-        unnamed = [e for name, e in entries.items() if name not in named]
+        tagged = [(e, e.concern or Category.APP) for e in pages]
+        tagged += [
+            (e, concern_of(Kind(group.removesuffix("s")), e.name))
+            for group in ("components", "services")
+            for e in navigation[group]
+        ]
         sections = [
-            (
-                heading,
-                [entries[n] for n in names if n in entries]
-                + (unnamed if heading == APP else []),
-            )
-            for heading, names in CONCERNS
+            (heading, [e for e, c in tagged if c is concern])
+            for concern, heading in HEADINGS.items()
         ]
     return [(heading, found) for heading, found in sections if found]
 
@@ -424,7 +377,10 @@ _PAGES: dict[tuple[str, str], SectionedPage] = {
         glance=True,
     ),
     ("components", ComponentName.DATABASE): SectionedPage(
-        "database", overseer_database.SECTIONS, overseer_database.section_context
+        "database",
+        overseer_database.SECTIONS,
+        overseer_database.section_context,
+        workspace=frozenset({overseer_database.TABLES, overseer_database.QUERY}),
     ),
     ("components", ComponentName.CACHE): SectionedPage(
         "redis", overseer_redis.SECTIONS, overseer_redis.section_context, glance=True

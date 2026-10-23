@@ -20,10 +20,12 @@ from typing import Any
 
 from markupsafe import Markup, escape
 
-from app.core import exposure
+from app.core import exposure, ownership, source_index
 from app.core.concurrency import background
 from app.core.config import settings
-from app.services.system import source_index, ui_deployments, ui_runtime
+from app.core.parts import Category
+from app.core.source_index import SKIPPED
+from app.services.system import ui_deployments, ui_runtime
 from app.services.system.errors.fingerprint import FRAME
 from app.services.system.models import ComponentStatus
 from app.services.system.patterns import PROJECT_ROOT
@@ -40,6 +42,7 @@ ITEM = NavItem(
     url="/overseer/code",
     status="",
     component=ComponentStatus(name="code", message=""),
+    concern=Category.PLATFORM,
 )
 FILE = "file"  # the query parameter naming the open file
 OWNER = "owner"  # ... scoping the tree to a component's or service's files
@@ -54,7 +57,8 @@ SOURCE_SUFFIXES = frozenset(
     | {".sql", ".ini", ".cfg", ".txt", ".sh", ".mako"}
 )
 SOURCE_NAMES = frozenset({"Dockerfile", "Makefile"})
-SKIPPED = frozenset({"__pycache__", "node_modules", "dist", "build", "data", "site"})
+# The folders whose files ``ownership`` owns; the rest go by a name in the path.
+OWNED = frozenset({"app", "tests"})
 # A file larger than this is not source anyone reads here.
 MAX_BYTES = 512 * 1024
 # A frame in a traceback Pygments highlighted (``pytb``): its file, line.
@@ -87,10 +91,17 @@ class Scope:
         owner = query.get(OWNER, "")
         return cls(owner, "" if owner else query.get(FOLDER, "").strip("/"))
 
-    def keeps(self, path: str) -> bool:
-        if self.owner:
-            return bool(_owned(self.owner).search(path))
-        return path.startswith(self.folder + "/")
+    def keeps(self, path: str, index: source_index.Index) -> bool:
+        """Whether ``path`` is in scope: in the folder, or the owner's
+        (``ownership.owner``, reading ``index``: a test is the owner's whose
+        code it imports); outside the app and its tests (docs, revisions),
+        a path naming the owner."""
+        if not self.owner:
+            return path.startswith(self.folder + "/")
+        if path.split("/")[0] in OWNED:
+            found = ownership.owner(path, index)
+            return found is not None and found.name == self.owner
+        return bool(_owned(self.owner).search(path))
 
     def url(self, path: str, **change: str) -> str:
         """``path`` open, in this scope with ``change`` made to it."""
@@ -118,6 +129,16 @@ def owners(navigation: Mapping[str, list[NavItem]]) -> list[tuple[str, str]]:
 def line_url(path: str, line: int) -> str:
     """Where ``path`` opens at ``line``."""
     return f"{Scope().url(path)}#{LINE_ANCHOR}-{line}"
+
+
+def module_url(module: str) -> str | None:
+    """Where one of the app's own modules (``app.core.log``) opens here
+    (``source_index.module_paths``); None for a library's, one the tree
+    does not show, or while the page is off."""
+    if not enabled():
+        return None
+    found = next((p for p in source_index.module_paths(module) if shown(p)), None)
+    return Scope().url(found) if found else None
 
 
 @dataclass(frozen=True)
@@ -177,6 +198,8 @@ templates.env.filters["code_frames"] = code_frames
 templates.env.globals.update(
     own_frames=own_frames,
     line_url=line_url,
+    module_url=module_url,
+    code_shown=lambda: enabled(),  # where a line of code links (``line_link``)
     code_owners=owners,
     # The page's fixed names, for its templates: no template spells them.
     code_page={
@@ -294,9 +317,10 @@ def read(path: str) -> str | None:
         return None
 
 
-def _index() -> source_index.Index:
-    """The tree's Python files, for a name to be looked up across."""
-    python = [p for p in files(tree()) if p.endswith(".py")]
+def _index(nodes: tuple[Node, ...] | None = None) -> source_index.Index:
+    """The tree's Python files (``nodes``, else the whole tree), for a name
+    to be looked up across."""
+    python = [p for p in files(tree() if nodes is None else nodes) if p.endswith(".py")]
     return source_index.Index(PROJECT_ROOT, python)
 
 
@@ -308,10 +332,13 @@ _warming: asyncio.Task[None] | None = None
 
 
 def warm_in_background() -> None:
-    """``warm`` in a thread, once at a time, so the page's first click
-    answers as fast as the rest."""
+    """``warm`` in a thread, once a process, so the page's first click
+    answers as fast as the rest; a file changed since is read again on
+    the click that reaches it. Again only if one was cut short or failed."""
     global _warming
-    if _warming is None or _warming.done():
+    if _warming is None or (
+        _warming.done() and (_warming.cancelled() or _warming.exception())
+    ):
         _warming = background(asyncio.to_thread(warm))
 
 
@@ -352,7 +379,12 @@ async def section_context(
         return context
     warm_in_background()
     nodes = tree()
-    listed = pruned(nodes, scope.keeps) if scope != Scope() else nodes
+    index = _index(nodes)
+    listed = (
+        pruned(nodes, lambda path: scope.keeps(path, index))
+        if scope != Scope()
+        else nodes
+    )
     return context | {
         "code_nodes": listed,
         "code_files": files(nodes),
