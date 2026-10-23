@@ -9,7 +9,7 @@ and waits behind it.
 
 from unittest.mock import MagicMock, patch
 
-from app.services.ai.config import AIServiceConfig
+from app.services.ai.domains.llm.config import AIServiceConfig
 from app.services.ai.domains.llm.model_factory import (
     LOCAL_TIMEOUT_SECONDS,
     _model_settings,

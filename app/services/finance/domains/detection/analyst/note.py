@@ -91,10 +91,13 @@ async def run_analyst_note(
         from pydantic_ai.settings import ModelSettings
 
         from app.core.config import settings
-        from app.services.ai.config import AIServiceConfig
-        from app.services.ai.domains.chat.agent_loader import resolve_agent
-        from app.services.ai.domains.llm.providers import model_for
-        from app.services.ai.usage_recording import extract_usage, record_usage
+        from app.services.ai.service import (
+            AIServiceConfig,
+            extract_usage,
+            model_for,
+            record_usage,
+            resolve_agent,
+        )
 
         agent_config = await resolve_agent(ANALYST_AGENT_SLUG, session=db)
         if agent_config.slug != ANALYST_AGENT_SLUG:

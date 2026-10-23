@@ -8,9 +8,12 @@ under its own surface so the cost of reading paper is visible.
 from __future__ import annotations
 
 from app.core.config import settings
-from app.services.ai.domains.llm import active_model
-from app.services.ai.domains.llm.providers import ProviderError
-from app.services.ai.usage_recording import extract_usage, record_usage
+from app.services.ai.service import (
+    ProviderSetupError,
+    active_model,
+    extract_usage,
+    record_usage,
+)
 from app.services.documents.domains.extraction.pages import VisionReader
 
 SURFACE = "documents:extract"
@@ -49,6 +52,6 @@ async def vision_reader() -> VisionReader | None:
     """
     try:
         await active_model.model_for_active(settings)
-    except ProviderError:
+    except ProviderSetupError:
         return None
     return read_page

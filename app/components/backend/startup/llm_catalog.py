@@ -12,10 +12,7 @@ from sqlmodel import Session
 
 from app.core.db import engine
 from app.core.log import logger
-from app.services.ai.domains.llm.etl import sync_llm_catalog
-from app.services.ai.domains.llm.etl.queries import (
-    ollama_models_present,
-)
+from app.services.ai.service import ollama_models_present, sync_llm_catalog
 
 
 async def seed_llm_catalog() -> None:

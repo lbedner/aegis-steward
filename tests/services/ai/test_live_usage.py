@@ -12,7 +12,7 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.ai import usage_recording
+from app.services.ai.domains.spend import recording as usage_recording
 from app.services.ai.models.llm import LLMUsage
 from tests._session import opens
 

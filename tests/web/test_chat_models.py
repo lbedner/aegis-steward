@@ -17,8 +17,8 @@ from app.components.web_frontend.routes.chat_models import MODELS
 from app.core.config import settings
 from app.core.db import get_async_session
 from app.services.ai.domains.voice import profiles
-from app.services.ai.models.live_engine import LiveEngine
-from app.services.ai.models.voice_profile import VoiceProfile
+from app.services.ai.models.voice.live_engine import LiveEngine
+from app.services.ai.models.voice.profile import VoiceProfile
 from tests._voice_catalog import TITLES, VOICE_MODELS, VOICED
 from tests.web.dom import none, one, select, text, triggers
 

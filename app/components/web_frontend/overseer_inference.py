@@ -24,7 +24,7 @@ from app.core import series
 from app.core.concurrency import background
 from app.core.formatting import format_relative_time
 from app.core.log import logger
-from app.services.ai.domains.llm.picker import format_context_window
+from app.services.ai.service import format_context_window
 from app.services.system.models import ComponentStatus
 
 from .overseer_live import fragment_events

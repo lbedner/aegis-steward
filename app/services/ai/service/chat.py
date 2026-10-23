@@ -8,10 +8,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.core.tools import load_tools
-from app.services.ai.config import AIServiceConfig
 from app.services.ai.domains.chat.self_context import current_turn
 from app.services.ai.domains.chat.summary import enqueue_if_due
 from app.services.ai.domains.chat.titles import conversation_title
+from app.services.ai.domains.llm.config import AIServiceConfig
 from app.services.ai.models import Conversation, MessageRole
 from app.services.ai.service.base import (
     ConversationError,

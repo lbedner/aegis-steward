@@ -10,14 +10,13 @@ from typing import Any, Literal, Protocol, Self
 from pydantic import BaseModel, Field
 
 from app.core import secrets
-
-from .models import (
+from app.services.ai.models import (
     PROVIDERS,
     AIProvider,
     ProviderConfig,
     get_provider_capabilities,
 )
-from .models.provider_names import KEYLESS_PROVIDERS
+from app.services.ai.models.provider_names import KEYLESS_PROVIDERS
 
 
 def _resolve_provider(value: object) -> AIProvider:

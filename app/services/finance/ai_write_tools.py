@@ -26,10 +26,7 @@ async def propose_many(
     payload follows the change type's contract. Never claim the changes
     happened - they are pending until the user acts.
     """
-    from app.services.ai.domains.chat.user_memory import (
-        current_agent_slug,
-        current_conversation_id,
-    )
+    from app.services.ai.service import current_agent_slug, current_conversation_id
     from app.services.finance.domains import writes
 
     async def write() -> dict[str, Any]:
@@ -137,10 +134,7 @@ async def propose(change_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     ONE change per call; never claim a change happened - it is pending
     until the user acts.
     """
-    from app.services.ai.domains.chat.user_memory import (
-        current_agent_slug,
-        current_conversation_id,
-    )
+    from app.services.ai.service import current_agent_slug, current_conversation_id
     from app.services.finance.domains import writes
 
     async def write() -> dict[str, Any]:
@@ -201,7 +195,7 @@ async def pending(about: str | None = None, draw: bool = False) -> dict[str, Any
     case and must stay invisible: a settled card redrawn beside an
     ordinary answer reads as a fresh offer, and five of them bury the
     answer the user actually asked for."""
-    from app.services.ai.domains.chat.user_memory import current_agent_slug
+    from app.services.ai.service import current_agent_slug
     from app.services.finance.domains import writes
 
     needle = (about or "").strip().lower()
@@ -287,7 +281,7 @@ async def withdraw(pending_change_id: int, reason: str | None = None) -> dict[st
     short ``reason`` ("superseded by the five-row card"). Only the agent
     that proposed a change can withdraw it. Use it yourself, immediately,
     instead of asking the user to reject the card."""
-    from app.services.ai.domains.chat.user_memory import current_agent_slug
+    from app.services.ai.service import current_agent_slug
     from app.services.finance.domains import writes
 
     async def write() -> dict[str, Any]:
@@ -317,7 +311,7 @@ async def withdraw_batch(batch_id: str, reason: str | None = None) -> dict[str, 
     row of one propose_many batch, one transaction, one reason the user
     will see on the folded card ("superseded by the five-row card").
     Prefer this over withdrawing a batch row by row."""
-    from app.services.ai.domains.chat.user_memory import current_agent_slug
+    from app.services.ai.service import current_agent_slug
     from app.services.finance.domains import writes
 
     async def write() -> dict[str, Any]:

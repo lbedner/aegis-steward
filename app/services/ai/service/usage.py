@@ -18,7 +18,7 @@ from app.core.log import logger
 # ``usage_recording`` is a module (not the service) so worker and one-shot
 # callers can record without constructing ``ConversationManager``; the chat
 # path delegates to it so pricing lives in exactly one place.
-from app.services.ai import usage_recording
+from app.services.ai.domains.spend import recording as usage_recording
 from app.services.ai.models.llm import LargeLanguageModel, LLMOrg, LLMUsage
 from app.services.ai.service.base import AIServiceBase
 

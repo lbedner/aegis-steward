@@ -16,7 +16,7 @@ from app.components.web_frontend.filters import short_date, usd
 from app.components.web_frontend.nav import section, settings_nav
 from app.components.web_frontend.rendering import render
 from app.core.db import get_async_db
-from app.services.ai.usage_report import usage_report
+from app.services.ai.service import usage_report
 
 router = APIRouter()
 

@@ -4,9 +4,9 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.ai.models.live_engine import LiveEngine
 from app.services.ai.models.llm import LargeLanguageModel, LLMOrg
-from app.services.ai.models.voice_profile import VoiceProfile
+from app.services.ai.models.voice.live_engine import LiveEngine
+from app.services.ai.models.voice.profile import VoiceProfile
 
 
 async def all_profiles(session: AsyncSession) -> list[VoiceProfile]:

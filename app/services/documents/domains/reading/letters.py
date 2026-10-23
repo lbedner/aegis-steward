@@ -160,8 +160,7 @@ async def read_letter(pages: list[Page]) -> LetterReading:
     from pydantic_ai import Agent as PydanticAgent
 
     from app.core.config import settings
-    from app.services.ai.domains.llm import active_model
-    from app.services.ai.usage_recording import extract_usage, record_usage
+    from app.services.ai.service import active_model, extract_usage, record_usage
 
     model, model_name = await active_model.model_for_active(settings)
     agent: PydanticAgent[None, LetterReading] = PydanticAgent(
@@ -182,11 +181,10 @@ async def letter_reader():  # noqa: ANN201
     the AI service reads paper and proposes its metadata as before;
     only the demands go unread."""
     from app.core.config import settings
-    from app.services.ai.domains.llm import active_model
-    from app.services.ai.domains.llm.providers import ProviderError
+    from app.services.ai.service import ProviderSetupError, active_model
 
     try:
         await active_model.model_for_active(settings)
-    except ProviderError:
+    except ProviderSetupError:
         return None
     return read_letter

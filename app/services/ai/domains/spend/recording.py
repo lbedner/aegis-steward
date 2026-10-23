@@ -17,8 +17,7 @@ from app.core.db import get_async_session
 from app.core.log import logger
 from app.core.time import utcnow
 from app.services.ai.domains.llm import queries as llm_queries
-
-from .models.llm import LLMUsage
+from app.services.ai.models.llm import LLMUsage
 
 
 def _bare_model_name(model_name: str) -> str:

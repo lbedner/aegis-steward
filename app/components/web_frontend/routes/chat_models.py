@@ -33,8 +33,7 @@ from app.components.web_frontend.rendering import dialog, templates, with_toast
 from app.components.web_frontend.routes.chat import CHAT_URLS, SECTION
 from app.core.config import settings
 from app.core.db import get_async_session
-from app.services.ai.domains.llm import queries as llm_queries
-from app.services.ai.domains.llm.picker import (
+from app.services.ai.service import (
     display_title,
     filter_models,
     format_context_window,
@@ -42,10 +41,12 @@ from app.services.ai.domains.llm.picker import (
     group_models,
     is_local_model,
     lab_for_model,
+    live_engines,
+    llm_queries,
     model_label,
     newest_first,
+    profiles,
 )
-from app.services.ai.domains.voice import live_engines, profiles
 from app.services.finance.domains.detection.analyst.live_engines import ENGINE_SEEDS
 
 router = APIRouter()

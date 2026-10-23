@@ -12,7 +12,7 @@ import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.voice import profiles
-from app.services.ai.models.voice_profile import VoiceProfile
+from app.services.ai.models.voice.profile import VoiceProfile
 
 
 def _settings(**overrides: Any) -> SimpleNamespace:

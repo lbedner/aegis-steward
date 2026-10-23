@@ -15,7 +15,7 @@ async def startup_hook() -> Any:
     from app.core.config import settings
     from app.core.db import get_async_session
     from app.services.ai.deps import ai_service
-    from app.services.ai.domains.voice import profiles
+    from app.services.ai.service import profiles
 
     try:
         async with get_async_session() as session:

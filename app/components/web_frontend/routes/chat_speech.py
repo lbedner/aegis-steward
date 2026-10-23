@@ -25,12 +25,7 @@ from app.core.chat_transcript import readable
 from app.core.db import get_async_session
 from app.core.log import logger
 from app.core.uploads import read_upload
-from app.services.ai.domains.voice.models import (
-    AudioFormat,
-    AudioInput,
-    SpeechRequest,
-)
-from app.services.ai.domains.voice.spoken import to_spoken
+from app.services.ai.service import AudioFormat, AudioInput, SpeechRequest, to_spoken
 from app.services.finance.domains.detection.analyst.shared import (
     FINANCE_VOICE_AGENT_SLUG,
     STANDALONE_USER_ID,

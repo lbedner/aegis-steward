@@ -744,8 +744,8 @@ async def live_engine_rows(async_db_session: AsyncSession) -> AsyncGenerator[Non
     yield
     from sqlmodel import delete
 
-    from app.services.ai.models.live_engine import LiveEngine
     from app.services.ai.models.llm import LLMOrgRole
+    from app.services.ai.models.voice.live_engine import LiveEngine
 
     async with get_async_session() as session:
         # Children first: every row here hangs off a model or an org.

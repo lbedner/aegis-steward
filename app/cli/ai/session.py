@@ -20,7 +20,7 @@ from app.cli.status_line import ChatSessionState, create_toolbar_callback
 from app.i18n import t
 
 from ...core.config import settings
-from ...services.ai.config import get_ai_config
+from ...services.ai.domains.llm.config import get_ai_config
 from ...services.ai.domains.llm.providers import ProviderNotInstalledError
 
 console = theme.console()

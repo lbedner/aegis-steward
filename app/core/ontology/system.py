@@ -79,13 +79,20 @@ def with_app() -> SystemModel:
     return system_model(create_integrated_app())
 
 
+def running_app() -> Starlette | None:
+    """The running backend's app; None where there is no backend (the CLI).
+    Here, so a service reads it without importing a component."""
+    from app.components.backend.main import get_configured_app
+
+    return get_configured_app()
+
+
 def system_model(app: Starlette | None = None) -> SystemModel:
     """The model, built now; ``app``'s routes in it (the running backend's
     when not given, none where there is no backend: the CLI)."""
-    from app.components.backend.main import get_configured_app
     from app.services.system import health  # the registry startup fills
 
-    app = app or get_configured_app()
+    app = app or running_app()
 
     names = health.registered_health_names()
     partial = not _registered()

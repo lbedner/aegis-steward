@@ -41,12 +41,15 @@ from app.core.chat_transcript import readable, trace_label
 from app.core.config import settings
 from app.core.db import get_async_session
 from app.core.log import logger
-from app.services.ai import usage_recording
-from app.services.ai.domains.chat.cards import MARKER
-from app.services.ai.domains.voice import live_engines, realtime_calls
-from app.services.ai.domains.voice.spoken import to_spoken
-from app.services.ai.models import AIProvider
-from app.services.ai.models.live_engine import LiveEngine
+from app.services.ai.service import (
+    MARKER,
+    AIProvider,
+    LiveEngine,
+    live_engines,
+    realtime_calls,
+    to_spoken,
+    usage_recording,
+)
 from app.services.ai.service.trace import record_tool_call
 from app.services.finance.domains.detection.analyst.prompts import LIVE_SIGN_OFF
 from app.services.finance.domains.detection.analyst.shared import (

@@ -314,8 +314,8 @@ class TTSService:
         """
         try:
             from app.core.db import get_async_session
-            from app.services.ai import usage_recording
-            from app.services.ai.models.voice_usage import TTSUsage
+            from app.services.ai.domains.spend import recording as usage_recording
+            from app.services.ai.models.voice.usage import TTSUsage
         except ImportError:
             # A project generated without a database has no tts_usage table
             # (and no app.core.db at all). The recording call stays in the

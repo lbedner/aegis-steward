@@ -47,12 +47,12 @@ from app.core.chat_transcript import (
 )
 from app.core.storage import get_storage, validate_key
 from app.core.uploads import stored_file
-from app.services.ai.domains.chat.agent_loader import DEFAULT_AGENT_SLUG
-from app.services.ai.domains.chat.attachments import lift_pastes
-from app.services.ai.domains.chat.cards import MARKER
-from app.services.ai.domains.chat.pastes import PASTE_THRESHOLD
-from app.services.ai.domains.llm.picker import (
+from app.services.ai.service import (
+    DEFAULT_AGENT_SLUG,
+    MARKER,
+    PASTE_THRESHOLD,
     is_local_model,
+    lift_pastes,
 )
 from app.services.ai.service.trace import BATCH_MARKER, CHANGE_MARKER
 from app.services.finance.domains.detection.analyst.shared import STANDALONE_USER_ID
@@ -421,7 +421,7 @@ async def stage_paste(text: Annotated[str, Form()] = "") -> Response:
     time, and everything downstream sees a message that already carries
     its marker.
     """
-    from app.services.ai.domains.chat.pastes import marker, store_paste, title_of
+    from app.services.ai.service import marker, store_paste, title_of
 
     if not text.strip():
         return Response(status_code=422)
@@ -435,7 +435,7 @@ async def paste(request: Request, paste_id: str) -> Response:
     monospaced and scrolling - because what was pasted was a page, and
     rendering it as markdown would reflow the thing the reader came to
     check."""
-    from app.services.ai.domains.chat.pastes import read_paste
+    from app.services.ai.service import read_paste
 
     found = await read_paste(str(STANDALONE_USER_ID), paste_id)
     or_404(found)

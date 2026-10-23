@@ -8,12 +8,7 @@ from sqlmodel import Session, col, select
 from app.core.log import logger
 from app.core.seed import missing_rows, seed_rows
 from app.core.tools import load_tools
-from app.services.ai.domains.chat.agent_registry import seed_agent
-from app.services.ai.models.agents import (
-    Agent,
-    AgentTool,
-    Tool,
-)
+from app.services.ai.service import Agent, AgentTool, Tool, seed_agent
 from app.services.finance.domains.detection.analyst.prompts import (
     ANALYST_MAX_TOKENS,
     ANALYST_SYSTEM_PROMPT,

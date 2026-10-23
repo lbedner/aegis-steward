@@ -17,7 +17,7 @@ import json
 import re
 from typing import Any
 
-from app.services.ai.domains.chat.cards import MARKER, markers_of
+from app.services.ai.service import MARKER, markers_of
 from app.services.ai.service.trace import CARD_TOOLS, IDENTITY_KEYS, card_identity
 
 

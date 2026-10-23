@@ -34,8 +34,8 @@ from app.services.ai.domains.chat.chat_kit import ContextProvider, ToolChatAgent
 from app.services.ai.domains.chat.module_context import MemoryModuleContextProvider
 from app.services.ai.domains.chat.prompts import get_default_system_prompt
 from app.services.ai.domains.chat.tools import resolve_tools
+from app.services.ai.domains.spend.recording import record_usage
 from app.services.ai.models.agents import Agent
-from app.services.ai.usage_recording import record_usage
 
 DEFAULT_AGENT_SLUG = "assistant"
 

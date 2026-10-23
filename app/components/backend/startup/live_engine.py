@@ -12,7 +12,7 @@ from app.core.log import logger
 
 async def startup_hook() -> Any:
     from app.core.db import get_async_session
-    from app.services.ai.domains.voice import live_engines
+    from app.services.ai.service import live_engines
     from app.services.finance.domains.detection.analyst.live_engines import (
         ENGINE_SEEDS,
     )

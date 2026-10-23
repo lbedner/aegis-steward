@@ -11,7 +11,7 @@ from app.components.frontend.controls.dialog import DialogHandle, StyledAlertDia
 from app.components.frontend.controls.markdown import markdown_control
 from app.components.frontend.controls.text import LabelText, SecondaryText
 from app.components.frontend.theme import AegisTheme as Theme
-from app.services.ai.domains.llm.picker import is_local_model
+from app.services.ai.service import is_local_model
 
 from .stream import footer_line, trace_failed, trace_label, trace_output
 

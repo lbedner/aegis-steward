@@ -69,9 +69,9 @@ async def _condense(prompt: str, *, conversation: Conversation) -> str:
     """One model call: the folded summary. Its usage is ledgered against
     the conversation like any of its turns."""
     from app.core.config import settings
-    from app.services.ai.config import AIServiceConfig
+    from app.services.ai.domains.llm.config import AIServiceConfig
     from app.services.ai.domains.llm.providers import get_agent
-    from app.services.ai.usage_recording import record_usage
+    from app.services.ai.domains.spend.recording import record_usage
 
     config = AIServiceConfig.from_settings(settings)
     agent = await get_agent(config, settings, SUMMARY_PROMPT)

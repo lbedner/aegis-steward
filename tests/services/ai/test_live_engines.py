@@ -15,7 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.voice import live_engines
 from app.services.ai.domains.voice.profiles import SETTINGS
-from app.services.ai.models.live_engine import LiveEngine
+from app.services.ai.models.voice.live_engine import LiveEngine
 from app.services.finance.domains.detection.analyst.live_engines import ENGINE_SEEDS
 from app.services.finance.domains.detection.analyst.prompts import LIVE_SIGN_OFF
 from tests._voice_catalog import seed_voice_catalog

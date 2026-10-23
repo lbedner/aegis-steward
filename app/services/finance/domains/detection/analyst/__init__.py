@@ -9,10 +9,7 @@ package registers the snapshot fetcher (``report``), exactly as
 importing the old module did.
 """
 
-from app.services.ai.models.agents import (
-    Agent,
-    MemoryModule,
-)
+from app.services.ai.service import Agent, MemoryModule
 from app.services.finance.constants import (
     ANALYST_NOTE_INSIGHT_TYPE,
 )

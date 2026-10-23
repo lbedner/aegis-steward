@@ -226,8 +226,8 @@ class TestTheCondenseCall:
         from pydantic_ai import Agent
         from pydantic_ai.models.test import TestModel
 
-        from app.services.ai import usage_recording
         from app.services.ai.domains.llm import providers
+        from app.services.ai.domains.spend import recording as usage_recording
 
         agent = Agent(TestModel(custom_output_text=" Biscuit. "))
         billed: list[Any] = []

@@ -29,10 +29,10 @@ from pydantic_ai.messages import (
 from pydantic_ai.toolsets import FunctionToolset
 
 from app.core.log import logger
-from app.services.ai import usage_recording
 from app.services.ai.domains.chat.cards import attach_cards, card_stage
 from app.services.ai.domains.chat.readings import reading_stage
 from app.services.ai.domains.chat.user_memory import memory_user
+from app.services.ai.domains.spend import recording as usage_recording
 from app.services.ai.domains.voice.live_engines import is_gpt_live
 from app.services.ai.models import MessageRole
 from app.services.ai.service.trace import record_tool_call, record_tool_result
