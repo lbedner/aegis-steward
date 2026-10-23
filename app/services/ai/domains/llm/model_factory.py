@@ -143,13 +143,20 @@ def tolerant(model: Any) -> Any:
     return _TemperatureTolerant(model)
 
 
+# A local model sends nothing until it has read the whole prompt: a 27B
+# model at ~200 tokens a second takes over two minutes on a full 32k
+# context, so the hosted models' timeout would cut every long turn mid-read.
+LOCAL_TIMEOUT_SECONDS = 600.0
+
+
 def _model_settings(config: Any) -> ModelSettings:
     """Build ModelSettings for the agent, omitting ``temperature`` for models
     that only accept the default so they don't 400 (see
     ``_supports_custom_temperature``)."""
+    local = getattr(config, "provider", None) == AIProvider.OLLAMA
     kwargs: dict[str, Any] = {
         "max_tokens": config.max_tokens,
-        "timeout": config.timeout_seconds,
+        "timeout": LOCAL_TIMEOUT_SECONDS if local else config.timeout_seconds,
     }
     if _supports_custom_temperature(config.model):
         kwargs["temperature"] = config.temperature
@@ -173,6 +180,9 @@ def _ollama_model(config: AIServiceConfig, settings: Any) -> Any:
     openai_client = AsyncOpenAI(
         api_key="ollama",  # Ollama needs no auth; the client demands something
         base_url=f"{settings.ollama_base_url_effective}/v1",
+        # A retry would queue behind the abandoned request, still reading
+        # the same prompt, and start reading it again after.
+        max_retries=0,
     )
     # Ollama's OpenAI-compat endpoint silently DROPS the modern
     # ``max_completion_tokens`` field (only ``max_tokens`` maps to
