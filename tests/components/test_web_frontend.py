@@ -140,6 +140,8 @@ class TestAssetFingerprinting:
         (tmp_path / "css" / "app.css").write_text("body{color:red}")
         (tmp_path / "js" / "app.js").write_text("console.log(1)")
         (tmp_path / "js" / "pages" / "extra.js").write_text("console.log(2)")
+        (tmp_path / "vendor").mkdir()
+        (tmp_path / "vendor" / "lib.js").write_text("export const x = 1")
         (tmp_path / "dist" / "app.css").write_text(".x{}")
         (tmp_path / "app-icon.png").write_bytes(b"png")
 
@@ -240,6 +242,16 @@ class TestBuildWatchPolls:
 
         assert issubclass(build_watch.OBSERVER, PollingObserver)
 
+    def test_a_dist_folder_made_again_is_still_watched(self) -> None:
+        """Regenerating a project makes ``static/dist/`` again: a watch on
+        that folder follows the one deleted and never sees Tailwind's next
+        write, so the manifest names a stale, half-written stylesheet. The
+        watch is on ``static/`` itself, which outlives it."""
+        from app.components.web_frontend import build_watch
+        from app.components.web_frontend.build import STATIC_DIR
+
+        assert build_watch._watched_dirs() == [(STATIC_DIR, True)]
+
 
 class TestBuildWatchSourceFilter:
     """The watcher must react to sources and ignore its own output — the
@@ -260,7 +272,7 @@ class TestBuildWatchSourceFilter:
         from app.components.web_frontend.build_watch import _is_source, _watched_dirs
 
         assert _is_source(str(STATIC_DIR / APP_ICON))
-        assert (STATIC_DIR, False) in _watched_dirs()
+        assert (STATIC_DIR, True) in _watched_dirs()
 
     def test_ignores_generated_output_and_noise(self) -> None:
         from app.components.web_frontend.build import STATIC_DIR

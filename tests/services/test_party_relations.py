@@ -96,7 +96,7 @@ class TestHerRead:
     async def test_who_are_my_children_resolves(
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.services.matters import ai_tools
+        from app.services.matters import tools as ai_tools
 
         monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
         sam, _alex, robin = await _family(async_db_session)

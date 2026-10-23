@@ -34,7 +34,7 @@ from app.components.frontend.dashboard.modals.finance_modal.formatting import (
     _usd,
 )
 from app.components.frontend.theme import AegisTheme as Theme
-from app.core.formatting import format_money
+from app.core.money import format_money
 
 
 def budget_lines_grid(rows: list[ft.Control]) -> ft.ResponsiveRow:

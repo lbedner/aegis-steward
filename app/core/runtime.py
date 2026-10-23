@@ -26,25 +26,27 @@ from typing import Protocol
 
 import psutil
 
+from app.core import ownership
+from app.core.parts import PARTS
 from app.core.time import as_stored, utcnow
 
 # Where the deploy component keeps its backend; absent in stacks without it.
 BACKEND_MODULE = "app.components.deploy.docker"
 
-# Compose service -> the Overseer page that shows it. Workers are named
-# per queue (``worker-system``), so they match on the prefix.
+# Compose service -> the Overseer page that shows it: each process's own
+# containers, on its page (``parts.PARTS``).
 _PAGES = {
-    "webserver": "server",
-    "scheduler": "scheduler",
-    "redis": "redis",
-    "postgres": "database",
-    "seaweedfs": "storage",
-    "traefik": "ingress",
-    "ollama": "inference",
+    container: ownership.page_of_part(name)
+    for name, part in PARTS.items()
+    if part.tier is not None
+    for container in part.containers
 }
 
 # Every page some container belongs on: the Container section shows there.
-PAGES = frozenset({*_PAGES.values(), "worker"})
+# The part taking queued work runs a container per queue, each named for it
+# (``worker-system``, a plugin's ``worker-media``): matched on that name.
+_PER_QUEUE = next(iter(ownership.TAKES))
+PAGES = frozenset({*_PAGES.values(), ownership.page_of_part(_PER_QUEUE)})
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _STAMPED = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z ?(.*)$", re.S)
@@ -161,8 +163,8 @@ class Runtime(Protocol):
 
 def page_for(service: str) -> str | None:
     """The Overseer page a compose service belongs on, or None."""
-    if service.startswith("worker"):
-        return "worker"
+    if service.startswith(_PER_QUEUE):
+        return ownership.page_of_part(_PER_QUEUE)
     return _PAGES.get(service)
 
 
@@ -186,14 +188,50 @@ _TAGGED = re.compile(
 
 
 # The attribution the development console prints as ``key=value``
-# (``log_attribution``): read into a line's fields here, once.
-METADATA_KEYS = ("app_service", "emitting_service", "pathname")
+# (``log_attribution``; ``request_id``, the request a line was logged in,
+# from ``replays``): read into a line's fields here, once.
+METADATA_KEYS = (
+    "app_service",
+    "app_component",
+    "emitting_service",
+    "pathname",
+    "request_id",
+)
 _METADATA = re.compile(r"(?<!\S)(" + "|".join(METADATA_KEYS) + r")=(\S+)")
+
+
+# What structlog's console prints after a line's message: ``[logger]``
+# and the ``key=value`` pairs bound to it (a value with a space ends it).
+_TAIL = re.compile(r"(?<! ) +\[([\w.:-]+)\]((?: +[\w.]+=\S*)*) *$")
+_PAIR = re.compile(r"([\w.]+)=(\S*)")
 
 
 def without_metadata(text: str) -> str:
     """A console line's text with its attribution taken out."""
     return re.sub(r" {2,}", " ", _METADATA.sub("", text)).strip()
+
+
+def _tail(text: str) -> re.Match[str] | None:
+    """The logger and pairs after a line structlog's console printed (its
+    level bracketed); None on any other line."""
+    tagged = _TAGGED.match(text)
+    return _TAIL.search(text) if tagged and tagged.group(0).endswith("]") else None
+
+
+def _console_fields(text: str) -> tuple[tuple[str, str], ...]:
+    """A console line's fields: its logger and the pairs after it, else its
+    attribution alone."""
+    tail = _tail(text)
+    if tail is None:
+        return tuple(_METADATA.findall(text))
+    return (("logger", tail.group(1)), *_PAIR.findall(tail.group(2)))
+
+
+def message_of(line: LogLine, text: str) -> str:
+    """A console ``line``'s message, ``text`` (its lead split off), as Logs
+    and errors read it: what structlog printed after it (its fields now)
+    taken out, else its attribution."""
+    return _TAIL.sub("", text) if _tail(line.text) else without_metadata(text)
 
 
 def _level(given: object, text: str) -> str | None:
@@ -232,13 +270,14 @@ def parse_log_line(raw: str, stream: str) -> LogLine:
                 for key, value in record.items()
                 if key not in _READ and key not in _TRACES
             )
-    if not text.startswith("{") and _level(level, text):
-        fields = tuple(_METADATA.findall(text))
+    level = _level(level, text)
+    if not text.startswith("{") and level:
+        fields = _console_fields(text)
     return LogLine(
         text=text,
         stream=stream,
         timestamp=timestamp,
-        level=_level(level, text),
+        level=level,
         event=str(event) if event is not None else None,
         fields=fields,
         trace=trace,

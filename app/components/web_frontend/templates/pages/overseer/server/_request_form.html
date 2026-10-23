@@ -1,10 +1,11 @@
 {# A route's request, from its OpenAPI operation, as FastAPI's /docs shows
-   it: ``mode`` "try" sends it once (Execute), "load" starts a load test of
-   it. One form for Routes and Load Tests. #}
+   it: ``mode`` "try" sends it once (Execute), or walks it without sending
+   (Dry path, where the code is shown), "load" starts a load test of it.
+   One form for Routes and Load Tests. #}
 {% from "components/macros/form.html" import field, number_input, select, text_input, textarea, checkbox, primary_button, action %}
 <form data-request-form
-  hx-post="{{ load_partials if mode == 'load' else partials ~ '/execute' }}"
-  {% if mode != "load" %}hx-target="next [data-answer]"{% endif %}
+  {% if mode == "load" %}hx-post="{{ load_partials }}"
+  {% else %}hx-post="{{ partials }}/execute" hx-target="next [data-answer]"{% endif %}
   hx-swap="{{ 'none' if mode == 'load' else 'innerHTML' }}"
   class="space-y-3">
   <input type="hidden" name="route" value="{{ key }}">
@@ -45,6 +46,7 @@
     {% else %}
     {{ primary_button("Execute", "submit", "data-write") }}
     {{ action("Load test this", load_test_this) }}
+    {% if dry_path %}{{ action("Dry path", dry_path) }}{% endif %}
     {% endif %}
   </div>
 </form>

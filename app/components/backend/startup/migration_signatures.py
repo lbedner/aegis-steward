@@ -34,6 +34,8 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     "auth_rbac": ("column", "user", "role"),
     "auth_tokens": ("table", "refresh_token"),
     "blog": ("table", "blog_post"),
+    # The database component's own: the statements Overseer's Query keeps.
+    "database": ("table", "saved_query"),
     "documents": ("table", "document"),
     "document_filename": ("column", "document", "filename"),
     "tax_documents": ("column", "document", "tax_year"),
@@ -47,6 +49,7 @@ SERVICE_MIGRATION_SIGNATURES: dict[str, tuple[str, ...]] = {
     # startup on every install, which is exactly the habit #163 removes.
     # Existing databases adopt it here instead of replaying the DDL.
     "job_execution": ("table", "job_execution"),
+    "job_execution_log": ("column", "job_execution", "log"),
     # Widens ck_document_kind; adds no table or column.
     "document_schedule": ("check", "document", "ck_document_kind", "schedule"),
     # Widens the provider and import-source checks; adds no table or column.

@@ -4,8 +4,13 @@
    re-executes swapped <script> tags. Behaviour that needs JS is registered
    once, on this file's load, and keyed off DOM events. */
 
-// Toasts (pattern 6). A route sets `HX-Trigger: {"toast": {"text", "tone"}}`;
-// htmx raises a `toast` DOM event; the region in base.html pushes it here.
+// The browser's time zone, for the pages that show times of day (the
+// meeting calendar): the server reads it from this cookie (viewer_zone()).
+document.cookie = 'tz=' + Intl.DateTimeFormat().resolvedOptions().timeZone + '; path=/; max-age=31536000; samesite=lax';
+
+// Toasts. A route sets `HX-Trigger: {"toast": {"text", "tone"}}` (see
+// with_toast() in rendering.py); htmx raises a `toast` DOM event; the
+// region in base.html pushes it here.
 document.addEventListener('alpine:init', () => {
   Alpine.data('toasts', () => ({
     items: [],
@@ -147,7 +152,7 @@ function localTime(iso, now = new Date()) {
 
 document.body.addEventListener('htmx:load', (event) => {
   event.detail.elt.querySelectorAll?.('time[data-local]').forEach((el) => {
-    el.textContent = localTime(el.getAttribute('datetime'));
+    el.textContent = localTime(el.dateTime);
   });
 });
 
@@ -195,13 +200,66 @@ document.addEventListener('click', (event) => {
   );
 });
 
+// Tabs within a view (layout.html's ``tabbed``): a tab shows its panel and
+// hides the others. The one picked is remembered by the tabs' name, so a
+// view that re-reads itself (a meeting while the bot is in) keeps it.
+const pickedTabs = {};
+function showTab(tabs, key) {
+  pickedTabs[tabs.dataset.tabs] = key;
+  for (const tab of tabs.querySelectorAll(':scope > [role="tablist"] [data-tab]')) {
+    tab.setAttribute('aria-selected', String(tab.dataset.tab === key));
+  }
+  for (const panel of tabs.querySelectorAll(':scope > [data-tab-panel]')) {
+    panel.hidden = panel.dataset.tabPanel !== key;
+  }
+}
+document.addEventListener('click', (event) => {
+  const tab = event.target.closest('[data-tab]');
+  if (tab) showTab(tab.closest('[data-tabs]'), tab.dataset.tab);
+});
+document.body.addEventListener('htmx:load', (event) => {
+  const root = event.detail.elt;
+  if (!root.querySelectorAll) return;
+  const all = [...(root.matches('[data-tabs]') ? [root] : []), ...root.querySelectorAll('[data-tabs]')];
+  for (const tabs of all) {
+    const picked = pickedTabs[tabs.dataset.tabs];
+    if (picked && tabs.querySelector(`:scope > [data-tab-panel="${picked}"]`)) showTab(tabs, picked);
+  }
+});
+// A fold (``<details data-fold="name">``) remembers whether it was opened or
+// closed, by name, so a block that re-sends itself (the worker's queues over
+// SSE) keeps what was folded. ``toggle`` does not bubble: caught on the way down.
+const folds = {};
+document.addEventListener('toggle', (event) => {
+  const fold = event.target;
+  if (fold.matches?.('details[data-fold]')) folds[fold.dataset.fold] = fold.open;
+}, true);
+document.body.addEventListener('htmx:load', (event) => {
+  const root = event.detail.elt;
+  if (!root.querySelectorAll) return;
+  for (const fold of root.querySelectorAll('details[data-fold]')) {
+    if (fold.dataset.fold in folds) fold.open = folds[fold.dataset.fold];
+  }
+});
+// Something in a hidden panel is shown before it is reached: a note's
+// line in the transcript, a ``data-scroll-to`` target, a search hit.
+function revealTab(target) {
+  const panel = target?.closest('[data-tab-panel]');
+  if (panel?.hidden) showTab(panel.parentElement, panel.dataset.tabPanel);
+}
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('a[href^="#"]');
+  if (link && link.hash.length > 1) revealTab(document.getElementById(link.hash.slice(1)));
+});
+
 // Any ``data-scroll-to`` button brings the element its selector names into
 // view (a list's first or last row), scrolling only what it must.
 document.addEventListener('click', (event) => {
   const button = event.target.closest('[data-scroll-to]');
   if (!button) return;
-  document.querySelector(button.dataset.scrollTo)
-    ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  const target = document.querySelector(button.dataset.scrollTo);
+  revealTab(target);
+  target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 });
 
 // Server and network failures never swap (see the htmx-config
@@ -363,7 +421,13 @@ function syncDrawer(root) {
     return;
   }
   htmx.ajax('GET', url, { target: '#drawer-body', swap: 'innerHTML' })
-    .then(() => { if (!drawer.open) drawer.show(); });
+    .then(() => {
+      if (!drawer.open) drawer.show();
+      // Opened at one line (a search hit's ``data-hit``): bring it into view.
+      const hit = drawer.querySelector('[data-hit]');
+      revealTab(hit);
+      hit?.scrollIntoView({ block: 'center' });
+    });
 }
 document.body.addEventListener('htmx:load', (event) => syncDrawer(event.detail.elt));
 
@@ -539,14 +603,9 @@ window.addEventListener('pageshow', () => {
 });
 
 // A range strip (``data-range``: the Logs volume): a click on a bar narrows
-// to it (its own link), and a drag across several narrows to all of them:
-// the first bar's request, every filter it carries, with the last bar's
-// end (``data-to``), whichever way the drag ran.
-function rangeUrl(href, to) {
-  const url = new URL(href, 'http://local');
-  url.searchParams.set('to', to);
-  return url.pathname + url.search;
-}
+// its list (``data-range-of``) to the bar's time, and a drag across several
+// to all of them, whichever way it ran; "Whole window"
+// (``data-clear-range``) lets it go. The page does it: no request.
 function spanned(bars, a, b) {
   const [i, j] = [bars.indexOf(a), bars.indexOf(b)].sort((x, y) => x - y);
   return bars.slice(i, j + 1);
@@ -579,20 +638,61 @@ document.addEventListener('pointerover', (event) => {
 document.addEventListener('pointerup', () => {
   if (!drag) return;
   const covered = spanned(drag.bars, drag.first, drag.last);
+  const strip = drag.first.closest('[data-range]');
   markDrag(false);
   drag = null;
-  if (covered.length < 2) return; // a click: the bar's own link
-  const [from, to] = [covered[0], covered[covered.length - 1]];
+  if (covered.length < 2) return; // a click: the click handler's
   dragged = true;
-  htmx.ajax('GET', rangeUrl(from.getAttribute('href'), to.dataset.to), { source: from });
+  setRange(strip, covered[0].dataset.from, covered[covered.length - 1].dataset.to);
 });
 document.addEventListener('click', (event) => {
-  if (!dragged) return;
-  dragged = false;
-  if (!event.target.closest || !event.target.closest('[data-range]')) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-}, true);
+  if (dragged) {
+    // The click that ends a drag: the drag already picked the range.
+    dragged = false;
+    return;
+  }
+  if (!event.target.closest) return;
+  const bar = rangeBar(event);
+  if (bar) {
+    setRange(bar.closest('[data-range]'), bar.dataset.from, bar.dataset.to);
+    return;
+  }
+  const clear = event.target.closest('[data-clear-range]');
+  if (clear) setRange(document.getElementById(clear.dataset.clearRange), null, null);
+});
+// The range a strip picked (``data-picked-from`` and ``-to``, in ms), or null.
+function pickedRange(strip) {
+  if (!strip || strip.dataset.pickedFrom === undefined) return null;
+  return [Number(strip.dataset.pickedFrom), Number(strip.dataset.pickedTo)];
+}
+function stripOf(list) {
+  return list.id ? document.querySelector(`[data-range-of="${list.id}"]`) : null;
+}
+// Picks (or, with null, lets go of) a strip's range: its bars marked, its
+// list narrowed, the URL kept.
+function setRange(strip, from, to) {
+  if (!strip) return;
+  if (from === null) {
+    delete strip.dataset.pickedFrom;
+    delete strip.dataset.pickedTo;
+  } else {
+    strip.dataset.pickedFrom = from;
+    strip.dataset.pickedTo = to;
+  }
+  const range = pickedRange(strip);
+  strip.querySelectorAll('[data-to]').forEach((bar) => {
+    const middle = Math.floor((Number(bar.dataset.from) + Number(bar.dataset.to)) / 2);
+    bar.toggleAttribute('aria-current', range !== null && range[0] <= middle && middle < range[1]);
+  });
+  document.querySelectorAll(`[data-clear-range="${strip.id}"]`).forEach((button) => {
+    button.hidden = range === null;
+  });
+  const list = document.getElementById(strip.dataset.rangeOf);
+  if (!list) return;
+  showRows(list, [...list.children]);
+  keepFacetsInUrl(list);
+  queueScreen();
+}
 
 // The bars behind what is on screen: a strip that names a list
 // (``data-range-of``, its rows' times in ``data-at``) marks the bars from
@@ -615,7 +715,8 @@ const screenWatch = typeof IntersectionObserver === 'undefined' ? null : new Int
 function watchedLists() {
   const ranged = [...document.querySelectorAll('[data-range-of]')].map((strip) => document.getElementById(strip.dataset.rangeOf));
   const searched = [...document.querySelectorAll('input[data-filter]')].map((input) => document.querySelector(input.dataset.filter));
-  return [...new Set([...ranged, ...searched].filter(Boolean))];
+  const faceted = [...document.querySelectorAll('form[data-facets]')].map((form) => document.querySelector(form.dataset.facets));
+  return [...new Set([...ranged, ...searched, ...faceted].filter(Boolean))];
 }
 // Each list is watched once, and then only the rows that arrive (a stream's
 // batch) are: nothing re-walks a list that only grows.
@@ -626,7 +727,7 @@ const rowsAdded = typeof MutationObserver === 'undefined' ? null : new MutationO
     rows.forEach((row) => {
       screenWatch?.observe(row);
     });
-    filterRows(rows, searchOf(record.target));
+    showRows(record.target, rows);
   });
   queueScreen();
 });
@@ -636,7 +737,8 @@ function watchLists() {
     watched.add(list);
     for (const row of list.children) screenWatch?.observe(row);
     rowsAdded?.observe(list, { childList: true });
-    filterRows([...list.children], searchOf(list));
+    showRows(list, [...list.children]);
+    recount(list);
   });
 }
 function rowsOnScreen(list) {
@@ -753,11 +855,19 @@ function keepInUrl(input, query) {
 function searchOf(list) {
   return [...document.querySelectorAll('input[data-filter]')].find((input) => list.matches(input.dataset.filter));
 }
-// ``rows`` shown or hidden by ``input``'s text, touching only those that change.
-function filterRows(rows, input) {
+// ``rows`` shown or hidden by everything over ``list``: its search's text,
+// its filters (``data-facets``) and its strip's picked range, touching only
+// those that change. A row with no time is outside any range.
+function showRows(list, rows) {
+  const input = searchOf(list);
   const needle = input ? input.value.trim().toLowerCase() : '';
+  const groups = groupsOf(facetsOf(list));
+  const range = pickedRange(stripOf(list));
   rows.forEach((row) => {
-    const hide = Boolean(needle) && !textOf(row).includes(needle);
+    const at = Number(row.dataset.at);
+    const hide = (Boolean(needle) && !textOf(row).includes(needle))
+      || !facetsKeep(row, groups)
+      || (range !== null && !(at >= range[0] && at < range[1]));
     if (row.hidden !== hide) row.hidden = hide;
   });
 }
@@ -770,17 +880,122 @@ document.addEventListener('input', (event) => {
   filterFrame = requestAnimationFrame(() => {
     const list = document.querySelector(input.dataset.filter);
     if (!list) return;
-    filterRows([...list.children], input);
+    showRows(list, [...list.children]);
     keepInUrl(input, input.value.trim());
     queueScreen();
   });
 });
 
+// The filters over a list (``data-facets``: a form naming it, the Logs
+// page's): only the window asks the server; everything else narrows the
+// rows already here, new ones included (``showRows``), with no request.
+// Each checklist (``data-checklist``) keeps a row any of its ticks match
+// (``data-facet-<name>`` on the row: a level, a service, a container); an
+// empty one keeps every row; every one must keep it. ``kept`` is that rule
+// on a row's values (``of(name)``).
+function kept(groups, of) {
+  return groups.every((ticks) => ticks.some(([name, value]) => of(name) === value));
+}
+function facetsOf(list) {
+  return [...document.querySelectorAll('form[data-facets]')].find((form) => list.matches(form.dataset.facets));
+}
+function groupsOf(form) {
+  if (!form) return [];
+  return [...form.querySelectorAll('[data-checklist]')]
+    .map((checklist) => [...checklist.querySelectorAll('input[type=checkbox]:checked:not([data-exclude])')].map((box) => [box.name, box.value]))
+    .filter((ticks) => ticks.length);
+}
+function facetsKeep(row, groups) {
+  return kept(groups, (name) => row.getAttribute(`data-facet-${name}`));
+}
+// ``ui_logs._volume``'s twin: each bar's rows by tone (warn, error, the
+// rest); a row before the first bar is left out, one after the last lands
+// in it.
+function volumeOf(bars, rows) {
+  const counts = bars.map(() => ({ error: 0, warn: 0, other: 0, total: 0 }));
+  if (!bars.length) return counts;
+  rows.forEach(({ at, tone }) => {
+    if (!(at >= bars[0].from)) return;
+    const found = bars.findIndex((bar) => at < bar.to);
+    const count = counts[found === -1 ? bars.length - 1 : found];
+    count[tone === 'error' || tone === 'warn' ? tone : 'other'] += 1;
+    count.total += 1;
+  });
+  return counts;
+}
+// A list's strip recounted over the rows its filters keep (not its search
+// or range, as the server counts), each tone's height against the tallest
+// bar.
+function recount(list) {
+  const strip = stripOf(list);
+  if (!strip) return;
+  const groups = groupsOf(facetsOf(list));
+  const bars = [...strip.querySelectorAll('[data-to]')];
+  const rows = [...list.children]
+    .filter((row) => facetsKeep(row, groups))
+    .map((row) => ({ at: Number(row.dataset.at), tone: row.dataset.tone || '' }));
+  const counts = volumeOf(bars.map((bar) => ({ from: Number(bar.dataset.from), to: Number(bar.dataset.to) })), rows);
+  const peak = Math.max(1, ...counts.map((count) => count.total));
+  bars.forEach((bar, i) => {
+    bar.querySelectorAll('[data-tone]').forEach((span) => {
+      const n = counts[i][span.dataset.tone === 'muted' ? 'other' : span.dataset.tone];
+      span.dataset.count = String(n);
+      span.style.height = `${Math.round((n / peak) * 1000) / 10}%`;
+    });
+    bar.title = `${bar.dataset.label} · ${counts[i].total} lines`;
+  });
+}
+// The order flips the rows in place, the end new ones join at, and the end
+// the scroller keeps in view.
+function reorder(list, order) {
+  const newest = order === 'desc';
+  if ((list.getAttribute('hx-swap') === 'afterbegin') === newest) return;
+  list.append(...[...list.children].reverse());
+  list.setAttribute('hx-swap', newest ? 'afterbegin' : 'beforeend');
+  const scroller = list.closest('[data-scroll]');
+  scroller?.classList.toggle('flex-col', newest);
+  scroller?.classList.toggle('flex-col-reverse', !newest);
+}
+// The filters ride in the URL, as the search does, so a reload or a shared
+// link opens the page as it was left.
+function keepFacetsInUrl(list) {
+  const url = new URL(window.location.href);
+  const form = facetsOf(list);
+  if (form) {
+    const fields = [...form.elements].filter((el) => el.name && el.name !== 'window' && !el.matches('[data-filter]'));
+    new Set(fields.map((el) => el.name)).forEach((name) => {
+      url.searchParams.delete(name);
+    });
+    fields.forEach((el) => {
+      if (el.type === 'checkbox' ? el.checked : el.value) url.searchParams.append(el.name, el.value);
+    });
+  }
+  const range = pickedRange(stripOf(list));
+  ['from', 'to'].forEach((key, i) => {
+    if (range) url.searchParams.set(key, String(range[i]));
+    else url.searchParams.delete(key);
+  });
+  window.history.replaceState(window.history.state, '', url);
+}
+document.addEventListener('change', (event) => {
+  const form = event.target.closest && event.target.closest('form[data-facets]');
+  if (!form || event.target.name === 'window' || event.target.matches('[data-filter]')) return;
+  const list = document.querySelector(form.dataset.facets);
+  if (!list) return;
+  if (event.target.name === 'order') reorder(list, event.target.value);
+  showRows(list, [...list.children]);
+  recount(list);
+  keepFacetsInUrl(list);
+  queueScreen();
+});
+
+// The dismissal rules, for the node tests (tests/web/test_app_js.py).
 // The map (_overview_map.html): hovering a node keeps it, its lines and the
 // nodes they join lit, and dims the rest, so "who uses the Database" reads
-// at a glance; a click pins it while the pointer moves on, and Escape or a
-// click on the empty canvas lets it go. Kept on the stream's wrapper
+// at a glance; leaving it (the window too) lets it go. Kept on the stream's wrapper
 // (#overview-stack, outside what each frame swaps), so a live frame keeps it.
+// A route's dry path arrives as ``data-lit`` there (``?lit=``): its parts
+// stay lit, and the lines between two of them, while no node is hovered.
 function mapFocus(lines, key) {
   const lit = new Set([key]);
   lines.forEach(({ from, to }) => {
@@ -789,17 +1004,23 @@ function mapFocus(lines, key) {
   });
   return lit;
 }
+function pathFocus(keys) {
+  return new Set(keys.split(','));
+}
 function applyMapFocus(root) {
   const map = root && root.querySelector('[data-map]');
   if (!map) return;
-  const key = root.dataset.pinned || root.dataset.hover;
+  const key = root.dataset.hover;
   const lines = [...map.querySelectorAll('path[data-link]')];
-  const lit = key ? mapFocus(lines.map((line) => line.dataset), key) : new Set();
+  const path = !key && root.dataset.lit ? pathFocus(root.dataset.lit) : null;
+  const lit = key ? mapFocus(lines.map((line) => line.dataset), key) : path || new Set();
   lines.forEach((line) => {
-    line.toggleAttribute('data-dim', Boolean(key) && line.dataset.from !== key && line.dataset.to !== key);
+    const { from, to } = line.dataset;
+    const kept = path ? lit.has(from) && lit.has(to) : from === key || to === key;
+    line.toggleAttribute('data-dim', Boolean(key || path) && !kept);
   });
   map.querySelectorAll('[data-node]').forEach((node) => {
-    node.toggleAttribute('data-dim', Boolean(key) && !lit.has(node.dataset.node));
+    node.toggleAttribute('data-dim', Boolean(key || path) && !lit.has(node.dataset.node));
   });
 }
 document.addEventListener('mouseover', (event) => {
@@ -812,26 +1033,19 @@ document.addEventListener('mouseover', (event) => {
   else delete root.dataset.hover;
   applyMapFocus(root);
 });
-document.addEventListener('click', (event) => {
+// Out of the window straight from a node: no mouseover follows to clear it.
+document.addEventListener('mouseout', (event) => {
   const root = document.getElementById('overview-stack');
-  if (!root || !event.target.closest || !event.target.closest('[data-map]') || event.target.closest('a')) return;
-  const node = event.target.closest('[data-map] [data-node]');
-  if (node) root.dataset.pinned = node.dataset.node;
-  else delete root.dataset.pinned;
+  if (event.relatedTarget || !root || !root.dataset.hover) return;
+  delete root.dataset.hover;
   applyMapFocus(root);
 });
-document.addEventListener('keydown', (event) => {
-  const root = document.getElementById('overview-stack');
-  if (event.key !== 'Escape' || !root || !root.dataset.pinned) return;
-  delete root.dataset.pinned;
-  applyMapFocus(root);
-});
-document.body.addEventListener('htmx:afterSwap', () => {
+document.body.addEventListener('htmx:load', () => {
   applyMapFocus(document.getElementById('overview-stack'));
 });
 
 // For the node tests (tests/web/test_app_js.py).
-if (typeof module !== 'undefined') module.exports = { outsideClick, dismiss, navigates, markCurrent, rangeUrl, spanned, inView, splitMatches, mapFocus, sourceColumn, localTime };
+if (typeof module !== 'undefined') module.exports = { placeDropdown, revealTab, outsideClick, dismiss, navigates, markCurrent, spanned, inView, splitMatches, mapFocus, sourceColumn, localTime, pathFocus, kept, volumeOf };
 
 // A home-screen iPhone app's status bar wears base.html's theme-color.
 // It is read from the page's own background, so the bar follows the

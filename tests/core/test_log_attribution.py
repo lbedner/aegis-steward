@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.log_records import LogAssembler
 from app.core.runtime import parse_log_line
 from app.services.system.errors.normalize import normalize
+from tests import _code as code
 
 
 @pytest.fixture(autouse=True)
@@ -49,9 +50,7 @@ def output(
 
 
 def function_at(path: str, body: str) -> Callable[[], Any]:
-    namespace: dict[str, Any] = {"logger": log.logger}
-    exec(compile("def run():\n" + body, path, "exec"), namespace)
-    return namespace["run"]
+    return code.function_at(path, body, logger=log.logger)
 
 
 def retained(output: StringIO) -> Any:
@@ -155,7 +154,7 @@ def test_standard_library_logging_is_also_attributed(output: StringIO) -> None:
         ("/code/app/services/ai/chat.py", "ai"),
         ("app/services/new_service/operations.py", "new_service"),
         (r"C:\project\app\services\auth\session.py", "auth"),
-        ("/code/app/components/backend/api/ai/chat.py", None),
+        ("/code/app/components/backend/api/ai/chat.py", "ai"),
         ("/code/vendor/services/ai/chat.py", None),
         ("/code/app/services.py", None),
         ("/code/app/services/../core.py", None),
@@ -166,6 +165,51 @@ def test_service_path_convention(path: str, expected: str | None) -> None:
     from app.core.log_attribution import service_from_path
 
     assert service_from_path(path) == expected
+
+
+def test_a_component_frame_names_its_component(output: StringIO) -> None:
+    """Kept apart from the service: a component's own error groups as it
+    always did."""
+    fails = function_at(
+        "/code/app/components/worker/pools.py",
+        '    raise RuntimeError("enqueue failed")\n',
+    )
+    try:
+        fails()
+    except RuntimeError:
+        log.logger.exception("Enqueue failed")
+    occurrence = retained(output)
+    assert occurrence.app_component == "worker"
+    assert occurrence.app_service is None
+
+
+def test_naming_the_component_leaves_a_services_grouping_alone(
+    output: StringIO,
+) -> None:
+    """A service failing under a component names both, and groups by the
+    service alone, as it did before components were named."""
+    from app.services.system.errors.fingerprint import fingerprint
+
+    fails = function_at(
+        "/code/app/services/ai/provider.py", '    raise RuntimeError("failed")\n'
+    )
+    caller = function_at("/code/app/components/worker/tasks.py", "    fails()\n")
+    caller.__globals__["fails"] = fails
+    try:
+        caller()
+    except RuntimeError:
+        log.logger.exception("Task failed")
+    found = retained(output)
+    assert (found.app_service, found.app_component) == ("ai", "worker")
+    assert found.fingerprint == fingerprint(
+        found.service,
+        found.page,
+        found.exception_type,
+        found.traceback,
+        found.logger,
+        found.message,
+        "ai",
+    )
 
 
 def test_exception_tuple_and_suppressed_context() -> None:

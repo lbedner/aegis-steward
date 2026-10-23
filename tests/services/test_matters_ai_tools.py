@@ -9,14 +9,14 @@ from datetime import timedelta
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.services.ai.domains.chat.tools import registered_tool_names
+from app.core.tools import registered_tool_names
 from app.services.finance.service import FinanceService
 from app.services.finance.utils import current_date
-import app.services.matters.ai_tools as ai_tools
 from app.services.matters.facts import FactService
 from app.services.matters.matters import MatterService
 from app.services.matters.requests import RequestService
 from app.services.matters.service import PartyService
+import app.services.matters.tools as ai_tools
 from tests._session import opens
 
 EXPECTED_TOOLS = {"parties", "matters", "requests", "facts"}
@@ -159,7 +159,7 @@ class TestWhoseMoneyThroughIlliana:
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import app.services.finance.ai_account_tools as account_tools
-        import app.services.finance.ai_tools as finance_tools
+        import app.services.finance.tools as finance_tools
 
         monkeypatch.setattr(finance_tools, "get_async_session", opens(async_db_session))
         monkeypatch.setattr(account_tools, "get_async_session", opens(async_db_session))

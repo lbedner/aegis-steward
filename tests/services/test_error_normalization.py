@@ -41,6 +41,27 @@ def test_plain_stderr_and_error_words_are_not_errors(fields: dict[str, str]) -> 
     assert normalized(event("error rate is zero", **fields)) is None
 
 
+def test_a_console_error_groups_as_its_json_twin() -> None:
+    """The development console prints a line's logger and pairs after its
+    message; read as fields, they leave the message as the JSON line's."""
+    assembly = LogAssembler()
+    assembly.feed(
+        "container-id",
+        parse_log_line(
+            # Docker's time, then the line as printed.
+            "2026-10-22T13:24:24.330106000Z"
+            " 2026-10-22T13:24:24.330106Z [error    ] failed   [app.pay] order=7",
+            "stderr",
+        ),
+        now=0,
+    )
+    console = normalized(assembly.flush()[0])
+    twin = normalized(event("failed", level="error", logger="app.pay", order=7))
+    assert console is not None and twin is not None
+    assert (console.message, console.logger) == ("failed", "app.pay")
+    assert console.fingerprint == twin.fingerprint
+
+
 def test_message_only_error_has_no_invented_trace() -> None:
     result = normalized(event("failed", level="error"))
     assert (
@@ -228,3 +249,19 @@ def test_free_text_hides_credentials(raw: str, kept: str, gone: str) -> None:
     from app.services.system.errors.redact import text
 
     assert kept in text(raw) and gone not in text(raw)
+
+
+def test_redaction_knows_the_secret_names_a_column_does() -> None:
+    """One list with what Overseer hides in a table (``db_rows.masked``):
+    a private key, a one-time code, a salt, each a whole part of a name."""
+    from app.services.system.errors import redact
+
+    found = redact.clean(
+        {"private_key": "pk", "otp": "1", "salt": "s", "footprint": "ok"}
+    )
+    assert found == {
+        "private_key": "[redacted]",
+        "otp": "[redacted]",
+        "salt": "[redacted]",
+        "footprint": "ok",
+    }

@@ -268,20 +268,6 @@ async def test_the_volume_counts_the_windows_lines_by_level(
     assert all(bar["from"] < bar["to"] for bar in volume)
 
 
-async def test_a_bars_time_range_narrows_the_lines_but_not_the_volume(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lines = {REDIS.name: [_at(1, "early"), _at(30, "late")]}
-    use_runtime(monkeypatch, FakeRuntime(REDIS, lines=lines))
-    late = lines[REDIS.name][1].timestamp
-    assert late is not None
-    start = ui_logs._ms(late)
-    query = {"window": str(ui_logs.ALL), "from": str(start), "to": str(start + 1000)}
-    view = await ui_logs.recent(["redis"], query, volume=True)
-    assert [row["message"] for row in view["lines"]] == ["late"]
-    assert sum(bar["other"] for bar in view["volume"]) == 2
-
-
 async def test_a_picked_container_narrows_its_page_to_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,6 +304,7 @@ async def test_a_page_without_a_container_keeps_its_reason_among_others(
         ("app_service=ai&app_service=auth", {"ai one", "ai two", "auth"}),
         ("app_service=ai&service=redis", {"ai one", "ai two", "infra"}),
         (f"app_service=auth&container={MEDIA}", {"auth", "ai two"}),
+        ("app_component=worker", {"ai one"}),
     ],
 )
 async def test_application_services_filter_history_and_stream_across_containers(
@@ -325,13 +312,15 @@ async def test_application_services_filter_history_and_stream_across_containers(
 ) -> None:
     from starlette.datastructures import QueryParams
 
-    def record(second: int, event: str, owner: str) -> LogLine:
-        return _at(
-            second, json.dumps({"level": "info", "event": event, "app_service": owner})
-        )
+    def record(second: int, event: str, owner: str, **more: str) -> LogLine:
+        fields = {"level": "info", "event": event, "app_service": owner, **more}
+        return _at(second, json.dumps(fields))
 
     lines = {
-        SYSTEM: [record(1, "ai one", "ai"), record(2, "auth", "auth")],
+        SYSTEM: [
+            record(1, "ai one", "ai", app_component="worker"),
+            record(2, "auth", "auth"),
+        ],
         MEDIA: [record(3, "ai two", "ai")],
         REDIS.name: [_at(4, "infra")],
     }

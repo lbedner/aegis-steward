@@ -5,7 +5,8 @@ Flet alike.
 metadata service at 169.254.169.254, which every one of them answers on the
 server itself and nowhere else. Asked once per process (a server does not
 move); nothing answering is ``Local`` before any deploy (wearing the
-mark of the OS ``make serve`` named), ``Self-hosted`` after. ``deploys_to()``: where this project deploys to, from ``aegis
+mark of the OS ``make serve`` named), ``Self-hosted`` after.
+``deploys_to()``: where this project deploys to, from ``aegis
 deploy-provision``'s record in ``.aegis/deploy.yml``, which stays on the
 machine you deploy from (it is never synced to the server). ``providers()``:
 the providers ``aegis`` knows, and what it can do on each, from

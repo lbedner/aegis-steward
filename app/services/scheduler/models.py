@@ -76,6 +76,8 @@ class JobExecution(SQLModel, table=True):
     traceback: str | None = SQLField(
         default=None, sa_column=Column(Text, nullable=True)
     )
+    # What the run logged (``run_log``), copied here when it finished.
+    log: str | None = SQLField(default=None, sa_column=Column(Text, nullable=True))
 
 
 # ============================================================================

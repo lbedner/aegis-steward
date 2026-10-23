@@ -123,6 +123,14 @@ EXAMPLES: dict[str, dict[str, str]] = {
               {{ menu_item("Retry", on_click) }}
               {{ menu_item("Delete", "", danger=True) }}
             {% endcall %}""",
+        "menu_heading": """
+            {% set on_click %}@click="$dispatch('toast', { text: 'Clicked', tone: 'ok' })"{% endset %}
+            {% call dropdown("Export", align="left") %}
+              {{ menu_heading("Download", "arrow-down-tray") }}
+              {{ menu_item("CSV", on_click) }}
+              {{ menu_heading("Copy", "copy") }}
+              {{ menu_item("Markdown", on_click) }}
+            {% endcall %}""",
         "dropdown": """
             {% set on_click %}@click="$dispatch('toast', { text: 'Clicked', tone: 'ok' })"{% endset %}
             {% call dropdown("Actions", align="left") %}
@@ -148,6 +156,12 @@ EXAMPLES: dict[str, dict[str, str]] = {
               {"label": "Running", "value": "48"},
               {"label": "Done", "value": "18,420", "tone": "ok"},
             ]) }}""",
+        "chart_dot": """
+            <span class="inline-flex items-center gap-4 text-sm">
+              <span class="inline-flex items-center gap-2">{{ chart_dot(1) }} Ada</span>
+              <span class="inline-flex items-center gap-2">{{ chart_dot(4) }} Grace</span>
+              <span class="inline-flex items-center gap-2">{{ chart_dot(7) }} Linus</span>
+            </span>""",
         "ranked_rows": """
             {{ ranked_rows([
               {"label": "load_test", "count": "3 workers", "value": "1,204", "ratio": 1.0},
@@ -163,12 +177,18 @@ EXAMPLES: dict[str, dict[str, str]] = {
               {{ tab_item("Overview", href="#macro-tab_item") }}
               {{ tab_item("History", active=True, href="#macro-tab_item") }}
             {% endcall %}""",
+        "hint_panel": """
+            <span class="group relative inline-block">
+              <span class="text-sm underline decoration-dotted">Hover me</span>
+              {% call hint_panel("", "left-0 top-full pt-1.5 group-hover:block") %}Shown on hover by CSS alone, so a live frame cannot close it.{% endcall %}
+            </span>""",
         "chip": """
             <div class="flex gap-1.5">
               {{ chip("1h", href="#macro-chip") }}
               {{ chip("24h", active=True, href="#macro-chip") }}
               {{ chip("7d", href="#macro-chip") }}
             </div>""",
+        "lazy": """{{ lazy("/partials/overseer/runs/abc123/log", 'data-run-log-of="abc123"', "Loading…") }}""",
         "copy_button": """{{ copy_button("redis://localhost:6379/0") }}""",
         "brand": """{{ brand("Steward") }}""",
         "nav_item": """

@@ -175,9 +175,32 @@ class TestOverview:
         assert "40" in strip  # waiting
         assert "90.9%" in strip  # 100 of 110 finished succeeded
 
-    def test_a_card_per_queue(self, signed_in: TestClient) -> None:
+    def test_a_card_per_queue_the_failing_one_first(
+        self, signed_in: TestClient
+    ) -> None:
+        """A queue that is failing is the one to look at, so it leads
+        whatever order the queues were declared in."""
         cards = select(_get(signed_in), "#worker-queues [data-queue]")
-        assert [c.get("data-queue") for c in cards] == ["system", "load_test"]
+        assert [c.get("data-queue") for c in cards] == ["load_test", "system"]
+
+    def test_a_failing_queue_is_marked_on_the_whole_card(
+        self, signed_in: TestClient
+    ) -> None:
+        html = _get(signed_in)
+        failing = one(html, '#worker-queues [data-queue="load_test"]')
+        fine = one(html, '#worker-queues [data-queue="system"]')
+        assert failing.get("data-tone") == "error"
+        assert "tone-border" in failing.get("class", "")
+        assert fine.get("data-tone") != "error"
+
+    def test_a_queue_folds_to_its_header(self, signed_in: TestClient) -> None:
+        """Each card is a fold, open to start, named so the page keeps
+        what was folded when the queues re-send themselves."""
+        card = one(_get(signed_in), '#worker-queues [data-queue="system"]')
+        assert card.tag == "details"
+        assert card.get("open") is not None
+        assert card.get("data-fold") == "worker-queue:system"
+        assert "system" in text(one(card, "summary"))
 
     def test_slots_show_how_full_a_queue_is(self, signed_in: TestClient) -> None:
         card = one(_get(signed_in), '#worker-queues [data-queue="system"]')
@@ -186,7 +209,9 @@ class TestOverview:
         assert len(select(card, '.worker-slot[data-busy="true"]')) == 4
         assert "4 of 10 slots taken" in text(card)
         # A slot is a started job, not a running core: said where it shows.
-        assert "one at a time per process" in one(card, ".worker-stage__note[title]").get("title")
+        assert "one at a time per process" in one(
+            card, ".worker-stage__note[title]"
+        ).get("title")
 
     def test_waiting_jobs_pile_up_as_blocks(self, signed_in: TestClient) -> None:
         card = one(_get(signed_in), '#worker-queues [data-queue="system"]')
@@ -248,8 +273,9 @@ class TestOverview:
         card = one(_get(signed_in), "#worker-distribution")
         waiting = select(card, '[data-bar="backlog"] [data-share]')
         finished = select(card, '[data-bar="work"] [data-share]')
-        assert [s.get("data-share") for s in waiting] == ["75", "25"]
-        assert [s.get("data-share") for s in finished] == ["82", "18"]
+        # In the cards' order: the failing load_test queue first.
+        assert [s.get("data-share") for s in waiting] == ["25", "75"]
+        assert [s.get("data-share") for s in finished] == ["18", "82"]
 
     def test_the_queues_stream_themselves(self, signed_in: TestClient) -> None:
         live = one(_get(signed_in), "#worker-live")
@@ -349,6 +375,14 @@ class TestTasks:
         detail = text(one(html, "tr[data-detail]"))
         assert "Redis timed out" in detail and "abc123" in detail
 
+    def test_a_task_opens_into_its_log(self, signed_in: TestClient) -> None:
+        """The task is a run of its own id (``run_log``): the row loads the
+        run's log once opened."""
+        html = _get(signed_in, "tasks")
+        loader = one(html, "tr[data-detail] [data-run-log-of='abc123']")
+        assert loader.get("hx-get") == "/partials/overseer/runs/abc123/log"
+        assert loader.get("hx-trigger") == "intersect once"
+
     def test_filters_by_queue_and_status(
         self, signed_in: TestClient, seen: dict[str, Any]
     ) -> None:
@@ -416,8 +450,18 @@ class TestReportedCapacity:
         """Two processes on a queue are two rows of slots, each lit by the
         jobs that process is running, whatever the backend."""
         two = [
-            {"worker": "a1b2:96", "queue": "load_test", "concurrency": "3", "busy": "2"},
-            {"worker": "a1b2:97", "queue": "load_test", "concurrency": "3", "busy": "1"},
+            {
+                "worker": "a1b2:96",
+                "queue": "load_test",
+                "concurrency": "3",
+                "busy": "2",
+            },
+            {
+                "worker": "a1b2:97",
+                "queue": "load_test",
+                "concurrency": "3",
+                "busy": "1",
+            },
         ]
 
         async def reports() -> list[dict[str, str]]:
@@ -429,7 +473,10 @@ class TestReportedCapacity:
 
         assert [r.get("data-process") for r in rows] == ["a1b2:96", "a1b2:97"]
         assert [len(select(r, ".worker-slot")) for r in rows] == [3, 3]
-        assert [len(select(r, '.worker-slot[data-busy="true"]')) for r in rows] == [2, 1]
+        assert [len(select(r, '.worker-slot[data-busy="true"]')) for r in rows] == [
+            2,
+            1,
+        ]
 
     def test_the_overview_counts_what_the_workers_really_hold(
         self, signed_in: TestClient
@@ -452,5 +499,6 @@ class TestLifecycle:
     def test_the_first_queue_by_default(
         self, signed_in: TestClient, seen: dict[str, Any]
     ) -> None:
+        """The first as the overview orders them: the failing one."""
         _get(signed_in, "lifecycle")
-        assert seen["lifecycle"] == "system"
+        assert seen["lifecycle"] == "load_test"

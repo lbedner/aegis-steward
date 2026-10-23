@@ -1,7 +1,6 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-import secrets
 
 import flet.fastapi as flet_fastapi
 
@@ -17,17 +16,17 @@ except ImportError:  # observability component not installed
 else:
     install_auto_tracing("app.components.frontend")
 
-from fastapi import Depends, FastAPI, HTTPException  # noqa: E402
+from fastapi import Depends, FastAPI  # noqa: E402
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html  # noqa: E402
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 from fastapi.responses import HTMLResponse  # noqa: E402
-from fastapi.security import HTTPBasic, HTTPBasicCredentials  # noqa: E402
 
 from app.components.backend.hooks import backend_hooks  # noqa: E402
 from app.components.backend.main import create_backend_app  # noqa: E402
 from app.components.backend.middleware.paste_capture import (  # noqa: E402
     PasteCaptureMiddleware,
 )
+from app.components.backend.security.operator_auth import require_operator  # noqa: E402
 from app.components.backend.security.trusted_proxies import (  # noqa: E402
     TrustedProxyMiddleware,
 )
@@ -40,39 +39,6 @@ from app.components.web_frontend.main import (  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.core.constants import dashboard_upload_dir  # noqa: E402
 from app.core.log import logger, setup_logging  # noqa: E402
-
-_docs_security = HTTPBasic(auto_error=False)
-
-
-def require_docs_auth(
-    credentials: HTTPBasicCredentials | None = Depends(_docs_security),
-) -> None:
-    """Gate for OpenAPI docs endpoints.
-
-    Unset creds -> open in dev (DX), 404 elsewhere (fail-closed).
-    Set creds -> HTTP Basic required, constant-time compared.
-    """
-    expected_user = settings.DOCS_USERNAME
-    expected_pass = settings.DOCS_PASSWORD
-
-    if not expected_user or not expected_pass:
-        if settings.APP_ENV == "dev":
-            return
-        raise HTTPException(status_code=404)
-
-    if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            headers={"WWW-Authenticate": "Basic"},
-        )
-
-    user_ok = secrets.compare_digest(credentials.username, expected_user)
-    pass_ok = secrets.compare_digest(credentials.password, expected_pass)
-    if not (user_ok and pass_ok):
-        raise HTTPException(
-            status_code=401,
-            headers={"WWW-Authenticate": "Basic"},
-        )
 
 
 @asynccontextmanager
@@ -97,6 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     await backend_hooks.execute_startup_hooks()
 
     logger.info("--- Application startup complete ---")
+
     yield
 
     # --- SHUTDOWN ---
@@ -124,18 +91,18 @@ def create_integrated_app() -> FastAPI:
     )
 
     @app.get("/openapi.json", include_in_schema=False)
-    def _openapi_json(_: None = Depends(require_docs_auth)) -> dict:
+    def _openapi_json(_: None = Depends(require_operator)) -> dict:
         return get_openapi(title=app.title, version=app.version, routes=app.routes)
 
     @app.get("/docs", include_in_schema=False)
-    def _swagger_ui(_: None = Depends(require_docs_auth)) -> HTMLResponse:
+    def _swagger_ui(_: None = Depends(require_operator)) -> HTMLResponse:
         return get_swagger_ui_html(
             openapi_url="/openapi.json",
             title=f"{app.title} - Swagger UI",
         )
 
     @app.get("/redoc", include_in_schema=False)
-    def _redoc_ui(_: None = Depends(require_docs_auth)) -> HTMLResponse:
+    def _redoc_ui(_: None = Depends(require_operator)) -> HTMLResponse:
         return get_redoc_html(
             openapi_url="/openapi.json",
             title=f"{app.title} - ReDoc",

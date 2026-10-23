@@ -158,7 +158,7 @@ class TestIllianaSeesPolicyIds:
         self, async_db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from app.services.insurance.service import InsuranceService
-        from app.services.matters import ai_tools
+        from app.services.matters import tools as ai_tools
         from app.services.matters.service import PartyService
 
         monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))

@@ -21,6 +21,7 @@ REDIS_KEYS = (
         "Each queue's waiting job ids by run time, and its health-check key",
         "arq",
         columns=("Job id", "Run at"),
+        holds="job",
     ),
     KeyFamily(
         "arq:job:*",

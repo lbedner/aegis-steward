@@ -20,6 +20,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.components.worker.pools import enqueue_task
+from app.core import edges, run_log
 from app.core.boot import apply_saved_overrides
 from app.core.config import settings
 from app.core.constants import ComponentName, QueueName
@@ -91,10 +92,27 @@ def _cleanup_stale_jobs() -> None:
 # runs land on fixed boundaries: every 24h at midnight, every 6h at 00/06/12/
 # 18, hourly on the hour, in the scheduler's timezone.
 INTERVAL_ANCHOR = datetime(2000, 1, 1)
+# Each job's run in flight, by job id, as the JobExecution row SUBMITTED
+# opened for it: closed by EXECUTED/ERROR, bound by ``scheduled_run``. One
+# per job (``max_instances=1``); one process, so no locking.
+_in_flight: dict[str, int] = {}
+
+
+async def scheduled_run(job_id: str, task_name: str) -> Any:
+    """One run of a scheduled job: its task enqueued
+    for the worker, which does the work.
+
+    Bound as the history row ``record_job_started`` opened for it, so what
+    the run logs (the hand-off, naming the task) is read from the
+    row (``run_log``).
+    """
+    execution_id = _in_flight.get(job_id)
+    with run_log.bind_run(str(execution_id) if execution_id is not None else None):
+        return await enqueue_task(task_name, QueueName.SYSTEM)
 
 
 def register_service_jobs(scheduler: AsyncIOScheduler) -> None:
-    """Schedule every service job (``service_jobs``).
+    """Schedule every service job (``service_jobs``) as a ``scheduled_run``.
 
     The scheduler only produces: each job is scheduled as an enqueue of its
     task name onto the system queue, and a worker runs it. A manual run
@@ -110,8 +128,8 @@ def register_service_jobs(scheduler: AsyncIOScheduler) -> None:
         if job.at_start:
             trigger["next_run_time"] = datetime.now(UTC)
         scheduler.add_job(
-            enqueue_task,
-            args=[job.task_name, QueueName.SYSTEM],
+            scheduled_run,
+            args=[job.id, job.task_name],
             id=job.id,
             name=job.name,
             max_instances=1,
@@ -180,34 +198,27 @@ async def run_scheduler() -> None:
 
     scheduler = create_scheduler()
 
-    # Maps an in-flight run (job_id, scheduled_run_time) to its JobExecution
-    # row id, so EXECUTED/ERROR can close the row that SUBMITTED opened. The
-    # scheduler is a single process, so a plain dict needs no locking.
-    running_executions: dict[tuple[str, str], int] = {}
-
     def _on_job_event(event: Any) -> None:
         """Emit activity events (and persist execution history) for jobs."""
         if is_heartbeat_event(event):
             return
-        # JobSubmissionEvent uses `scheduled_run_times` (list); JobExecutionEvent
-        # uses `scheduled_run_time` (singular). Normalise to a single value so
-        # the run_key matches across SUBMITTED → EXECUTED/ERROR.
+        if event.code in (EVENT_JOB_EXECUTED, EVENT_JOB_ERROR):
+            job = scheduler.get_job(event.job_id)
+            error = event.code == EVENT_JOB_ERROR
+            edges.into(job.func if job else None, source=edges.SCHEDULER, error=error)
         if event.code == EVENT_JOB_SUBMITTED:
+            # JobSubmissionEvent carries `scheduled_run_times` (a list).
             run_times = getattr(event, "scheduled_run_times", None)
-            scheduled = run_times[0] if run_times else None
-        else:
-            scheduled = getattr(event, "scheduled_run_time", None)
-        run_key = (event.job_id, scheduled.isoformat() if scheduled else "")
-        if event.code == EVENT_JOB_SUBMITTED:
             job = scheduler.get_job(event.job_id)
             execution_id = record_job_started(
                 event.job_id,
                 job.name if job else event.job_id,
-                scheduled,
+                run_times[0] if run_times else None,
             )
             if execution_id is not None:
-                running_executions[run_key] = execution_id
+                _in_flight[event.job_id] = execution_id
             return
+        execution_id = _in_flight.pop(event.job_id, None)
         if event.code == EVENT_JOB_EXECUTED:
             activity.add_event(
                 component=ComponentName.SCHEDULER,
@@ -215,11 +226,7 @@ async def run_scheduler() -> None:
                 message=f"Job '{event.job_id}' completed",
                 status="success",
             )
-            record_job_finished(
-                running_executions.pop(run_key, None),
-                event.job_id,
-                success=True,
-            )
+            record_job_finished(execution_id, event.job_id, success=True)
             prune_executions(event.job_id)
         elif event.code == EVENT_JOB_ERROR:
             activity.add_event(
@@ -230,7 +237,7 @@ async def run_scheduler() -> None:
                 details=str(event.exception),
             )
             record_job_finished(
-                running_executions.pop(run_key, None),
+                execution_id,
                 event.job_id,
                 success=False,
                 error=str(event.exception),
@@ -245,7 +252,7 @@ async def run_scheduler() -> None:
                 status="warning",
                 details=f"scheduled_run={event.scheduled_run_time.isoformat()}",
             )
-            record_job_missed(event.job_id, scheduled)
+            record_job_missed(event.job_id, event.scheduled_run_time)
 
     try:
         scheduler.start()

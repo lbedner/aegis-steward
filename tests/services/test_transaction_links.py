@@ -115,7 +115,7 @@ class TestHerReads:
     def _her_session(
         self, monkeypatch: pytest.MonkeyPatch, async_db_session: AsyncSession
     ) -> None:
-        from app.services.matters import ai_tools
+        from app.services.matters import tools as ai_tools
 
         monkeypatch.setattr(ai_tools, "get_async_session", opens(async_db_session))
 
@@ -123,7 +123,7 @@ class TestHerReads:
     async def test_a_case_says_what_it_cost(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        from app.services.matters import ai_tools
+        from app.services.matters import tools as ai_tools
 
         charge = await _charge(svc, 150_000)
         other = await _charge(svc, 30_000)
@@ -143,7 +143,7 @@ class TestHerReads:
     async def test_a_contact_says_what_was_paid_them(
         self, svc: FinanceService, async_db_session: AsyncSession
     ) -> None:
-        from app.services.matters import ai_tools
+        from app.services.matters import tools as ai_tools
 
         charge = await _charge(svc, 18_500)
         dentist = await PartyService(async_db_session).create(

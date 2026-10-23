@@ -15,7 +15,7 @@ from app.services.system.models import ComponentStatus
 from app.services.system.patterns import PROJECT_ROOT
 from tests._error_store import occurrence
 from tests._fake_runtime import REDIS, STOPPED, WORKER, FakeRuntime, use_runtime
-from tests.web.dom import one, select, text
+from tests.web.dom import none, one, select, text
 from tests.web.overseer import CACHE, page_html, sign_in, status_with
 
 
@@ -91,6 +91,30 @@ def test_bookmarkable_detail_escapes_trace(errors_client: TestClient) -> None:
     assert "Application service" in facts and "Runtime" in facts
 
 
+def test_an_error_logged_in_a_request_links_to_its_replay(
+    errors_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A line logged while a request ran carries its id (``replays``): the
+    occurrence opens that request on the map. One logged outside any has
+    no link."""
+    shown = ui_errors.load
+    url = "/partials/overseer/errors/detail?issue=same&occurrence=one"
+    none(page_html(errors_client, url), "#error-detail [data-replay]")
+
+    async def with_request(
+        query: Mapping[str, str], part: Any = ui_errors.load_list
+    ) -> dict[str, Any]:
+        found = await shown(query, part)
+        if event := found.get("error_detail"):
+            fields = event.fields | {"request_id": "ab" * 16}
+            found["error_detail"] = event.model_copy(update={"fields": fields})
+        return found
+
+    monkeypatch.setattr(ui_errors, "load", with_request)
+    link = one(page_html(errors_client, url), "#error-detail [data-replay]")
+    assert link.get("href") == f"/overseer/replay/{'ab' * 16}"
+
+
 def test_partial_and_filter_state(errors_client: TestClient) -> None:
     html = page_html(errors_client, "/partials/overseer/errors?q=needle")
     assert "errors-results" in html
@@ -103,7 +127,8 @@ def test_the_services_picker_is_the_logs_one(errors_client: TestClient) -> None:
     """The same checklist as Logs, the same names: a filter carries across."""
     html = page_html(
         errors_client,
-        "/overseer/errors?service=redis&container=app-worker-system-1&app_service=auth",
+        "/overseer/errors?service=redis&container=app-worker-system-1&app_service=auth"
+        "&app_component=cache",
     )
     picks = {
         (o.get("name"), o.get("value")): o.get("checked") is not None
@@ -112,8 +137,10 @@ def test_the_services_picker_is_the_logs_one(errors_client: TestClient) -> None:
     assert picks[("service", "redis")] and not picks[("service", "worker")]
     assert picks[("container", WORKER.name)] and not picks[("container", STOPPED.name)]
     assert picks[("app_service", "auth")]
+    assert picks[("app_component", "cache")]
     events = one(html, "#errors [sse-connect]").get("sse-connect")
     assert "service=redis" in events and "app_service=auth" in events
+    assert "app_component=cache" in events
     form = one(html, "#errors form")
     assert "change" in (form.get("hx-trigger") or "")
     assert form.get("hx-target") == "#errors"

@@ -8,29 +8,40 @@ Applications must still avoid logging secrets or personal data in arbitrary text
 import json
 import re
 
-from app.core.credential import hide_password
+from app.core.credential import hide_passwords
 
 # A key or an assignment naming one of these holds a credential.
 KEYWORDS = r"password|passwd|secret|token|api[_-]?key|authorization|cookie|credential"
 SECRET = re.compile(KEYWORDS, re.I)
+# Names holding a secret the words above miss, each a whole part of a name
+# (``otp`` and ``totp_seed``, never ``footprint``). Overseer hides a table's
+# column by the same rule (``db_rows.masked``).
+NAMED = re.compile(
+    r"(?i)(?:^|_)(?:ciphertext|encrypted|private_key|signing_key|t?otp"
+    r"|recovery_codes?|salt)(?:_|$)"
+)
 LOCALS = {"locals", "frame_locals", "local_vars"}
 ASSIGN = re.compile(
     rf"(?i)\b({KEYWORDS})([\"' ]*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
 )
 AUTH = re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+")
-URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.I)
+
+
+def secret_name(name: str) -> bool:
+    """Whether a key or column ``name`` holds a secret."""
+    return bool(SECRET.search(name) or NAMED.search(name))
 
 
 def text(value: str) -> str:
     value = AUTH.sub(r"\1 [redacted]", value)
     value = ASSIGN.sub(r"\1\2[redacted]", value)
-    return URL.sub(lambda url: hide_password(url.group()), value)
+    return hide_passwords(value)
 
 
 def clean(value: object) -> object:
     if isinstance(value, dict):
         return {
-            str(k): "[redacted]" if SECRET.search(str(k)) else clean(v)
+            str(k): "[redacted]" if secret_name(str(k)) else clean(v)
             for k, v in value.items()
             if str(k).lower() not in LOCALS
         }
@@ -44,7 +55,7 @@ def fields(values: tuple[tuple[str, str], ...]) -> dict[str, str]:
     for key, value in values:
         if key.lower() in LOCALS:
             continue
-        if SECRET.search(key):
+        if secret_name(key):
             result[key] = "[redacted]"
             continue
         try:

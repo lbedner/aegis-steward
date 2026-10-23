@@ -14,7 +14,7 @@ from pydantic_ai.messages import ToolCallPart, ToolReturn
 from pydantic_ai.tools import ToolDefinition
 import pytest
 
-from app.core.formatting import with_dollars
+from app.core.money import with_dollars
 from app.services.ai.domains.chat.agent_loader import _tool_output_limits
 
 

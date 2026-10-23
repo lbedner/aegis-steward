@@ -6,6 +6,7 @@ from app.components.backend.api import (
     jobs,
     load_test_api,
     metrics,
+    ontology,
     pastebox,
     scheduler,
     task_history,
@@ -29,6 +30,7 @@ def include_routers(app: FastAPI) -> None:
     app.include_router(health.router, prefix="/health", tags=["health"])
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(metrics.router, prefix="/api/v1")
+    app.include_router(ontology.router, prefix="/api/v1")
     app.include_router(pastebox.router, prefix="/api/v1")
     app.include_router(traffic.router, prefix="/api/v1")
     app.include_router(load_test_api.router, prefix="/api/v1")

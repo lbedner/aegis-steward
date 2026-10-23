@@ -7,21 +7,27 @@ shared macros (``macro_catalog``). One page for a person or an agent to
 read before building.
 """
 
+import asyncio
 from collections.abc import Sequence
 import inspect
 from typing import Any
 
 from starlette.routing import BaseRoute
 
+from app.core.ontology.model import parse_node_id
+from app.core.parts import Category
 from app.core.route_auth import route_requires_auth
-from app.services.system import patterns, ui_backend
+from app.services.system import patterns, service_parts, ui_backend
 from app.services.system.models import ComponentStatus
 
 from . import macro_catalog
+from . import overseer_conformance as conformance
 from .overseer_nav import NavItem, SectionRequest
 from .rendering import status_cell
 
 PATTERNS = patterns.installed_patterns()
+PATTERN = "pages/overseer/patterns/_pattern.html"
+CATALOG = "pages/overseer/patterns/_catalog.html"
 
 SECTIONS = (
     ("Backend", {key: p.title for key, p in PATTERNS.items()}),
@@ -44,6 +50,7 @@ ITEM = NavItem(
     url="/overseer/patterns",
     status="",
     component=ComponentStatus(name="patterns", message=""),
+    concern=Category.PLATFORM,
 )
 
 
@@ -89,7 +96,25 @@ def _service_row(instance: patterns.Instance) -> dict[str, Any]:
     }
 
 
-ROWS = {"route": _route_row, "task": _task_row, "service": _service_row}
+def _parts_row(instance: patterns.Instance) -> dict[str, Any]:
+    """A services folder's parts: the ones it has and, for a service of
+    its own, the ones it lacks. Grouped by what it is to the model."""
+    kind, name = parse_node_id(instance.label)
+    has = [label for label, found in instance.target.has.items() if found]
+    return {
+        "group": kind.value.title(),
+        "name": name,
+        "has": ", ".join(has) or None,
+        "missing": ", ".join(instance.missed) or None,
+    }
+
+
+ROWS = {
+    "route": _route_row,
+    "task": _task_row,
+    "service": _service_row,
+    "parts": _parts_row,
+}
 
 _STATUS = [
     {"key": "state", "label": "Status", "kind": "status"},
@@ -114,6 +139,12 @@ COLUMNS = {
         _STATEMENTS,
         *_STATUS,
     ],
+    "parts": [
+        {"key": "name", "label": "Part"},
+        {"key": "has", "label": "Has"},
+        {"key": "missing", "label": "Lacks"},
+        *_STATUS,
+    ],
 }
 
 
@@ -132,6 +163,9 @@ def pattern_view(report: patterns.Report) -> dict[str, Any]:
     pattern = report.pattern
     titles = {rule.key: rule.title for rule in pattern.rules}
     rows = [ROWS[pattern.key](i) | _state(i, titles) for i in report.instances]
+    if pattern.key == service_parts.PARTS.key:  # as the map's hover lists them
+        for row, instance in zip(rows, report.instances, strict=True):
+            row["todo"] = conformance.part_todos(instance.label)
     canonical = None
     if report.canonical is not None:
         code, path = patterns.source(pattern.function(report.canonical.target))
@@ -145,6 +179,7 @@ def pattern_view(report: patterns.Report) -> dict[str, Any]:
         "route_groups": _groups(pattern.key, rows),
         "instance_columns": COLUMNS.get(pattern.key, []),
         "groups_open": False,
+        "exemptions": pattern.exemptions,
     }
 
 
@@ -153,8 +188,9 @@ async def section_context(
 ) -> dict[str, Any]:
     """A backend pattern's report, or a macro file's catalog."""
     if section in macro_catalog.FILES:
-        return {"macros": macro_catalog.catalog(section)}
-    return _pattern_view(section, req.routes)
+        return {"macros": macro_catalog.catalog(section), "section_partial": CATALOG}
+    view = await asyncio.to_thread(_pattern_view, section, req.routes)
+    return view | {"section_partial": PATTERN}
 
 
 # (section, id of the app's route list) -> (that list, its view). Routes
@@ -167,6 +203,12 @@ def _pattern_view(section: str, routes: Sequence[BaseRoute]) -> dict[str, Any]:
     cached = _VIEWS.get((section, id(routes)))
     if cached is not None and cached[0] is routes:
         return cached[1]
-    view = pattern_view(patterns.report(PATTERNS[section], routes))
+    # The parts report reads the source, not the routes: one for the map too.
+    report = (
+        service_parts.report()
+        if section == service_parts.PARTS.key
+        else patterns.report(PATTERNS[section], routes)
+    )
+    view = pattern_view(report)
     _VIEWS[(section, id(routes))] = (routes, view)
     return view

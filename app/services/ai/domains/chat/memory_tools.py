@@ -8,8 +8,8 @@ registers the tools.
 from typing import Any
 
 from app.core.log import logger
+from app.core.tools import register_tool
 from app.services.ai.domains.chat import user_memory
-from app.services.ai.domains.chat.tools import register_tool
 
 
 async def save_memory(new_fact: str, category: str = "general") -> dict[str, Any] | str:
@@ -99,27 +99,27 @@ register_tool(
     "save_memory",
     save_memory,
     description="File a card asking to remember one durable fact about the user",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "replace_memory",
     replace_memory,
     description="File a card asking to replace all saved facts about the user",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "update_memory",
     update_memory,
     description="File a card asking to rewrite one saved fact that has changed",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "forget_memory",
     forget_memory,
     description="File a card asking to drop one saved fact no longer true or now readable",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )

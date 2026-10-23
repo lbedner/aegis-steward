@@ -11,7 +11,7 @@ code-mode script, which can produce any shape; a payload that does not
 fit is a tool error she can fix on her next step, never a stored row that
 fails in a template later.
 
-**The tool runs inside the sandbox.** ``draw_card`` is NOT ``native_write``:
+**The tool runs inside the sandbox.** ``draw_card`` is a read, not native:
 that would take it out of ``run_code`` and make her retype every row she
 just computed. The cards a script draws are staged for the turn (like
 ``record_reading``) and ride that script's trace entry as markers
@@ -31,7 +31,7 @@ from typing import Any, Literal, Union, get_args, get_origin
 from pydantic import BaseModel, ValidationError, computed_field, model_validator
 
 from app.core.db import get_async_session
-from app.services.ai.domains.chat.tools import register_tool
+from app.core.tools import register_tool
 from app.services.ai.domains.chat.user_memory import current_conversation_id
 from app.services.ai.models.chat_card import ChatCard
 
@@ -332,5 +332,6 @@ register_tool(
     "draw_card",
     draw_card,
     description="Draw a chart, ranking, comparison or table under the answer",
+    effect="read",
     replace=True,
 )

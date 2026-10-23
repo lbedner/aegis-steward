@@ -1,5 +1,7 @@
 """Scheduler service layer for async task management."""
 
+from app.core.constants import ComponentName
+
 from .execution_log import (
     prune_executions,
     record_job_finished,
@@ -16,6 +18,10 @@ from .models import (
 )
 from .scheduled_task_manager import ScheduledTaskManager
 from .trigger import import_job_function, run_triggered_job
+
+# The scheduler's own records, not a service (``ownership``).
+PART_OF = ComponentName.SCHEDULER
+
 
 __all__ = [
     "ScheduledTaskManager",

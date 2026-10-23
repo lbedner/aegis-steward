@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.db import get_async_session
-from app.services.ai.domains.chat.tools import register_tool
+from app.core.tools import register_tool
 from app.services.finance.schemas.agent_tools import (
     BillCandidates,
     Bills,
@@ -68,10 +68,10 @@ async def bill_candidates(stream_id: int | None = None) -> BillCandidates:
     place to look, not the only one: a payment ``transactions`` finds
     is as good an id.
     """
-    from app.services.finance.ai_tools import transaction_rows
     from app.services.finance.domains.planning.recurring.review import review_queue
     from app.services.finance.domains.planning.recurring.streams import get_recurring
     from app.services.finance.service import FinanceService
+    from app.services.finance.tools import transaction_rows
 
     async with get_async_session() as session:
         service = FinanceService(session)
@@ -113,11 +113,13 @@ register_tool(
     "bills",
     bills,
     description="Live bills and income streams with the ids matches need",
+    effect="read",
     replace=True,
 )
 register_tool(
     "bill_candidates",
     bill_candidates,
     description="Bills past due with the payments that could be theirs, ranked",
+    effect="read",
     replace=True,
 )

@@ -198,11 +198,11 @@ def agent_capabilities(config: AgentConfig) -> list[Any]:
     if config.code_mode:
         from pydantic_ai_harness import CodeMode
 
-        from app.services.ai.domains.chat.tools import native_write_tool_names
+        from app.core.tools import native_write_tool_names
 
         # Reads go in the sandbox (slicing a payload in code is the point);
         # writes stay native so they surface as their own tool call. A
-        # tool declares its own nature at registration (native_write) -
+        # tool declares its own nature at registration (its effect) -
         # memory saves and queue proposals both ride this, and the next
         # write tool just declares itself.
         native = native_write_tool_names()
@@ -331,7 +331,7 @@ def _tool_output_limits(*, code_mode: bool = False) -> Any:
     from pydantic_ai_harness import ToolOutputLimits
     from pydantic_ai_harness.tool_output_limits import Band, Truncate
 
-    from app.core.formatting import with_dollars
+    from app.core.money import with_dollars
 
     class _SafeToolOutputLimits(ToolOutputLimits):  # type: ignore[misc]
         async def after_tool_execute(self, ctx: Any, **kwargs: Any) -> Any:

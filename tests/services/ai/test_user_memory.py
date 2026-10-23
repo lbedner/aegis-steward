@@ -8,8 +8,8 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.tools import registered_tool_names
 from app.services.ai.domains.chat.memory_tools import save_memory
-from app.services.ai.domains.chat.tools import registered_tool_names
 import app.services.ai.domains.chat.user_memory as user_memory_module
 from app.services.ai.domains.chat.user_memory import (
     build_user_memory_context,

@@ -5,16 +5,18 @@ left rail limited to components and services actually in the project,
 including plugin-provided entries.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha1
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from starlette.routing import BaseRoute
 
-from app.core.constants import ComponentName, ServiceName
-from app.services.system import ui_runtime
+from app.core.ontology.parts import placement
+from app.core.ownership import component_of
+from app.core.parts import Category
 from app.services.system.health import last_system_status, registered_health_names
 from app.services.system.models import (
     ComponentStatus,
@@ -25,32 +27,10 @@ from app.services.system.ui import get_component_title, registry_key
 
 from .overseer_access import Db, Viewer
 
-ORDER = {
-    "components": (
-        ComponentName.BACKEND,
-        ComponentName.WEB_FRONTEND,
-        ComponentName.FRONTEND,
-        ComponentName.DATABASE,
-        ComponentName.WORKER,
-        ComponentName.SCHEDULER,
-        ComponentName.CACHE,
-        ComponentName.STORAGE,
-        ComponentName.INGRESS,
-        ComponentName.OBSERVABILITY,
-        ComponentName.OLLAMA,
-    ),
-    "services": (
-        ServiceName.AUTH,
-        ServiceName.AI,
-        ServiceName.COMMS,
-        ServiceName.DOCUMENTS,
-        ServiceName.RESEARCH,
-        ServiceName.INSIGHTS,
-        ServiceName.PAYMENT,
-        ServiceName.FINANCE,
-        ServiceName.BLOG,
-    ),
-}
+# Records what a section did with the app's data, as the viewer, from where
+# they asked (``audit_admin_action``): an event, how it went, its detail,
+# and what it was done to.
+Audit = Callable[..., Awaitable[None]]
 
 
 def _shown(value: str | int | float | bool) -> str:
@@ -67,6 +47,7 @@ class SectionRequest:
     db: Db  # None without the database component
     query: Mapping[str, str]
     path: str
+    audit: Audit
     # The app's routes, for pages that describe the app itself.
     routes: Sequence[BaseRoute] = ()
     # The viewer's own sign-in session (the access token's ``sid``), and when
@@ -76,6 +57,8 @@ class SectionRequest:
     # The element an htmx swap replaces (``HX-Target``), so a section can
     # leave out what the swap discards; None for a whole page.
     target: str | None = None
+    # The viewer's time zone (``rendering.viewer_zone``), for times of day.
+    zone: ZoneInfo = ZoneInfo("UTC")
 
 
 @dataclass(frozen=True)
@@ -86,6 +69,9 @@ class NavItem:
     url: str
     status: str
     component: ComponentStatus
+    # The concern an Overseer page of its own serves in the sidebar; a
+    # part's is its declared one (``ontology.parts.concern_of``).
+    concern: Category | None = None
 
     @property
     def checks(self) -> list[tuple[str, str]]:
@@ -127,12 +113,9 @@ def build_navigation(status: SystemStatus | None) -> dict[str, list[NavItem]]:
     for group in result:
         parent = groups.get(group)
         children = parent.sub_components if parent else {}
-        order = ORDER[group]
         names = set(registered[group]) | set(children)
-        for name in sorted(
-            names,
-            key=lambda key: (order.index(key) if key in order else len(order), key),
-        ):
+        # In each part's declared order (``ontology.parts.placement``).
+        for name in sorted(names, key=placement):
             component = children.get(name) or ComponentStatus(
                 name=name,
                 status=ComponentStatusType.INFO,
@@ -172,4 +155,4 @@ def find_installed(group: str, name: str) -> NavItem | None:
 def runtime_page_url(page: str) -> str:
     """The Overseer page a runtime page's containers show on (``redis`` is
     the Cache component's)."""
-    return page_url("components", ui_runtime.component_of(page))
+    return page_url("components", component_of(page))

@@ -1,17 +1,20 @@
-"""Fragments for the Overseer Scheduler page: the Run Now confirmation.
+"""Fragments for the Overseer Scheduler page: the Run Now confirmation,
+and a history row's log.
 
 Its button calls the scheduler API itself (``POST .../jobs/{id}/run``), as
 Flet does, so the API keeps its guard and its already-running check. Mounted
 by ``routes/pages.py`` at ``overseer_scheduler.PARTIALS``.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.components.web_frontend import overseer_scheduler
+from app.components.web_frontend import overseer_runs, overseer_scheduler
 from app.components.web_frontend.overseer_nav import find_installed
 from app.components.web_frontend.rendering import dialog
 from app.core.constants import ComponentName
+from app.core.db import get_async_db
 
 router = APIRouter(prefix=overseer_scheduler.PARTIALS)
 
@@ -46,3 +49,21 @@ async def confirm_run(request: Request, job_id: str) -> Response:
         tone="primary",
         done=f"{name} started",
     )
+
+
+@router.get("/executions/{execution_id}/log", response_class=HTMLResponse)
+async def execution_log(
+    execution_id: int, db: AsyncSession = Depends(get_async_db)
+) -> HTMLResponse:
+    """What one run logged: the run's own log while it is on (its row id
+    is its run id), the row's copy once it finished."""
+    found = await overseer_scheduler.load_execution_log(
+        db=db, execution_id=execution_id
+    )
+    if found is None:
+        raise HTTPException(status_code=404)
+    running, lines = found
+    run_id = str(execution_id)
+    if running:
+        return HTMLResponse(overseer_runs.render_box(run_id, live=True))
+    return HTMLResponse(overseer_runs.box(run_id, lines, live=False))

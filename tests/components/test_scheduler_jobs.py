@@ -66,12 +66,12 @@ def test_a_run_that_succeeds_logs_nothing() -> None:
 
 
 def test_the_scheduler_only_enqueues(on_the_server: None) -> None:
-    from app.components.worker.pools import enqueue_task
+    from app.components.scheduler.main import scheduled_run
 
     scheduled = _scheduled()
     for job in service_jobs():
-        assert scheduled[job.id].func is enqueue_task, job.id
-        assert list(scheduled[job.id].args) == [job.task_name, "system"]
+        assert scheduled[job.id].func is scheduled_run, job.id
+        assert list(scheduled[job.id].args) == [job.id, job.task_name]
 
 
 def test_every_enqueued_name_is_a_system_task() -> None:
@@ -118,6 +118,8 @@ async def test_running_a_job_by_hand_passes_its_stored_args(
 ) -> None:
     """A scheduled enqueue is stored with the task name as its argument;
     "Run Now" calling it bare would fail every time."""
+    import structlog
+
     from app.services.scheduler import trigger
 
     monkeypatch.setattr(trigger, "record_job_started", lambda *_: 1)
@@ -125,10 +127,11 @@ async def test_running_a_job_by_hand_passes_its_stored_args(
     seen: list[tuple[Any, ...]] = []
 
     async def job(*args: Any) -> None:
-        seen.append(args)
+        # Bound as its history row, so the row keeps what it logs.
+        seen.append((*args, structlog.contextvars.get_contextvars().get("run_id")))
 
     assert await trigger.run_triggered_job(job, "id", "Name", ["a_job", "system"])
-    assert seen == [("a_job", "system")]
+    assert seen == [("a_job", "system", "1")]
 
 
 def test_interval_jobs_keep_their_times_across_restarts(

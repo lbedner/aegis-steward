@@ -39,7 +39,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.log import logger
 from app.core.storage import get_storage
-from app.services.ai.domains.chat.tools import register_tool
+from app.core.tools import register_tool
 from app.services.ai.domains.chat.user_memory import (
     current_user_id,
     load_user_pastes,
@@ -341,5 +341,6 @@ register_tool(
     "pasted",
     pasted,
     description="Read back a block of text the user pasted earlier",
+    effect="read",
     replace=True,
 )

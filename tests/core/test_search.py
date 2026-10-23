@@ -112,7 +112,8 @@ class TestLookUpContactFallsBackToSearch:
     ) -> None:
         """Live: Maple Nursing Care Center, three guessed domains, none
         confirmed, record left blank (2026-09-18)."""
-        from app.services.matters import ai_tools, domain_lookup
+        from app.services.matters import domain_lookup
+        from app.services.matters import tools as ai_tools
 
         tried: list[list[str]] = []
 
@@ -149,7 +150,8 @@ class TestLookUpContactFallsBackToSearch:
     async def test_a_confirmed_guess_never_searches(
         self, brave: list[str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from app.services.matters import ai_tools, domain_lookup
+        from app.services.matters import domain_lookup
+        from app.services.matters import tools as ai_tools
 
         async def confirm(name: str, candidates: list[str], **_: Any) -> str | None:
             return candidates[0]

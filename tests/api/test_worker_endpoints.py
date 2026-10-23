@@ -15,6 +15,19 @@ import pytest
 from app.integrations.main import create_integrated_app
 
 
+@pytest.fixture(autouse=True)
+def _a_pool_the_test_builds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The enqueue goes through ``pools.enqueue_task``, so its pool comes from
+    ``create_pool``, which each test fakes; the suite's stand-in refuses
+    every pool (``_no_real_redis``)."""
+    from app.components.worker import pools
+
+    async def pool(queue_type: str) -> tuple[object, str]:
+        return await pools.create_pool(None), f"arq:queue:{queue_type}"
+
+    monkeypatch.setattr(pools, "get_queue_pool", pool)
+
+
 class TestWorkerEndpoints:
     """Test worker API endpoints for task enqueuing."""
 

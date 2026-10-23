@@ -35,7 +35,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.core.db import get_async_session
-from app.services.ai.domains.chat.tools import register_tool
+from app.core.tools import register_tool
 from app.services.ai.domains.chat.user_memory import (
     load_user_readings,
     own_write,
@@ -208,6 +208,6 @@ register_tool(
     "record_reading",
     record_reading,
     description="Durably record everything read from an attached image",
-    native_write=True,
+    effect="writes",
     replace=True,
 )

@@ -124,12 +124,13 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 {# A native select. ``options`` are objects or dicts with ``id`` and
    ``name``; ``blank`` is the "no filter" label (``None`` for no blank
    choice); ``selected`` the current id. ``label`` wraps it inline for a
-   filter bar; ``block`` lays it out full-width inside a ``field()``. #}
+   filter bar; ``block`` lays it out full-width inside a ``field()``;
+   ``attrs`` is markup on the ``<select>`` itself. #}
 {# ``grouped``: ``options`` are ``{label, options}`` groups, an optgroup
    each. #}
-{% macro select(name, options, selected=None, blank="All", label=None, block=False, grouped=False) %}
+{% macro select(name, options, selected=None, blank="All", label=None, block=False, grouped=False, attrs="") %}
 {% if label %}<label class="inline-flex items-center gap-2 text-xs text-aegis-muted"><span>{{ label }}</span>{% endif %}
-<select name="{{ name }}" class="{{ control("select") }}{% if block %} block w-full mt-1{% endif %}">
+<select name="{{ name }}" {{ attrs|safe }} class="{{ control("select") }}{% if block %} block w-full mt-1{% endif %}">
   {% if blank is not none %}<option value="" {% if not selected %}selected{% endif %}>{{ blank }}</option>{% endif %}
   {% for group in (options if grouped else [{"label": none, "options": options}]) %}
   {% if group.label is not none %}<optgroup label="{{ group.label }}">{% endif %}
@@ -162,14 +163,17 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
    (``hx-preserve``, which needs the ``id``), so the menu stays open while
    several are ticked; a click anywhere else closes it. The button at its
    top ticks every option, or clears them when all are ticked, and the form
-   refreshes as for any tick. ``exclude`` (not None) adds an "All but
-   these" switch posting ``exclude=<name>``, outside what that button ticks. #}
+   refreshes as for any tick; its button counts the ticks as they change.
+   ``data-checklist`` is how a ``data-facets`` form's lists are read
+   (app.js), so a tick there narrows the rows on the page. ``exclude`` (not
+   None) adds an "All but these" switch posting ``exclude=<name>``, outside
+   what that button ticks. #}
 {% macro checklist(id, name, label, options, exclude=None) %}
 {% set ticked = options|selectattr("checked")|list|length %}
-<details id="{{ id }}" hx-preserve class="relative" @click.outside="$el.removeAttribute('open')"
-         x-data="{ full: false, boxes() { return [...$root.querySelectorAll('input[type=checkbox]:not([data-exclude])')] }, sync() { this.full = this.boxes().every((b) => b.checked) } }"
+<details id="{{ id }}" data-checklist hx-preserve class="relative" @click.outside="$el.removeAttribute('open')"
+         x-data="{ full: false, ticked: {{ ticked }}, boxes() { return [...$root.querySelectorAll('input[type=checkbox]:not([data-exclude])')] }, sync() { this.full = this.boxes().every((b) => b.checked); this.ticked = this.boxes().filter((b) => b.checked).length } }"
          x-init="sync()" x-on:change="sync()">
-  <summary class="list-none cursor-pointer text-xs px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text">{{ label }}{% if ticked %}: {{ "all but " if exclude }}{{ ticked }}{% endif %}</summary>
+  <summary class="list-none cursor-pointer text-xs px-2.5 py-1 rounded border border-aegis-border text-aegis-muted hover:text-aegis-text">{{ label }}<span x-text="ticked ? ': {{ 'all but ' if exclude }}' + ticked : ''">{% if ticked %}: {{ "all but " if exclude }}{{ ticked }}{% endif %}</span></summary>
   <div class="absolute z-20 mt-1 w-64 max-h-80 overflow-y-auto floating p-2 space-y-0.5">
     <div class="flex items-center justify-between px-2 pb-1 mb-1 border-b border-aegis-border/60">
       <span class="text-xxs caps text-aegis-muted">{{ label }}</span>
@@ -492,8 +496,8 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
 </span>
 {% endmacro %}
 
-{% macro textarea(name, value=None, rows=6, placeholder="") %}
-<textarea name="{{ name }}" rows="{{ rows }}" placeholder="{{ placeholder }}"
+{% macro textarea(name, value=None, rows=6, placeholder="", attrs="") %}
+<textarea name="{{ name }}" rows="{{ rows }}" placeholder="{{ placeholder }}" {{ attrs|safe }}
           class="{{ control("textarea") }} w-full mt-1 font-mono text-xs">{{ value or "" }}</textarea>
 {% endmacro %}
 

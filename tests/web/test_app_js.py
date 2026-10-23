@@ -9,6 +9,7 @@ query string, and dropping it sends the viewer back to the top.
 
 import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -107,6 +108,38 @@ def test_clicking_off_closes_unless_something_is_unsaved() -> None:
         "toasts": 1,
         "clean_closed": True,
     }
+
+
+PLACE_HARNESS = (
+    STUBS
+    + """
+window.innerHeight = 800;
+document.documentElement = { clientWidth: 400 };
+const { placeDropdown } = require(APP_JS);
+// A menu 200px tall under a button whose top is at ``top``.
+function opened(top) {
+  const menu = { style: {}, classList: { contains: (c) => c === 'left-0' },
+    getBoundingClientRect() {
+      const up = this.style.bottom === '100%';
+      const at = up ? top - 200 : top + 30;
+      return { top: at, bottom: at + 200, left: 20, right: 220 };
+    } };
+  return { open: true, lastElementChild: menu,
+           getBoundingClientRect: () => ({ top }) };
+}
+const foot = opened(700), head = opened(100);
+placeDropdown(foot); placeDropdown(head);
+console.log(JSON.stringify({ foot: foot.lastElementChild.style.bottom,
+                             head: head.lastElementChild.style.bottom }));
+"""
+)
+
+
+def test_a_dropdown_at_the_foot_of_the_window_opens_above() -> None:
+    """The Deployments "More" menu ran off the bottom of the window; one
+    that fits below still opens below."""
+    out = run(PLACE_HARNESS, APP_JS=APP_JS)
+    assert out == {"foot": "100%", "head": ""}
 
 
 COPY_HARNESS = (
@@ -248,7 +281,8 @@ SCROLL_HARNESS = (
     STUBS
     + """
 const shown = [];
-document.querySelector = (sel) => ({ scrollIntoView: (how) => shown.push([sel, how.block]) });
+document.querySelector = (sel) => ({
+  closest: () => null, scrollIntoView: (how) => shown.push([sel, how.block]) });
 require(APP_JS);
 const button = { dataset: { scrollTo: '#rows > tr:last-child' } };
 fire('click', { target: { closest: (sel) => (sel === '[data-scroll-to]' ? button : null) } });
@@ -264,6 +298,48 @@ def test_a_scroll_button_brings_its_target_into_view() -> None:
     assert run(SCROLL_HARNESS, APP_JS=APP_JS)["shown"] == [
         ["#rows > tr:last-child", "nearest"]
     ]
+
+
+TABS_HARNESS = (
+    STUBS
+    + """
+const { revealTab } = require(APP_JS);
+// A view's tabs (layout.html's ``tabbed``): its buttons and its panels.
+const view = (shown) => {
+  const tabs = { dataset: { tabs: 'meeting' }, matches: () => true };
+  const buttons = ['notes', 'transcript'].map((key) => {
+    const attrs = {};
+    return { dataset: { tab: key }, attrs, setAttribute: (k, v) => { attrs[k] = v; } };
+  });
+  const panels = ['notes', 'transcript'].map((key) => (
+    { dataset: { tabPanel: key }, hidden: key !== shown, parentElement: tabs }));
+  tabs.querySelectorAll = (sel) => (sel.includes('tablist') ? buttons : sel === '[data-tabs]' ? [] : panels);
+  tabs.querySelector = (sel) => panels.find((p) => sel.includes(`"${p.dataset.tabPanel}"`));
+  return { tabs, buttons, panels };
+};
+const first = view('notes');
+revealTab({ closest: () => first.panels[1] });
+revealTab({ closest: () => null });
+const reread = view('notes');
+fire('htmx:load', { detail: { elt: reread.tabs } });
+console.log(JSON.stringify({
+  hidden: first.panels.map((p) => p.hidden),
+  selected: first.buttons.map((b) => b.attrs['aria-selected']),
+  kept: reread.panels.map((p) => p.hidden),
+}));
+"""
+)
+
+
+def test_a_line_in_a_hidden_tab_shows_its_tab_and_a_reread_keeps_it() -> None:
+    """A note's line in the transcript shows the Transcript tab first; when
+    the view re-reads itself (a meeting while the bot is in), the tab picked
+    stays picked; something outside any tab changes nothing."""
+    assert run(TABS_HARNESS, APP_JS=APP_JS) == {
+        "hidden": [True, False],
+        "selected": ["false", "true"],
+        "kept": [True, False],
+    }
 
 
 MARK_HARNESS = (
@@ -294,13 +370,12 @@ def test_the_sidebar_marks_the_page_it_leads_to() -> None:
 RANGE_HARNESS = (
     STUBS
     + """
-const { rangeUrl, spanned, inView } = require(APP_JS);
+const { spanned, inView } = require(APP_JS);
 const bars = ['a', 'b', 'c', 'd'];
 const timed = [[0, 10], [10, 20], [20, 30], [30, 40]].map(([f, t]) => ({ dataset: { from: String(f), to: String(t) } }));
 console.log(JSON.stringify({
   seen: inView(timed, 12, 25).map((b) => b.dataset.from),
   none: inView(timed, null, null).length,
-  url: rangeUrl('/overseer/logs?window=900&service=worker&service=redis&from=1&to=2', 9),
   forward: spanned(bars, 'b', 'd'),
   backward: spanned(bars, 'd', 'b'),
 }));
@@ -308,14 +383,60 @@ console.log(JSON.stringify({
 )
 
 
-def test_dragging_across_the_volume_narrows_to_every_bar_it_covers() -> None:
-    """The first bar's request (every filter it carries) with the last bar's
-    end, whichever way the drag ran."""
+def test_dragging_across_the_volume_covers_every_bar_between() -> None:
+    """From the first bar to the last, whichever way the drag ran."""
     out = run(RANGE_HARNESS, APP_JS=APP_JS)
-    assert out["url"] == (
-        "/overseer/logs?window=900&service=worker&service=redis&from=1&to=9"
-    )
     assert out["forward"] == out["backward"] == ["b", "c", "d"]
+
+
+FACETS_HARNESS = (
+    STUBS
+    + """
+const { kept, volumeOf } = require(APP_JS);
+const row = { level: 'error', service: 'worker', container: 'w-1', app_service: 'ai' };
+const of = (name) => row[name];
+const bars = [{ from: 0, to: 10 }, { from: 10, to: 20 }];
+const rows = [
+  { at: -5, tone: 'error' }, { at: 5, tone: 'error' }, { at: 12, tone: 'warn' },
+  { at: 15, tone: '' }, { at: 25, tone: 'muted' },
+];
+console.log(JSON.stringify({
+  nothing: kept([], of),
+  oneOf: kept([[['level', 'error'], ['level', 'critical']]], of),
+  missed: kept([[['level', 'info']]], of),
+  anySource: kept([[['service', 'redis'], ['app_service', 'ai']]], of),
+  everyList: kept([[['level', 'error']], [['service', 'redis']]], of),
+  volume: volumeOf(bars, rows),
+}));
+"""
+)
+
+
+def test_each_list_narrows_and_any_tick_in_it_keeps() -> None:
+    """The Logs filters on the page (``data-facets``): a list with nothing
+    ticked keeps every row; one with ticks keeps a row any of them matches
+    (a service, a container or an application service); every list must
+    keep it."""
+    out = run(FACETS_HARNESS, APP_JS=APP_JS)
+    assert [
+        out[k] for k in ("nothing", "oneOf", "missed", "anySource", "everyList")
+    ] == [
+        True,
+        True,
+        False,
+        True,
+        False,
+    ]
+
+
+def test_the_volume_recounts_the_rows_the_filters_keep() -> None:
+    """``ui_logs._volume``'s twin: each bar counts its rows by tone; one
+    before the window is left out, one after it lands in the last bar."""
+    out = run(FACETS_HARNESS, APP_JS=APP_JS)
+    assert out["volume"] == [
+        {"error": 1, "warn": 0, "other": 0, "total": 1},
+        {"error": 0, "warn": 1, "other": 2, "total": 3},
+    ]
 
 
 def test_the_bars_behind_the_lines_on_screen_are_marked() -> None:
@@ -363,31 +484,49 @@ def test_hovering_a_map_node_keeps_it_and_its_neighbours_lit() -> None:
     ]
 
 
-PIN_HARNESS = (
+LIT_HARNESS = (
+    STUBS
+    + """
+const c = require(APP_JS);
+console.log(JSON.stringify([...c.pathFocus('service_blog,database')].sort()));
+"""
+)
+
+
+def test_a_dry_path_keeps_the_parts_it_crosses_lit() -> None:
+    """Its parts lit (``?lit=``), and with them the lines between two of
+    them (``applyMapFocus``); the rest dims."""
+    assert run(LIT_HARNESS, APP_JS=APP_JS) == ["database", "service_blog"]
+
+
+LET_GO_HARNESS = (
     STUBS
     + """
 const root = { dataset: {}, querySelector: () => null };
 document.getElementById = (id) => (id === 'overview-stack' ? root : null);
 require(APP_JS);
 const node = { dataset: { node: 'database' } };
-const at = (sel) => (sel === '[data-map] [data-node]' ? node : sel === '[data-map]' ? {} : null);
+const over = (sel) => (sel === '[data-map] [data-node]' ? node : sel === '[data-map]' ? {} : null);
 const seen = [];
-fire('click', { target: { closest: at } }); seen.push(root.dataset.pinned || '');
-fire('mouseover', { target: { closest: (sel) => (sel === '[data-map] [data-node]' ? { dataset: { node: 'cache' } } : null) } });
-seen.push(root.dataset.pinned || '');
-fire('keydown', { key: 'Escape' }); seen.push(root.dataset.pinned || '');
-fire('click', { target: { closest: at } });
-fire('click', { target: { closest: (sel) => (sel === '[data-map]' ? {} : null) } });
-seen.push(root.dataset.pinned || '');
+const focus = () => root.dataset.pinned || root.dataset.hover || '';
+fire('mouseover', { target: { closest: over } }); seen.push(focus());
+// A click holds nothing: off the node, nothing stays lit.
+fire('click', { target: { closest: over } });
+fire('mouseover', { target: { closest: (sel) => (sel === '[data-map]' ? {} : null) } });
+seen.push(focus());
+// Out of the window straight from a node: no mouseover follows to clear it.
+fire('mouseover', { target: { closest: over } });
+fire('mouseout', { relatedTarget: null });
+seen.push(focus());
 console.log(JSON.stringify(seen));
 """
 )
 
 
-def test_a_click_pins_a_map_nodes_focus_until_escape_or_the_canvas() -> None:
-    """Hover is a glance; a click keeps it while the pointer moves on.
-    Escape, or a click on the empty canvas, lets it go."""
-    assert run(PIN_HARNESS, APP_JS=APP_JS) == ["database", "database", "", ""]
+def test_a_maps_focus_follows_the_pointer_and_nothing_holds_it() -> None:
+    """A node lights while hovered and lets go when the pointer leaves it,
+    the window included; a click holds nothing, so nothing stays dimmed."""
+    assert run(LET_GO_HARNESS, APP_JS=APP_JS) == ["database", "", ""]
 
 
 COLUMN = (
@@ -462,3 +601,48 @@ def test_an_open_sheet_holds_the_page_still() -> None:
         "overflow-hidden:true",
         "overflow-hidden:false",
     ]
+
+
+# A declaration at a script's top level (``function mount``, ``const KEY``).
+TOP_LEVEL = re.compile(
+    r"^(?:async\s+)?(?:function\*?|const|let|var|class)\s+(\w+)", re.M
+)
+
+
+def test_the_page_scripts_declare_no_name_twice() -> None:
+    """Classic scripts share one global scope: a second ``function mount``
+    replaces the first, and its script's listeners call the other's."""
+    seen: dict[str, str] = {}
+    clashes = []
+    for path in sorted(APP_JS.parent.glob("*.js")):
+        if path.name == "mic-worklet.js":  # an audio worklet's own scope
+            continue
+        for name in TOP_LEVEL.findall(path.read_text()):
+            if name in seen and seen[name] != path.name:
+                clashes.append((name, seen[name], path.name))
+            seen.setdefault(name, path.name)
+    assert clashes == []
+
+
+# A script fetched from another origin: a tag's ``src``, or a URL a page
+# script loads itself (``createElement('script')``, ``import()``).
+REMOTE_TAG = re.compile(r"<script\b[^>]*\bsrc=\"https?://[^>]*>")
+REMOTE_URL = re.compile(r"['\"`]https?://[^'\"`]+['\"`]")
+
+
+def test_no_third_party_script_runs_unverified() -> None:
+    """A changed CDN file would run on Overseer's origin, where requests
+    carry the admin's cookie: each pins its version and the hash the
+    browser checks (``integrity``), or ships with the app."""
+    templates = APP_JS.parents[2] / "templates"
+    unverified = [
+        f"{path.name}: {tag}"
+        for path in templates.rglob("*.html")
+        for tag in REMOTE_TAG.findall(path.read_text())
+        if "integrity=" not in tag or "crossorigin=" not in tag
+    ]
+    for path in APP_JS.parent.glob("*.js"):
+        source = path.read_text()
+        if REMOTE_URL.search(source) and ".integrity = " not in source:
+            unverified.append(f"{path.name}: loads a remote script unhashed")
+    assert unverified == []

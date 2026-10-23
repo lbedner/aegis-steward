@@ -7,7 +7,8 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.formatting import cents_named, format_date, payee_label
+from app.core.formatting import format_date, payee_label
+from app.core.money import cents_named
 from app.services.finance.domains.detection.insights.formatting import format_usd
 from app.services.finance.domains.ledger import transactions
 from app.services.finance.schemas import ChangeDisplayRow

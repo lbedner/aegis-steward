@@ -13,6 +13,7 @@ from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 import pytest
 
+from app.core.tools import register_tool, unregister_tool
 from app.services.ai.domains.chat.agent_loader import AgentConfig, build_chat_agent
 from app.services.ai.domains.chat.chat_kit import (
     ChatScope,
@@ -22,7 +23,6 @@ from app.services.ai.domains.chat.chat_kit import (
     ToolChatAgent,
 )
 import app.services.ai.domains.chat.chat_kit.agent as kit_agent
-from app.services.ai.domains.chat.tools import register_tool, unregister_tool
 
 
 @dataclass
@@ -210,7 +210,7 @@ def registered_lookup() -> Generator[str]:
         """Look up a value for a key."""
         return f"val-{key}"
 
-    register_tool("lookup", lookup, replace=True)
+    register_tool("lookup", lookup, effect="read", replace=True)
     yield "lookup"
     unregister_tool("lookup")
 

@@ -146,19 +146,16 @@ class TestCodeModeSplitsReadsFromWrites:
     def test_a_registry_declared_native_write_stays_out_of_the_sandbox(
         self,
     ) -> None:
-        """The tool declares its own nature at registration
-        (native_write=True); the loader asks the registry instead of
+        """The tool declares its own nature at registration (an
+        ``effect`` other than read); the loader asks the registry instead of
         keeping a hardcoded list. This is how ``propose`` - the queue's
         one write tool - stays a visible native call."""
-        from app.services.ai.domains.chat.tools import (
-            register_tool,
-            unregister_tool,
-        )
+        from app.core.tools import register_tool, unregister_tool
 
         register_tool(
             "propose_test_tool",
             lambda: None,
-            native_write=True,
+            effect="proposes",
             replace=True,
         )
         try:

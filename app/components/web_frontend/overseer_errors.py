@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.formatting import format_relative_time
+from app.core.parts import Category
 from app.services.system import ui_errors, ui_logs
 from app.services.system.errors.client import repository, unavailable_reason
 from app.services.system.errors.models import ErrorIssue
@@ -32,6 +33,7 @@ ITEM = NavItem(
     "/overseer/errors",
     "",
     ComponentStatus(name="errors", message=""),
+    concern=Category.STACK,
 )
 PATH = "/overseer/errors"
 DETAIL = "/partials/overseer/errors/detail"
@@ -41,7 +43,6 @@ RECONCILE_SECONDS = 15
 ROWS = "pages/overseer/errors/_rows.html"
 # The filters a query carries, one value each, then the pickers' lists.
 FILTERS = ("level", "window", "q")
-PICKS = ("service", "container", "app_service")
 
 
 class ErrorCell(BaseModel):
@@ -69,7 +70,7 @@ class ErrorRow(BaseModel):
 def parameters(query: Mapping[str, str]) -> dict[str, str | list[str]]:
     """The list's filters, which every link and the stream carry."""
     return {key: query.get(key, "") for key in FILTERS} | {
-        key: ui_logs.listed(query, key) for key in PICKS
+        key: ui_logs.listed(query, key) for key in ui_logs.PICKS
     }
 
 
@@ -93,7 +94,7 @@ def row(issue: ErrorIssue, query: Mapping[str, str], names: dict[str, str]) -> E
             type=issue.exception_type or "Error", message=issue.message, url=url
         ),
         source=SourceCell(
-            service=issue.app_service or "Unattributed",
+            service=issue.app_service or issue.app_component or "Unattributed",
             runtime=names.get(issue.container_name or "")
             or ui_logs.title_of(issue.page),
         ),

@@ -1,8 +1,8 @@
 """The finance write surface for agents: propose, never mutate.
 
-Split from ``ai_tools`` (the read surface): the tools that file pending
+Split from ``tools`` (the read surface): the tools that file pending
 changes for the user's approval, plus ``categories``, the id lookup a
-categorize payload needs. The write tools register ``native_write``, so
+categorize payload needs. The write tools register ``effect="proposes"``, so
 code mode dispatches them as visible calls.
 """
 
@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.db import get_async_session
-from app.services.ai.domains.chat.tools import register_tool
+from app.core.tools import register_tool
 from app.services.finance.domains.writes.display import MISSING, for_model
 
 
@@ -387,53 +387,55 @@ register_tool(
     "categories",
     categories,
     description="Assignable categories with the ids proposals need",
+    effect="read",
     replace=True,
 )
 register_tool(
     "tags",
     tags,
     description="The tag directory: names, ids and usage counts",
+    effect="read",
     replace=True,
 )
 register_tool(
     "propose",
     propose,
     description="Propose a finance change for the user's approval (the only write)",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "propose_many",
     propose_many,
     description="Propose a batch of same-type changes for one bulk approval",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "pending",
     pending,
     description="Your own still-pending proposals, so you can withdraw what you supersede",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "withdraw",
     withdraw,
     description="Retract one of your own still-pending proposals",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "revise",
     revise,
     description="Correct a field on pending cards before the user approves them",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )
 register_tool(
     "withdraw_batch",
     withdraw_batch,
     description="Retract one of your own still-pending batch cards, all rows at once",
-    native_write=True,
+    effect="proposes",
     replace=True,
 )

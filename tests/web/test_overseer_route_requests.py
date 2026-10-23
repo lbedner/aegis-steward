@@ -12,6 +12,9 @@ from pydantic import BaseModel
 import pytest
 
 from app.components.web_frontend import overseer_requests, overseer_server_load_tests
+from app.components.web_frontend.rendering import with_query
+from app.core import replays
+from app.core.config import AppEnv, settings
 from app.services.load_test.api import auth
 from app.services.system.models import ComponentStatus
 from tests.web.dom import none, one, select, text, triggers
@@ -19,6 +22,7 @@ from tests.web.overseer import page_html, sign_in, status_with
 from tests.web.test_overseer_server_load_tests import FakeRunner
 
 ITEM = "GET /api/v1/try-items/{item_id}"
+HEALTH = "GET /health/detailed"  # a route of the stack's own, in its code
 NEW = "POST /api/v1/try-items"
 
 
@@ -89,7 +93,9 @@ class TestTheForm:
         self, signed_in: TestClient
     ) -> None:
         button = next(
-            b for b in select(_form(signed_in, ITEM), "button") if "Load test" in text(b)
+            b
+            for b in select(_form(signed_in, ITEM), "button")
+            if "Load test" in text(b)
         )
         assert button.get("hx-get") == overseer_requests.LOAD_TESTS_URL
         assert button.get("hx-include") == "closest form"
@@ -118,6 +124,18 @@ class TestExecute:
         assert '"item_id": 7' in text(one(response.text, "[data-body] pre"))
         assert "curl -X GET" in text(one(response.text, "[data-curl]"))
 
+    def test_the_request_sent_can_be_replayed(self, signed_in: TestClient) -> None:
+        """The answer names the request the server kept: Replay opens it."""
+        response = signed_in.post(
+            f"{overseer_requests.PARTIALS}/execute",
+            data={"route": ITEM, "path.item_id": "7"},
+        )
+        # Its status in the tone every answer has (``answer_tone``).
+        assert one(response.text, "[data-status]").get("data-tone") == "ok"
+        href = one(response.text, "[data-replay]").get("href")
+        assert href.startswith("/overseer/replay/")
+        assert replays.find(href.rsplit("/", 1)[1]) is not None
+
     def test_a_write_waits_for_its_confirmation(self, signed_in: TestClient) -> None:
         form = {"route": NEW, "body": '{"name": "pen"}'}
 
@@ -128,6 +146,51 @@ class TestExecute:
 
         assert triggers(refused)["toast"]["tone"] == "error"
         assert one(sent.text, "[data-status]").text.strip() == "200"
+
+
+class TestDryPath:
+    def _dry(self, client: TestClient, route: str) -> str:
+        response = client.get(f"{overseer_requests.PARTIALS}/dry?route={quote(route)}")
+        assert response.status_code == 200, response.text
+        return response.text
+
+    def test_the_form_offers_it_beside_execute(self, signed_in: TestClient) -> None:
+        button = one(_form(signed_in, HEALTH), "[data-dry-path-button]")
+        assert button.get("hx-get") == with_query(
+            f"{overseer_requests.PARTIALS}/dry", route=HEALTH
+        )
+
+    def test_each_hop_opens_at_its_line(self, signed_in: TestClient) -> None:
+        html = self._dry(signed_in, HEALTH)
+        hops = select(html, "[data-hop]")
+        assert hops[0].get("data-hop") == "handler"
+        assert any("get_system_status" in text(hop) for hop in hops)
+        links = select(html, "[data-hop] a")
+        assert len(links) == len(hops)
+        for link in links:
+            href = link.get("href") or ""
+            assert href.startswith("/overseer/code?file=app") and "#L-" in href
+
+    def test_the_map_lights_the_parts_it_crosses(self, signed_in: TestClient) -> None:
+        """The Server opened up, its parts the path crosses kept lit
+        (``data-lit``, read by the map's focus) while the frames stream."""
+        href = one(self._dry(signed_in, HEALTH), "a[data-map-path]").get("href") or ""
+        assert "zoom=backend" in href
+        lit = one(page_html(signed_in, href), "#overview-stack").get("data-lit") or ""
+        assert "backend" in lit.split(",")
+
+    def test_an_unknown_route_has_none(self, signed_in: TestClient) -> None:
+        url = f"{overseer_requests.PARTIALS}/dry?route={quote('GET /nowhere')}"
+        assert signed_in.get(url).status_code == 404
+
+    def test_off_while_the_code_is_hidden(
+        self, signed_in: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It shows the code's lines: outside dev, only once Code is on."""
+        monkeypatch.setattr(settings, "APP_ENV", AppEnv.PROD)
+        none(_form(signed_in, HEALTH), "[data-dry-path-button]")
+        url = f"{overseer_requests.PARTIALS}/dry?route={quote(HEALTH)}"
+        assert signed_in.get(url).status_code == 404
 
 
 class TestLoadTests:

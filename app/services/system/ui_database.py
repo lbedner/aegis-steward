@@ -24,15 +24,18 @@ def is_postgres(metadata: dict[str, Any]) -> bool:
     return metadata.get("implementation", "sqlite") == "postgresql"
 
 
-def display_url(url: str, hide_password: bool = True) -> str:
-    """The URL as a developer on the host would use it.
+def schema_name(metadata: dict[str, Any]) -> str:
+    """The schema the health check lists the tables of: PostgreSQL's
+    ``public``, SQLite's ``main``."""
+    return "public" if is_postgres(metadata) else "main"
 
-    Docker service hosts become localhost. The password is hidden unless the
-    caller keeps it for a copy-to-clipboard action.
-    """
+
+def display_url(url: str) -> str:
+    """The URL as a developer on the host would use it: Docker service
+    hosts become localhost, and the password stays hidden."""
     for host in _DOCKER_HOSTS:
         url = url.replace(host, "@localhost:")
-    return credential.hide_password(url) if hide_password else url
+    return credential.hide_password(url)
 
 
 def overview(metadata: dict[str, Any]) -> dict[str, str]:

@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from starlette import status
 
+from app.components.backend.security.operator_auth import require_operator
 from app.services.system import (
     DetailedHealthResponse,
     HealthResponse,
@@ -30,7 +31,11 @@ async def health_check() -> HealthResponse:
     )
 
 
-@router.get("/detailed", response_model=DetailedHealthResponse)
+@router.get(
+    "/detailed",
+    response_model=DetailedHealthResponse,
+    dependencies=[Depends(require_operator)],
+)
 async def detailed_health() -> DetailedHealthResponse:
     """
     Detailed health check with component information.
@@ -75,7 +80,7 @@ async def detailed_health() -> DetailedHealthResponse:
         )
 
 
-@router.get("/dashboard")
+@router.get("/dashboard", dependencies=[Depends(require_operator)])
 async def system_dashboard() -> dict[str, Any]:
     """
     System dashboard endpoint optimized for frontend consumption.
