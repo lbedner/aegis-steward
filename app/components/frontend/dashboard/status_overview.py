@@ -44,6 +44,11 @@ def get_component_display_info(
     elif component_name == ComponentName.CACHE:
         return ("Cache", "Redis")
 
+    elif component_name == ComponentName.OLLAMA:
+        version = metadata.get("version", "")
+        subtitle = f"Ollama v{version}" if version else "Ollama"
+        return ("Inference", subtitle)
+
     elif component_name == ComponentName.SCHEDULER:
         return ("Scheduler", "APScheduler")
 
@@ -183,6 +188,7 @@ class StatusOverviewPanel(ft.Container):
         display_order = [
             ComponentName.BACKEND,
             ComponentName.DATABASE,
+            ComponentName.OLLAMA,
             ComponentName.CACHE,
             ComponentName.WORKER,
             ComponentName.SCHEDULER,
