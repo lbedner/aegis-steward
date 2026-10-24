@@ -74,6 +74,21 @@ async def test_matters_reports_the_case_and_what_is_outstanding(
     assert case["requests"]["overdue_count"] == 1
 
 
+async def test_matters_reads_each_cases_note(
+    async_db_session: AsyncSession,
+) -> None:
+    """What she may amend she can read first (#566)."""
+    matter = await MatterService(async_db_session).open(
+        title="Water heater", note="Plumber coming Thursday"
+    )
+    await async_db_session.commit()
+
+    rows = (await ai_tools.matters())["matters"]
+    case = next(row for row in rows if row["id"] == matter.id)
+
+    assert case["note"] == "Plumber coming Thursday"
+
+
 async def test_requests_says_what_is_answered_and_what_is_missing(
     async_db_session: AsyncSession,
 ) -> None:

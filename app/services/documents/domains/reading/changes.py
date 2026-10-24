@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.core.schema import require_one_of
 from app.services.documents.models import DOCUMENT_KINDS, TAX_FORMS
 from app.services.finance.schemas import ChangeDisplayRow
@@ -253,7 +254,7 @@ async def metadata_describe(
     rows.extend(
         ChangeDisplayRow(
             label=labels[name],
-            value=f"{getattr(document, name) or '-'} → {read.value}",
+            value=before_and_after(getattr(document, name) or "", read.value),
             note=read.cited(),
             document_id=payload.document_id,
             page=read.page,

@@ -32,6 +32,16 @@ def counted(count: int, noun: str, plural: str | None = None) -> str:
     return f"{count:,} {noun if count == 1 else plural or noun + 's'}"
 
 
+def before_and_after(before: str, after: str) -> str:
+    """A card row's change: what it was, what it becomes.
+
+    A dash for absent on either side, because a blank half reads as a
+    card that forgot to say something rather than a field that was
+    empty - and "empty" is exactly what the reader has to weigh.
+    """
+    return f"{before or '-'} → {after or '-'}"
+
+
 def format_cost(cost: float) -> str:
     """Format cost with dollar sign and appropriate decimal places.
 

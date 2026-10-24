@@ -111,7 +111,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
 
     Returns a dict with key 'matters': a list of entries carrying 'id',
     'title', 'kind', 'reference' (the agency's OWN number, which is what
-    two letters agree about), 'status', 'opened_on', 'subject',
+    two letters agree about), 'note' (matter.amend changes it), 'status', 'opened_on', 'subject',
     'counterpart', 'participants' (role and party), 'requests'
     (counts of open and total, plus 'next_due' and 'overdue_count') and
     'transactions': the charges filed with the case ('items', and
@@ -142,6 +142,7 @@ async def matters(status: str = "open") -> dict[str, Any]:
                     "title": matter.title,
                     "kind": matter.kind,
                     "reference": matter.reference,
+                    "note": matter.note,
                     "status": matter.status,
                     "opened_on": iso_date(matter.opened_on),
                     "subject": names.get(matter.subject_party_id or -1),

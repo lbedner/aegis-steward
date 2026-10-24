@@ -174,6 +174,18 @@ class MatterService:
         )
         return [(matter, role) for matter, role in rows.all()]
 
+    async def amend(self, matter_id: int, changes: dict[str, str]) -> Matter:
+        """``changes`` written onto the case: a blank clears the field (a
+        title cannot be blank, so the payload refuses one first)."""
+        matter = await self.require(matter_id)
+        for field, value in changes.items():
+            cleaned = " ".join(value.split()) if field == "title" else value.strip()
+            setattr(matter, field, cleaned or None)
+        matter.updated_at = utcnow()
+        self.db.add(matter)
+        await self.db.flush()
+        return matter
+
     async def set_cadence(
         self,
         matter_id: int,
@@ -289,6 +301,7 @@ async def summarised(db: AsyncSession, matter: Matter) -> dict[str, Any]:
         "title": matter.title,
         "kind": matter.kind or "",
         "reference": matter.reference or "",
+        "note": matter.note or "",
         "status": matter.status,
         "opened_on": matter.opened_on,
         "cadence": matter.cadence,

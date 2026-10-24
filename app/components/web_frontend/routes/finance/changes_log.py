@@ -19,7 +19,7 @@ from app.components.web_frontend.filters import assistant, money, short_date
 from app.components.web_frontend.nav import settings_nav as nav_context
 from app.components.web_frontend.rendering import dialog, render, with_toast
 from app.components.web_frontend.routes.finance.settings import SECTION
-from app.core.formatting import payee_label
+from app.core.formatting import before_and_after, payee_label
 from app.services.finance.deps import get_finance_service, get_owner_user_id
 from app.services.finance.service import (
     FinanceService,
@@ -95,7 +95,7 @@ def _line(row: FinanceTransactionChangelog, names: dict[str, dict[int, str]]) ->
         added = row.new_value is not None
         tag = _said("tag", row.new_value if added else row.old_value, names)
         return f"Tag {tag} {'added' if added else 'removed'}"
-    return f"{label}: {_said(row.field, row.old_value, names)} → {_said(row.field, row.new_value, names)}"
+    return f"{label}: {before_and_after(_said(row.field, row.old_value, names), _said(row.field, row.new_value, names))}"
 
 
 def _who(source: str) -> str:

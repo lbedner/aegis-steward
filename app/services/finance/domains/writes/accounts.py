@@ -14,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.services.finance.domains.writes.display import ChangeDisplayRow, format_usd
 
 
@@ -311,7 +312,7 @@ async def institution_describe(
         ChangeDisplayRow(label="Account", value=account.name),
         ChangeDisplayRow(
             label="Held with",
-            value=f"{held.name if held else '-'} → {party.name}"
+            value=before_and_after(held.name if held else "", party.name)
             if moving
             else f"{party.name} (unchanged)",
         ),

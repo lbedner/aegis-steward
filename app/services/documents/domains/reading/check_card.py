@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.services.finance.schemas import ChangeDisplayRow
 
 
@@ -120,7 +121,7 @@ async def check_describe(
         rows.append(
             ChangeDisplayRow(
                 label="Payee",
-                value=f"- → {payload.payee}",
+                value=before_and_after("", payload.payee),
                 note=f"page {payload.page}: {payload.payee_because}"
                 if payload.payee_because
                 else None,

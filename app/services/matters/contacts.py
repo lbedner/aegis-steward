@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.core.schema import known
 from app.services.finance.schemas import ChangeDisplayRow
 from app.services.matters.models import PARTY_KINDS
@@ -242,17 +243,6 @@ async def amend_contact_execute(
     return {"party_id": party.id, "name": party.name, "changed": sorted(changes)}
 
 
-def _before_and_after(before: str, after: str) -> str:
-    """One row's worth: what it was, what it becomes. Where it came from
-    is the row's ``note``, drawn beneath it.
-
-    A dash for absent on either side, because a blank half reads as a
-    card that forgot to say something rather than a field that was
-    empty - and "empty" is exactly what the reader has to weigh.
-    """
-    return f"{before or '-'} → {after or '-'}"
-
-
 async def amend_contact_describe(
     db: AsyncSession, payload: AmendContactPayload, owner_user_id: int | None
 ) -> list[ChangeDisplayRow]:
@@ -265,7 +255,7 @@ async def amend_contact_describe(
             rows.append(
                 ChangeDisplayRow(
                     label={"name": "Name", "sort_name": "Files under"}.get(key, "Note"),
-                    value=_before_and_after(getattr(party, key) or "", sent[key] or ""),
+                    value=before_and_after(getattr(party, key) or "", sent[key] or ""),
                     note=payload.sources.get(key) or None,
                 )
             )
@@ -276,7 +266,7 @@ async def amend_contact_describe(
             rows.append(
                 ChangeDisplayRow(
                     label=label,
-                    value=_before_and_after(was.get(key, ""), sent[key]),
+                    value=before_and_after(was.get(key, ""), sent[key]),
                     note=payload.sources.get(key) or None,
                 )
             )
@@ -301,7 +291,7 @@ def _line_rows(
     return [
         ChangeDisplayRow(
             label=label,
-            value=_before_and_after(before.get(label, ""), after.get(label, "")),
+            value=before_and_after(before.get(label, ""), after.get(label, "")),
             note=payload.sources.get(CONTACT_LINES) or None,
         )
         for label in [*before, *[k for k in after if k not in before]]
