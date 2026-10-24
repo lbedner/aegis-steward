@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.services.finance.domains.detection.insights.formatting import format_usd
 from app.services.finance.domains.ledger import categories
 from app.services.finance.domains.planning.budgets.lines import (
@@ -101,7 +102,8 @@ def _card(
     rows = [
         ChangeDisplayRow(label="Limit", value=name),
         ChangeDisplayRow(
-            label="Per month", value=f"{_per_month(was)} → {_per_month(becomes)}"
+            label="Per month",
+            value=before_and_after(_per_month(was), _per_month(becomes)),
         ),
     ]
     if payload.month is not None and payload.month != current_period_month():
@@ -142,7 +144,8 @@ async def budget_limit_describe(
         rows.insert(
             2,
             ChangeDisplayRow(
-                label="Rolls over", value=f"{_yes(rolls)} → {_yes(payload.rollover)}"
+                label="Rolls over",
+                value=before_and_after(_yes(rolls), _yes(payload.rollover)),
             ),
         )
     return rows
