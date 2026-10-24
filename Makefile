@@ -20,11 +20,15 @@ build-static: ## Compile Tailwind CSS and fingerprint assets into static/dist
 	@npm run build
 	@uv run python -m app.components.web_frontend.build
 
-app-icon: ## Redraw the iOS home-screen icon from favicon.svg on the page ground (macOS)
-	@ground=$$(uv run python -c "from tests.web.test_phone import icon_ground; print(icon_ground()[1:])") && \
-	sips -s format png -z 176 176 app/components/web_frontend/static/favicon.svg --out /tmp/aegis-shield.png >/dev/null && \
-	sips --padToHeightWidth 180 180 --padColor $$ground /tmp/aegis-shield.png --out app/components/web_frontend/static/app-icon.png >/dev/null 2>&1 && \
-	echo "Redrawn on #$$ground; update FAVICON_DRAWN in tests/web/test_phone.py if favicon.svg changed"
+app-icon: ## Redraw the iOS home-screen icon from brand-mark.png on the page ground
+	@uv run python -c "from PIL import Image; \
+	from app.components.web_frontend.assets import APP_ICON, STATIC_DIR; \
+	from tests.web.test_phone import icon_ground; \
+	mark = Image.open(STATIC_DIR / 'brand-mark.png').convert('RGBA'); mark.thumbnail((176, 176)); \
+	icon = Image.new('RGBA', (180, 180), icon_ground()); \
+	icon.alpha_composite(mark, ((180 - mark.width) // 2, (180 - mark.height) // 2)); \
+	icon.convert('RGB').save(STATIC_DIR / APP_ICON)" && \
+	echo "Redrawn; update MARK_DRAWN in tests/web/test_phone.py if brand-mark.png changed"
 
 serve: build ## Run all services (ENGINE=granian swaps the ASGI server for this run)
 	@uv run python scripts/dev_tasks.py serve
