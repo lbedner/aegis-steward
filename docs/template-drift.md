@@ -55,8 +55,6 @@ Each is a slice of #505; a port touching one still needs a hand.
   (`READS_DEBT`), finance's and comms' loose modules (`LOOSE_DEBT`: comms'
   `push.py` and `call.py` are steward's own) and one
   finance job nothing runs (`JOBS_DEBT`).
-- **CLI**: `patterns check/review/touches`, `ontology export`, and the
-  locale strings they bring.
 - **Config and boot**: the webserver engine and loop as Overseer
   settings (`configurable`, `loops`, `boot.apply_before_serving`),
   `scripts/dev_tasks.py`, compose, `pyproject.toml`.

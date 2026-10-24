@@ -882,9 +882,18 @@ MESSAGES: dict[str, str] = {
     # 帮助文本
     "docs.help": "查看已安装组件和服务的文档链接",
     "docs.help_show": "查看已安装组件和服务的文档链接",
+    "ontology.help": "从代码导出本应用的组成，供其他工具使用",
+    "ontology.help_export": "以其他工具的格式输出应用的系统模型：markdown（文档的技术栈页面）、backstage（catalog-info.yaml）或 otel（进程的资源属性）。",
+    "ontology.opt_format": "格式：markdown、backstage 或 otel",
+    "ontology.opt_owner": "Backstage 登记实体所用的所有者（默认：以应用命名的组）",
+    "ontology.opt_unit": "otel 属性所属的进程：webserver、worker 或 scheduler",
+    "ontology.unknown_format": "未知格式 {fmt}：应为 {formats} 之一",
     "patterns.help": "查看应用的构建方式：模式与宏",
     "patterns.help_show": "输出从代码中检测到的模式和宏目录，动手开发前先读一读",
     "patterns.opt_format": "输出格式：markdown 或 json",
+    "patterns.help_check": "列出不在 .patterns-baseline.json（已知欠账）中的发现；退出码为 0。给出改动文件时，其影响范围写入 GitHub 步骤摘要。--strict 遇到新的错误时退出码为 1；--update 重写基线。",
+    "patterns.help_review": "Illiana 对不在已知欠账中的发现所写的评审，输出为可用于拉取请求的 Markdown；给出改动文件时也说明其影响范围。需要 AI 服务。",
+    "patterns.help_touches": "从本体读取一次改动所涉及的内容：所属部件、依赖它们的部件，以及其中的表、路由和任务。文件可直接给出，或从标准输入逐行读取（即 git diff --name-only 的输出）。",
     # ── 压力测试 ──────────────────────────────────────────────────────
     # 帮助文本
     "loadtest.help": "Worker 性能压力测试相关命令",

@@ -90,6 +90,7 @@ if TYPE_CHECKING:
     )
     from app.services.ai.domains.llm.providers import model_for
     from app.services.ai.domains.llm.queries import org_icons, recent_model_ids
+    from app.services.ai.domains.llm.writer import write, writer
     from app.services.ai.domains.spend import recording as usage_recording
     from app.services.ai.domains.spend.recording import extract_usage, record_usage
     from app.services.ai.domains.spend.report import usage_report
