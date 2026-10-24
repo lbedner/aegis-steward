@@ -6,7 +6,7 @@ This module centralizes application settings, allowing them to be loaded
 from environment variables for easy configuration in different environments.
 """
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import Field, model_validator
 from pydantic_settings import SettingsConfigDict
@@ -129,14 +129,6 @@ class Settings(
 
     # Development settings
     AUTO_RELOAD: bool = False
-
-    # ASGI server. `make serve ENGINE=granian` sets this for one run;
-    # deployments set it in the env file like any other deploy setting.
-    WEBSERVER_ENGINE: Literal["uvicorn", "granian"] = "uvicorn"
-
-    # Event loop, a separate axis from the engine. "auto" resolves to
-    # uvloop when installed; it never resolves to rloop on its own.
-    WEBSERVER_LOOP: Literal["auto", "asyncio", "uvloop", "rloop", "zuvloop"] = "auto"
 
     # Docker settings (used by docker-compose; the dev deploy-agent's mounts too)
     AEGIS_STACK_TAG: str = "aegis-steward:latest"

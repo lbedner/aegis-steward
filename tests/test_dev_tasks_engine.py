@@ -31,8 +31,8 @@ def serve_kwargs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, A
     monkeypatch.setattr(dev_tasks, "resolve_ports", lambda **_: {})
     monkeypatch.setattr(dev_tasks, "_DOTENV", tmp_path / ".env")
     monkeypatch.delenv("AEGIS_STACK_ENV_FILE", raising=False)
-    monkeypatch.delenv("ENGINE", raising=False)
-    monkeypatch.delenv("WEBSERVER_ENGINE", raising=False)
+    for name in ("ENGINE", "WEBSERVER_ENGINE", "LOOP", "WEBSERVER_LOOP"):
+        monkeypatch.delenv(name, raising=False)
     # Never this machine's ~/.ssh or ssh-agent, unless a test asks for them.
     monkeypatch.setattr(dev_tasks, "_deploy_agent_ready", lambda env: None)
     return captured
@@ -46,6 +46,17 @@ def test_engine_becomes_the_webserver_setting(
     dev_tasks.serve()
 
     assert serve_kwargs["env"]["WEBSERVER_ENGINE"] == "granian"
+
+
+def test_loop_becomes_the_webserver_setting(
+    serve_kwargs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`make serve LOOP=rloop`, the same way."""
+    monkeypatch.setenv("LOOP", "rloop")
+
+    dev_tasks.serve()
+
+    assert serve_kwargs["env"]["WEBSERVER_LOOP"] == "rloop"
 
 
 def test_plain_serve_pins_no_engine(serve_kwargs: dict[str, Any]) -> None:
@@ -174,3 +185,39 @@ class TestTheDeployAgent:
         dev_tasks._deploy_agent_ready({})
 
         assert ran == [["ssh-add", "-l"]]
+
+    def _generated_from(self, home: Path, source: str) -> None:
+        (home / ".copier-answers.yml").write_text(
+            f"_commit: None\n_src_path: {source}\nproject_name: x\n"
+        )
+
+    def test_a_stack_generated_from_a_checkout_runs_its_aegis(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The pinned release may predate the agent this checkout's
+        templates expect: run the checkout the stack came from."""
+        self._ssh_add(monkeypatch, holds=0)
+        checkout = home / "aegis-stack"
+        checkout.mkdir()
+        (checkout / "pyproject.toml").write_text("")
+        self._generated_from(home, f"git+file://{checkout}")
+        env: dict[str, str] = {}
+
+        dev_tasks._deploy_agent_ready(env)
+
+        assert env["AEGIS_STACK_SOURCE"] == str(checkout)
+
+    def test_a_released_stack_or_a_chosen_checkout_is_left_alone(
+        self, home: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._ssh_add(monkeypatch, holds=0)
+        self._generated_from(home, "gh:lbedner/aegis-stack")
+        env: dict[str, str] = {}
+        dev_tasks._deploy_agent_ready(env)
+        assert "AEGIS_STACK_SOURCE" not in env
+
+        self._generated_from(home, f"git+file://{home}")
+        (home / "pyproject.toml").write_text("")
+        chosen = {"AEGIS_STACK_SOURCE": "/elsewhere"}
+        dev_tasks._deploy_agent_ready(chosen)
+        assert chosen["AEGIS_STACK_SOURCE"] == "/elsewhere"

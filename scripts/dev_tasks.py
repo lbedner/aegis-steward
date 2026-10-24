@@ -58,6 +58,43 @@ def _plaid_configured() -> bool:
     return env_file.exists() and bool(dotenv_values(env_file).get("PLAID_CLIENT_ID"))
 
 
+def _aegis_checkout() -> str | None:
+    """The aegis-stack checkout this stack was generated from (``aegis init
+    --dev``), from ``.copier-answers.yml``; None for a released aegis. The
+    agent runs it: the pinned release may predate what its templates use."""
+    answers = Path(".copier-answers.yml")
+    lines = answers.read_text().splitlines() if answers.is_file() else []
+    source = next(
+        (x.partition(":")[2].strip() for x in lines if x.startswith("_src_path:")), ""
+    )
+    folder = Path(source.removeprefix("git+file://"))
+    if source.startswith("git+file://") and (folder / "pyproject.toml").is_file():
+        return str(folder)
+    return None
+
+
+def _deploy_agent_ready(env: dict[str, str]) -> None:
+    """What the ``deploy-agent`` service takes from this machine: the
+    checkout at its own path (``AEGIS_PROJECT_ROOT``), ``known_hosts``
+    (made, as Docker would mount a missing one as a directory), and the
+    ssh-agent holding a key, as the key itself never enters the container
+    (added once per login; ssh-add asks for its passphrase if it has one)."""
+    if os.name != "nt":  # a Windows path is no container path
+        env["AEGIS_PROJECT_ROOT"] = str(Path.cwd())
+        checkout = _aegis_checkout()
+        if checkout and "AEGIS_STACK_SOURCE" not in env:
+            env["AEGIS_STACK_SOURCE"] = checkout
+    known = Path.home() / ".ssh" / "known_hosts"
+    known.parent.mkdir(mode=0o700, exist_ok=True)
+    known.touch()
+    if shutil.which("ssh-add") is None:
+        return
+    held = subprocess.run(["ssh-add", "-l"], capture_output=True, env=env)
+    if held.returncode == 1:  # an agent, holding no key
+        keychain = ["--apple-use-keychain"] if sys.platform == "darwin" else []
+        subprocess.run(["ssh-add", *keychain], env=env)
+
+
 def _host_os() -> tuple[str, str]:
     """This machine's OS and its home page (for its mark), which the
     containers cannot see: they run Linux whatever runs Docker. Omarchy
@@ -75,25 +112,6 @@ def _host_os() -> tuple[str, str]:
     return release.get("NAME", "Linux"), release.get("HOME_URL", "https://kernel.org")
 
 
-def _deploy_agent_ready(env: dict[str, str]) -> None:
-    """What the ``deploy-agent`` service takes from this machine: the
-    checkout at its own path (``AEGIS_PROJECT_ROOT``), ``known_hosts``
-    (made, as Docker would mount a missing one as a directory), and the
-    ssh-agent holding a key, as the key itself never enters the container
-    (added once per login; ssh-add asks for its passphrase if it has one)."""
-    if os.name != "nt":  # a Windows path is no container path
-        env["AEGIS_PROJECT_ROOT"] = str(Path.cwd())
-    known = Path.home() / ".ssh" / "known_hosts"
-    known.parent.mkdir(mode=0o700, exist_ok=True)
-    known.touch()
-    if shutil.which("ssh-add") is None:
-        return
-    held = subprocess.run(["ssh-add", "-l"], capture_output=True, env=env)
-    if held.returncode == 1:  # an agent, holding no key
-        keychain = ["--apple-use-keychain"] if sys.platform == "darwin" else []
-        subprocess.run(["ssh-add", *keychain], env=env)
-
-
 def serve(*, detach: bool = False) -> None:
     print(
         "Starting services in background..."
@@ -105,13 +123,16 @@ def serve(*, detach: bool = False) -> None:
         postgres=False,
         redis=True,
         ollama=False,
+        browser=False,
+        storage=False,
     )
     env = {**os.environ, **{key: str(value) for key, value in ports.items()}}
-    # `make serve ENGINE=granian`: make exports command-line variables, so
-    # the short name arrives here and becomes the setting the app reads.
-    engine = os.environ.get("ENGINE")
-    if engine:
-        env["WEBSERVER_ENGINE"] = engine
+    # `make serve ENGINE=granian LOOP=rloop`: make exports command-line
+    # variables, so each short name arrives here and becomes the setting
+    # the app reads.
+    for flag, setting in (("ENGINE", "WEBSERVER_ENGINE"), ("LOOP", "WEBSERVER_LOOP")):
+        if value := os.environ.get(flag):
+            env[setting] = value
     profiles = ["--profile", "dev"]
     if _plaid_configured():
         profiles += ["--profile", "plaid"]
@@ -146,7 +167,7 @@ def docs() -> None:
     """Serve the documentation on a port that is actually free."""
     port = docs_port()
     subprocess.run(
-        ["uv", "run", "mkdocs", "serve", "--dev-addr", f"0.0.0.0:{port}"],
+        ["uv", "run", "mkdocs", "serve", "--dev-addr", f"127.0.0.1:{port}"],
         check=True,
     )
 
@@ -185,7 +206,11 @@ def status() -> None:
 
 def migrate_reset() -> None:
     print("WARNING: This will destroy all data in the database!")
-    if input("Are you sure? Type 'yes' to continue: ") != "yes":
+    try:
+        answer = input("Are you sure? Type 'yes' to continue: ")
+    except EOFError:
+        answer = ""
+    if answer != "yes":
         sys.exit(1)
     subprocess.run(
         [
