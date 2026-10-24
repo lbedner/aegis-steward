@@ -335,6 +335,16 @@ class TestOverseerCells:
         assert text(link) == "Lease" and link.get("href") == "/d?id=1"
         assert link.get("hx-target") == "#main"
 
+    def test_a_link_with_nowhere_to_go_is_its_label_and_says_more_beneath(
+        self,
+    ) -> None:
+        columns = [{"key": "title", "label": "Title", "kind": "link"}]
+        row = {"title": {"label": "Lease", "url": None, "sub": "Signed in May"}}
+        cell = one(render(columns, [row]), "tbody td")
+        none(cell, "a")
+        assert "Lease" in text(cell)
+        assert text(one(cell, "div")) == "Signed in May"
+
     def test_a_wrapping_column_wraps(self) -> None:
         columns = [{"key": "rule", "label": "Rule", "wrap": True}]
         cell = one(render(columns, [{"rule": "Host(`a`) && Path(`/b`)"}]), "tbody td")

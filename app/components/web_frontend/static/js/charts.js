@@ -7,7 +7,7 @@
    swap into a chart page still works. Its vendored URL (fingerprinted)
    rides on this script's own tag as data-chart-js, from base.html. */
 
-const RAMP = 8; // --aegis-chart-1 .. -8 in tailwind.config.js; cycles past that
+const RAMP = 11; // --aegis-chart-1 .. -11 in tailwind.config.js; cycles past that
 
 // Colors come from the active theme's variables, read at mount time so a
 // theme switch repaints charts in the new palette. DaisyUI stores its

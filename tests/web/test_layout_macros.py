@@ -147,10 +147,9 @@ class TestTabsAndChips:
         nav = one(html, "nav#v[role=tablist]")
         assert "border-b" in nav.get("class")
         links = select(nav, "a")
-        assert links[0].get("aria-current") == "page"
-        assert "border-aegis-teal" in links[0].get("class")
+        assert [link.get("class") for link in links] == ["tab", "tab"]
+        assert links[0].get("aria-current") == "page"  # .tab underlines it
         assert links[1].get("aria-current") is None
-        assert "border-transparent" in links[1].get("class")
 
     def test_chip_is_the_one_chip_class(self) -> None:
         """Every chip row wears ``chip`` (input.css); a link marks the

@@ -113,8 +113,9 @@
 {%- elif col.kind == "code" -%}
 <code class="font-mono text-xs whitespace-normal break-words">{{ value }}</code>
 {%- elif col.kind == "link" -%}
-{%- set link -%}<a href="{{ value.url }}" {{ hx_replace(value.url, col.target or "#app-content") }} class="text-aegis-text hover:text-aegis-teal">{{ value.label }}</a>{%- endset -%}
+{%- set link -%}{% if value.url %}<a href="{{ value.url }}" {{ hx_replace(value.url, col.target or "#app-content") }} class="text-aegis-text hover:text-aegis-teal">{{ value.label }}</a>{% else %}{{ value.label }}{% endif %}{%- endset -%}
 {%- if col.mark %}<span class="inline-flex items-center gap-2">{{ mark(row, value.label) }}{{ link }}</span>{% else %}{{ link }}{% endif -%}
+{%- if value.sub %}<div class="text-xs text-aegis-muted">{{ value.sub }}</div>{% endif -%}
 {%- elif col.kind == "date" -%}
 {{ value|short_date }}
 {%- elif col.kind == "int" -%}
