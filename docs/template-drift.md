@@ -31,6 +31,13 @@ steward last caught up to, 2026-10-22.
   agent's tools resolve through steward's `resolve_tools`, which adds each
   `*_usd` beside its cents; steward's memory tools file a card, so their
   effect is `proposes`.
+- **Compose's limits and volumes** (`docker-compose*.yml`): steward's
+  memory and swap ceilings, its database on a named volume, Redis's
+  password and the dev webserver's room for reload stay; the engine and
+  loop pass through as the template's do.
+- **Dependencies** (`pyproject.toml`): steward's own, OCR (`pytesseract`),
+  web push (`pywebpush`), pydantic-ai's `google` extra and the `docs`
+  extra, beside the template's.
 - **Steward's own services' parts**: matters and mail are part of
   documents, insurance of finance (`PART_OF`).
 - **The AI service's turn and voice** (`ai/service/` beneath the facade,
@@ -55,9 +62,6 @@ Each is a slice of #505; a port touching one still needs a hand.
   (`READS_DEBT`), finance's and comms' loose modules (`LOOSE_DEBT`: comms'
   `push.py` and `call.py` are steward's own) and one
   finance job nothing runs (`JOBS_DEBT`).
-- **Config and boot**: the webserver engine and loop as Overseer
-  settings (`configurable`, `loops`, `boot.apply_before_serving`),
-  `scripts/dev_tasks.py`, compose, `pyproject.toml`.
 - **Macros, styles and scripts** beyond what the Overseer pages need
   (`macros/layout.html`, `form.html`, `table.html`, `base.html`,
   `input.css`, `charts.js`, `theme.js`): `menu_item` and `dropdown` differ
