@@ -14,11 +14,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}{{ project_name }}{% endblock %}</title>
 
-  {# Favicon: SVG only. Modern browsers handle it natively (auto-scales,
-     respects prefers-color-scheme inside the SVG, and the bytes are
-     smaller than maintaining a multi-resolution ICO). Older browsers and
-     bots that auto-request /favicon.ico will 404 — harmless. #}
-  {% block favicon %}<link rel="icon" type="image/svg+xml" href="{{ static('favicon.svg') }}">{% endblock %}
+  {# Favicon: the brand mark, the one picture the sidebar and the
+     home-screen icon are drawn from. Bots that auto-request
+     /favicon.ico will 404 — harmless. #}
+  {% block favicon %}<link rel="icon" type="image/png" href="{{ static('brand-mark.png') }}">{% endblock %}
 
   {# Added to an iPhone's home screen: the icon (opaque, iOS fills
      transparency with black), the name under it, and no Safari chrome.

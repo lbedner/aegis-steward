@@ -22,8 +22,8 @@ from tests.web.dom import none, one
 from tests.web.test_theme import tailwind
 
 SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1"
-# favicon.svg as app-icon.png was last drawn from (``make app-icon``).
-FAVICON_DRAWN = "d92ab0c9bd833884635d7af14a4f04cc70186a716676f8418975dfe067cbdb4e"
+# brand-mark.png as app-icon.png was last drawn from (``make app-icon``).
+MARK_DRAWN = "e5418de000d2efbe69cf4b2b5776e0b4b943f0a5aecff2f4cca59ca9cf6c78fa"
 
 
 def icon_ground() -> str:
@@ -70,14 +70,21 @@ class TestHomeScreen:
         (icon,) = manifest["icons"]
         assert client.get(icon["src"]).headers["content-type"] == "image/png"
 
-    def test_the_icon_is_the_favicon_on_the_page_ground(self) -> None:
+    def test_the_icon_is_the_mark_on_the_page_ground(self) -> None:
         """A copy of the mark and of a theme color, so it is redrawn from
         both (``make app-icon``) and a change to either fails here."""
-        favicon = hashlib.sha256((STATIC_DIR / "favicon.svg").read_bytes()).hexdigest()
-        assert favicon == FAVICON_DRAWN, "favicon.svg changed: make app-icon"
+        mark = hashlib.sha256((STATIC_DIR / "brand-mark.png").read_bytes()).hexdigest()
+        assert mark == MARK_DRAWN, "brand-mark.png changed: make app-icon"
         with Image.open(STATIC_DIR / APP_ICON) as icon:
             corner = "#" + icon.convert("RGB").tobytes()[:3].hex().upper()
         assert corner == icon_ground().upper(), "the page ground changed: make app-icon"
+
+    def test_the_icon_is_opaque(self) -> None:
+        """iOS paints a home-screen icon's transparent pixels black: the
+        mark's sides are drawn on the ground, not left clear."""
+        with Image.open(STATIC_DIR / APP_ICON) as icon:
+            alpha = icon.convert("RGBA").getchannel("A")
+        assert alpha.getextrema() == (255, 255)
 
     def test_the_shield_fills_the_icon_as_other_apps_do(self) -> None:
         """Beside a bank's icon, whose mark fills about four fifths of its

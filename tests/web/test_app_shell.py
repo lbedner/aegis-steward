@@ -6,10 +6,12 @@ shell is pinned independently of any route (routes arrive in #8).
 
 from fastapi.testclient import TestClient
 
+from app.components.web_frontend.assets import STATIC_DIR, static_url
 from app.components.web_frontend.rendering import templates
 from tests.web.dom import none, one, select, text
 
 PROBE = '<p id="probe">hello</p>'
+BRAND_MARK = "brand-mark.png"
 
 
 def render_shell(body: str = PROBE) -> str:
@@ -37,12 +39,13 @@ class TestAppShell:
     def test_the_sidebar_opens_with_the_mark_and_closes_with_its_maker(
         self,
     ) -> None:
-        """Top of the column, the app says what it is; foot of it, what
-        built it. Both are markup rather than pictures, so both follow
-        the theme."""
+        """Top of the column, the app says what it is (its shield, a
+        picture served from static); foot of it, what built it."""
         page = render_shell()
-        mark = one(page, "aside#sidebar a[href='/'] svg")
-        assert "text-aegis-teal" in (mark.get("class") or "")
+        mark = one(page, "aside#sidebar a[href='/'] img")
+        assert mark.get("src") == static_url(BRAND_MARK)
+        assert (STATIC_DIR / BRAND_MARK).is_file()
+        assert mark.get("alt") == ""  # the name beside it says it
         assert text(one(page, "aside#sidebar a[href='/'] span"))
         assert text(one(page, "[data-powered-by]")) == "Powered by Aegis Stack"
 
