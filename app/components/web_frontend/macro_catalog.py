@@ -162,6 +162,11 @@ EXAMPLES: dict[str, dict[str, str]] = {
               <span class="inline-flex items-center gap-2">{{ chart_dot(4) }} Grace</span>
               <span class="inline-flex items-center gap-2">{{ chart_dot(7) }} Linus</span>
             </span>""",
+        "fold_mark": """
+            <details open class="text-sm">
+              <summary class="list-none cursor-pointer flex items-center gap-2">{{ fold_mark() }} Two quotes</summary>
+              <p class="pl-5 text-aegis-muted">Open: the mark turns down.</p>
+            </details>""",
         "ranked_rows": """
             {{ ranked_rows([
               {"label": "load_test", "count": "3 workers", "value": "1,204", "ratio": 1.0},
@@ -176,6 +181,16 @@ EXAMPLES: dict[str, dict[str, str]] = {
             {% call tab_bar("Example tabs") %}
               {{ tab_item("Overview", href="#macro-tab_item") }}
               {{ tab_item("History", active=True, href="#macro-tab_item") }}
+            {% endcall %}""",
+        "tabbed": """
+            {% call tabbed("example", [("notes", "Notes"), ("transcript", "Transcript")]) %}
+              {% call tab_panel("notes", "notes") %}<p class="text-sm">The notes.</p>{% endcall %}
+              {% call tab_panel("transcript", "notes") %}<p class="text-sm">The transcript.</p>{% endcall %}
+            {% endcall %}""",
+        "tab_panel": """
+            {% call tabbed("example-panel", [("one", "One"), ("two", "Two")], "two") %}
+              {% call tab_panel("one", "two") %}<p class="text-sm">Hidden until picked.</p>{% endcall %}
+              {% call tab_panel("two", "two") %}<p class="text-sm">Shown first.</p>{% endcall %}
             {% endcall %}""",
         "hint_panel": """
             <span class="group relative inline-block">

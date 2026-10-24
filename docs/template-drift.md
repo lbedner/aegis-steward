@@ -22,6 +22,21 @@ steward last caught up to, 2026-10-22.
   page taken from the template wears them in place of `hover-card` and a
   spelled-out card. The template's theme files (`web_frontend/themes/`,
   `WEB_THEME`) are not taken.
+- **The macro kit** (`macros/layout.html`, `form.html`, `table.html`):
+  steward's is the newer, and the template's later changes are in it.
+  Steward's own recipes stand where the template has another: buttons
+  through `button_classes` (no `_button_size`), controls through
+  `control`, a dropdown with `tone`, `size` and `panel`, `hint_panel` as
+  the one tooltip shell (no `popover_panel`, `hover_hint`,
+  `info_tooltip`), `select` and `picker` (no `select_field`), and the
+  native dialog (no `modal_scrim`). Not taken, with nothing here to use
+  them: `or_divider`, a chat card's own dialog sizes.
+- **Markdown in `markup.py`**: the markdown, highlighting and message
+  rendering the template keeps in `web_frontend/filters.py` live in
+  `web_frontend/markup.py`, re-exported by `filters`.
+- **Scripts from outside** (`base.html`, `charts.js`): htmx, Alpine and
+  Chart.js are served from `static/vendor/`, so the template's CDN
+  integrity hashes have nothing to check.
 - **No landing page**: `/` opens Overview, so the template's landing,
   `tests/shell.py`'s shell and the site route stay out.
 - **The change queue is finance's own**, not `app.services.change_queue`,
@@ -52,7 +67,7 @@ steward last caught up to, 2026-10-22.
 
 ## Not yet in line
 
-Each is a slice of #505; a port touching one still needs a hand.
+Left as ratchets, each shrinking as the code it names moves.
 
 - **Services**: every caller outside a service imports it through its
   facade (finance's lazy `service/` package as the template's;
@@ -62,7 +77,3 @@ Each is a slice of #505; a port touching one still needs a hand.
   (`READS_DEBT`), finance's and comms' loose modules (`LOOSE_DEBT`: comms'
   `push.py` and `call.py` are steward's own) and one
   finance job nothing runs (`JOBS_DEBT`).
-- **Macros, styles and scripts** beyond what the Overseer pages need
-  (`macros/layout.html`, `form.html`, `table.html`, `base.html`,
-  `input.css`, `charts.js`, `theme.js`): `menu_item` and `dropdown` differ
-  (steward's dropdown carries `tone`, `size`, `panel`).

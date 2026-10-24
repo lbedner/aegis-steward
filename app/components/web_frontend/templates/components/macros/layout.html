@@ -372,17 +372,19 @@
 {# Ranked rows: name, a small count, the amount, and a thin bar scaled to
    the largest row (the Overview's payees, bills and what moved). ``rows``
    are ``{"label", "count", "value", "ratio", "tone"}``, and ``attrs``
-   when the name opens something (``hx_dialog(...)``); ``columns`` sets a
+   when the name opens something (``hx_dialog(...)``); a ``dot`` (a
+   chart-ramp color, ``chart_dot``) marks whose a row is; ``tone`` is
+   "accent" or "muted" (a row standing apart), else teal; ``columns`` sets a
    long list in columns, read down each, so it does not run the page long. #}
 {% macro ranked_rows(rows, columns=False) %}
 <ol class="ranked {{ 'sm:columns-2 xl:columns-3 gap-x-8' if columns else 'space-y-3' }}"{% if columns %} data-columns{% endif %}>
   {% for row in rows %}
   <li{% if columns %} class="break-inside-avoid pb-3"{% endif %}>
     <div class="flex items-baseline justify-between gap-3 text-sm">
-      <span class="inline-flex items-center gap-2 min-w-0"><span class="shrink-0">{{ mark(row, row.label) }}</span>{% if row.attrs %}<button type="button" {{ row.attrs }} class="text-aegis-text truncate text-left hover:underline">{{ row.label }}</button>{% else %}<span class="text-aegis-text truncate">{{ row.label }}</span>{% endif %}</span>
+      <span class="inline-flex items-center gap-2 min-w-0"><span class="shrink-0">{{ mark(row, row.label) }}</span>{% if row.attrs %}<button type="button" {{ row.attrs }} class="text-aegis-text truncate text-left hover:underline">{{ row.label }}</button>{% else %}<span class="{{ 'text-aegis-muted' if row.tone == 'muted' else 'text-aegis-text' }} truncate">{% if row.dot %}{{ chart_dot(row.dot) }}{% endif %}{{ row.label }}</span>{% endif %}</span>
       <span class="shrink-0 tabular-nums">{% if row.count %}<span class="text-aegis-muted mr-2">{{ row.count }}</span>{% endif %}<span class="text-aegis-text font-medium">{{ row.value }}</span></span>
     </div>
-    <div class="mt-1 h-1 rounded bg-aegis-border/60"><div class="h-1 rounded {{ 'bg-aegis-accent' if row.tone == 'accent' else 'bg-aegis-teal' }}" style="width: {{ (row.ratio * 100)|round|int }}%"></div></div>
+    <div class="mt-1 h-1 rounded bg-aegis-border/60"><div class="h-1 rounded {{ {'accent': 'bg-aegis-accent', 'muted': 'bg-aegis-muted'}.get(row.tone, 'bg-aegis-teal') }}" style="width: {{ (row.ratio * 100)|round|int }}%"></div></div>
   </li>
   {% endfor %}
 </ol>
@@ -400,8 +402,35 @@
 
 {% macro tab_item(label, active=False, href="", hx="") %}
 <a href="{{ href }}" {{ hx|safe }} {% if active %}aria-current="page"{% endif %}
-   class="text-sm pb-2 -mb-px border-b-2 whitespace-nowrap transition-colors {{ 'text-aegis-text border-aegis-teal' if active else 'text-aegis-muted border-transparent hover:text-aegis-text' }}">{{ label }}</a>
+   class="tab">{{ label }}</a>
 {% endmacro %}
+
+{% macro tab_panel(key, open) %}
+<div role="tabpanel" data-tab-panel="{{ key }}" class="space-y-6"{% if key != open %} hidden{% endif %}>{{ caller() }}</div>
+{% endmacro %}
+
+{# Tabs within one view, switched in the browser (app.js's ``data-tabs``):
+   ``tabs`` is each (key, label), ``open`` the key shown first (the first
+   when none), and each panel a ``tab_panel(key, open)`` in the caller. The
+   tab picked stays picked when the view re-reads itself, and a link to
+   something in a hidden panel (a note's line) shows that panel first. #}
+{% macro tabbed(name, tabs, open=None) %}
+{% set open = open or tabs[0][0] %}
+<div data-tabs="{{ name }}">
+  {% call tab_bar(name) %}
+  {% for key, label in tabs %}
+  <button type="button" role="tab" data-tab="{{ key }}" aria-selected="{{ 'true' if key == open else 'false' }}" class="tab">{{ label }}</button>
+  {% endfor %}
+  {% endcall %}
+  {{ caller() }}
+</div>
+{% endmacro %}
+
+{# A fold's mark, in its ``<summary>``: turned while the fold is open
+   (``.fold-mark``). ``classes`` place it (``mt-0.5`` beside a heading). #}
+{% macro fold_mark(classes="") -%}
+<span aria-hidden="true" class="fold-mark {{ classes }}">›</span>
+{%- endmacro %}
 
 
 {# A chip as a link: one of a row of exclusive choices (a month, a view).
@@ -537,7 +566,7 @@
 </span>
 {% endmacro %}
 
-{# A chart-ramp color as a small dot (--aegis-chart-``n``, 1 to 9): how a
+{# A chart-ramp color as a small dot (--aegis-chart-``n``, 1 to 11): how a
    list marks whose a row is (a service's log lines, a meeting's speaker),
    leaving the text itself plain. #}
 {% macro chart_dot(n) -%}
