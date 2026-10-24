@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.services.finance.schemas import ChangeDisplayRow
 
 
@@ -246,7 +247,7 @@ async def file_document_describe(
     rows = [
         ChangeDisplayRow(
             label="Document",
-            value=f"{said} → {payload.title}" if payload.title else said,
+            value=before_and_after(said, payload.title) if payload.title else said,
             scan=photo_key(found) is not None,
         ),
         ChangeDisplayRow(label="File under", value=name),

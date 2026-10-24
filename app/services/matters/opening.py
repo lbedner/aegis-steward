@@ -1,5 +1,6 @@
-"""Opening a matter as a proposal (#284): the one part of a case that
-had no card.
+"""Opening a matter as a proposal (#284), the one part of a case that
+had no card, and changing one already on file (#566): a note a
+contractor's coming visit belongs in had nowhere to go.
 
 She was asked twice - "can you create a case for this? ... a matter",
 then "let's create a matter, and call it Alex's Root Canals" - and
@@ -12,9 +13,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.services.finance.schemas import ChangeDisplayRow
 
 
@@ -100,3 +102,92 @@ async def open_matter_describe(
         if value:
             rows.append(ChangeDisplayRow(label=label, value=value))
     return rows
+
+
+# What a card may change on a case, and what each is called on it.
+AMENDABLE = {"title": "Title", "kind": "Kind", "reference": "Reference", "note": "Note"}
+
+
+class AmendMatterPayload(BaseModel):
+    """A change to a case already on file, shaped as ``contact.amend``:
+    only what is sent changes, and "" clears it. A visit still to come
+    goes in the note; once it has happened it is a ``matter.event``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    matter_id: int
+    title: str | None = None
+    kind: str | None = None
+    reference: str | None = None
+    note: str | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _titled(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("A matter keeps a title.")
+        return value
+
+    @model_validator(mode="after")
+    def _says_something(self) -> AmendMatterPayload:
+        if not self.sent():
+            raise ValueError("An amendment has to name at least one field to change.")
+        return self
+
+    def sent(self) -> dict[str, str]:
+        """The fields this card speaks about ("" is sent, and clears)."""
+        return {
+            field: value
+            for field in AMENDABLE
+            if (value := getattr(self, field)) is not None
+        }
+
+
+async def _amending(
+    db: AsyncSession, payload: AmendMatterPayload
+) -> tuple[Any, dict[str, str]]:
+    """The case and what would change on it, refusing a reference another
+    case carries, as opening one does."""
+    from app.services.matters.matters import MatterService
+
+    service = MatterService(db)
+    matter = await service.require(payload.matter_id)
+    changed = {
+        field: value
+        for field, value in payload.sent().items()
+        if value.strip() != (getattr(matter, field) or "")
+    }
+    if (reference := changed.get("reference", "").strip()) and (
+        taken := await service.by_reference(reference)
+    ):
+        raise ValueError(f"{taken.title} already has reference {reference}")
+    if not changed:
+        raise ValueError(
+            f"This would change nothing about {matter.title}: every field sent "
+            "already reads that way."
+        )
+    return matter, changed
+
+
+async def amend_matter_execute(
+    db: AsyncSession, payload: AmendMatterPayload, owner_user_id: int | None
+) -> dict[str, Any]:
+    from app.services.matters.matters import MatterService
+
+    _, changed = await _amending(db, payload)
+    matter = await MatterService(db).amend(payload.matter_id, changed)
+    return {"matter_id": matter.id, "title": matter.title, "changed": sorted(changed)}
+
+
+async def amend_matter_describe(
+    db: AsyncSession, payload: AmendMatterPayload, owner_user_id: int | None
+) -> list[ChangeDisplayRow]:
+    matter, changed = await _amending(db, payload)
+    return [ChangeDisplayRow(label="Matter", value=matter.title)] + [
+        ChangeDisplayRow(
+            label=label,
+            value=before_and_after(getattr(matter, field) or "", changed[field]),
+        )
+        for field, label in AMENDABLE.items()
+        if field in changed
+    ]

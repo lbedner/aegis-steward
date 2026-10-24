@@ -127,6 +127,42 @@ def _matter(client: TestClient, reference: str) -> str:
     return rows[-1]
 
 
+class TestTheNote:
+    """A case's note, as amended on a card (#566), is read on its page."""
+
+    @pytest.fixture
+    def page(self, client: TestClient) -> str:
+        import asyncio
+
+        from app.core.db import AsyncSessionLocal
+        from app.services.matters.opening import (
+            AmendMatterPayload,
+            amend_matter_execute,
+        )
+
+        path = _matter(client, "MA-NOTE-1")
+        matter_id = int(path.rsplit("/", 1)[-1])
+
+        async def amend() -> None:
+            async with AsyncSessionLocal() as db:
+                payload = AmendMatterPayload(
+                    matter_id=matter_id, note="Plumber coming Thursday"
+                )
+                await amend_matter_execute(db, payload, None)
+                await db.commit()
+
+        asyncio.run(amend())
+        return path
+
+    def test_the_page_shows_it(self, client: TestClient, page: str) -> None:
+        note = one(client.get(page).text, "#matter [data-note]")
+        assert text(note) == "Plumber coming Thursday"
+
+    def test_the_fragment_shows_it_too(self, hx: TestClient, page: str) -> None:
+        note = one(hx.get(page).text, "#matter [data-note]")
+        assert text(note) == "Plumber coming Thursday"
+
+
 ASKED = "\n".join(
     (
         "1. A copy of the power of attorney",

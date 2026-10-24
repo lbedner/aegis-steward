@@ -18,6 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.formatting import before_and_after
 from app.core.schema import known
 from app.services.finance.constants import ENVELOPE_CADENCES
 from app.services.finance.domains.detection.insights.formatting import format_usd
@@ -245,9 +246,11 @@ async def goal_update_describe(
     for name, label, said in _GOAL_FIELDS:
         if name in changes and changes[name] != getattr(meta, name):
             standing = getattr(meta, name)
-            was = said(standing) if standing is not None else "-"
+            was = said(standing) if standing is not None else ""
             rows.append(
-                ChangeDisplayRow(label=label, value=f"{was} → {said(changes[name])}")
+                ChangeDisplayRow(
+                    label=label, value=before_and_after(was, said(changes[name]))
+                )
             )
     if len(rows) == 1:
         raise ValueError(f"This would change nothing about {account.name}.")
@@ -398,7 +401,9 @@ async def envelope_update_describe(
         # "$10.00 a week → $15.00 a week" says the period twice.
         if cadence == meta.cadence and meta.monthly_credit is not None:
             was = format_usd(meta.monthly_credit)
-        rows.append(ChangeDisplayRow(label="Allowance", value=f"{was} → {now}"))
+        rows.append(
+            ChangeDisplayRow(label="Allowance", value=before_and_after(was, now))
+        )
     if auto != meta.auto_credit:
         rows.append(
             ChangeDisplayRow(
@@ -414,14 +419,17 @@ async def envelope_update_describe(
         now = _pays_for(
             (payload.tag or "").strip() or None, payload.tag_since or current_date()
         )
-        rows.append(ChangeDisplayRow(label="Pays for", value=f"{was} → {now}"))
+        rows.append(
+            ChangeDisplayRow(label="Pays for", value=before_and_after(was, now))
+        )
     elif payload.tag_since and payload.tag_since != meta.tag_since and meta.tag_id:
         # Same tag, new start: the charges it now covers are spent, the
         # ones it no longer covers are given back.
-        was = meta.tag_since.isoformat() if meta.tag_since else "-"
+        was = meta.tag_since.isoformat() if meta.tag_since else ""
         rows.append(
             ChangeDisplayRow(
-                label="Counting from", value=f"{was} → {payload.tag_since.isoformat()}"
+                label="Counting from",
+                value=before_and_after(was, payload.tag_since.isoformat()),
             )
         )
     if len(rows) == 1:
@@ -475,7 +483,9 @@ async def envelope_balance_describe(
         ChangeDisplayRow(label="Envelope", value=account.name),
         ChangeDisplayRow(
             label="Balance",
-            value=f"{format_usd(standing)} → {format_usd(payload.balance_cents)}",
+            value=before_and_after(
+                format_usd(standing), format_usd(payload.balance_cents)
+            ),
         ),
     ]
     if payload.note:
