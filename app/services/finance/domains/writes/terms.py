@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.formatting import format_date
+from app.core.formatting import before_and_after, format_date
 from app.core.schema import known
 from app.services.finance.domains.detection.insights.formatting import (
     format_apr,
@@ -398,6 +398,6 @@ async def loan_terms_describe(
         # term, so the card says which it is - the same rule a memo
         # follows, and for the same reason.
         if was is not None and was != stated[name]:
-            value = f"{shown(term, was)} → {value}"
+            value = before_and_after(shown(term, was), value)
         rows.append(ChangeDisplayRow(label=term.label, value=value))
     return rows

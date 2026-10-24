@@ -235,6 +235,17 @@ register(
         describe=timeline.record_event_describe,
     )
 )
+# Changing a case already on file (#566): a coming visit belongs in its
+# note, and nothing could put one there after the case was opened.
+register(
+    ChangeExecutor(
+        change_type="matter.amend",
+        title="Change a matter",
+        payload_model=opening.AmendMatterPayload,
+        execute=opening.amend_matter_execute,
+        describe=opening.amend_matter_describe,
+    )
+)
 register(
     ChangeExecutor(
         change_type="contact.relate",

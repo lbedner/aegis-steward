@@ -76,6 +76,14 @@ async def suggested_next(
     return upcoming
 
 
+def cleaned(field: str, value: str | None) -> str | None:
+    """How a case's text reads on file: a title on one line, the rest
+    trimmed, and blank is absent. Opening, amending and asking whether an
+    amendment changes anything all read it this way."""
+    said = value or ""
+    return (" ".join(said.split()) if field == "title" else said.strip()) or None
+
+
 class MatterService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -92,19 +100,19 @@ class MatterService:
         opened_on: date | None = None,
         note: str | None = None,
     ) -> Matter:
-        named = " ".join((title or "").split())
+        named = cleaned("title", title)
         if not named:
             raise ValueError("A matter needs a title.")
         matter = Matter(
             owner_user_id=owner_user_id,
             title=named,
-            kind=(kind or "").strip() or None,
-            reference=(reference or "").strip() or None,
+            kind=cleaned("kind", kind),
+            reference=cleaned("reference", reference),
             subject_party_id=subject_party_id,
             counterpart_party_id=counterpart_party_id,
             status="open",
             opened_on=opened_on,
-            note=(note or "").strip() or None,
+            note=cleaned("note", note),
         )
         self.db.add(matter)
         await self.db.flush()
@@ -173,6 +181,17 @@ class MatterService:
             .order_by(col(Matter.opened_on).desc())
         )
         return [(matter, role) for matter, role in rows.all()]
+
+    async def amend(self, matter_id: int, changes: dict[str, str]) -> Matter:
+        """``changes`` written onto the case: a blank clears the field (a
+        title cannot be blank, so the payload refuses one first)."""
+        matter = await self.require(matter_id)
+        for field, value in changes.items():
+            setattr(matter, field, cleaned(field, value))
+        matter.updated_at = utcnow()
+        self.db.add(matter)
+        await self.db.flush()
+        return matter
 
     async def set_cadence(
         self,
@@ -289,6 +308,7 @@ async def summarised(db: AsyncSession, matter: Matter) -> dict[str, Any]:
         "title": matter.title,
         "kind": matter.kind or "",
         "reference": matter.reference or "",
+        "note": matter.note or "",
         "status": matter.status,
         "opened_on": matter.opened_on,
         "cadence": matter.cadence,

@@ -13,6 +13,7 @@
 {% block app_content %}
 <section id="matter" class="space-y-6">
   {{ matter_header(matter, section, path) }}
+  {% if matter.note %}<p class="text-sm text-aegis-text whitespace-pre-line" data-note>{{ matter.note }}</p>{% endif %}
 
   {#- The case, and what leaves the building. Two pages because the
       answer sheet is read beside a paper form with the app's own chrome
