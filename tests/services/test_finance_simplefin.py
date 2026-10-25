@@ -890,6 +890,15 @@ class TestWhatTheReviewFound:
 
         assert "o-1" in {r.external_id for r in await _rows(async_db_session)}
 
+    def test_bank_names_lose_the_bridges_stray_spaces(self) -> None:
+        """The Bridge sent "M1 ", and the card read "M1 , Optum" (#580)."""
+        from app.services.finance.adapters.providers.connections.simplefin_sync.mapping import (
+            bank_names,
+        )
+
+        payload = {"connections": [{"name": "M1 "}, {"name": " Optum Bank HSA"}]}
+        assert bank_names(payload) == "M1, Optum Bank HSA"
+
     def test_a_savings_account_at_a_credit_union_is_savings(self) -> None:
         from app.services.finance.adapters.providers.connections.simplefin_sync.mapping import (
             simplefin_accounts,

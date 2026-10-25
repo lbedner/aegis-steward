@@ -1,7 +1,8 @@
 {# The connection cards. Re-sent out of band (``list_oob``) when a connect
    finishes, so the new institution appears behind the dialog. #}
 {% from "components/macros/feedback.html" import empty_state %}
-{% from "components/macros/layout.html" import badge, page_link %}
+{% from "components/macros/layout.html" import dot, page_link %}
+{% from "components/macros/connections.html" import sign_in_again %}
 {% from "components/macros/form.html" import action %}
 <div id="connections" {% if list_oob %}hx-swap-oob="outerHTML"{% endif %}>
 {% if cards %}
@@ -13,16 +14,33 @@
   <li id="connection-{{ card.id }}" class="raised p-4 flex flex-col gap-2 min-w-0">
     <div class="flex items-start justify-between gap-3">
       <span class="min-w-0 text-sm text-aegis-text break-words">{{ card.label }}</span>
-      {{ badge(card.status.label, card.status.tone) }}
+      {# The dot alone: its words ride its title, and a row below says
+         what needs you when anything does (issue 580). #}
+      <span class="shrink-0 pt-1.5">{{ dot(card.status.tone, card.status.label) }}</span>
     </div>
-    <p class="text-xxs text-aegis-muted">{{ card.provider }} · {{ card.environment }}{% if card.last_sync %} · synced {{ card.last_sync|short_date }}{% endif %}</p>
-    {% if card.detail %}<p class="text-xs text-error">{{ card.detail }} {{ page_link(path ~ "/activity", "Activity") }}</p>{% endif %}
-    {% if card.unplaced %}<p data-unplaced class="text-xs text-warning">{{ card.unplaced }} account{{ "s wait" if card.unplaced != 1 else " waits" }} for you to say which of yours {{ "they are" if card.unplaced != 1 else "it is" }}.</p>{% endif %}
-    <div class="flex items-center gap-2">
-      {% if card.unplaced %}{{ action("Place", hx_dialog(path ~ "/connections/" ~ card.id ~ "/place")) }}{% endif %}
-      {% if card.reconnect %}{{ action("Reconnect", hx_dialog_post(path ~ "/connections/" ~ card.id ~ "/reconnect")) }}{% endif %}
-      {{ action("Disconnect", hx_dialog(path ~ "/connections/" ~ card.id ~ "/remove")) }}
+    {# Production is the usual case, so only a sandbox says so; Disconnect
+       is quiet text, never a button beside the fix. #}
+    <div class="flex items-center justify-between gap-3 text-xxs text-aegis-muted">
+      <span class="min-w-0">{{ card.provider }}{% if card.environment != "production" %} · {{ card.environment }}{% endif %}{% if card.last_sync %} · synced {{ card.last_sync|short_date }}{% endif %} · {{ page_link(path ~ "/activity", "Activity") }}</span>
+      <button type="button" data-disconnect {{ hx_dialog(path ~ "/connections/" ~ card.id ~ "/remove") }} class="shrink-0 text-aegis-muted hover:text-error">Disconnect</button>
     </div>
+    {# One row for each thing that needs you, its button beside it. #}
+    {% if card.needs or card.unplaced %}
+    <ul class="flex flex-col divide-y divide-aegis-border border-t border-aegis-border">
+      {% if card.needs %}
+      <li data-needs class="flex items-center justify-between gap-3 pt-2 pb-1">
+        <span class="min-w-0 text-xs text-aegis-text">{{ card.needs }}</span>
+        {% if card.reconnect %}{{ sign_in_again(path, card.id, tone="primary") }}{% endif %}
+      </li>
+      {% endif %}
+      {% if card.unplaced %}
+      <li data-unplaced class="flex items-center justify-between gap-3 pt-2 pb-1">
+        <span class="min-w-0 text-xs text-aegis-text">{{ card.unplaced }} account{{ "s" if card.unplaced != 1 }} to place</span>
+        {{ action("Place", hx_dialog(path ~ "/connections/" ~ card.id ~ "/place")) }}
+      </li>
+      {% endif %}
+    </ul>
+    {% endif %}
   </li>
   {% endfor %}
 </ul>

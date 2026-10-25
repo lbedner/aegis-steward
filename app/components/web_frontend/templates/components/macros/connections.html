@@ -1,0 +1,6 @@
+{# A bank link's fix, one home for the card and the banner (issue 580): the
+   dialog that sends you to sign in again where the sign-in lives. #}
+{% from "components/macros/form.html" import action %}
+{% macro sign_in_again(path, connection_id, tone="default") -%}
+{{ action("Sign in again", hx_dialog_post(path ~ "/connections/" ~ connection_id ~ "/reconnect"), tone=tone) }}
+{%- endmacro %}

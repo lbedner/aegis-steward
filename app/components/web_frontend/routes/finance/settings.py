@@ -134,7 +134,8 @@ def _card(connection: Any) -> dict[str, Any]:
         "label": connection.label or provider,
         "environment": connection.environment,
         "status": {"label": label, "tone": tone},
-        "detail": connection.status_detail,
+        # What it needs you for, as the banner says it (one reader of both).
+        "needs": bank_attention.needs_you(connection),
         "last_sync": connection.last_successful_sync_at,
         "unplaced": connection.unplaced,
         "reconnect": bank_attention.reconnectable(connection),
