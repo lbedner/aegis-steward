@@ -26,8 +26,8 @@ or scheduled work.
 ## Procedure
 
 1. Write the failing test first under `tests/cli/`, invoking the command with
-   `tests/_cli.invoke` (the Typer runner's own `invoke` never awaits an async
-   command). Confirm it fails for the right reason.
+   `invoke` from `tests/_cli.py` (the Typer runner's own `invoke` never
+   awaits an async command). Confirm it fails for the right reason.
 2. Create the command module in `app/cli/` with a Typer app and the command
    functions.
 3. Commands that need async are `async def` with plain `await`. NEVER call
