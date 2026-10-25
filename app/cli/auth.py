@@ -4,7 +4,6 @@ Authentication CLI commands.
 Command-line interface for auth service management tasks.
 """
 
-import asyncio
 import secrets
 import string
 from typing import TYPE_CHECKING
@@ -106,7 +105,7 @@ async def create_user(
 
 
 @app.command(help=lazy_t("auth.help_create_test_user"))
-def create_test_user(
+async def create_test_user(
     email: str | None = typer.Option(
         None,
         help=lazy_t("auth.opt_email"),
@@ -116,7 +115,7 @@ def create_test_user(
     prefix: str = typer.Option("test", help=lazy_t("auth.opt_prefix")),
     domain: str = typer.Option("example.com", help=lazy_t("auth.opt_domain")),
 ) -> None:
-    asyncio.run(_create_test_user(email, password, full_name, prefix, domain))
+    await _create_test_user(email, password, full_name, prefix, domain)
 
 
 async def _create_test_user(
@@ -172,13 +171,13 @@ async def _create_test_user(
 
 
 @app.command(help=lazy_t("auth.help_create_test_users"))
-def create_test_users(
+async def create_test_users(
     count: int = typer.Option(5, help=lazy_t("auth.opt_count")),
     prefix: str = typer.Option("test", help=lazy_t("auth.opt_prefix")),
     domain: str = typer.Option("example.com", help=lazy_t("auth.opt_domain")),
     password: str | None = typer.Option(None, help=lazy_t("auth.opt_shared_password")),
 ) -> None:
-    asyncio.run(_create_test_users(count, prefix, domain, password))
+    await _create_test_users(count, prefix, domain, password)
 
 
 async def _create_test_users(
@@ -240,8 +239,8 @@ async def _create_test_users(
 
 
 @app.command(help=lazy_t("auth.help_list_users"))
-def list_users() -> None:
-    asyncio.run(_list_users())
+async def list_users() -> None:
+    await _list_users()
 
 
 async def _list_users() -> None:

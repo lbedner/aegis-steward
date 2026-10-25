@@ -5,7 +5,6 @@ Provides command-line interface for running and managing load tests,
 with full parameter configuration and result analysis.
 """
 
-import asyncio
 from collections.abc import Awaitable, Callable
 import json
 from typing import Any
@@ -42,7 +41,7 @@ console = theme.console()
 
 
 @app.command("run", help=lazy_t("loadtest.help_run"))
-def run_load_test(
+async def run_load_test(
     num_tasks: int = typer.Option(
         100, "--tasks", "-n", help=lazy_t("loadtest.opt_num_tasks"), min=1
     ),
@@ -83,12 +82,8 @@ def run_load_test(
     rprint(f"[bold]{t('loadtest.starting')}[/bold]")
 
     try:
-        # Use single asyncio.run() for both enqueue and wait to avoid
-        # 'Event loop is closed' errors from Redis connection cleanup
-        task_id, result = asyncio.run(
-            _start_and_wait(
-                lambda: LoadTestService.enqueue_load_test(config), timeout, wait
-            )
+        task_id, result = await _start_and_wait(
+            lambda: LoadTestService.enqueue_load_test(config), timeout, wait
         )
 
         rprint(f"[{theme.ACCENT}]{t('loadtest.enqueued')}[/{theme.ACCENT}]")
@@ -118,7 +113,7 @@ def run_load_test(
 
 
 @app.command("cpu", help=lazy_t("loadtest.help_cpu"))
-def quick_cpu_test_cmd(
+async def quick_cpu_test_cmd(
     num_tasks: int = typer.Option(
         50, "--tasks", "-n", help=lazy_t("loadtest.opt_cpu_tasks"), min=1
     ),
@@ -135,10 +130,8 @@ def quick_cpu_test_cmd(
     rprint(f"[dim]{work_label}[/dim] {work_msg}")
 
     try:
-        # Use single asyncio.run() for both enqueue and wait to avoid
-        # 'Event loop is closed' errors from Redis connection cleanup
-        task_id, result = asyncio.run(
-            _start_and_wait(lambda: quick_cpu_test(num_tasks), 600, wait)
+        task_id, result = await _start_and_wait(
+            lambda: quick_cpu_test(num_tasks), 600, wait
         )
         started_msg = t("loadtest.cpu_started")
         id_label = t("loadtest.task_id_label")
@@ -172,7 +165,7 @@ def quick_cpu_test_cmd(
 
 
 @app.command("io", help=lazy_t("loadtest.help_io"))
-def quick_io_test_cmd(
+async def quick_io_test_cmd(
     num_tasks: int = typer.Option(
         100, "--tasks", "-n", help=lazy_t("loadtest.opt_io_tasks"), min=1
     ),
@@ -189,10 +182,8 @@ def quick_io_test_cmd(
     rprint(f"[dim]{work_label}[/dim] {work_msg}")
 
     try:
-        # Use single asyncio.run() for both enqueue and wait to avoid
-        # 'Event loop is closed' errors from Redis connection cleanup
-        task_id, result = asyncio.run(
-            _start_and_wait(lambda: quick_io_test(num_tasks), 600, wait)
+        task_id, result = await _start_and_wait(
+            lambda: quick_io_test(num_tasks), 600, wait
         )
         started_msg = t("loadtest.io_started")
         id_label = t("loadtest.task_id_label")
@@ -226,7 +217,7 @@ def quick_io_test_cmd(
 
 
 @app.command("memory", help=lazy_t("loadtest.help_memory"))
-def quick_memory_test_cmd(
+async def quick_memory_test_cmd(
     num_tasks: int = typer.Option(
         200, "--tasks", "-n", help=lazy_t("loadtest.opt_memory_tasks"), min=1
     ),
@@ -243,10 +234,8 @@ def quick_memory_test_cmd(
     rprint(f"[dim]{work_label}[/dim] {work_msg}")
 
     try:
-        # Use single asyncio.run() for both enqueue and wait to avoid
-        # 'Event loop is closed' errors from Redis connection cleanup
-        task_id, result = asyncio.run(
-            _start_and_wait(lambda: quick_memory_test(num_tasks), 600, wait)
+        task_id, result = await _start_and_wait(
+            lambda: quick_memory_test(num_tasks), 600, wait
         )
         started_msg = t("loadtest.memory_started")
         id_label = t("loadtest.task_id_label")
@@ -280,7 +269,7 @@ def quick_memory_test_cmd(
 
 
 @app.command("results", help=lazy_t("loadtest.help_results"))
-def show_results(
+async def show_results(
     task_id: str = typer.Argument(..., help=lazy_t("loadtest.arg_task_id")),
     target_queue: QueueName = typer.Option(
         QueueName.LOAD_TEST, "--queue", "-q", help=lazy_t("loadtest.opt_queue_results")
@@ -291,7 +280,7 @@ def show_results(
     json_output: bool = typer.Option(False, "--json", help=lazy_t("loadtest.opt_json")),
 ) -> None:
     try:
-        result = asyncio.run(_read_result(task_id))
+        result = await _read_result(task_id)
 
         if not result:
             rprint(
@@ -363,9 +352,8 @@ def show_test_type_info(
 async def _start_and_wait(
     start: Callable[[], Awaitable[str]], timeout: int, wait: bool
 ) -> tuple[str, dict[str, Any] | None]:
-    """Start a run and, asked to, wait for its result, in one event loop:
-    Redis connections spanning several ``asyncio.run()`` calls end in
-    'Event loop is closed'."""
+    """Start a run and, asked to, wait for its result, closing the brokers
+    it opened on the loop that opened them."""
     from app.components.worker.pools import shutdown_brokers
 
     try:

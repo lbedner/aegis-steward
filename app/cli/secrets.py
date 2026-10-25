@@ -8,8 +8,6 @@ what that costs.
 
 from __future__ import annotations
 
-import asyncio
-
 import typer
 
 from app.cli import theme
@@ -17,7 +15,7 @@ from app.cli import theme
 console = theme.console()
 
 
-def rekey(
+async def rekey(
     from_secret_key: bool = typer.Option(
         False,
         "--from-secret-key",
@@ -58,15 +56,11 @@ def rekey(
         )
         raise typer.Exit(code=2)
 
-    async def run() -> dict[str, int]:
-        async with get_async_session() as session:
-            moved = await rekey_secrets(
-                session, old_key_material=settings.SECRET_KEY.encode("utf-8")
-            )
-            await session.commit()
-            return moved
-
-    moved = asyncio.run(run())
+    async with get_async_session() as session:
+        moved = await rekey_secrets(
+            session, old_key_material=settings.SECRET_KEY.encode("utf-8")
+        )
+        await session.commit()
     for where, count in sorted(moved.items()):
         tone = "green" if count else "dim"
         console.print(f"[{tone}]{where}: {count} re-keyed[/]")
