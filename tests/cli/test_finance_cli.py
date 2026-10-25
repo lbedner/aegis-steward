@@ -1,4 +1,3 @@
-
 """Tests for the finance CLI commands.
 
 Offline: the services and DB session are patched, so these tests cover command
@@ -6,17 +5,12 @@ registration, argument plumbing, and console output only - the behavior itself
 is covered by the service-layer tests.
 """
 
-
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from typer.testing import CliRunner
-
-from app.cli.finance import app
+from tests._cli import invoke
 from tests._session import opens
-
-runner = CliRunner()
 
 
 def _fake_session_cm() -> tuple[AsyncMock, Any]:
@@ -51,7 +45,7 @@ class TestSeedDemo:
             patch("app.core.db.get_async_session", new=cm),
             patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
         ):
-            result = runner.invoke(app, ["seed-demo", "--owner-user-id", "1", "--yes"])
+            result = invoke(["finance", "seed-demo", "--owner-user-id", "1", "--yes"])
         assert result.exit_code == 0
         assert "247" in result.output
         assert "213" in result.output
@@ -68,7 +62,7 @@ class TestSeedDemo:
                 new=AsyncMock(return_value=_seed_result(skipped=True)),
             ),
         ):
-            result = runner.invoke(app, ["seed-demo", "--yes"])
+            result = invoke(["finance", "seed-demo", "--yes"])
         assert result.exit_code == 0
         assert "--reset" in result.output
 
@@ -79,15 +73,15 @@ class TestSeedDemo:
             patch("app.core.db.get_async_session", new=cm),
             patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
         ):
-            result = runner.invoke(
-                app, ["seed-demo", "--reset", "--months", "6", "--yes"]
+            result = invoke(
+                ["finance", "seed-demo", "--reset", "--months", "6", "--yes"]
             )
         assert result.exit_code == 0
         assert mock_seed.await_args.kwargs["reset"] is True
         assert mock_seed.await_args.kwargs["months"] == 6
 
     def test_months_out_of_range_is_rejected(self) -> None:
-        result = runner.invoke(app, ["seed-demo", "--months", "0"])
+        result = invoke(["finance", "seed-demo", "--months", "0"])
         assert result.exit_code != 0
 
     def test_existing_accounts_prompt_before_seeding(self) -> None:
@@ -102,8 +96,8 @@ class TestSeedDemo:
             ),
             patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
         ):
-            declined = runner.invoke(app, ["seed-demo"], input="n\n")
-            accepted = runner.invoke(app, ["seed-demo"], input="y\n")
+            declined = invoke(["finance", "seed-demo"], input="n\n")
+            accepted = invoke(["finance", "seed-demo"], input="y\n")
         assert declined.exit_code == 1
         assert "3" in declined.output
         assert accepted.exit_code == 0
@@ -121,7 +115,7 @@ class TestSeedDemo:
             ),
             patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
         ):
-            result = runner.invoke(app, ["seed-demo", "--yes"])
+            result = invoke(["finance", "seed-demo", "--yes"])
         assert result.exit_code == 0
         mock_count.assert_not_awaited()
         mock_seed.assert_awaited_once()
@@ -137,7 +131,7 @@ class TestSeedDemo:
             ),
             patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
         ):
-            result = runner.invoke(app, ["seed-demo"])
+            result = invoke(["finance", "seed-demo"])
         assert result.exit_code == 0
         mock_seed.assert_awaited_once()
 
@@ -150,7 +144,7 @@ class TestSeedDemo:
             patch("app.services.finance.seeds.demo_seed.clear_demo", new=mock_clear),
             patch("app.services.finance.seeds.demo_seed.seed_demo", new=mock_seed),
         ):
-            result = runner.invoke(app, ["seed-demo", "--clear"])
+            result = invoke(["finance", "seed-demo", "--clear"])
         assert result.exit_code == 0
         assert "6" in result.output
         mock_seed.assert_not_awaited()
@@ -166,7 +160,7 @@ class TestSeedDemo:
                 new=AsyncMock(return_value=0),
             ),
         ):
-            result = runner.invoke(app, ["seed-demo", "--clear"])
+            result = invoke(["finance", "seed-demo", "--clear"])
         assert result.exit_code == 0
         assert "No demo" in result.output
 
@@ -196,7 +190,7 @@ class TestSync:
                 new=mock_sync,
             ),
         ):
-            result = runner.invoke(app, ["sync", "--owner-user-id", "1"])
+            result = invoke(["finance", "sync", "--owner-user-id", "1"])
         assert result.exit_code == 0
         assert "Connection #7" in result.output
         assert mock_sync.await_args.kwargs["owner_user_id"] == 1
@@ -211,7 +205,7 @@ class TestSync:
                 new=AsyncMock(return_value=[]),
             ),
         ):
-            result = runner.invoke(app, ["sync"])
+            result = invoke(["finance", "sync"])
         assert result.exit_code == 0
         assert "No provider connections" in result.output
 
@@ -225,7 +219,7 @@ class TestSync:
                 new=mock_one,
             ),
         ):
-            result = runner.invoke(app, ["sync", "--connection-id", "7"])
+            result = invoke(["finance", "sync", "--connection-id", "7"])
         assert result.exit_code == 0
         assert "Connection #7" in result.output
         assert mock_one.await_args.args[1] == 7
@@ -239,7 +233,7 @@ class TestSync:
                 new=AsyncMock(return_value=None),
             ),
         ):
-            result = runner.invoke(app, ["sync", "--connection-id", "42"])
+            result = invoke(["finance", "sync", "--connection-id", "42"])
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
 
@@ -255,13 +249,11 @@ class TestFireWebhook:
                 new=mock_fire,
             ),
         ):
-            result = runner.invoke(app, ["fire-webhook", "--owner-user-id", "1"])
+            result = invoke(["finance", "fire-webhook", "--owner-user-id", "1"])
         assert result.exit_code == 0
         assert "connection #7" in result.output
         assert mock_fire.await_args.kwargs["owner_user_id"] == 1
-        assert mock_fire.await_args.kwargs["webhook_code"] == (
-            "SYNC_UPDATES_AVAILABLE"
-        )
+        assert mock_fire.await_args.kwargs["webhook_code"] == ("SYNC_UPDATES_AVAILABLE")
 
     def test_no_connections_is_a_noop(self) -> None:
         _session, cm = _fake_session_cm()
@@ -272,7 +264,7 @@ class TestFireWebhook:
                 new=AsyncMock(return_value=[]),
             ),
         ):
-            result = runner.invoke(app, ["fire-webhook"])
+            result = invoke(["finance", "fire-webhook"])
         assert result.exit_code == 0
         assert "No Plaid connections" in result.output
 
@@ -284,12 +276,10 @@ class TestFireWebhook:
             patch("app.core.db.get_async_session", new=cm),
             patch(
                 "app.services.finance.adapters.providers.connections.fire_sandbox_webhook",
-                new=AsyncMock(
-                    side_effect=PlaidError("sandbox_only", "not in sandbox")
-                ),
+                new=AsyncMock(side_effect=PlaidError("sandbox_only", "not in sandbox")),
             ),
         ):
-            result = runner.invoke(app, ["fire-webhook"])
+            result = invoke(["finance", "fire-webhook"])
         assert result.exit_code == 1
         assert "sandbox_only" in result.output
 
@@ -306,7 +296,7 @@ class TestSnapTradeConnect:
                 new=AsyncMock(return_value=(connection, portal_url)),
             ),
         ):
-            result = runner.invoke(app, ["snaptrade", "connect", "-u", "1"])
+            result = invoke(["finance", "snaptrade", "connect", "-u", "1"])
         assert result.exit_code == 0
         assert portal_url in result.output
         session.commit.assert_awaited_once()
@@ -320,7 +310,7 @@ class TestSnapTradeConnect:
                 new=AsyncMock(return_value=[_sync_result(connection_id=3)]),
             ),
         ):
-            result = runner.invoke(app, ["snaptrade", "complete", "-u", "1"])
+            result = invoke(["finance", "snaptrade", "complete", "-u", "1"])
         assert result.exit_code == 0
         assert "Connected #3" in result.output
         session.commit.assert_awaited_once()
@@ -334,7 +324,7 @@ class TestSnapTradeConnect:
                 new=AsyncMock(return_value=[]),
             ),
         ):
-            result = runner.invoke(app, ["snaptrade", "complete"])
+            result = invoke(["finance", "snaptrade", "complete"])
         assert result.exit_code == 1
         assert "No new authorization" in result.output
 
@@ -351,9 +341,10 @@ class TestSnapTradeConnect:
                 ),
             ),
         ):
-            result = runner.invoke(app, ["snaptrade", "connect"])
+            result = invoke(["finance", "snaptrade", "connect"])
         assert result.exit_code == 1
         assert "missing_credentials" in result.output
+
 
 class TestRecomputePayeeAliases:
     def test_reports_what_it_learned(self) -> None:
@@ -368,8 +359,8 @@ class TestRecomputePayeeAliases:
                 new=rebuild,
             ),
         ):
-            result = runner.invoke(
-                app, ["recompute-payee-aliases", "--owner-user-id", "1"]
+            result = invoke(
+                ["finance", "recompute-payee-aliases", "--owner-user-id", "1"]
             )
         assert result.exit_code == 0
         assert "240 payee key(s)" in result.output
@@ -391,7 +382,7 @@ class TestRecomputePayeeAliases:
                 new=rebuild,
             ),
         ):
-            result = runner.invoke(app, ["recompute-payee-aliases"])
+            result = invoke(["finance", "recompute-payee-aliases"])
         assert result.exit_code == 0
         assert "5 key(s) cover more than one payee" in result.output
 
@@ -407,6 +398,6 @@ class TestRecomputePayeeAliases:
                 new=rebuild,
             ),
         ):
-            result = runner.invoke(app, ["recompute-payee-aliases"])
+            result = invoke(["finance", "recompute-payee-aliases"])
         assert result.exit_code == 0
         assert "more than one payee" not in result.output

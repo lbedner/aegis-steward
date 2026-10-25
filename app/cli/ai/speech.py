@@ -1,7 +1,5 @@
 """Speech either way: transcribe a file, speak a line."""
 
-import asyncio
-
 import typer
 
 from app.cli import theme
@@ -16,7 +14,7 @@ from ...core.log import suppress_logs
 
 
 @app.command(help=lazy_t("ai.help_transcribe"))
-def transcribe(
+async def transcribe(
     audio_file: str = typer.Argument(..., help=lazy_t("ai.arg_audio_file")),
     language: str | None = typer.Option(
         None, "--language", "-l", help=lazy_t("ai.opt_language")
@@ -128,7 +126,7 @@ def transcribe(
             console.print(f"[{theme.ERROR}]{t('shared.error')}[/{theme.ERROR}] {e}")
             raise typer.Exit(1)
 
-    asyncio.run(run_transcribe())
+    await run_transcribe()
 
 
 @app.command("stt-status", help=lazy_t("ai.help_stt_status"))
@@ -163,7 +161,7 @@ def stt_status() -> None:
 
 
 @app.command(help=lazy_t("ai.help_speak"))
-def speak(
+async def speak(
     text: str = typer.Argument(..., help=lazy_t("ai.arg_text")),
     output: str = typer.Option(
         "speech.mp3", "--output", "-o", help=lazy_t("ai.opt_output_file")
@@ -227,7 +225,7 @@ def speak(
             console.print(f"[{theme.ERROR}]{t('shared.error')}[/{theme.ERROR}] {e}")
             raise typer.Exit(1)
 
-    asyncio.run(run_speak())
+    await run_speak()
 
 
 @app.command("tts-status", help=lazy_t("ai.help_tts_status"))

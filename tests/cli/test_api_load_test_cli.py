@@ -8,9 +8,6 @@ boundary so they don't need a running FastAPI app or Redis instance.
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from typer.testing import CliRunner
-
-from app.cli.main import app
 from app.services.load_test.api.models import (
     APILoadTestConfiguration,
     APILoadTestMetrics,
@@ -18,8 +15,7 @@ from app.services.load_test.api.models import (
     ErrorSample,
     RouteInfo,
 )
-
-runner = CliRunner()
+from tests._cli import invoke
 
 
 def _make_result(test_id: str = "t1", failures: int = 0) -> APILoadTestResult:
@@ -61,7 +57,7 @@ def _make_result(test_id: str = "t1", failures: int = 0) -> APILoadTestResult:
 
 class TestHelpCommands:
     def test_group_help(self):
-        result = runner.invoke(app, ["api-load-test", "--help"])
+        result = invoke(["api-load-test", "--help"])
         assert result.exit_code == 0
         assert "list" in result.output
         assert "run" in result.output
@@ -69,7 +65,7 @@ class TestHelpCommands:
         assert "recent" in result.output
 
     def test_list_help(self):
-        result = runner.invoke(app, ["api-load-test", "list", "--help"])
+        result = invoke(["api-load-test", "list", "--help"])
         assert result.exit_code == 0
 
     def test_run_help(self):
@@ -78,7 +74,7 @@ class TestHelpCommands:
         list is long, dropping the long flag (``--method``) in favour of
         the short alias (``-m``) so a literal ``--method in output``
         check is fragile."""
-        result = runner.invoke(app, ["api-load-test", "run", "--help"])
+        result = invoke(["api-load-test", "run", "--help"])
         assert result.exit_code == 0
         assert "HTTP method" in result.output
         assert "Total requests" in result.output
@@ -96,7 +92,7 @@ class TestListCommand:
                 method="POST", path="/api/users", requires_auth=True, tags=["users"]
             ),
         ]
-        result = runner.invoke(app, ["api-load-test", "list"])
+        result = invoke(["api-load-test", "list"])
         assert result.exit_code == 0
         assert "/health" in result.output
         assert "/api/users" in result.output
@@ -122,7 +118,7 @@ class TestListCommand:
                 path_params=["user_id"],
             ),
         ]
-        result = runner.invoke(app, ["api-load-test", "list"])
+        result = invoke(["api-load-test", "list"])
         assert result.exit_code == 0
         assert "user_id" in result.output
 
@@ -141,7 +137,7 @@ class TestListCommand:
         with patch(
             "app.cli.api_load_test._get_auth_dependency", return_value=sentinel_dep
         ):
-            result = runner.invoke(app, ["api-load-test", "list"])
+            result = invoke(["api-load-test", "list"])
         assert result.exit_code == 0
         # Confirm list_routes saw the dependency we wired in.
         kwargs = mock_list_routes.call_args.kwargs
@@ -152,7 +148,7 @@ class TestListCommand:
     def test_list_empty(self, mock_get_app, mock_list_routes):
         mock_get_app.return_value = MagicMock()
         mock_list_routes.return_value = []
-        result = runner.invoke(app, ["api-load-test", "list"])
+        result = invoke(["api-load-test", "list"])
         assert result.exit_code == 0
 
     @patch("app.cli.api_load_test.list_routes")
@@ -162,7 +158,7 @@ class TestListCommand:
         mock_list_routes.return_value = [
             RouteInfo(method="GET", path="/health", requires_auth=False, tags=[]),
         ]
-        result = runner.invoke(app, ["api-load-test", "list", "--json"])
+        result = invoke(["api-load-test", "list", "--json"])
         assert result.exit_code == 0
         import json
 
@@ -183,8 +179,7 @@ class TestPathParamFlag:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -209,8 +204,7 @@ class TestPathParamFlag:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -236,8 +230,7 @@ class TestPathParamFlag:
         surface a friendly error (from the service's substitution check),
         not silently 404 against ``{user_id}``."""
         mock_get_app.return_value = MagicMock()
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -260,8 +253,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -295,8 +287,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result(failures=10))
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -321,8 +312,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result(failures=3))
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -344,8 +334,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -373,8 +362,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -413,8 +401,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             ["api-load-test", "run", "/health", "-n", "2", "-c", "1", "--in-process"],
         )
         assert result.exit_code == 0
@@ -440,8 +427,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -466,8 +452,7 @@ class TestRunCommand:
         mock_service = MagicMock()
         mock_service.run = AsyncMock(return_value=_make_result())
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(
-            app,
+        result = invoke(
             [
                 "api-load-test",
                 "run",
@@ -498,7 +483,7 @@ class TestResultsCommand:
         mock_service = MagicMock()
         mock_service.get_result = AsyncMock(return_value=_make_result("found"))
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(app, ["api-load-test", "results", "found"])
+        result = invoke(["api-load-test", "results", "found"])
         assert result.exit_code == 0
         assert "found" in result.output
 
@@ -507,7 +492,7 @@ class TestResultsCommand:
         mock_service = MagicMock()
         mock_service.get_result = AsyncMock(return_value=None)
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(app, ["api-load-test", "results", "missing"])
+        result = invoke(["api-load-test", "results", "missing"])
         assert result.exit_code != 0
 
 
@@ -519,7 +504,7 @@ class TestRecentCommand:
             return_value=[_make_result("r1"), _make_result("r2")]
         )
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(app, ["api-load-test", "recent"])
+        result = invoke(["api-load-test", "recent"])
         assert result.exit_code == 0
         assert "r1" in result.output
         assert "r2" in result.output
@@ -529,7 +514,7 @@ class TestRecentCommand:
         mock_service = MagicMock()
         mock_service.list_recent = AsyncMock(return_value=[])
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(app, ["api-load-test", "recent", "--limit", "3"])
+        result = invoke(["api-load-test", "recent", "--limit", "3"])
         assert result.exit_code == 0
         mock_service.list_recent.assert_awaited_once_with(3)
 
@@ -538,5 +523,5 @@ class TestRecentCommand:
         mock_service = MagicMock()
         mock_service.list_recent = AsyncMock(return_value=[])
         mock_service_cls.return_value = mock_service
-        result = runner.invoke(app, ["api-load-test", "recent"])
+        result = invoke(["api-load-test", "recent"])
         assert result.exit_code == 0

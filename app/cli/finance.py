@@ -1,12 +1,11 @@
 """Finance service CLI commands.
 
 ``status`` prints the net-worth summary; the ``accounts`` sub-app lists and
-creates manual accounts. Mirrors ``app/cli/payment.py``: sync command wrappers
-call ``asyncio.run`` on an async impl that opens its own session and constructs
+creates manual accounts. Each command is ``async def`` (``main()`` runs it)
+and awaits an impl that opens its own session and constructs
 ``FinanceService``. Services never commit, so CLI writes commit explicitly.
 """
 
-import asyncio
 from typing import Any
 
 import typer
@@ -31,9 +30,9 @@ def _usd(cents: int | None) -> str:
 
 
 @app.command()
-def status(owner_user_id: int | None = OWNER_OPT) -> None:
+async def status(owner_user_id: int | None = OWNER_OPT) -> None:
     """Show the finance summary (net worth, account/connection counts)."""
-    asyncio.run(_status(owner_user_id))
+    await _status(owner_user_id)
 
 
 async def _status(owner_user_id: int | None) -> None:
@@ -53,9 +52,9 @@ async def _status(owner_user_id: int | None) -> None:
 
 
 @accounts_app.command("list")
-def accounts_list(owner_user_id: int | None = OWNER_OPT) -> None:
+async def accounts_list(owner_user_id: int | None = OWNER_OPT) -> None:
     """List accounts."""
-    asyncio.run(_accounts_list(owner_user_id))
+    await _accounts_list(owner_user_id)
 
 
 async def _accounts_list(owner_user_id: int | None) -> None:
@@ -87,7 +86,7 @@ async def _accounts_list(owner_user_id: int | None) -> None:
 
 
 @accounts_app.command("create")
-def accounts_create(
+async def accounts_create(
     name: str = typer.Option(..., "--name", "-n", help="Account name."),
     account_type: str = typer.Option(
         ...,
@@ -102,9 +101,7 @@ def accounts_create(
     owner_user_id: int | None = OWNER_OPT,
 ) -> None:
     """Create a manual account."""
-    asyncio.run(
-        _accounts_create(name, account_type, classification, currency, owner_user_id)
-    )
+    await _accounts_create(name, account_type, classification, currency, owner_user_id)
 
 
 async def _accounts_create(
@@ -130,11 +127,11 @@ async def _accounts_create(
 
 
 @app.command("recompute-snapshots")
-def recompute_snapshots(
+async def recompute_snapshots(
     days: int = typer.Option(35, "--days", help="Recompute window in days."),
 ) -> None:
     """Rebuild balance + net-worth snapshots over the recent window."""
-    asyncio.run(_recompute_snapshots(days))
+    await _recompute_snapshots(days)
 
 
 async def _recompute_snapshots(days: int) -> None:
@@ -168,7 +165,7 @@ async def _recompute_snapshots(days: int) -> None:
 
 
 @app.command("recompute-stream-amounts")
-def recompute_stream_amounts(owner_user_id: int | None = OWNER_OPT) -> None:
+async def recompute_stream_amounts(owner_user_id: int | None = OWNER_OPT) -> None:
     """Re-read every bill's amount from the transactions that paid it.
 
     ``average_amount`` is the figure Bills & Income, the forecast and the
@@ -178,7 +175,7 @@ def recompute_stream_amounts(owner_user_id: int | None = OWNER_OPT) -> None:
     restore, after a bulk re-match, or once, to unstick the bills that
     were confirmed before the attach path learned to keep them current.
     """
-    asyncio.run(_recompute_stream_amounts(owner_user_id))
+    await _recompute_stream_amounts(owner_user_id)
 
 
 async def _recompute_stream_amounts(owner_user_id: int | None) -> None:
@@ -198,7 +195,7 @@ async def _recompute_stream_amounts(owner_user_id: int | None) -> None:
 
 
 @app.command("recompute-payee-aliases")
-def recompute_payee_aliases(owner_user_id: int | None = OWNER_OPT) -> None:
+async def recompute_payee_aliases(owner_user_id: int | None = OWNER_OPT) -> None:
     """Rebuild the payee memory from the transactions already named.
 
     The alias table is written as payees are named, so a ledger whose
@@ -206,7 +203,7 @@ def recompute_payee_aliases(owner_user_id: int | None = OWNER_OPT) -> None:
     answers to the transactions: reach for it after restoring an archive
     older than the table, or after the payee key's shape changes.
     """
-    asyncio.run(_recompute_payee_aliases(owner_user_id))
+    await _recompute_payee_aliases(owner_user_id)
 
 
 async def _recompute_payee_aliases(owner_user_id: int | None) -> None:
@@ -232,11 +229,11 @@ async def _recompute_payee_aliases(owner_user_id: int | None) -> None:
 
 
 @app.command("link-bank-contacts")
-def link_bank_contacts(owner_user_id: int | None = OWNER_OPT) -> None:
+async def link_bank_contacts(owner_user_id: int | None = OWNER_OPT) -> None:
     """Give every institution its contact (#410): the one already named
     in the address book, else a new one. Banks made before a bank came
     with its contact. Idempotent."""
-    asyncio.run(_link_bank_contacts(owner_user_id))
+    await _link_bank_contacts(owner_user_id)
 
 
 async def _link_bank_contacts(owner_user_id: int | None) -> None:
@@ -250,7 +247,7 @@ async def _link_bank_contacts(owner_user_id: int | None) -> None:
 
 
 @app.command("seed-demo", help=lazy_t("finance.help_seed_demo"))
-def seed_demo(
+async def seed_demo(
     owner_user_id: int | None = OWNER_OPT,
     reset: bool = typer.Option(
         False, "--reset", help=lazy_t("finance.opt_seed_demo_reset")
@@ -266,9 +263,9 @@ def seed_demo(
     ),
 ) -> None:
     if clear:
-        asyncio.run(_clear_demo(owner_user_id))
+        await _clear_demo(owner_user_id)
         return
-    asyncio.run(_seed_demo(owner_user_id, reset, months, yes))
+    await _seed_demo(owner_user_id, reset, months, yes)
 
 
 async def _clear_demo(owner_user_id: int | None) -> None:
@@ -330,12 +327,12 @@ async def _seed_demo(
 
 
 @app.command("export")
-def export_data(
+async def export_data(
     path: str = typer.Argument(..., help="Where to write the archive (.jsonl.gz)."),
 ) -> None:
     """Export the whole finance service: every account, bill, budget,
     category, rule, icon and transaction, as one portable archive."""
-    asyncio.run(_export_data(path))
+    await _export_data(path)
 
 
 async def _export_data(path: str) -> None:
@@ -351,7 +348,7 @@ async def _export_data(path: str) -> None:
 
 
 @app.command("restore")
-def restore_data(
+async def restore_data(
     path: str = typer.Argument(..., help="An archive written by `finance export`."),
     replace: bool = typer.Option(
         False,
@@ -361,7 +358,7 @@ def restore_data(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation."),
 ) -> None:
     """Load a finance archive into this instance."""
-    asyncio.run(_restore_data(path, replace, yes))
+    await _restore_data(path, replace, yes)
 
 
 async def _restore_data(path: str, replace: bool, yes: bool) -> None:
@@ -418,7 +415,7 @@ def _print_counts(title: str, counts: dict[str, int], path: Any = None) -> None:
 
 
 @app.command("import")
-def import_file(
+async def import_file(
     path: str = typer.Argument(..., help="Path to an OFX/QFX/QIF/CSV file."),
     account_id: int | None = typer.Option(
         None, "--account-id", "-a", help="Target account (required for QIF/CSV)."
@@ -426,7 +423,7 @@ def import_file(
     owner_user_id: int | None = OWNER_OPT,
 ) -> None:
     """Import a bank / credit-card / Quicken file into an account."""
-    asyncio.run(_import_file(path, account_id, owner_user_id))
+    await _import_file(path, account_id, owner_user_id)
 
 
 async def _import_file(
@@ -472,7 +469,7 @@ _INVESTMENT_PROFILES = ("optum",)
 
 
 @app.command("import-investments")
-def import_investments(
+async def import_investments(
     path: str = typer.Argument(..., help="Path to a custodian activity export."),
     account_id: int = typer.Option(
         ..., "--account-id", "-a", help="Target brokerage account."
@@ -491,7 +488,7 @@ def import_investments(
     """Import a custodian's investment-activity ledger (trades, dividends,
     fees) into a brokerage account. Unlike ``import``, this writes
     ``FinanceTrade``/``FinanceHolding`` rows, not cash transactions."""
-    asyncio.run(_import_investments(path, account_id, profile, ticker, owner_user_id))
+    await _import_investments(path, account_id, profile, ticker, owner_user_id)
 
 
 async def _import_investments(
@@ -551,7 +548,7 @@ async def _import_investments(
 
 
 @app.command()
-def sync(
+async def sync(
     owner_user_id: int | None = OWNER_OPT,
     connection_id: int | None = typer.Option(
         None,
@@ -561,7 +558,7 @@ def sync(
     ),
 ) -> None:
     """Refresh every provider connection (accounts, holdings, transactions)."""
-    asyncio.run(_sync(owner_user_id, connection_id))
+    await _sync(owner_user_id, connection_id)
 
 
 def _print_sync_result(result: Any) -> None:
@@ -604,7 +601,7 @@ async def _sync(owner_user_id: int | None, connection_id: int | None) -> None:
 
 
 @app.command("fire-webhook")
-def fire_webhook(
+async def fire_webhook(
     owner_user_id: int | None = OWNER_OPT,
     connection_id: int | None = typer.Option(
         None, "--connection-id", "-c", help="Fire for one connection only."
@@ -621,7 +618,7 @@ def fire_webhook(
     without waiting for new bank data. The URL must be reachable from the
     internet (a tunnel in local dev - see .env.example).
     """
-    asyncio.run(_fire_webhook(owner_user_id, connection_id, code))
+    await _fire_webhook(owner_user_id, connection_id, code)
 
 
 async def _fire_webhook(

@@ -1,7 +1,5 @@
 """What the model cost, and how the conversations felt."""
 
-import asyncio
-
 from rich.panel import Panel
 from rich.table import Table
 import typer
@@ -18,7 +16,7 @@ from ...core.config import settings
 
 
 @app.command(help=lazy_t("ai.help_usage"))
-def usage(
+async def usage(
     url: str = typer.Option(
         None,
         "--url",
@@ -209,7 +207,7 @@ def usage(
     # Main execution
     base_url = url or getattr(settings, "API_BASE_URL", "http://localhost:8000")
     try:
-        stats = asyncio.run(get_usage_stats(base_url, user_id, recent))
+        stats = await get_usage_stats(base_url, user_id, recent)
         if json_output:
             print(json.dumps(stats.model_dump(), indent=2))
             return
@@ -233,7 +231,7 @@ def usage(
 
 
 @app.command(help=lazy_t("ai.help_sentiment"))
-def sentiment(
+async def sentiment(
     url: str = typer.Option(
         None,
         "--url",
@@ -307,7 +305,7 @@ def sentiment(
 
     base_url = url or getattr(settings, "API_BASE_URL", "http://localhost:8000")
     try:
-        stats = asyncio.run(fetch_stats(base_url))
+        stats = await fetch_stats(base_url)
         if json_output:
             print(json.dumps(stats, indent=2))
             return
