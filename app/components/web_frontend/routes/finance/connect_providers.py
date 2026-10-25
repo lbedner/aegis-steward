@@ -89,6 +89,9 @@ async def _simplefin_complete(
 
 # Where a SimpleFIN user links banks and makes the setup token.
 SIMPLEFIN_CREATE = "https://bridge.simplefin.org/simplefin/create"
+# Where a bank's sign-in is mended: the Bridge keeps it, not steward. The
+# bridge. host redirects to the beta one's front page, dropping the path.
+SIMPLEFIN_ACCOUNT = "https://beta-bridge.simplefin.org/my-account"
 
 
 @dataclass

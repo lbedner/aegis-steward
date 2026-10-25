@@ -127,5 +127,9 @@ def bridge_errors(payload: dict[str, Any]) -> tuple[list[str], list[str]]:
 
 def bank_names(payload: dict[str, Any]) -> str | None:
     """The banks behind the access, named the way the Bridge names them."""
-    names = [c["name"] for c in payload.get("connections") or [] if c.get("name")]
+    names = [
+        c["name"].strip()
+        for c in payload.get("connections") or []
+        if (c.get("name") or "").strip()
+    ]
     return ", ".join(names) or None

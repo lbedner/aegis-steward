@@ -150,9 +150,8 @@ class TestPlacingAHeldAccount:
         from app.services.finance.adapters.providers.connections import placing
 
         card = one(client.get("/settings").text, f"#connection-{held}")
-        one(card, "[data-unplaced]")
         place = f"/settings/connections/{held}/place"
-        one(card, f'[hx-get="{place}"]')
+        one(one(card, "[data-unplaced]"), f'[hx-get="{place}"]')
 
         dialog = hx.get(place).text
         none(dialog, "html")
@@ -381,7 +380,7 @@ class TestConnections:
         page = client.get("/settings").text
         card = one(page, f"#connection-{connection}")
         assert "Plaid" in text(card)
-        assert text(one(card, "[data-tone]")) == "Connected"
+        assert one(card, "[data-dot]").get("title") == "Connected"
         confirm = one(card, f'[hx-get="/settings/connections/{connection}/remove"]')
         assert confirm.get("hx-target") == "#dialog-body"
 
@@ -507,6 +506,7 @@ class TestConnections:
             status_detail=None,
             last_successful_sync_at=None,
             unplaced=0,
+            new_accounts=False,
         )
 
         card = _card(connection)

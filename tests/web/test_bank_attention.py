@@ -94,7 +94,7 @@ class TestTheBanner:
         )
 
         row = one(hx.get(ATTENTION).text, "[data-attention] li")
-        assert said in text(row)
+        assert "Optum Bank HSA needs you to sign in again" in text(row)
         one(row, 'a[href="/settings/activity"]')
 
     async def test_a_link_to_many_banks_names_only_the_one_its_reason_does_not(
@@ -114,7 +114,7 @@ class TestTheBanner:
 
         row = one(hx.get(ATTENTION).text, "[data-attention] li")
         assert "First Bank" not in text(row)
-        assert text(row).startswith("Connection to Hometown Bank")
+        assert text(row).startswith("Hometown Bank needs attention")
 
     async def test_a_bank_that_stopped_syncing_is_stale(
         self, hx: TestClient, async_db_session: AsyncSession, connection: int
@@ -127,6 +127,43 @@ class TestTheBanner:
 
         row = one(hx.get(ATTENTION).text, "[data-attention] li")
         assert "10 days" in text(row)
+
+
+class TestTheBridgesWords:
+    """The Bridge's report, in plain words where its shape is known (#580)."""
+
+    @pytest.mark.parametrize(
+        ("said", "read"),
+        [
+            (
+                "Connection to Optum Bank HSA may need attention. Auth required",
+                "Optum Bank HSA needs you to sign in again",
+            ),
+            (
+                "Connection to Hometown Bank may need attention",
+                "Hometown Bank needs attention",
+            ),
+            (
+                "Connection to M1  may need attention. Auth required",
+                "M1 needs you to sign in again",
+            ),
+            (
+                "Connection to A may need attention. Auth required; "
+                "Connection to B may need attention. Account closed",
+                "A needs you to sign in again; B needs attention: Account closed",
+            ),
+            (
+                "Requested date range exceeds 45 days.",
+                "Requested date range exceeds 45 days.",
+            ),
+        ],
+    )
+    def test_it_reads(self, said: str, read: str) -> None:
+        from app.components.web_frontend.routes.finance.bank_attention import (
+            readable,
+        )
+
+        assert readable(said) == read
 
 
 class TestNewAccountsToAdd:
@@ -168,9 +205,11 @@ class TestNewAccountsToAdd:
 
 
 class TestTheCard:
-    async def test_the_card_says_the_status_in_words_and_offers_reconnect(
+    async def test_the_status_is_its_dot_and_the_fix_comes_first(
         self, client: TestClient, async_db_session: AsyncSession, connection: int
     ) -> None:
+        """The words ride the dot's title, not a badge beside the name;
+        Sign in again is the button that fixes it, first and primary."""
         await _set(
             async_db_session,
             connection,
@@ -179,8 +218,34 @@ class TestTheCard:
         )
 
         card = one(client.get("/settings").text, f"#connection-{connection}")
-        assert CONNECTION_STATUS["login_required"][0] in text(card)
-        one(card, f'[hx-post="/settings/connections/{connection}/reconnect"]')
+        none(card, "[data-tone]")
+        dot = one(card, "[data-dot]")
+        assert dot.get("title") == CONNECTION_STATUS["login_required"][0]
+        fix = one(card, "[data-needs] button")
+        assert fix.get("hx-post") == f"/settings/connections/{connection}/reconnect"
+        assert text(fix) == "Sign in again"
+        assert "btn-primary" in fix.get("class", "")
+
+    async def test_a_simplefin_bank_that_needs_a_sign_in_offers_one(
+        self, client: TestClient, async_db_session: AsyncSession, connection: int
+    ) -> None:
+        """The Bridge keeps the bank's sign-in, so it is mended there; the
+        card offered only Place and Disconnect, neither of which does."""
+        await _set(
+            async_db_session,
+            connection,
+            provider="simplefin",
+            status="error",
+            status_detail="Connection to Optum Bank HSA may need attention. Auth required",
+        )
+
+        card = one(client.get("/settings").text, f"#connection-{connection}")
+        row = one(card, "[data-needs]")
+        assert text(row).startswith("Optum Bank HSA needs you to sign in again")
+        one(row, f'[hx-post="/settings/connections/{connection}/reconnect"]')
+        # production is the usual case, not news; Disconnect is quiet text
+        assert "production" not in text(card)
+        assert "btn" not in one(card, "[data-disconnect]").get("class", "")
 
 
 class TestReconnecting:
@@ -203,6 +268,31 @@ class TestReconnecting:
 
         opener = one(dialog, 'a[target="_blank"]')
         assert opener.get("href") == "https://hosted.example/update"
+        one(
+            dialog, f'form[hx-post="/settings/connections/{connection}/reconnect/done"]'
+        )
+
+    async def test_a_simplefin_bank_is_signed_in_to_on_the_bridge(
+        self, hx: TestClient, async_db_session: AsyncSession, connection: int
+    ) -> None:
+        from app.components.web_frontend.routes.finance.connect_providers import (
+            SIMPLEFIN_ACCOUNT,
+        )
+
+        await _set(
+            async_db_session,
+            connection,
+            provider="simplefin",
+            status="error",
+            status_detail="Connection to Optum Bank HSA may need attention",
+        )
+
+        dialog = hx.post(f"/settings/connections/{connection}/reconnect").text
+
+        assert "Optum Bank HSA" in text(one(dialog, "[data-reason]"))
+        opener = one(dialog, 'a[target="_blank"]')
+        assert opener.get("href") == SIMPLEFIN_ACCOUNT
+        assert text(opener) == "Open SimpleFIN Bridge"
         one(
             dialog, f'form[hx-post="/settings/connections/{connection}/reconnect/done"]'
         )

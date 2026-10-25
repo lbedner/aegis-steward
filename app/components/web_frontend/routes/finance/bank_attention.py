@@ -5,14 +5,16 @@ a banner (``layouts/app_shell``) that lists each link that needs you -
 one the bank stopped (a sign-in, an expiry, an error) or one gone stale
 (no sync in a week) - in words, with Reconnect where the bank can be
 reconnected in place: Plaid's update mode, which keeps the connection,
-its accounts and their history. Done hands the next sync to the worker;
-a sync that succeeds is what clears the banner.
+its accounts and their history, or SimpleFIN Bridge's account page,
+where the Bridge keeps each bank's sign-in. Done hands the next sync to
+the worker; a sync that succeeds is what clears the banner.
 
 Its own module because Settings is at its budget.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -21,6 +23,9 @@ from starlette.responses import Response
 from app.components.web_frontend.filters import freshness
 from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import dialog, dialog_done, or_404, render
+from app.components.web_frontend.routes.finance.connect_providers import (
+    SIMPLEFIN_ACCOUNT,
+)
 from app.services.finance.constants import (
     CONNECTION_NEEDS_YOU,
     PROVIDER_LABELS,
@@ -35,6 +40,30 @@ SECTION = section("settings")
 router = APIRouter(prefix=SECTION.path)
 
 
+# How the Bridge reports a bank it lost touch with: "Connection to Optum
+# Bank HSA may need attention. Auth required" (a sign-in), or with no
+# reason, or another one.
+_BRIDGE_SAID = re.compile(
+    r"Connection to (?P<bank>.+?) may need attention\.?\s*(?P<why>.*)", re.I
+)
+
+
+def readable(detail: str) -> str:
+    """What a bank said, in plain words where the Bridge's shape is known
+    ("Optum Bank HSA needs you to sign in again"); anything else as said."""
+
+    def plain(said: str) -> str:
+        found = _BRIDGE_SAID.fullmatch(said.strip())
+        if found is None:
+            return said.strip()
+        bank, why = found["bank"].strip(), found["why"].rstrip(".")
+        if why.lower() == "auth required":
+            return f"{bank} needs you to sign in again"
+        return f"{bank} needs attention" + (f": {why}" if why else "")
+
+    return "; ".join(plain(said) for said in detail.split(";"))
+
+
 def needs_you(connection: Any) -> str | None:
     """What a link needs you for, in words - or None when it is fine.
     Stale is a week without a successful sync, the same week the account
@@ -43,7 +72,9 @@ def needs_you(connection: Any) -> str | None:
     if connection.status in CONNECTION_NEEDS_YOU:
         # What the bank said, when it said anything: "Needs attention"
         # alone hid an HSA out for ten days (#532).
-        return connection.status_detail or connection_status(connection.status)[0]
+        if connection.status_detail:
+            return readable(connection.status_detail)
+        return connection_status(connection.status)[0]
     if connection.new_accounts:
         return arrivals.WORDS
     if connection.status == "healthy" and connection.last_successful_sync_at:
@@ -53,9 +84,15 @@ def needs_you(connection: Any) -> str | None:
     return None
 
 
+# Where a sign-in is mended: Plaid's update page for one bank, or the
+# Bridge, which keeps every bank's sign-in for a SimpleFIN link.
+_SIGNS_IN = frozenset({Provider.PLAID, Provider.SIMPLEFIN})
+
+
 def reconnectable(connection: Any) -> bool:
-    """Whether Reconnect can mend it in place: Plaid's update mode."""
-    return connection.provider == Provider.PLAID and needs_you(connection) is not None
+    """Whether Sign in again can mend it: Plaid's update mode, or the
+    Bridge's account page."""
+    return connection.provider in _SIGNS_IN and needs_you(connection) is not None
 
 
 def _name(connection: Any) -> str:
@@ -122,31 +159,53 @@ async def reconnect(
     """Start the bank's own update page: the sign-in is the bank's to take,
     in its tab; Done brings you back."""
     connection = await _connection(service, owner_user_id, connection_id)
+    if connection.provider == Provider.SIMPLEFIN:
+        return _reconnecting(
+            request,
+            connection,
+            SIMPLEFIN_ACCOUNT,
+            how="SimpleFIN Bridge keeps your banks' sign-ins: sign in to the "
+            "bank it flags there, then come back.",
+            opens="Open SimpleFIN Bridge",
+        )
+    how = f"Sign in to {_name(connection)} again on the bank's page."
     session = await connections.relink_connection(
         service.db, connection_id, owner_user_id=owner_user_id
     )
     if session is None:
-        return dialog(
+        return _reconnecting(
             request,
-            "partials/settings/reconnecting.html",
-            422,
-            name=_name(connection),
-            connection_id=connection_id,
-            url=None,
+            connection,
+            None,
+            how=how,
             errors=[
                 "This bank can't be reconnected in place. Disconnect it and "
                 "connect it again - its accounts and history stay."
             ],
-            path=SECTION.path,
         )
     url, _token = session
+    return _reconnecting(request, connection, url, how=how)
+
+
+def _reconnecting(
+    request: Request,
+    connection: Any,
+    url: str | None,
+    *,
+    how: str,
+    opens: str = "Open the bank's page",
+    errors: list[str] | None = None,
+) -> Response:
     return dialog(
         request,
         "partials/settings/reconnecting.html",
-        name=_name(connection),
-        connection_id=connection_id,
+        422 if errors else 200,
+        how=how,
+        opens=opens,
+        reason=connection.status_detail and readable(connection.status_detail),
+        connection_id=connection.id,
         url=url,
-        errors=[],
+        errors=errors or [],
         path=SECTION.path,
     )
 
