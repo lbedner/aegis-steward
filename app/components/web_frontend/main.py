@@ -34,6 +34,9 @@ def create_web_frontend_app() -> APIRouter:
     from app.components.web_frontend.routes.chat_voices import (
         router as chat_voices_router,
     )
+    from app.components.web_frontend.routes.contact_faces import (
+        router as contact_faces_router,
+    )
     from app.components.web_frontend.routes.contacts import router as contacts_router
     from app.components.web_frontend.routes.documents import router as documents_router
     from app.components.web_frontend.routes.facts import (
@@ -47,6 +50,9 @@ def create_web_frontend_app() -> APIRouter:
     from app.components.web_frontend.routes.icons import router as icons_router
     from app.components.web_frontend.routes.jobs import router as jobs_router
     from app.components.web_frontend.routes.mail import router as mail_router
+    from app.components.web_frontend.routes.matter_faces import (
+        router as faces_router,
+    )
     from app.components.web_frontend.routes.matter_papers import (
         router as papers_router,
     )
@@ -66,6 +72,7 @@ def create_web_frontend_app() -> APIRouter:
     router.include_router(finance_router)
     router.include_router(jobs_router)
     router.include_router(matters_router)
+    router.include_router(faces_router)
     router.include_router(papers_router)
     router.include_router(timeline_router)
     router.include_router(requests_router)
@@ -76,6 +83,7 @@ def create_web_frontend_app() -> APIRouter:
     router.include_router(policies_router)
     router.include_router(positions_router)
     router.include_router(contacts_router)
+    router.include_router(contact_faces_router)
     router.include_router(documents_router)
     router.include_router(mail_router)
     router.include_router(icons_router)

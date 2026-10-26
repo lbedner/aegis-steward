@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.services.matters.words import WORDS
-from tests.web.dom import card, none, one, select, text
+from tests.web.dom import card, location, none, one, select, text
 
 
 class TestThePeoplePage:
@@ -16,8 +16,8 @@ class TestThePeoplePage:
         page = client.get("/contacts").text
         one(page, "#contacts")
         # A Records section of its own, beside Matters - not a Settings tab.
-        marked = one(page, 'a[aria-current="page"]')
-        assert marked.get("href") == "/contacts"
+        marked = [a.get("href") for a in select(page, 'a[aria-current="page"]')]
+        assert "/contacts" in marked  # the sidebar, beside the People tab
         none(page, "#settings-nav")
 
     def test_nothing_found_says_so(self, client: TestClient) -> None:
@@ -46,7 +46,10 @@ class TestThePeoplePage:
         page = client.get("/contacts").text
         rows = [text(cell) for cell in select(page, "#contacts tbody td")]
         assert "James Doe" in rows
-        assert "Example County DSS" in rows
+        places = client.get("/contacts/organizations").text
+        assert "Example County DSS" in [
+            text(cell) for cell in select(places, "#contacts tbody td")
+        ]
         # Filed where a reader looks: the person files under B.
         assert "Doe, James" in rows
 
@@ -91,23 +94,118 @@ class TestThePeoplePage:
         ]
 
 
+# Where each kind is listed (#582): people and organizations are tabs.
+_LISTED = {"person": "/contacts", "organization": "/contacts/organizations"}
+
+
 def _contact(client: TestClient, name: str, kind: str) -> int:
     """A party by the front door, and its id off the list."""
     client.post(
         "/contacts/new", data={"name": name, "kind": kind, "sort_name": "", "note": ""}
     )
     rows = select(
-        client.get("/contacts", params={"q": name}).text, "#contacts tbody tr"
+        client.get(_LISTED[kind], params={"q": name}).text, "#contacts tbody tr"
     )
     # The newest row of that name: the app-owned database is shared for
     # the run, and another file may have filed the same party before.
     return max(int(r.get("id").split("-")[-1]) for r in rows if name in text(r))
 
 
+class TestPeopleAndOrganizations:
+    """People and organizations are tabs of their own (#582): one list
+    of both read as a phone book shuffled with a directory of agencies."""
+
+    def test_each_kind_is_listed_on_its_own_tab(
+        self, client: TestClient, hx: TestClient
+    ) -> None:
+        _contact(client, "Tabkind Person", "person")
+        _contact(client, "Tabkind Office", "organization")
+
+        people = client.get("/contacts", params={"q": "Tabkind"}).text
+        places = hx.get("/contacts/organizations", params={"q": "Tabkind"}).text
+        none(places, "html")
+
+        tabs = {a.get("href"): text(a) for a in select(people, "#contacts-tabs a")}
+        assert set(tabs) == {"/contacts", "/contacts/organizations"}
+        assert tabs["/contacts"].startswith("People")
+        assert tabs["/contacts/organizations"].startswith("Organizations")
+        named = lambda page: [text(a) for a in select(page, "#contacts tbody a")]  # noqa: E731
+        assert named(people) == ["Tabkind Person"]
+        assert named(places) == ["Tabkind Office"]
+
+    def test_adding_from_organizations_starts_as_one(self, client: TestClient) -> None:
+        page = client.get("/contacts/organizations").text
+        opener = one(page, "#contacts [data-add]")
+        assert opener.get("hx-get") == "/contacts/new?kind=organization"
+        form = client.get(opener.get("hx-get")).text
+        assert one(form, 'select[name="kind"] option[selected]').get("value") == (
+            "organization"
+        )
+
+
+ORGANIZATION_TABS = {
+    "": ("Overview", "#contact-reach"),
+    "/logins": ("Sign-ins", "#contact-signins"),
+    "/accounts": ("Accounts", "#contact-accounts"),
+    "/cover": ("Policies", "#contact-policies"),
+    "/facts": ("Facts", "#contact-facts"),
+    "/matters": ("Matters", "#contact-matters"),
+    "/papers": ("Papers", "#contact-paper"),
+    "/paid": ("Paid", "#contact-paid"),
+}
+
+
+class TestAContactIsReadATabAtATime:
+    """A contact's page was ten cards; it is a tab each now (#582), in
+    the order the kind reads: a place by how to reach it and what it
+    holds, a person by their cases and their money."""
+
+    def test_an_organization_s_tabs(self, client: TestClient) -> None:
+        party_id = _contact(client, "Tabs Retirement System", "organization")
+        base = f"/contacts/{party_id}"
+        page = client.get(base).text
+        tabs = [(a.get("href"), text(a)) for a in select(page, "#contact-tabs a")]
+        assert tabs == [
+            (base + tail, label) for tail, (label, _) in ORGANIZATION_TABS.items()
+        ]
+
+    def test_a_person_s_tabs(self, client: TestClient) -> None:
+        party_id = _contact(client, "Tabs Testcase", "person")
+        base = f"/contacts/{party_id}"
+        page = client.get(base).text
+        tabs = [(a.get("href"), text(a)) for a in select(page, "#contact-tabs a")]
+        assert tabs == [
+            (base, "Overview"),
+            (base + "/matters", "Matters"),
+            (base + "/accounts", "Accounts"),
+            (base + "/cover", "Covered by"),
+            (base + "/facts", "Facts"),
+            (base + "/papers", "Papers"),
+            (base + "/paid", "Paid"),
+        ]
+        one(page, "#contact-family")
+
+    @pytest.mark.queryspy(threshold=3)
+    @pytest.mark.parametrize("tail", list(ORGANIZATION_TABS))
+    def test_each_tab_draws_its_own_and_nothing_else(
+        self, client: TestClient, hx: TestClient, tail: str
+    ) -> None:
+        party_id = _contact(client, "Tabs Each System", "organization")
+        holds = ORGANIZATION_TABS[tail][1]
+        fragment = hx.get(f"/contacts/{party_id}{tail}").text
+        none(fragment, "html")
+        for page in (client.get(f"/contacts/{party_id}{tail}").text, fragment):
+            one(page, f"#contact {holds}")
+            for _label, other in ORGANIZATION_TABS.values():
+                if other != holds:
+                    none(page, other)
+
+
 class TestAContactHasAPage:
     """A contact is worked - logged into, written to, read off - so it
     is a page, not a dialog, like a matter. The kind decides the order."""
 
+    @pytest.mark.queryspy(threshold=5)  # reads four of its tabs
     def test_an_organization_is_a_place(self, client: TestClient) -> None:
         party_id = _contact(
             client, "New York State and Local Retirement System", "organization"
@@ -115,23 +213,28 @@ class TestAContactHasAPage:
         page = client.get(f"/contacts/{party_id}").text
         section = one(page, "#contact")
         assert section.get("data-kind") == "organization"
-        assert one(page, 'a[aria-current="page"]').get("href") == "/contacts"
+        marked = [a.get("href") for a in select(page, 'a[aria-current="page"]')]
+        assert marked == ["/contacts", f"/contacts/{party_id}"]
         # A place: how to reach it, its sign-ins and what it says are shown
         # even while empty; its accounts are the ones held there.
         one(page, "[data-back]")
         card(page, WORDS["reach"])
-        one(page, f'[hx-get="/contacts/{party_id}/signins"]')
-        one(page, "[data-says]")
-        none(page, "[data-about]")
-        one(page, "#contact-paper")
+        base = f"/contacts/{party_id}"
+        one(client.get(base + "/logins").text, f'[hx-get="{base}/signins"]')
+        facts = client.get(base + "/facts").text
+        one(facts, "[data-says]")
+        none(facts, "[data-about]")
+        one(client.get(base + "/papers").text, "#contact-paper")
 
+    @pytest.mark.queryspy(threshold=3)  # reads two of its tabs
     def test_a_person_is_a_subject(self, client: TestClient) -> None:
         party_id = _contact(client, "Quentin Testcase", "person")
         page = client.get(f"/contacts/{party_id}").text
         assert one(page, "#contact").get("data-kind") == "person"
-        one(page, "[data-about]")
-        none(page, "[data-says]")
-        none(page, f'[hx-get="/contacts/{party_id}/signins"]')
+        facts = client.get(f"/contacts/{party_id}/facts").text
+        one(facts, "[data-about]")
+        none(facts, "[data-says]")
+        none(page, f'#contact-tabs a[href="/contacts/{party_id}/logins"]')
 
     def test_fragment_has_no_shell(self, hx: TestClient, client: TestClient) -> None:
         party_id = _contact(client, "Fragment Testcase", "person")
@@ -152,7 +255,7 @@ class TestAContactHasAPage:
         from tests._pdf import pdf_bytes
 
         party_id = _contact(client, "NYSLRS Paper Testcase", "organization")
-        page = client.get(f"/contacts/{party_id}").text
+        page = client.get(f"/contacts/{party_id}/papers").text
         one(page, f'button[hx-get="/contacts/{party_id}/documents/new"]')
         # The shelf says what it is for; an empty card with a name is a riddle.
         assert WORDS["their_paper_is"] in text(one(page, "#contact-paper"))
@@ -168,8 +271,9 @@ class TestAContactHasAPage:
             },
         )
         assert answer.status_code == 200
+        assert location(answer) == f"/contacts/{party_id}/papers"
 
-        page = client.get(f"/contacts/{party_id}").text
+        page = client.get(f"/contacts/{party_id}/papers").text
         row = one(page, "#contact-paper tbody tr")
         assert "statement.pdf" in text(row)
         opener = one(row, "[data-open]")
@@ -210,7 +314,7 @@ class TestLookingItUpByHand:
             "/contacts/new",
             data={"name": name, "kind": kind, "sort_name": "", "note": ""},
         )
-        page = client.get("/contacts", params={"q": name}).text
+        page = client.get(_LISTED[kind], params={"q": name}).text
         link = next(a for a in select(page, "#contacts tbody a") if text(a) == name)
         return int(link.get("href").rsplit("/", 1)[-1])
 

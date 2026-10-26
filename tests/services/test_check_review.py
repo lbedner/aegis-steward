@@ -144,3 +144,56 @@ class TestIllianaFixesAPayee:
             if c.change_type == checks.CHECK
         )
         assert payees == ["Dr. Molar", "Sweet Scoop", "Sweet Scoop"]
+
+
+class TestACheckIsOneDocument:
+    """A check's front and back were filed as two documents, "Check 1522"
+    and "Check 1522 (back)", and read as two things on the shelf (#582).
+    One document now, a page a side, labelled."""
+
+    @pytest.mark.asyncio
+    async def test_its_front_and_back_are_the_pages_of_one(
+        self, async_db_session: AsyncSession
+    ) -> None:
+        import io
+
+        from PIL import Image
+
+        from app.core.storage import get_storage
+        from app.services.documents.queries import pages_for, tags_for_many
+        from app.services.documents.service import DocumentService
+
+        def jpeg(color: str) -> bytes:
+            out = io.BytesIO()
+            Image.new("RGB", (600, 270), color).save(out, "JPEG")
+            return out.getvalue()
+
+        store = get_storage()
+        front = await store.put(jpeg("white"), content_type="image/jpeg")
+        back = await store.put(jpeg("gray"), content_type="image/jpeg")
+
+        result = await check_card.check_execute(
+            async_db_session,
+            check_card.CheckPayload(
+                document_id=1,
+                page=1,
+                slot=0,
+                transaction_id=4242,
+                number="1522",
+                front_key=front,
+                back_key=back,
+            ),
+            None,
+        )
+
+        (made_id,) = result["documents"]
+        made = await DocumentService(async_db_session).get(made_id)
+        assert made is not None
+        assert (made.title, made.kind, made.page_count) == ("Check 1522", "receipt", 2)
+        assert (made.meta_data or {})["page_labels"] == ["Front", "Back"]
+        pages = await pages_for(async_db_session, made_id)
+        assert [p.image_key for p in pages] == [front, back]
+        assert (
+            "transaction:4242"
+            in (await tags_for_many(async_db_session, [made_id]))[made_id]
+        )

@@ -85,17 +85,17 @@ async def filed() -> AsyncIterator[Filed]:
 def test_a_case_shows_what_it_cost(
     client: TestClient, hx: TestClient, filed: Filed
 ) -> None:
-    card = one(client.get(f"/matters/{filed.matter_id}").text, "#matter-spent")
+    card = one(client.get(f"/matters/{filed.matter_id}/spent").text, "#matter-spent")
 
     assert len(select(card, "tbody tr")) == 2
     assert text(one(card, "[data-total]")) == "-$1,800.00"
-    fragment = hx.get(f"/matters/{filed.matter_id}").text
+    fragment = hx.get(f"/matters/{filed.matter_id}/spent").text
     none(fragment, "html")
     one(fragment, "#matter-spent")
 
 
 def test_a_contact_shows_what_was_paid_them(client: TestClient, filed: Filed) -> None:
-    card = one(client.get(f"/contacts/{filed.party_id}").text, "#contact-paid")
+    card = one(client.get(f"/contacts/{filed.party_id}/paid").text, "#contact-paid")
 
     assert len(select(card, "tbody tr")) == 1
     assert text(one(card, "[data-total]")) == "-$1,500.00"

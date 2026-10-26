@@ -9,6 +9,7 @@ shows the original beside the text that was read off it.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -21,7 +22,7 @@ from app.components.web_frontend.documents import (
     filed_under,
     save_document,
 )
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.nav import documents_tabs, section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
@@ -82,12 +83,17 @@ async def page(
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
     """Everything on file, newest first, narrowed where it stands."""
-    from app.services.documents.service import DOCUMENT_KINDS, DocumentService, queries
+    from app.services.documents.service import DocumentService, queries
 
     async with get_async_session() as db:
         documents, _total = await DocumentService(db).list_documents(
-            owner_user_id=owner_user_id, kind=kind or None, page_size=200
+            owner_user_id=owner_user_id, page_size=200
         )
+        # ponytail: the kinds are counted and picked from the same page of
+        # 200 the search reads; a count query when the shelf outgrows it.
+        counts = Counter(d.kind for d in documents)
+        if kind:
+            documents = [d for d in documents if d.kind == kind]
         # ponytail: the match is in Python over one page of 200; a
         # search column on the query when the shelf outgrows a page.
         #
@@ -108,7 +114,7 @@ async def page(
                 "columns": list(COLUMNS),
                 "q": q,
                 "kind": kind,
-                "kinds": DOCUMENT_KINDS,
+                **documents_tabs(kind, counts),
             },
         )
 

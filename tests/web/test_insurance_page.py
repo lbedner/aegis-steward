@@ -43,7 +43,7 @@ class TestThePoliciesCard:
         self, client: TestClient, hx: TestClient
     ) -> None:
         insurer = _contact(client, "Card Dental", "organization")
-        page = client.get(f"/contacts/{insurer}").text
+        page = client.get(f"/contacts/{insurer}/cover").text
         one(page, f'[hx-get="/contacts/{insurer}/policies"]')
         block = hx.get(f"/contacts/{insurer}/policies").text
         none(block, "html")
@@ -71,7 +71,7 @@ class TestThePoliciesCard:
         insurer = _contact(client, "Covering Dental", "organization")
         sam = _contact(client, "Covered Sam", "person")
         policy = _policy(client, insurer, [sam])
-        page = client.get(f"/contacts/{sam}").text
+        page = client.get(f"/contacts/{sam}/cover").text
         one(page, f'[hx-get="/contacts/{sam}/policies"]')
         block = client.get(f"/contacts/{sam}/policies").text
         row = one(block, f'[data-covered-by="{policy}"]')
@@ -133,7 +133,7 @@ class TestAClaimOnThePage:
         assert "ClaimStatement" not in text(door)
         assert text(one(card, "[data-owes]")) == "$146.00"
         # And the EOB is on the insurer's paper.
-        page = client.get(f"/contacts/{insurer}").text
+        page = client.get(f"/contacts/{insurer}/papers").text
         assert "ClaimStatement.pdf" in text(one(page, "#contact-paper"))
 
     def test_a_bad_amount_is_a_422(self, client: TestClient) -> None:

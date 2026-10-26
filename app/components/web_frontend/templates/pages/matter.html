@@ -1,24 +1,23 @@
 {% extends layout %}
-{% from "components/macros/layout.html" import page_header, card, badge, contact_link %}
+{% from "components/macros/layout.html" import card, contact_link, dot, page_link %}
 {% from "components/macros/form.html" import action %}
 {% from "components/macros/matters.html" import facts_block, filed_card, matter_header, requests_block %}
 {% from "components/macros/table.html" import data_table %}
 
 {% block title %}{{ matter.title }} - {{ project_name }}{% endblock %}
 
-{# One case: what it is, whose number it carries, and who is in it.
+{# One case, a face at a time (issue 582): the tabs are pages
+   (``matter_faces``), and each draws only its own below the same header.
    Roles are read off the participant links rather than the party rows -
    Maple is the facility HERE and a payee in the ledger, and neither
    fact belongs to the other. #}
 {% block app_content %}
 <section id="matter" class="space-y-6">
   {{ matter_header(matter, section, path) }}
-  {% if matter.note %}<p class="text-sm text-aegis-text whitespace-pre-line" data-note>{{ matter.note }}</p>{% endif %}
-
-  {#- The case, and what leaves the building. Two pages because the
-      answer sheet is read beside a paper form with the app's own chrome
-      dropped out of print, and a page that is both prints badly. -#}
   {% include "components/sub_nav.html" %}
+
+  {% if current_tab == "overview" %}
+  {% if matter.note %}<p class="text-sm text-aegis-text whitespace-pre-line" data-note>{{ matter.note }}</p>{% endif %}
 
   {% call card(word("who")) %}
   {% if matter.participants %}
@@ -36,31 +35,52 @@
   {{ action(word("add_someone"), hx_dialog(path ~ "/" ~ matter.id ~ "/participants/new")) }}
   {% endcall %}
 
-  {% call card(word("asked_for")) %}
-  {{ requests_block(requests, path, matter.id) }}
-  {#- What they will ask for next: the renewal that is certain to come
-      (ST-11). Read beside the requests because it is the next one. -#}
+  {#- What still stands, soonest first, each by the first thing it still
+      asks: the reason to open a case is usually the next deadline. -#}
+  {% call card(word("due_next")) %}
+  <ul id="matter-due" class="border-t border-aegis-border/60">
+    {% for asked in due %}
+    {% set first = asked.steps|rejectattr("settled")|first %}
+    <li data-due="{{ asked.id }}" class="flex items-baseline justify-between gap-4 py-2 border-b border-aegis-border/60 text-sm">
+      <span class="min-w-0">
+        <span class="block text-aegis-text truncate">{{ first.asked if first else word("letter") }}</span>
+        <span class="micro-label text-aegis-muted">
+          {%- if asked.due_on %}Due {{ asked.due_on|short_date }}{% else %}No deadline{% endif %}
+          {%- if asked.overdue %} {{ dot("error", "Overdue") }}{% endif %} · {{ asked.settled }} of {{ asked.total }} done
+        </span>
+      </span>
+      {{ page_link(path ~ "/" ~ matter.id ~ "/asked", "Open", "shrink-0 text-xs") }}
+    </li>
+    {% else %}
+    <li class="py-2 text-sm text-aegis-muted" data-empty>Nothing waiting on you.</li>
+    {% endfor %}
+  </ul>
+  {#- The renewal that is certain to come (ST-11): the next ask. -#}
   <p class="mt-3 flex items-center justify-between gap-3 text-sm text-aegis-muted" data-expected>
     <span>{% if matter.next_expected_on %}Next letter expected {{ matter.next_expected_on.strftime("%b %Y") }}{% if matter.cadence %} · {{ matter.cadence }}{% endif %}{% else %}No next letter expected{% endif %}</span>
     {{ action(word("next_letter"), hx_dialog(path ~ "/" ~ matter.id ~ "/cadence") ~ " data-expected-edit") }}
   </p>
   {% endcall %}
 
+  {% elif current_tab == "asked" %}
+  {{ requests_block(asked, path, matter.id) }}
+
   {# What we can say, and how we know. Separate from the asks because a
      fact outlives the case that gathered it: what the pension paid in
      August is true whether or not this renewal is still open. #}
-  {% call card(word("can_say")) %}
+  {% elif current_tab == "facts" %}
   {{ facts_block(facts, path, matter.id) }}
-  {% endcall %}
 
   {# The shelf. Paper arrives before anybody knows which ask it answers,
      and a shelf you cannot put a document on is a shelf nobody uses. #}
-  {% call card(word("paper")) %}
-  {{ data_table(paper_columns, papers, empty="Nothing filed yet", path=path) }}
-  {{ action(word("add_paper"), hx_dialog(path ~ "/" ~ matter.id ~ "/documents/new")) }}
-  {% endcall %}
+  {% elif current_tab == "papers" %}
+  <div id="matter-papers" class="flex flex-col gap-3">
+    {{ data_table(paper_columns, papers, empty="Nothing filed yet", path=path) }}
+    {{ action(word("add_paper"), hx_dialog(path ~ "/" ~ matter.id ~ "/documents/new")) }}
+  </div>
 
-  {# What the case has cost: the charges filed with it. #}
+  {% elif current_tab == "spent" %}
   {{ filed_card("matter-spent", word("spent"), spent) }}
+  {% endif %}
 </section>
 {% endblock %}

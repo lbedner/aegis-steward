@@ -7,19 +7,20 @@
 
 {# The address book everything else points at: the subject of a case, the
    agency that wrote to you, the facility holding an account. People and
-   organizations in one list, because the difference between them is a
-   field rather than a kind of thing.
+   organizations are a tab each (issue 582): one list of both read as a
+   phone book shuffled with a directory of agencies.
 
    No roles here. What a party IS to a matter belongs to the matter. #}
 {% block app_content %}
 {{ page_header("Contacts", "Everyone a matter, a document or an account can name") }}
+{% include "components/sub_nav.html" %}
 {% call card(id="contacts") %}
 <div class="flex flex-wrap items-center justify-between gap-3">
-  {{ search_input("q", q, placeholder="Search contacts",
-                  attrs='hx-get="' ~ path ~ '" hx-target="#app-content"'
+  {{ search_input("q", q, placeholder="Search " ~ ("organizations" if kind == "organization" else "people"),
+                  attrs='hx-get="' ~ here ~ '" hx-target="#app-content"'
                         ' hx-select="#app-content" hx-swap="innerHTML"'
                         ' hx-trigger="keyup changed delay:150ms, search"') }}
-  {{ action("Add someone", hx_dialog(path ~ "/new")) }}
+  {{ action("Add someone" if kind == "person" else "Add an organization", hx_dialog(path ~ "/new?kind=" ~ kind) ~ " data-add") }}
 </div>
 {{ data_table(columns, rows, empty="Nobody yet", row_id="party") }}
 {% endcall %}

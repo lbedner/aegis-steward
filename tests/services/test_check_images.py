@@ -325,6 +325,8 @@ class TestProposingTheCards:
         filed, _ = await DocumentService(async_db_session).list_documents(
             tag=transaction_tag(ids["1802"])
         )
-        assert sorted(d.title for d in filed) == ["Check 1802", "Check 1802 (back)"]
+        # One document, its front and back the pages of it (#582).
+        assert [d.title for d in filed] == ["Check 1802"]
+        assert (filed[0].meta_data or {})["page_labels"] == ["Front", "Back"]
         row = await async_db_session.get(FinanceTransaction, ids["1802"])
         assert row is not None and row.merchant_id is not None

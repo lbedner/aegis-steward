@@ -72,4 +72,4 @@ async def add_paper(
             db, file, owner_user_id=owner_user_id, tags=(matter_tag(matter_id),)
         )
         await db.commit()
-    return dialog_done(f"{SECTION.path}/{matter_id}", f"Filed {document.title}")
+    return dialog_done(f"{SECTION.path}/{matter_id}/papers", f"Filed {document.title}")

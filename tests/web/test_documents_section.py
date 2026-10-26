@@ -42,7 +42,8 @@ class TestTheShelf:
         assert answer.status_code == 200, answer.text[-1500:]
         page = answer.text
         one(page, "#documents")
-        assert one(page, 'a[aria-current="page"]').get("href") == "/documents"
+        marked = [a.get("href") for a in select(page, 'a[aria-current="page"]')]
+        assert marked == ["/documents", "/documents"]  # the sidebar, and All
 
     def test_fragment_has_no_shell(self, hx: TestClient) -> None:
         none(hx.get("/documents").text, "html")
@@ -61,6 +62,32 @@ class TestTheShelf:
         assert not any("hay.pdf" in t for t in titles)
         form = one(page, "[data-filters]")
         assert form.get("hx-get") == "/documents"
+
+
+class TestKindsAreTabs:
+    """Each kind is a tab with its count (#582), where a dropdown hid
+    how much of each there was: sixty receipts beside three letters."""
+
+    def test_every_kind_on_file_is_a_tab_after_all(self, client: TestClient) -> None:
+        _file(client, "tabbed-letter.pdf")
+        page = client.get("/documents").text
+        tabs = [(a.get("href"), text(a)) for a in select(page, "#documents-tabs a")]
+        assert tabs[0][0] == "/documents" and tabs[0][1].startswith("All (")
+        assert ("/documents?kind=letter") in [href for href, _ in tabs]
+        none(page, '#documents select[name="kind"]')
+
+    def test_a_tab_lists_only_its_kind_and_keeps_it_when_searching(
+        self, client: TestClient, hx: TestClient
+    ) -> None:
+        _file(client, "tabbed-only.pdf")
+        page = hx.get("/documents", params={"kind": "letter"}).text
+        none(page, "html")
+        assert {
+            text(cell) for cell in select(page, "#documents tbody td:nth-child(2)")
+        } == {"letter"}
+        current = one(page, '#documents-tabs a[aria-current="page"]')
+        assert current.get("href") == "/documents?kind=letter"
+        assert one(page, '[data-filters] input[name="kind"]').get("value") == "letter"
 
 
 class TestDelete:
@@ -119,6 +146,57 @@ class TestDelete:
 
         dialog = client.get(f"/documents/{document_id}").text
         none(dialog, "[data-delete]")
+
+
+class TestACheckShowsASideAtATime:
+    """A check is one document, its front and back the pages of it
+    (#582): the dialog shows them as Front and Back."""
+
+    def test_its_sides_are_tabs_each_the_picture_it_was(
+        self, client: TestClient
+    ) -> None:
+        import asyncio
+        import io
+
+        from PIL import Image
+
+        from app.core.db import AsyncSessionLocal
+        from app.core.storage import get_storage
+        from app.services.documents.service import stitch
+
+        def jpeg(color: str) -> bytes:
+            out = io.BytesIO()
+            Image.new("RGB", (600, 270), color).save(out, "JPEG")
+            return out.getvalue()
+
+        async def file_check() -> int:
+            store = get_storage()
+            keys = [
+                await store.put(jpeg(c), content_type="image/jpeg")
+                for c in ("white", "gray")
+            ]
+            async with AsyncSessionLocal() as db:
+                made = await stitch(
+                    db,
+                    [{"key": k, "document_id": None} for k in keys],
+                    naming={"title": "Check 9001", "kind": "receipt"},
+                    owner_user_id=None,
+                    page_labels=["Front", "Back"],
+                )
+                await db.commit()
+            return int(made["document_id"])
+
+        document_id = asyncio.run(file_check())
+        dialog = client.get(f"/documents/{document_id}").text
+
+        sides = one(dialog, '[data-original] [data-tabs="sides"]')
+        assert [text(t) for t in select(sides, "[data-tab]")] == ["Front", "Back"]
+        pictures = select(sides, "img[data-side]")
+        assert [img.get("data-side") for img in pictures] == ["Front", "Back"]
+        # Each the picture of its page, through the page-image route.
+        assert [img.get("src") for img in pictures] == [
+            f"/api/v1/documents/{document_id}/pages/{n}/image" for n in (1, 2)
+        ]
 
 
 class TestTheDialog:
@@ -337,7 +415,7 @@ class TestFilingItSomewhere:
             f"party:{party_id}"
         ]
         assert "filing.pdf" in text(
-            one(client.get(f"/contacts/{party_id}").text, "#contact-paper")
+            one(client.get(f"/contacts/{party_id}/papers").text, "#contact-paper")
         )
 
         gone = client.post(

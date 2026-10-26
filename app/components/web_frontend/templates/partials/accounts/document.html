@@ -11,7 +11,7 @@
    form cannot touch: a document is what arrived. #}
 {% from "components/macros/icons.html" import icon %}
 {% from "components/macros/form.html" import field, text_input, select, date_input, textarea, primary_button, action, chip_select, control %}
-{% from "components/macros/layout.html" import dialog_title, doors %}
+{% from "components/macros/layout.html" import dialog_title, doors, tabbed, tab_panel %}
 {% from "components/macros/feedback.html" import error_banner %}
 {% call dialog_title(document.title) %}
 <p class="text-aegis-muted micro-label mb-4">{{ document|kind_label }}{% if dated %} · {{ dated }}{% endif %}{% if filed %} · <span data-filed>Filed under {{ doors(filed) }}</span>{% endif %} · <a href="{{ content }}" target="_blank" rel="noopener noreferrer" class="text-aegis-teal hover:underline" data-download>Open the original</a></p>
@@ -87,7 +87,23 @@
    aspect ratio keeps it looking like the thing it is at any width. #}
 <div class="grid gap-5 lg:grid-cols-3" data-wide>
   <div class="lg:col-span-2">
-    {% if document.media_type == "application/pdf" %}
+    {% set sides = (document.meta_data or {}).get("page_labels") or [] %}
+    {% if sides and sides|length == pages|length %}
+    {#- Pages that are sides of one thing - a check's front and back
+        (issue 582) - a side at a time, each the picture it was. -#}
+    {% set tabs = [] %}{% for label in sides %}{% set _ = tabs.append((loop.index|string, label)) %}{% endfor %}
+    <div data-original>
+    {% call tabbed("sides", tabs) %}
+    {% for page in pages %}
+    {% set side = sides[page.number - 1] %}
+    {% call tab_panel(page.number|string, "1") %}
+    <img src="/api/v1/documents/{{ document.id }}/pages/{{ page.number }}/image" alt="{{ document.title }}, {{ side|lower }}"
+         class="w-full h-auto rounded-lg border border-aegis-border" data-side="{{ side }}">
+    {% endcall %}
+    {% endfor %}
+    {% endcall %}
+    </div>
+    {% elif document.media_type == "application/pdf" %}
     <object data="{{ content }}" type="application/pdf" class="w-full aspect-[17/22] rounded-lg border border-aegis-border" data-original>
       {# A browser with no PDF viewer gets the link rather than a blank box. #}
       <p class="p-3 text-sm text-aegis-muted">This browser will not display the PDF. <a href="{{ content }}" class="text-aegis-teal hover:underline">Open the original</a>.</p>

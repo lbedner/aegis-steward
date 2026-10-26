@@ -210,7 +210,7 @@ async def record_fact(
         except ValueError as exc:
             return await _form(request, db, matter_id, 422, [str(exc)], **typed)
         await db.commit()
-    return dialog_done(f"{SECTION.path}/{matter_id}", "Recorded")
+    return dialog_done(f"{SECTION.path}/{matter_id}/facts", "Recorded")
 
 
 @router.post(FACT + "/verify", include_in_schema=False)

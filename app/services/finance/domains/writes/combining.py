@@ -12,7 +12,6 @@ photos were; and the photos are retired, their bytes kept.
 
 from __future__ import annotations
 
-import io
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -42,6 +41,8 @@ class CombinePayload(BaseModel):
     tax_year: int | None = None
     # What it SAYS, as printed (#442); none given keeps the photos' own.
     figures: dict[str, str] = {}
+    # What each page is, where "Page 2" says nothing: Front, Back (#582).
+    page_labels: list[str] = []
     # For chat photos: where the document is filed. Shelf photos carry
     # their own places over.
     account_id: int | None = None
@@ -60,6 +61,8 @@ class CombinePayload(BaseModel):
             raise ValueError("A combined document takes two photos or more.")
         if len(set(pages)) != len(pages):
             raise ValueError("Each photo is a page once.")
+        if self.page_labels and len(self.page_labels) != len(pages):
+            raise ValueError("A label for every page, or none.")
         if len([p for p in self.places().values() if p is not None]) > 1:
             raise ValueError(
                 "At most one of account_id, party_id, matter_id, transaction_id."
@@ -128,76 +131,24 @@ async def _pages(
     return pages
 
 
-def _pdf(images: list[bytes]) -> bytes:
-    """One PDF, a page a photo, in order."""
-    from PIL import Image
-
-    opened = [Image.open(io.BytesIO(data)).convert("RGB") for data in images]
-    out = io.BytesIO()
-    opened[0].save(out, "PDF", save_all=True, append_images=opened[1:], resolution=150)
-    return out.getvalue()
-
-
 async def combine_execute(
     db: AsyncSession, payload: CombinePayload, owner_user_id: int | None
 ) -> dict[str, Any]:
-    from app.core.storage import get_storage
-    from app.services.documents.service import (
-        DocumentPage,
-        DocumentService,
-        first_pages,
-        tags_for_many,
-    )
+    from app.services.documents.service import stitch
 
-    pages = await _pages(db, payload, owner_user_id)
-    store = get_storage()
-    images = [await store.get(page["key"]) for page in pages]
-    if any(data is None for data in images):
-        raise ValueError("A photo is no longer in storage; attach it again.")
-    documents = DocumentService(db)
-    made = await documents.ingest(
-        _pdf([data for data in images if data is not None]),
-        title=payload.title,
-        media_type="application/pdf",
-        owner_user_id=owner_user_id,
-        source="combined",
-        page_count=len(pages),
-    )
-    made_id = int(made.id or 0)
-    await documents.update(made_id, payload.naming())
-    kept: dict[str, str] = {}
-    for page in pages:
-        kept.update(page.get("figures") or {})
-    await documents.add_figures(made_id, payload.figures or kept)
-    labels: set[str] = set()
+    tags: set[str] = set()
     if any(v is not None for v in payload.places().values()):
-        labels.add((await place(db, owner_user_id, **payload.places()))[0])
-    originals = [int(page["document_id"]) for page in pages if page["document_id"]]
-    if originals:
-        for found in (await tags_for_many(db, originals)).values():
-            labels.update(found)
-        # Each page as it was read off its photo: no second reading.
-        read = await first_pages(db, originals)
-        for number, page in enumerate(pages, start=1):
-            was = read.get(int(page["document_id"]))
-            db.add(
-                DocumentPage(
-                    document_id=made_id,
-                    page_number=number,
-                    status=was.status if was else "unread",
-                    method=was.method if was else "none",
-                    text=was.text if was else None,
-                    model=was.model if was else None,
-                    image_key=page["key"],
-                )
-            )
-        for original in originals:
-            await documents.soft_delete(original, owner_user_id=owner_user_id)
-    for label in sorted(labels):
-        await documents.tag(made_id, label)
-    await db.flush()
+        tags.add((await place(db, owner_user_id, **payload.places()))[0])
     # Chat photos were never read: the reading runs once the approval commits.
-    return {"document_id": made_id, "retired": originals, "read": not originals}
+    return await stitch(
+        db,
+        await _pages(db, payload, owner_user_id),
+        naming=payload.naming(),
+        owner_user_id=owner_user_id,
+        tags=tags,
+        figures=payload.figures,
+        page_labels=payload.page_labels,
+    )
 
 
 async def combine_describe(
@@ -205,9 +156,10 @@ async def combine_describe(
 ) -> list[ChangeDisplayRow]:
     pages = await _pages(db, payload, owner_user_id)
     rows = [ChangeDisplayRow(label="Document", value=payload.title)]
+    named = payload.page_labels or [f"Page {n}" for n in range(1, len(pages) + 1)]
     rows += [
-        ChangeDisplayRow(label=f"Page {n}", value=page["title"], scan=True)
-        for n, page in enumerate(pages, start=1)
+        ChangeDisplayRow(label=label, value=page["title"], scan=True)
+        for label, page in zip(named, pages, strict=True)
     ]
     if what := [str(v) for k, v in payload.naming().items() if k != "title"]:
         rows.append(ChangeDisplayRow(label="Is", value=" · ".join(what)))

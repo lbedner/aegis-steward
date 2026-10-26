@@ -159,7 +159,7 @@ async def record_request(
                 received_on=received_on,
             )
         await db.commit()
-    return dialog_done(f"{SECTION.path}/{matter_id}", "Recorded")
+    return dialog_done(f"{SECTION.path}/{matter_id}/asked", "Recorded")
 
 
 REQUEST = "/requests/{request_id:int}"

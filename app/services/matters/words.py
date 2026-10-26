@@ -77,6 +77,7 @@ WORDS: dict[str, str] = {
     "add_fact": "Record a fact",
     # Headings.
     "who": "Who is in it",
+    "due_next": "Due next",
     "asked_for": "What they asked for",
     "can_say": "What we can say",
     "paper": "Paper on this matter",
