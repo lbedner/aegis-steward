@@ -8,16 +8,17 @@
 
 {% block title %}{{ party.name }} - {{ project_name }}{% endblock %}
 
-{# One contact, and everything that points at them. An organization is
-   a PLACE - somewhere you log in, that writes to you, that holds an
-   account - so its page leads with how to reach it and what it holds.
-   A person is a SUBJECT, so theirs leads with the cases and the money.
-   Same page; the kind decides the order and what is hidden. #}
+{# One contact, a face at a time (issue 582): the tabs are pages
+   (``contact_faces``), and each draws only its own below the same
+   header. An organization is a PLACE - somewhere you log in, that writes
+   to you, that holds an account - so its tabs lead with how to reach it
+   and what it holds. A person is a SUBJECT, so theirs lead with the
+   cases and the money. The kind decides the order and what is hidden. #}
 {% set place = party.kind == "organization" %}
 {% block app_content %}
 <section id="contact" class="space-y-6" data-kind="{{ party.kind }}">
   {#- A phone approved in the dialog appears at once. -#}
-  {{ redraws_on_decision(path ~ "/" ~ party.id, "#contact") }}
+  {{ redraws_on_decision(here, "#contact") }}
   <header class="flex flex-wrap items-start justify-between gap-4">
     <div class="min-w-0">
       <a href="{{ path }}" {{ hx_page(path) }} data-back
@@ -37,8 +38,10 @@
       {{ action(word("edit_contact"), hx_dialog(path ~ "/" ~ party.id ~ "/edit")) }}
     </div>
   </header>
+  {% include "components/sub_nav.html" %}
 
-  {% call card(word("reach")) %}
+  {% if current_tab == "overview" %}
+  {% call card(word("reach"), id="contact-reach") %}
   {% if reach %}
   <dl class="border-t border-aegis-border/60" data-reach>
     {% for label, value in reach %}
@@ -78,20 +81,21 @@
   {% endcall %}
   {% endif %}
 
-  {% if place %}
-  {% call card(word("signins")) %}
+  {% elif current_tab == "logins" %}
+  {% call card(word("signins"), id="contact-signins") %}
   <div {{ hx_lazy(path ~ "/" ~ party.id ~ "/signins") }}></div>
   {% endcall %}
-  {% endif %}
 
   {# What they wrote, or what covers them: a policy is a record with
      its numbers and terms, and its claims say what is owed to
      providers - money no bill stream will ever show. #}
+  {% elif current_tab == "cover" %}
   {% call card(word("policies") if place else word("covered_by"), id="contact-policies") %}
   <div {{ hx_lazy(path ~ "/" ~ party.id ~ "/policies") }}></div>
   {% endcall %}
 
-  {% call card(word("held_here") if place else word("their_money")) %}
+  {% elif current_tab == "accounts" %}
+  {% call card(word("held_here") if place else word("their_money"), id="contact-accounts") %}
   {% if held %}
   <ul class="border-t border-aegis-border/60" data-held>
     {% for account in held %}
@@ -106,6 +110,8 @@
   {% endif %}
   {% endcall %}
 
+  {% elif current_tab == "matters" %}
+  <div id="contact-matters" class="space-y-6">
   {% call card(word("matters_in")) %}
   {% if cases %}
   <ul class="border-t border-aegis-border/60" data-cases>
@@ -124,20 +130,6 @@
   {% endif %}
   {% endcall %}
 
-  {# Facts FROM them and facts ABOUT them are two different claims: a
-     pension fund says what it pays; a person has money said about them.
-     Both can be true of one contact, so both are shown, labelled. #}
-  {% if place or says %}
-  {% call card(word("says")) %}
-  <div data-says>{{ facts_block(says, "/matters") }}</div>
-  {% endcall %}
-  {% endif %}
-  {% if not place or about %}
-  {% call card(word("about")) %}
-  <div data-about>{{ facts_block(about, "/matters") }}</div>
-  {% endcall %}
-  {% endif %}
-
   {% if place or letters %}
   {% call card(word("letters_from")) %}
   {% if letters %}
@@ -155,6 +147,26 @@
   {% endcall %}
   {% endif %}
 
+  </div>
+
+  {% elif current_tab == "facts" %}
+  <div id="contact-facts" class="space-y-6">
+  {# Facts FROM them and facts ABOUT them are two different claims: a
+     pension fund says what it pays; a person has money said about them.
+     Both can be true of one contact, so both are shown, labelled. #}
+  {% if place or says %}
+  {% call card(word("says")) %}
+  <div data-says>{{ facts_block(says, "/matters") }}</div>
+  {% endcall %}
+  {% endif %}
+  {% if not place or about %}
+  {% call card(word("about")) %}
+  <div data-about>{{ facts_block(about, "/matters") }}</div>
+  {% endcall %}
+  {% endif %}
+  </div>
+
+  {% elif current_tab == "papers" %}
   {# Theirs: statements, benefit letters, the annual notice - filed
      against the contact, no matter required, so the next letter's ask
      is answered from a shelf rather than a hunt. #}
@@ -164,6 +176,8 @@
   {% endcall %}
 
   {# What was paid them: the charges filed with the contact. #}
+  {% elif current_tab == "paid" %}
   {{ filed_card("contact-paid", word("paid"), paid) }}
+  {% endif %}
 </section>
 {% endblock %}

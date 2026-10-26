@@ -17,8 +17,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from starlette.responses import Response
 
-from app.components.web_frontend.documents import PAPER_COLUMNS, file_upload, papers_on
-from app.components.web_frontend.nav import section
+from app.components.web_frontend.documents import file_upload
+from app.components.web_frontend.nav import contacts_tabs, section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
@@ -27,7 +27,6 @@ from app.components.web_frontend.rendering import (
     where_from,
     with_toast,
 )
-from app.components.web_frontend.routes.filed import filed
 from app.core.db import get_async_session
 from app.services.ai.service.trace import CHANGE_MARKER
 from app.services.finance.deps import get_owner_user_id
@@ -38,7 +37,6 @@ from app.services.matters.reach import (
     one_home,
     reach_lines,
 )
-from app.services.matters.relations import relations_for
 from app.services.matters.service import PARTY_KINDS, PartyService, party_tag
 
 SECTION = section("contacts")
@@ -47,7 +45,6 @@ router = APIRouter(prefix=SECTION.path)
 PARTY_COLUMNS = (
     {"key": "sort_name", "label": "Filed under"},
     {"key": "name", "label": "Name", "kind": "page", "phone": "primary"},
-    {"key": "kind", "label": "Kind"},
     {"key": "reach", "label": "How to reach them"},
 )
 
@@ -71,9 +68,34 @@ def _row(party: Any) -> dict[str, Any]:
             # A page, not a dialog: a contact is worked - logged into,
             # written to, read off - and that does not fit a modal.
         },
-        "kind": party.kind.title(),
         "reach": _reach(party.contact),
     }
+
+
+async def _listing(
+    request: Request, kind: str, q: str, owner_user_id: int | None
+) -> Response:
+    """One kind's list (#582), and how many of each the tabs say."""
+    async with get_async_session() as db:
+        everyone = await PartyService(db).find(owner_user_id=owner_user_id)
+        found = await PartyService(db).find(owner_user_id=owner_user_id, q=q)
+    counts = {k: sum(1 for p in everyone if p.kind == k) for k in PARTY_KINDS}
+    return render(
+        request,
+        "pages/contacts.html",
+        {
+            "section": SECTION,
+            "rows": [_row(p) for p in found if p.kind == kind],
+            "columns": list(PARTY_COLUMNS),
+            "path": SECTION.path,
+            "here": f"{SECTION.path}/organizations"
+            if kind == "organization"
+            else SECTION.path,
+            "kind": kind,
+            "q": q,
+            **contacts_tabs(kind, counts),
+        },
+    )
 
 
 @router.get("", include_in_schema=False)
@@ -82,21 +104,18 @@ async def people(
     q: str = "",
     owner_user_id: int | None = Depends(get_owner_user_id),
 ) -> Response:
-    """Everyone a matter, a document or an account can name."""
-    async with get_async_session() as db:
-        parties = await PartyService(db).find(owner_user_id=owner_user_id, q=q)
-        return render(
-            request,
-            "pages/contacts.html",
-            {
-                "section": SECTION,
-                "rows": [_row(p) for p in parties],
-                "columns": list(PARTY_COLUMNS),
-                "path": SECTION.path,
-                "q": q,
-                "kinds": PARTY_KINDS,
-            },
-        )
+    """The people: the subjects of cases, family, whoever signs in."""
+    return await _listing(request, "person", q, owner_user_id)
+
+
+@router.get("/organizations", include_in_schema=False)
+async def organizations(
+    request: Request,
+    q: str = "",
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The places: agencies, funds, facilities, banks."""
+    return await _listing(request, "organization", q, owner_user_id)
 
 
 def _form(
@@ -121,8 +140,11 @@ def _form(
 
 
 @router.get("/new", include_in_schema=False)
-async def new_party(request: Request) -> Response:
-    return _form(request, errors=[], name="", kind="person")
+async def new_party(request: Request, kind: str = "person") -> Response:
+    """Opened from a tab, it starts as that tab's kind."""
+    return _form(
+        request, errors=[], name="", kind=kind if kind in PARTY_KINDS else "person"
+    )
 
 
 @router.get("/{party_id:int}/edit", include_in_schema=False)
@@ -262,98 +284,6 @@ async def remove_party(request: Request, party_id: int) -> Response:
     return dialog_done(where_from(request, SECTION.path), "Removed")
 
 
-@router.get("/{party_id:int}", include_in_schema=False)
-async def contact(
-    request: Request,
-    party_id: int,
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    """One contact: everything that points at them, gathered.
-
-    Almost none of this is new data. Facts name them as source or
-    subject, matters carry them as participants, requests name them as
-    requester, an account is held with them - the page is where those
-    are read together. The one thing that is theirs alone is the paper
-    filed against them, and that is the shelf at the bottom.
-    """
-    from app.services.finance.service import (
-        EVERYONE,
-        accounts_page,
-        institution_of,
-        subject_of,
-    )
-    from app.services.matters.facts import FactService, drawn, place_book
-    from app.services.matters.matters import MatterService
-    from app.services.matters.requests import RequestService
-
-    async with get_async_session() as db:
-        party = await PartyService(db).get(party_id)
-        or_404(party)
-        places = await place_book(db)
-        facts = FactService(db)
-        says = [drawn(f, places) for f in await facts.find(source_party_id=party_id)]
-        about = [drawn(f, places) for f in await facts.find(subject_party_id=party_id)]
-        cases = [
-            {"id": m.id, "title": m.title, "status": m.status, "role": role}
-            for m, role in await MatterService(db).for_party(party_id)
-        ]
-        letters = await RequestService(db).from_party(party_id)
-        subject = await subject_of(db, party_id)
-        institution = await institution_of(db, party_id)
-        held: list[Any] = []
-        if subject is not None:
-            held, _ = await accounts_page(
-                db,
-                owner_user_id=owner_user_id,
-                include_hidden=False,
-                page=1,
-                page_size=200,
-                subject_id=subject.id,
-            )
-        elif institution is not None:
-            everyone, _ = await accounts_page(
-                db,
-                owner_user_id=owner_user_id,
-                include_hidden=False,
-                page=1,
-                page_size=500,
-                subject_id=EVERYONE,
-            )
-            held = [a for a in everyone if a.institution_id == institution.id]
-        papers = await papers_on(
-            db, party_tag(party_id), f"{SECTION.path}/{party_id}/documents"
-        )
-        paid = await filed(db, party_tag(party_id))
-        related = (await relations_for(db, [party_id]))[party_id]
-        kin = await PartyService(db).names([int(r["party_id"]) for r in related])
-        return render(
-            request,
-            "pages/contact.html",
-            {
-                "section": SECTION,
-                "path": SECTION.path,
-                "party": party,
-                "reach": [
-                    (label, (party.contact or {}).get(key))
-                    for key, label in CONTACT_FIELDS
-                    if (party.contact or {}).get(key)
-                ],
-                "lines": reach_lines(party.contact),
-                "cases": cases,
-                "letters": letters,
-                "says": says,
-                "about": about,
-                "held": held,
-                "papers": papers,
-                "paper_columns": list(PAPER_COLUMNS),
-                "paid": paid,
-                "family": [
-                    {**r, "party": kin.get(int(r["party_id"]))} for r in related
-                ],
-            },
-        )
-
-
 @router.get("/{party_id:int}/documents/new", include_in_schema=False)
 async def new_paper(request: Request, party_id: int) -> Response:
     from app.components.web_frontend.routes.requests import ACCEPTS
@@ -388,7 +318,7 @@ async def add_paper(
             db, file, owner_user_id=owner_user_id, tags=(party_tag(party_id),)
         )
         await db.commit()
-    return dialog_done(f"{SECTION.path}/{party_id}", f"Filed {document.title}")
+    return dialog_done(f"{SECTION.path}/{party_id}/papers", f"Filed {document.title}")
 
 
 @router.get("/{party_id:int}/documents/{document_id:int}", include_in_schema=False)

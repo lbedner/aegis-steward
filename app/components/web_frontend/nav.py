@@ -225,32 +225,147 @@ def settings_nav(current: str) -> dict[str, Any]:
     }
 
 
-def matter_tabs(matter_id: int, current: str, outstanding: int = 0) -> dict[str, Any]:
-    """A matter's three faces, through the sub-nav every section uses.
+def matter_tabs(
+    matter_id: int, current: str, counts: dict[str, int] | None = None
+) -> dict[str, Any]:
+    """A matter's faces, through the sub-nav every section uses (#582).
 
-    The case is where the work happens; the timeline is that same case
-    read back as a sequence; the answer sheet is what leaves the
-    building. Two pages rather than one because the sheet is read
-    beside a paper form, with the app's own chrome dropped out of print,
-    and a page that is both is a page that prints badly.
+    One page stacked who, every letter, the facts, the shelf and the
+    spending, and five letters made it a page nobody could find their
+    way down; each is a tab now. The timeline is the same case read back
+    as a sequence; the answer sheet is what leaves the building, its own
+    page because it is read beside a paper form with the app's chrome
+    dropped out of print.
 
-    ``outstanding`` on the tab, because the useful thing to know before
-    clicking is whether anything is still missing.
+    ``counts`` on the tabs (open requests, facts, papers, answers still
+    missing), because the useful thing to know before clicking is what
+    is there.
     """
     base = f"{section('matters').path}/{matter_id}"
+    counts = counts or {}
+    faces = (
+        ("overview", "Overview", ""),
+        ("asked", "Asked for", "/asked"),
+        ("facts", "Facts", "/facts"),
+        ("papers", "Papers", "/papers"),
+        ("spent", "Spent", "/spent"),
+        ("timeline", "Timeline", "/timeline"),
+        ("answers", "Answer sheet", "/answers"),
+    )
     return {
         "nav_label": "Matter",
         "nav_id": "matter-tabs",
         "current_tab": current,
         "sub_nav": [
-            {"key": "case", "label": "The case", "href": base},
-            {"key": "timeline", "label": "Timeline", "href": f"{base}/timeline"},
+            {"key": key, "label": label, "href": base + tail, "count": counts.get(key)}
+            for key, label, tail in faces
+        ],
+    }
+
+
+# A kind as a tab says it: a shelf of them.
+_DOCUMENT_TABS = {
+    "letter": "Letters",
+    "statement": "Statements",
+    "schedule": "Schedules",
+    "form": "Forms",
+    "tax": "Tax",
+    "identification": "IDs",
+    "receipt": "Receipts",
+    "other": "Other",
+}
+
+
+def documents_tabs(current: str, counts: dict[str, int]) -> dict[str, Any]:
+    """The shelf by kind (#582), each with its count, where a dropdown
+    hid how much of each there was. Only kinds with something on file,
+    and the one showing."""
+    base = section("documents").path
+    return {
+        "nav_label": "Documents",
+        "nav_id": "documents-tabs",
+        "current_tab": current,
+        "sub_nav": [
+            {"key": "", "label": "All", "href": base, "count": sum(counts.values())}
+        ]
+        + [
             {
-                "key": "answers",
-                "label": "Answer sheet",
-                "href": f"{base}/answers",
-                "count": outstanding,
+                "key": kind,
+                "label": label,
+                "href": f"{base}?kind={kind}",
+                "count": counts.get(kind),
+            }
+            for kind, label in _DOCUMENT_TABS.items()
+            if counts.get(kind) or kind == current
+        ],
+    }
+
+
+def contacts_tabs(current: str, counts: dict[str, int]) -> dict[str, Any]:
+    """The address book's two lists (#582): people and organizations,
+    because one list of both read as a phone book shuffled with a
+    directory of agencies."""
+    base = section("contacts").path
+    return {
+        "nav_label": "Contacts",
+        "nav_id": "contacts-tabs",
+        "current_tab": current,
+        "sub_nav": [
+            {
+                "key": "person",
+                "label": "People",
+                "href": base,
+                "count": counts.get("person"),
             },
+            {
+                "key": "organization",
+                "label": "Organizations",
+                "href": f"{base}/organizations",
+                "count": counts.get("organization"),
+            },
+        ],
+    }
+
+
+def contact_tabs(
+    party_id: int, kind: str, current: str, counts: dict[str, int] | None = None
+) -> dict[str, Any]:
+    """A contact's faces (#582), in the order its kind reads: an
+    organization is a PLACE - how to reach it, its sign-ins, what it
+    holds - and a person a SUBJECT, read by their cases and their money.
+    The Sign-ins and Policies tabs are ``/logins`` and ``/cover``
+    because ``/signins`` and ``/policies`` are the lazy blocks they hold.
+    """
+    base = f"{section('contacts').path}/{party_id}"
+    counts = counts or {}
+    if kind == "organization":
+        faces = (
+            ("overview", "Overview", ""),
+            ("logins", "Sign-ins", "/logins"),
+            ("accounts", "Accounts", "/accounts"),
+            ("cover", "Policies", "/cover"),
+            ("facts", "Facts", "/facts"),
+            ("matters", "Matters", "/matters"),
+            ("papers", "Papers", "/papers"),
+            ("paid", "Paid", "/paid"),
+        )
+    else:
+        faces = (
+            ("overview", "Overview", ""),
+            ("matters", "Matters", "/matters"),
+            ("accounts", "Accounts", "/accounts"),
+            ("cover", "Covered by", "/cover"),
+            ("facts", "Facts", "/facts"),
+            ("papers", "Papers", "/papers"),
+            ("paid", "Paid", "/paid"),
+        )
+    return {
+        "nav_label": "Contact",
+        "nav_id": "contact-tabs",
+        "current_tab": current,
+        "sub_nav": [
+            {"key": key, "label": label, "href": base + tail, "count": counts.get(key)}
+            for key, label, tail in faces
         ],
     }
 

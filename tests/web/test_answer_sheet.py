@@ -132,7 +132,7 @@ def renewal(client: Any) -> Any:
 
 def _paper_on(client: Any, matter_id: int) -> int:
     """The newest document filed on this matter, by its own link."""
-    page = client.get(f"/matters/{matter_id}").text
+    page = client.get(f"/matters/{matter_id}/papers").text
     opens = [
         el.get("href") or el.get("hx-get") or ""
         for el in select(
@@ -149,7 +149,7 @@ def _paper_on(client: Any, matter_id: int) -> int:
 
 
 def _item_ids(client: Any, matter_id: int) -> list[int]:
-    page = client.get(f"/matters/{matter_id}").text
+    page = client.get(f"/matters/{matter_id}/asked").text
     return [
         int(el.get("data-item"))
         for el in select(page, "[data-item]")

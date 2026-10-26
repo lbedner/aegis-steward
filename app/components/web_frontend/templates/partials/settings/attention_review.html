@@ -1,0 +1,13 @@
+{# Dialog body: every bank link that needs you, a fix each (issue 584) -
+   what the one-line banner's Review opens when there is more than one. #}
+{% from "components/macros/connections.html" import sign_in_again %}
+{% from "components/macros/layout.html" import dialog_title, page_link %}
+{{ dialog_title("Banks that need you", "Each with what fixes it.") }}
+<ul class="divide-y divide-aegis-border border-y border-aegis-border">
+  {% for row in rows %}
+  <li data-need class="flex items-center justify-between gap-3 py-2 text-sm">
+    <span class="min-w-0">{% if row.name %}<span class="text-aegis-text">{{ row.name }}:</span> {% endif %}<span class="text-error">{{ row.reason }}</span></span>
+    {% if row.reconnect %}{{ sign_in_again(path, row.id, tone="primary") }}{% else %}{{ page_link(path ~ "/activity", "Activity", "text-xs shrink-0") }}{% endif %}
+  </li>
+  {% endfor %}
+</ul>

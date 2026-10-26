@@ -52,6 +52,7 @@ if TYPE_CHECKING:
         receipts,
     )
     from app.services.documents.domains.shelf.destroy import destroy  # noqa: F401
+    from app.services.documents.domains.shelf.stitch import stitch  # noqa: F401
     from app.services.documents.models import DocumentPage, kind_label  # noqa: F401
     from app.services.documents.queries import (  # noqa: F401
         documents_by_ids,

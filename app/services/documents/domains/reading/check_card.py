@@ -53,36 +53,23 @@ class CheckPayload(BaseModel):
 async def check_execute(
     db: AsyncSession, payload: CheckPayload, owner_user_id: int | None
 ) -> dict[str, Any]:
-    """File the scans on the row as its receipt; name its payee."""
-    from app.core.storage import get_storage
-    from app.services.documents.service import DocumentService
+    """File the scans on the row as its receipt - ONE document, its front
+    and back the pages of it (#582) - and name its payee."""
+    from app.services.documents.service import stitch
     from app.services.finance.constants import transaction_tag
     from app.services.finance.service import AssignPayeePayload, assign_payee_execute
 
-    store = get_storage()
-    documents = DocumentService(db)
-    filed: list[int] = []
-    for key, title in (
-        (payload.front_key, f"Check {payload.number}"),
-        (payload.back_key, f"Check {payload.number} (back)"),
-    ):
-        if key is None:
-            continue
-        data = await store.get(key)
-        if data is None:
-            raise ValueError(f"The scan of check {payload.number} is gone; read again.")
-        document = await documents.ingest(
-            data,
-            title=title,
-            kind="receipt",
-            media_type="image/jpeg",
-            owner_user_id=owner_user_id,
-            source="reading",
-        )
-        await documents.tag(
-            int(document.id or 0), transaction_tag(payload.transaction_id)
-        )
-        filed.append(int(document.id or 0))
+    sides = [("Front", payload.front_key), ("Back", payload.back_key)]
+    sides = [(label, key) for label, key in sides if key is not None]
+    made = await stitch(
+        db,
+        [{"key": key, "document_id": None} for _label, key in sides],
+        naming={"title": f"Check {payload.number}", "kind": "receipt"},
+        owner_user_id=owner_user_id,
+        tags={transaction_tag(payload.transaction_id)},
+        page_labels=[label for label, _key in sides],
+        source="reading",
+    )
     if payload.payee:
         await assign_payee_execute(
             db,
@@ -92,7 +79,10 @@ async def check_execute(
             owner_user_id,
         )
     await db.flush()
-    return {"transaction_id": payload.transaction_id, "documents": filed}
+    return {
+        "transaction_id": payload.transaction_id,
+        "documents": [made["document_id"]],
+    }
 
 
 async def check_scan(

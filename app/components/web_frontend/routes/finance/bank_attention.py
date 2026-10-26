@@ -14,6 +14,7 @@ Its own module because Settings is at its budget.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
@@ -22,10 +23,17 @@ from starlette.responses import Response
 
 from app.components.web_frontend.filters import freshness
 from app.components.web_frontend.nav import section
-from app.components.web_frontend.rendering import dialog, dialog_done, or_404, render
+from app.components.web_frontend.rendering import (
+    dialog,
+    dialog_done,
+    or_404,
+    render,
+    where_from,
+)
 from app.components.web_frontend.routes.finance.connect_providers import (
     SIMPLEFIN_ACCOUNT,
 )
+from app.core.config import settings
 from app.services.finance.constants import (
     CONNECTION_NEEDS_YOU,
     PROVIDER_LABELS,
@@ -77,7 +85,14 @@ def needs_you(connection: Any) -> str | None:
         return connection_status(connection.status)[0]
     if connection.new_accounts:
         return arrivals.WORDS
-    if connection.status == "healthy" and connection.last_successful_sync_at:
+    # Stale only where this stack syncs: a dev stack never schedules the
+    # bank sync (``server_only``, #532) and leaves it to the server, so
+    # every link there reads a week old by design (#584).
+    if (
+        connection.status == "healthy"
+        and connection.last_successful_sync_at
+        and not settings.is_dev
+    ):
         last = freshness(connection.last_successful_sync_at, "sync")
         if last["tone"] != "ok":
             return f"Last synced {last['label']}"
@@ -109,21 +124,19 @@ def _unsaid(name: str, reason: str) -> str | None:
     return None if any(bank and bank in reason for bank in banks) else name
 
 
-@router.get("/connections/attention", include_in_schema=False)
-async def attention(
-    request: Request,
-    service: FinanceService = Depends(get_finance_service),
-    owner_user_id: int | None = Depends(get_owner_user_id),
-) -> Response:
-    """The banner: every link that needs you, or nothing at all."""
-    rows = [
+async def _needing(
+    service: FinanceService, owner_user_id: int | None
+) -> list[dict[str, Any]]:
+    """Every link that needs you, in words, with whether Sign in again
+    mends it - read as the Settings cards read them, so the two never
+    disagree."""
+    return [
         {
             "id": c.id,
             "name": _unsaid(_name(c), reason),
             "reason": reason,
             "reconnect": reconnectable(c),
         }
-        # As the Settings cards read them, so the two never disagree.
         for c in map(
             ConnectionResponse.from_row,
             await connections.list_provider_connections(
@@ -132,10 +145,42 @@ async def attention(
         )
         if (reason := needs_you(c))
     ]
+
+
+@router.get("/connections/attention", include_in_schema=False)
+async def attention(
+    request: Request,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """The banner: one line of what needs you, or nothing at all - and
+    nothing on Settings > Connections, where the cards say it."""
+    on_cards = where_from(request, "") == SECTION.path
+    rows = [] if on_cards else await _needing(service, owner_user_id)
+    said = "|".join(sorted(f"{r['id']}:{r['reason']}" for r in rows))
     return render(
         request,
         "partials/settings/attention.html",
-        {"rows": rows, "path": SECTION.path},
+        {
+            "rows": rows,
+            "path": SECTION.path,
+            "key": hashlib.sha1(said.encode()).hexdigest()[:12],
+        },
+    )
+
+
+@router.get("/connections/attention/review", include_in_schema=False)
+async def attention_review(
+    request: Request,
+    service: FinanceService = Depends(get_finance_service),
+    owner_user_id: int | None = Depends(get_owner_user_id),
+) -> Response:
+    """Every link that needs you, a fix each: the banner's Review."""
+    return dialog(
+        request,
+        "partials/settings/attention_review.html",
+        rows=await _needing(service, owner_user_id),
+        path=SECTION.path,
     )
 
 

@@ -13,9 +13,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import Response
 
-from app.components.web_frontend.documents import PAPER_COLUMNS
 from app.components.web_frontend.filters import parse_date
-from app.components.web_frontend.nav import matter_tabs, section
+from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
@@ -24,19 +23,14 @@ from app.components.web_frontend.rendering import (
     templates,
     where_from,
 )
-from app.components.web_frontend.routes.facts import facts_for
-from app.components.web_frontend.routes.filed import filed
-from app.components.web_frontend.routes.matter_papers import matter_papers
+from app.components.web_frontend.routes.matter_faces import face
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
-from app.services.matters.answers import answer_sheet
-from app.services.matters.drawing import drawn as drawn_request
-from app.services.matters.matters import MatterService, summarised
+from app.services.matters.matters import MatterService
 from app.services.matters.requests import RequestService
 from app.services.matters.service import (
     PARTICIPANT_ROLES,
     PartyService,
-    matter_tag,
     party_or_new,
 )
 
@@ -196,38 +190,6 @@ async def create_matter(
     return dialog_done(f"{SECTION.path}/{opened}", "Opened")
 
 
-@router.get("/{matter_id:int}", include_in_schema=False)
-async def matter(request: Request, matter_id: int) -> Response:
-    """One case: who is in it, and under what."""
-    async with get_async_session() as db:
-        found = await MatterService(db).get(matter_id)
-        or_404(found)
-        drawn = await summarised(db, found)
-        asked = [
-            await drawn_request(db, one)
-            for one in await RequestService(db).for_matter(matter_id)
-        ]
-        known = await facts_for(db, matter_id)
-        papers = await matter_papers(db, matter_id)
-        spent = await filed(db, matter_tag(matter_id))
-        outstanding = (await answer_sheet(db, matter_id))["outstanding"]
-    return render(
-        request,
-        "pages/matter.html",
-        {
-            "section": SECTION,
-            **matter_tabs(matter_id, "case", outstanding),
-            "matter": drawn,
-            "requests": asked,
-            "facts": known,
-            "papers": papers,
-            "paper_columns": list(PAPER_COLUMNS),
-            "spent": spent,
-            "path": SECTION.path,
-        },
-    )
-
-
 def _cadence_dialog(
     request: Request,
     matter_id: int,
@@ -306,17 +268,13 @@ async def answers(request: Request, matter_id: int) -> Response:
     from. Its own page because it is read beside a paper form with the
     app's chrome dropped out of print."""
     async with get_async_session() as db:
-        or_404(await MatterService(db).get(matter_id))
-        sheet = await answer_sheet(db, matter_id)
-        drawn = await summarised(db, sheet["matter"])
+        context = await face(db, matter_id, "answers")
+    sheet, drawn = context["sheet"], context["matter"]
     return render(
         request,
         "pages/matter_answers.html",
         {
-            "section": SECTION,
-            "path": SECTION.path,
-            **matter_tabs(matter_id, "answers", sheet["outstanding"]),
-            "matter": drawn,
+            **context,
             "reference": sheet["reference"],
             "due_on": sheet["due_on"],
             "answers": sheet["answers"],

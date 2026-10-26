@@ -6,7 +6,7 @@ ST-03's UI half. Both render paths, selectors not substrings.
 from fastapi.testclient import TestClient
 import pytest
 
-from tests.web.dom import none, one, select, text, triggers
+from tests.web.dom import location, none, one, select, text, triggers
 
 
 def _party(client: TestClient, name: str, kind: str) -> None:
@@ -33,10 +33,12 @@ class TestTheMattersPage:
         so opening a matter writes the links too."""
         _party(client, "James Doe", "person")
         _party(client, "Example County DSS", "organization")
-        people = client.get("/contacts").text
+        # Each from the tab its kind is listed on (#582).
         ids = [
-            el.get("hx-get").rsplit("/", 1)[-1]
-            for el in select(people, "#contacts tbody [data-open]")
+            select(client.get(listed).text, "#contacts tbody [data-open]")[0]
+            .get("hx-get")
+            .rsplit("/", 1)[-1]
+            for listed in ("/contacts", "/contacts/organizations")
         ]
 
         client.post(
@@ -133,6 +135,7 @@ class TestTheNote:
     @pytest.fixture
     def page(self, client: TestClient) -> str:
         import asyncio
+        from uuid import uuid4
 
         from app.core.db import AsyncSessionLocal
         from app.services.matters.opening import (
@@ -140,7 +143,9 @@ class TestTheNote:
             amend_matter_execute,
         )
 
-        path = _matter(client, "MA-NOTE-1")
+        # Its own case each test: a second amend to the same note on a
+        # shared case changes nothing, and is refused for it.
+        path = _matter(client, f"MA-NOTE-{uuid4().hex[:8]}")
         matter_id = int(path.rsplit("/", 1)[-1])
 
         async def amend() -> None:
@@ -161,6 +166,99 @@ class TestTheNote:
     def test_the_fragment_shows_it_too(self, hx: TestClient, page: str) -> None:
         note = one(hx.get(page).text, "#matter [data-note]")
         assert text(note) == "Plumber coming Thursday"
+
+
+class TestTheTabs:
+    """A case is read a tab at a time (#582): the page that stacked who,
+    every letter, the facts, the shelf and the spending was one nobody
+    could find their way down."""
+
+    @pytest.fixture
+    def page(self, client: TestClient) -> str:
+        from uuid import uuid4
+
+        # Its own reference each test: a reference already on file opens
+        # that case again, and every test's request would pile onto one.
+        path = _matter(client, f"MA-TABS-{uuid4().hex[:8]}")
+        client.post(
+            path + "/requests/new",
+            data={"asked": "A copy of the POA", "due_on": "2026-09-08"},
+        )
+        return path
+
+    @pytest.mark.queryspy(threshold=3)  # opens the case to find it
+    def test_every_face_is_a_tab_and_says_what_it_holds(
+        self, client: TestClient, page: str
+    ) -> None:
+        tabs = {
+            el.get("href"): text(el)
+            for el in select(client.get(page).text, "#matter-tabs a")
+        }
+        assert tabs == {
+            page: "Overview",
+            page + "/asked": "Asked for (1)",
+            page + "/facts": "Facts",
+            page + "/papers": "Papers",
+            page + "/spent": "Spent",
+            page + "/timeline": "Timeline",
+            page + "/answers": "Answer sheet (1)",
+        }
+
+    @pytest.mark.queryspy(threshold=3)
+    @pytest.mark.parametrize(
+        ("tab", "holds"),
+        [
+            ("", "#matter-due"),
+            ("/asked", "#matter-requests"),
+            ("/facts", "#matter-facts"),
+            ("/papers", "#matter-papers"),
+            ("/spent", "#matter-spent"),
+        ],
+    )
+    def test_each_tab_draws_its_own_and_nothing_else(
+        self, client: TestClient, hx: TestClient, page: str, tab: str, holds: str
+    ) -> None:
+        faces = {
+            "#matter-due",
+            "#matter-requests",
+            "#matter-facts",
+            "#matter-papers",
+            "#matter-spent",
+        }
+        fragment = hx.get(page + tab).text
+        none(fragment, "html")
+        for drawn in (client.get(page + tab).text, fragment):
+            one(drawn, f"#matter {holds}")
+            for other in faces - {holds}:
+                none(drawn, other)
+
+    @pytest.mark.queryspy(threshold=3)
+    def test_the_overview_says_what_is_due_next_and_where(
+        self, client: TestClient, page: str
+    ) -> None:
+        due = one(client.get(page).text, "#matter-due [data-due]")
+        assert "A copy of the POA" in text(due)
+        assert "Sep 8" in text(due)
+        one(due, f'a[href="{page}/asked"]')
+
+    @pytest.mark.queryspy(threshold=3)
+    def test_a_request_recorded_lands_on_its_tab(
+        self, client: TestClient, page: str
+    ) -> None:
+        made = client.post(page + "/requests/new", data={"asked": "Bank statements"})
+        assert location(made) == page + "/asked"
+
+    @pytest.mark.queryspy(threshold=4)
+    def test_a_settled_request_folds_to_one_line(
+        self, client: TestClient, page: str
+    ) -> None:
+        item = one(client.get(page + "/asked").text, "#matter-requests [data-item]")
+        client.post(f"/matters/requests/items/{item.get('data-item')}/mark/satisfied")
+
+        card = one(client.get(page + "/asked").text, "#matter-requests [data-request]")
+        folded = one(card, "[data-fold]")
+        assert folded.get("open") is None
+        assert text(one(folded, "summary [data-standing]")) == "1 of 1"
 
 
 ASKED = "\n".join(
@@ -190,7 +288,7 @@ class TestWhatWasAskedFor:
             },
         )
 
-        drawn = client.get(page).text
+        drawn = client.get(page + "/asked").text
         block = one(drawn, "#matter-requests")
         assert len(select(block, "[data-request]")) == 1
         asked = [text(el) for el in select(block, "[data-asked]")]
@@ -209,7 +307,7 @@ class TestWhatWasAskedFor:
             page + "/requests/new",
             data={"asked": ASKED, "due_on": "2026-09-08", "received_on": ""},
         )
-        items = select(client.get(page).text, "#matter-requests [data-item]")
+        items = select(client.get(page + "/asked").text, "#matter-requests [data-item]")
 
         answer = client.post(
             f"/matters/requests/items/{items[0].get('data-item')}/mark/satisfied"
@@ -231,7 +329,9 @@ class TestWhatWasAskedFor:
         )
         ids = [
             el.get("data-item")
-            for el in select(client.get(page).text, "#matter-requests [data-item]")
+            for el in select(
+                client.get(page + "/asked").text, "#matter-requests [data-item]"
+            )
         ]
 
         for item_id in ids:
@@ -244,7 +344,7 @@ class TestWhatWasAskedFor:
     def test_an_item_can_be_put_back(self, client: TestClient) -> None:
         page = _matter(client, "MA-REQ-4")
         client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
-        item = one(client.get(page).text, "#matter-requests [data-item]")
+        item = one(client.get(page + "/asked").text, "#matter-requests [data-item]")
 
         client.post(f"/matters/requests/items/{item.get('data-item')}/mark/waived")
         back = client.post(
@@ -259,12 +359,15 @@ class TestWhatWasAskedFor:
 
         assert answer.status_code == 422
         assert "at least one thing" in answer.text
-        assert select(client.get(page).text, "#matter-requests [data-request]") == []
+        assert (
+            select(client.get(page + "/asked").text, "#matter-requests [data-request]")
+            == []
+        )
 
     def test_an_unknown_status_is_refused(self, client: TestClient) -> None:
         page = _matter(client, "MA-REQ-6")
         client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
-        item = one(client.get(page).text, "#matter-requests [data-item]")
+        item = one(client.get(page + "/asked").text, "#matter-requests [data-item]")
 
         answer = client.post(
             f"/matters/requests/items/{item.get('data-item')}/mark/lost"
@@ -283,7 +386,7 @@ class TestThePaperThatAnswers:
             page + "/requests/new",
             data={"asked": "A copy of the power of attorney", "due_on": "2026-09-08"},
         )
-        item = one(client.get(page).text, "#matter-requests [data-item]")
+        item = one(client.get(page + "/asked").text, "#matter-requests [data-item]")
         return page, str(item.get("data-item"))
 
     @pytest.mark.queryspy(threshold=4)  # loads the page more than once
@@ -301,7 +404,7 @@ class TestThePaperThatAnswers:
         )
         assert answer.status_code == 200
 
-        drawn = client.get(page).text
+        drawn = client.get(page + "/asked").text
         door = one(drawn, "#matter-requests [data-document]")
         assert "poa.pdf" in text(door)
         # Attaching IS the answer: nobody files the document and then
@@ -321,7 +424,7 @@ class TestThePaperThatAnswers:
                 "file": ("poa.pdf", pdf_bytes(["Power of attorney"]), "application/pdf")
             },
         )
-        door = one(client.get(page).text, "#matter-requests [data-document]")
+        door = one(client.get(page + "/asked").text, "#matter-requests [data-document]")
 
         viewer = client.get(door.get("hx-get")).text
 
@@ -341,7 +444,7 @@ class TestThePaperThatAnswers:
             f"/matters/requests/items/{item_id}/attach",
             files={"file": ("mine.pdf", pdf_bytes(["Mine"]), "application/pdf")},
         )
-        door = one(client.get(page).text, "#matter-requests [data-document]")
+        door = one(client.get(page + "/asked").text, "#matter-requests [data-document]")
         document_id = door.get("hx-get").rsplit("/", 1)[-1]
 
         elsewhere = _matter(client, "MA-DOC-4").rsplit("/", 1)[-1]
@@ -359,7 +462,7 @@ class TestThePaperThatAnswers:
             f"/matters/requests/items/{item_id}/attach",
             files={"file": ("first.pdf", pdf_bytes(["First"]), "application/pdf")},
         )
-        door = one(client.get(page).text, "#matter-requests [data-document]")
+        door = one(client.get(page + "/asked").text, "#matter-requests [data-document]")
         document_id = door.get("hx-get").rsplit("/", 1)[-1]
 
         _, second = self._item(client, "MA-DOC-6")
@@ -434,7 +537,7 @@ class TestWhatWeCanSay:
             },
         )
 
-        drawn = client.get(page).text
+        drawn = client.get(page + "/facts").text
         row = one(drawn, "#matter-facts [data-fact]")
         assert text(one(row, "[data-what]")) == "IBEW pension"
         assert "$50.00" in text(one(row, "[data-value]"))
@@ -458,7 +561,7 @@ class TestWhatWeCanSay:
                 },
             )
 
-        rows = select(client.get(page).text, "#matter-facts [data-fact]")
+        rows = select(client.get(page + "/facts").text, "#matter-facts [data-fact]")
         assert len(rows) == 2
         assert {text(one(row, "[data-value]")).strip().split()[0] for row in rows} == {
             "$2,075.00",
@@ -485,7 +588,7 @@ class TestWhatWeCanSay:
                 "provenance": "stated",
             },
         )
-        row = one(client.get(page).text, "#matter-facts [data-fact]")
+        row = one(client.get(page + "/facts").text, "#matter-facts [data-fact]")
 
         # The control asks first: there is no undo, and the row beside it
         # looks identical when the duplicate is what you are removing.
@@ -503,7 +606,9 @@ class TestWhatWeCanSay:
 
         gone = client.post(one(asked.text, "[hx-post]").get("hx-post"))
         assert gone.status_code == 200
-        assert select(client.get(page).text, "#matter-facts [data-fact]") == []
+        assert (
+            select(client.get(page + "/facts").text, "#matter-facts [data-fact]") == []
+        )
 
     @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_a_reading_can_be_marked_as_checked(self, client: TestClient) -> None:
@@ -523,12 +628,12 @@ class TestWhatWeCanSay:
                 "provenance": "stated",
             },
         )
-        row = one(client.get(page).text, "#matter-facts [data-fact]")
+        row = one(client.get(page + "/facts").text, "#matter-facts [data-fact]")
         assert text(one(row, "[data-verify]")) == "Checked"
 
         client.post(one(row, "[data-verify]").get("hx-post"))
 
-        after = one(client.get(page).text, "#matter-facts [data-fact]")
+        after = one(client.get(page + "/facts").text, "#matter-facts [data-fact]")
         assert text(one(after, "[data-verify]")) == "Uncheck"
 
     def test_a_fact_with_nothing_in_it_is_refused(self, client: TestClient) -> None:
@@ -542,7 +647,9 @@ class TestWhatWeCanSay:
 
         assert answer.status_code == 422
         assert "figure" in answer.text
-        assert select(client.get(page).text, "#matter-facts [data-fact]") == []
+        assert (
+            select(client.get(page + "/facts").text, "#matter-facts [data-fact]") == []
+        )
 
 
 class TestTheShelf:
@@ -566,11 +673,14 @@ class TestTheShelf:
             },
         )
 
-        drawn = client.get(page).text
-        shelf = one(drawn, "#card-paper-on-this-matter")
+        drawn = client.get(page + "/papers").text
+        shelf = one(drawn, "#matter-papers")
         assert "award-letter.pdf" in text(shelf)
         # Filed, but answering nothing yet.
-        assert select(drawn, "#matter-requests [data-document]") == []
+        assert (
+            select(client.get(page + "/asked").text, "#matter-requests [data-document]")
+            == []
+        )
 
 
 class TestSignIns:
@@ -671,7 +781,7 @@ def test_a_fact_links_the_site_it_was_read_off(client: TestClient) -> None:
         },
     )
 
-    site = one(client.get(page).text, "#matter-facts [data-site]")
+    site = one(client.get(page + "/facts").text, "#matter-facts [data-site]")
     assert site.get("href") == "https://pensionportal.example.com/benefits"
     assert site.get("rel") == "noopener noreferrer"
 
@@ -717,7 +827,7 @@ class TestAPlace:
                 "note": "",
             },
         )
-        people = client.get(f"/contacts?q={name}").text
+        people = client.get(f"/contacts/organizations?q={name}").text
         return str(
             select(people, "#contacts tbody [data-open]")[-1]
             .get("hx-get")
@@ -755,7 +865,7 @@ class TestAPlace:
             },
         )
 
-        site = one(client.get(page).text, "#matter-facts [data-site]")
+        site = one(client.get(page + "/facts").text, "#matter-facts [data-site]")
         assert text(site) == "Place Pension Fund"
         # No page was named, so the place's own website is the way back.
         assert site.get("href") == "https://placepension.example.com"
@@ -810,10 +920,12 @@ def test_an_organization_lists_who_signs_in_there(client: TestClient) -> None:
         },
     )
     _party(client, "Both Ends Owner", "person")
-    people = client.get("/contacts?q=Both Ends").text
     ids = {
         text(el): el.get("hx-get").rsplit("/", 1)[-1]
-        for el in select(people, "#contacts tbody [data-open]")
+        for listed in ("/contacts", "/contacts/organizations")
+        for el in select(
+            client.get(f"{listed}?q=Both Ends").text, "#contacts tbody [data-open]"
+        )
     }
 
     client.post(
@@ -841,7 +953,7 @@ def test_a_mistyped_item_can_be_corrected(client: TestClient) -> None:
         page + "/requests/new",
         data={"asked": "Proof of income for the IBEW and iHeart pensions"},
     )
-    item = one(client.get(page).text, "#matter-requests [data-item]")
+    item = one(client.get(page + "/asked").text, "#matter-requests [data-item]")
     item_id = item.get("data-item")
 
     answer = client.post(
@@ -854,14 +966,14 @@ def test_a_mistyped_item_can_be_corrected(client: TestClient) -> None:
     )
 
     assert answer.status_code == 200
-    asked = text(one(client.get(page).text, "#matter-requests [data-asked]"))
+    asked = text(one(client.get(page + "/asked").text, "#matter-requests [data-asked]"))
     assert asked == "Proof of GROSS monthly income for the IBEW pension"
 
 
 def test_an_item_cannot_be_emptied(client: TestClient) -> None:
     page = _matter(client, "MA-EDIT-2")
     client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
-    item_id = one(client.get(page).text, "#matter-requests [data-item]").get(
+    item_id = one(client.get(page + "/asked").text, "#matter-requests [data-item]").get(
         "data-item"
     )
 
@@ -880,7 +992,7 @@ class TestTheStepsOfARequest:
     def _request(self, client: TestClient, reference: str) -> tuple[str, str]:
         page = _matter(client, reference)
         client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
-        card = one(client.get(page).text, "#matter-requests [data-request]")
+        card = one(client.get(page + "/asked").text, "#matter-requests [data-request]")
         return page, str(card.get("data-request"))
 
     @pytest.mark.queryspy(threshold=4)  # loads the page more than once
@@ -901,10 +1013,12 @@ class TestTheStepsOfARequest:
             },
         )
 
-        steps = select(client.get(page).text, "#matter-requests [data-step]")
+        steps = select(client.get(page + "/asked").text, "#matter-requests [data-step]")
         assert len(steps) == 2
         assert "Record a figure" in text(steps[1])
-        assert text(one(client.get(page).text, "[data-standing]")) == "0 of 2"
+        assert (
+            text(one(client.get(page + "/asked").text, "[data-standing]")) == "0 of 2"
+        )
 
     @pytest.mark.queryspy(threshold=5)  # loads the page four times
     def test_alternatives_are_one_step_that_any_of_them_closes(
@@ -914,7 +1028,9 @@ class TestTheStepsOfARequest:
         Three mandatory-looking rows describe a harder afternoon than
         the one you have."""
         page, request_id = self._request(client, "MA-STEP-2")
-        first = select(client.get(page).text, "#matter-requests [data-item]")[0]
+        first = select(
+            client.get(page + "/asked").text, "#matter-requests [data-item]"
+        )[0]
 
         client.post(
             f"/matters/requests/{request_id}/items/new",
@@ -925,14 +1041,16 @@ class TestTheStepsOfARequest:
             },
         )
 
-        drawn = client.get(page).text
+        drawn = client.get(page + "/asked").text
         assert len(select(drawn, "#matter-requests [data-step]")) == 1
         assert "any one of 2" in text(one(drawn, "#matter-requests [data-step]"))
         assert text(one(drawn, "[data-standing]")) == "0 of 1"
 
         # Either one closes it.
         client.post(f"/matters/requests/items/{first.get('data-item')}/mark/satisfied")
-        assert text(one(client.get(page).text, "[data-standing]")) == "1 of 1"
+        assert (
+            text(one(client.get(page + "/asked").text, "[data-standing]")) == "1 of 1"
+        )
 
     @pytest.mark.queryspy(threshold=4)  # loads the page more than once
     def test_the_letter_sits_beside_the_asks_it_produced(
@@ -953,13 +1071,13 @@ class TestTheStepsOfARequest:
             },
         )
 
-        drawn = client.get(page).text
-        assert one(drawn, "#matter-requests [data-letter]") is not None
-        # The caption is the title, not the row it came from.
-        assert (
-            text(one(drawn, "#matter-requests [data-letter-title]")).strip()
-            == "request.pdf"
-        )
+        drawn = client.get(page + "/asked").text
+        # Opened on demand: five letters drawn as pages buried the asks.
+        none(drawn, "#matter-requests object")
+        letter = one(drawn, "#matter-requests [data-letter]")
+        assert letter.get("hx-get", "").startswith(page + "/documents/")
+        # Named by its title, not the row it came from.
+        assert text(letter).strip() == "request.pdf"
 
     def test_an_ask_needs_a_sentence(self, client: TestClient) -> None:
         _page, request_id = self._request(client, "MA-STEP-4")
@@ -996,7 +1114,9 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
             "received_on": "2026-08-27",
         },
     )
-    request_id = one(client.get(page).text, "[data-request]").get("data-request")
+    request_id = one(client.get(page + "/asked").text, "[data-request]").get(
+        "data-request"
+    )
 
     # 2. The letter itself, cited: the page everything else is read against.
     client.post(
@@ -1015,7 +1135,9 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
     )
 
     # 4. The county will take a designation form INSTEAD of the POA.
-    poa = select(client.get(page).text, "[data-step] [data-item]")[0].get("data-item")
+    poa = select(client.get(page + "/asked").text, "[data-step] [data-item]")[0].get(
+        "data-item"
+    )
     client.post(
         f"/matters/requests/{request_id}/items/new",
         data={
@@ -1025,7 +1147,7 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
         },
     )
 
-    steps = select(client.get(page).text, "[data-step]")
+    steps = select(client.get(page + "/asked").text, "[data-step]")
     assert len(steps) == 2
     alternative = select(steps[0], "[data-item]")[1].get("data-item")
 
@@ -1035,7 +1157,7 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
         files={"file": ("doh5247.pdf", pdf_bytes(["Designation"]), "application/pdf")},
     )
 
-    drawn = client.get(page).text
+    drawn = client.get(page + "/asked").text
     assert text(one(drawn, "[data-standing]")) == "1 of 2"
     assert one(drawn, '[data-step] [data-node="done"]') is not None
     assert one(drawn, "[data-letter]") is not None
@@ -1060,7 +1182,7 @@ def test_a_letter_can_be_worked_end_to_end_by_hand(client: TestClient) -> None:
         },
     )
 
-    said = one(client.get(page).text, "#matter-facts [data-fact]")
+    said = one(client.get(page + "/facts").text, "#matter-facts [data-fact]")
     assert "Walk pension" in text(said)
     assert "$1,200.00" in text(said)
     assert "Read off the portal" in text(said)
@@ -1111,7 +1233,7 @@ class TestNamingSomebodyWhereYouNeedThem:
             },
         )
 
-        said = one(client.get(page).text, "#matter-facts [data-fact]")
+        said = one(client.get(page + "/facts").text, "#matter-facts [data-fact]")
         assert "$10.00" in text(said)
         # And the person exists afterwards, in the one address book.
         people = client.get("/contacts?q=Inline Subject").text
@@ -1156,7 +1278,7 @@ def test_every_dialog_on_a_matter_renders(client: TestClient) -> None:
     page = _matter(client, "MA-DIALOGS-1")
     matter_id = page.rsplit("/", 1)[-1]
     client.post(page + "/requests/new", data={"asked": "A copy of the POA"})
-    drawn = client.get(page).text
+    drawn = client.get(page + "/asked").text
     request_id = one(drawn, "[data-request]").get("data-request")
     item_id = select(drawn, "[data-item]")[0].get("data-item")
 
@@ -1201,9 +1323,9 @@ class TestWhatWouldSatisfyAnAsk:
                 "new_requester": "",
             },
         )
-        item_id = one(client.get(page).text, "#matter-requests [data-item]").get(
-            "data-item"
-        )
+        item_id = one(
+            client.get(page + "/asked").text, "#matter-requests [data-item]"
+        ).get("data-item")
 
         form = client.get(f"/matters/requests/items/{item_id}/edit").text
         offered = {el.get("value") for el in select(form, 'select[name="ask"] option')}
@@ -1226,9 +1348,9 @@ class TestWhatWouldSatisfyAnAsk:
                 "new_requester": "",
             },
         )
-        item_id = one(client.get(page).text, "#matter-requests [data-item]").get(
-            "data-item"
-        )
+        item_id = one(
+            client.get(page + "/asked").text, "#matter-requests [data-item]"
+        ).get("data-item")
         client.post(
             f"/matters/requests/items/{item_id}/edit",
             data={
@@ -1260,7 +1382,9 @@ class TestTheVerbsOnAnAsk:
             page + "/requests/new",
             data={"asked": ASKED, "due_on": "2026-09-08", "received_on": ""},
         )
-        first = select(client.get(page).text, "#matter-requests [data-item]")[0]
+        first = select(
+            client.get(page + "/asked").text, "#matter-requests [data-item]"
+        )[0]
         rows = select(first, "[data-verbs] > div")
         assert len(rows) == 2
         doing = [text(b) for b in rows[0].findall(".//button")]
@@ -1289,8 +1413,8 @@ class TestOverdueIsRed:
 
     def test_the_card_carries_a_red_dot(self, client: TestClient) -> None:
         page = self._late(client, "MA-LATE-1")
-        card = one(client.get(page).text, "#matter-requests [data-request]")
-        assert select(card, "header [data-dot=error]"), (
+        card = one(client.get(page + "/asked").text, "#matter-requests [data-request]")
+        assert select(card, "summary [data-dot=error]"), (
             "the due line carries the red dot"
         )
 
@@ -1369,7 +1493,7 @@ class TestAContactSeesItsCases:
                 "note": "",
             },
         )
-        page = client.get(f"/contacts/{party_id}").text
+        page = client.get(f"/contacts/{party_id}/matters").text
         case = one(page, "[data-cases] li")
         assert "Medicaid renewal" in text(case)
         assert text(one(case, "[data-role]")) == "Agency"

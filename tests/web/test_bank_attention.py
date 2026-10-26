@@ -61,7 +61,7 @@ class TestTheBanner:
     ) -> None:
         await _set(async_db_session, connection, last_successful_sync_at=utcnow())
 
-        none(hx.get(ATTENTION).text, "[data-attention] li")
+        none(hx.get(ATTENTION).text, "[data-attention] [data-need]")
 
     async def test_a_bank_needing_a_sign_in_says_so_in_words_with_reconnect(
         self, hx: TestClient, async_db_session: AsyncSession, connection: int
@@ -74,13 +74,16 @@ class TestTheBanner:
             last_successful_sync_at=utcnow(),
         )
 
-        row = one(hx.get(ATTENTION).text, "[data-attention] li")
+        row = one(hx.get(ATTENTION).text, "[data-attention] [data-need]")
         assert "Chase" in text(row)
         assert CONNECTION_STATUS["login_required"][0] in text(row)
         assert "Login_Required" not in text(row)
-        one(row, f'[hx-post="/settings/connections/{connection}/reconnect"]')
+        one(
+            hx.get(ATTENTION).text,
+            f'[data-attention] [hx-post="/settings/connections/{connection}/reconnect"]',
+        )
 
-    async def test_a_bank_that_said_why_says_it_and_points_to_activity(
+    async def test_a_bank_that_said_why_says_it_beside_its_fix(
         self, hx: TestClient, async_db_session: AsyncSession, connection: int
     ) -> None:
         """ "Needs attention" alone hid an HSA out for ten days (#532)."""
@@ -93,9 +96,10 @@ class TestTheBanner:
             last_successful_sync_at=utcnow(),
         )
 
-        row = one(hx.get(ATTENTION).text, "[data-attention] li")
-        assert "Optum Bank HSA needs you to sign in again" in text(row)
-        one(row, 'a[href="/settings/activity"]')
+        line = one(hx.get(ATTENTION).text, "[data-attention]")
+        assert "Optum Bank HSA needs you to sign in again" in text(line)
+        # One problem: its fix on the line, not a link away from it.
+        one(line, f'[hx-post="/settings/connections/{connection}/reconnect"]')
 
     async def test_a_link_to_many_banks_names_only_the_one_its_reason_does_not(
         self, hx: TestClient, async_db_session: AsyncSession, connection: int
@@ -112,21 +116,103 @@ class TestTheBanner:
             last_successful_sync_at=utcnow(),
         )
 
-        row = one(hx.get(ATTENTION).text, "[data-attention] li")
+        row = one(hx.get(ATTENTION).text, "[data-attention] [data-need]")
         assert "First Bank" not in text(row)
         assert text(row).startswith("Hometown Bank needs attention")
 
-    async def test_a_bank_that_stopped_syncing_is_stale(
-        self, hx: TestClient, async_db_session: AsyncSession, connection: int
+    async def test_a_bank_that_stopped_syncing_is_stale_where_syncs_run(
+        self,
+        hx: TestClient,
+        async_db_session: AsyncSession,
+        connection: int,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "APP_ENV", "production")
         await _set(
             async_db_session,
             connection,
             last_successful_sync_at=utcnow() - timedelta(days=10),
         )
 
-        row = one(hx.get(ATTENTION).text, "[data-attention] li")
+        row = one(hx.get(ATTENTION).text, "[data-attention] [data-need]")
         assert "10 days" in text(row)
+
+    async def test_a_dev_stack_leaves_syncing_to_the_server(
+        self,
+        hx: TestClient,
+        async_db_session: AsyncSession,
+        connection: int,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A dev stack never schedules the bank sync (``server_only``,
+        #532), so every link there reads a week old - by design, not a
+        problem you can fix (#584)."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "APP_ENV", "dev")
+        await _set(
+            async_db_session,
+            connection,
+            last_successful_sync_at=utcnow() - timedelta(days=10),
+        )
+
+        none(hx.get(ATTENTION).text, "[data-attention] [data-need]")
+
+    async def test_it_is_one_line_however_many_need_you(
+        self,
+        hx: TestClient,
+        async_db_session: AsyncSession,
+        connection: int,
+    ) -> None:
+        """A row a link pushed every page down (#584): several are one
+        line that opens the list, each with its fix."""
+        from app.services.finance.models import FinanceConnection
+
+        other = FinanceConnection(
+            owner_user_id=None,
+            provider="simplefin",
+            connection_type="aggregator_token",
+            label="Hometown Bank",
+            environment="production",
+            status="error",
+            status_detail="Connection to Hometown Bank may need attention. Auth required",
+        )
+        async_db_session.add(other)
+        await _set(async_db_session, connection, status="login_required")
+
+        line = one(hx.get(ATTENTION).text, "[data-attention]")
+        assert len(select(line, "[data-need]")) == 1
+        assert text(one(line, "[data-need]")).startswith("2 banks need you")
+        review = one(line, "[data-review]")
+        listed = hx.get(review.get("hx-get")).text
+        assert len(select(listed, "[data-need]")) == 2
+        one(listed, f'[hx-post="/settings/connections/{connection}/reconnect"]')
+        one(listed, f'[hx-post="/settings/connections/{other.id}/reconnect"]')
+
+    async def test_it_is_not_said_where_the_cards_say_it(
+        self, hx: TestClient, async_db_session: AsyncSession, connection: int
+    ) -> None:
+        await _set(async_db_session, connection, status="login_required")
+
+        on_cards = hx.get(
+            ATTENTION, headers={"HX-Current-URL": "http://testserver/settings"}
+        ).text
+        none(on_cards, "[data-attention] [data-need]")
+
+    @pytest.mark.queryspy(threshold=3)  # sets the link twice
+    async def test_dismissing_lasts_until_the_problems_change(
+        self, hx: TestClient, async_db_session: AsyncSession, connection: int
+    ) -> None:
+        await _set(async_db_session, connection, status="login_required")
+        first = one(hx.get(ATTENTION).text, "[data-attention]")
+        one(first, "[data-dismiss]")
+
+        await _set(async_db_session, connection, status="error", status_detail="New")
+        second = one(hx.get(ATTENTION).text, "[data-attention]")
+
+        assert first.get("data-key") and first.get("data-key") != second.get("data-key")
 
 
 class TestTheBridgesWords:
@@ -179,9 +265,12 @@ class TestNewAccountsToAdd:
             metadata_={"new_accounts": True},
         )
 
-        row = one(hx.get(ATTENTION).text, "[data-attention] li")
+        row = one(hx.get(ATTENTION).text, "[data-attention] [data-need]")
         assert "New accounts to add" in text(row)
-        one(row, f'[hx-post="/settings/connections/{connection}/reconnect"]')
+        one(
+            hx.get(ATTENTION).text,
+            f'[data-attention] [hx-post="/settings/connections/{connection}/reconnect"]',
+        )
 
     async def test_done_clears_it_and_checks_the_bank(
         self,
@@ -200,7 +289,7 @@ class TestNewAccountsToAdd:
 
         client.post(f"/settings/connections/{connection}/reconnect/done")
 
-        none(hx.get(ATTENTION).text, "[data-attention] li")
+        none(hx.get(ATTENTION).text, "[data-attention] [data-need]")
         assert queued == [("finance_sync_connection_task", connection, None)]
 
 

@@ -14,17 +14,17 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from starlette.responses import Response
 
-from app.components.web_frontend.nav import matter_tabs, section
+from app.components.web_frontend.nav import section
 from app.components.web_frontend.rendering import (
     dialog,
     dialog_done,
     or_404,
     render,
 )
+from app.components.web_frontend.routes.matter_faces import face
 from app.core.db import get_async_session
 from app.services.finance.deps import get_owner_user_id
 from app.services.finance.utils import current_date
-from app.services.matters.answers import answer_sheet
 from app.services.matters.matters import MatterService
 from app.services.matters.service import MATTER_EVENT_KINDS
 from app.services.matters.timeline import MatterEventService, timeline
@@ -56,18 +56,13 @@ async def matter_timeline(request: Request, matter_id: int) -> Response:
     """The case as a sequence: what arrived, what was answered, what was
     said on the phone."""
     async with get_async_session() as db:
-        found = or_404(await MatterService(db).get(matter_id))
+        context = await face(db, matter_id, "timeline")
         moments = await timeline(db, matter_id)
-        outstanding = (await answer_sheet(db, matter_id))["outstanding"]
     return render(
         request,
         "pages/matter_timeline.html",
         {
-            "section": SECTION,
-            "path": SECTION.path,
-            **matter_tabs(matter_id, "timeline", outstanding),
-            "matter": found,
-            "matter_id": matter_id,
+            **context,
             "moments": [
                 {**moment, "url": _links_to(moment, matter_id)} for moment in moments
             ],
