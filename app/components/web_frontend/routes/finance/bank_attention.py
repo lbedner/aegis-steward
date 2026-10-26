@@ -124,12 +124,20 @@ def _unsaid(name: str, reason: str) -> str | None:
     return None if any(bank and bank in reason for bank in banks) else name
 
 
-async def _needing(
-    service: FinanceService, owner_user_id: int | None
-) -> list[dict[str, Any]]:
-    """Every link that needs you, in words, with whether Sign in again
-    mends it - read as the Settings cards read them, so the two never
-    disagree."""
+async def links(service: FinanceService, owner_user_id: int | None) -> list[Any]:
+    """Every provider link, as the Settings cards read them."""
+    return [
+        ConnectionResponse.from_row(c)
+        for c in await connections.list_provider_connections(
+            service.db, owner_user_id=owner_user_id
+        )
+    ]
+
+
+def needing(found: list[Any]) -> list[dict[str, Any]]:
+    """Every link in ``found`` that needs you, in words, with whether Sign
+    in again mends it - read as the Settings cards read them, so the two
+    never disagree."""
     return [
         {
             "id": c.id,
@@ -137,14 +145,15 @@ async def _needing(
             "reason": reason,
             "reconnect": reconnectable(c),
         }
-        for c in map(
-            ConnectionResponse.from_row,
-            await connections.list_provider_connections(
-                service.db, owner_user_id=owner_user_id
-            ),
-        )
+        for c in found
         if (reason := needs_you(c))
     ]
+
+
+async def _needing(
+    service: FinanceService, owner_user_id: int | None
+) -> list[dict[str, Any]]:
+    return needing(await links(service, owner_user_id))
 
 
 @router.get("/connections/attention", include_in_schema=False)

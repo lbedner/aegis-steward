@@ -38,6 +38,7 @@ from app.components.web_frontend.routes.finance import (
     settings,
     settings_comms,
     settings_payees,
+    status,
     transactions,
     transfer_pairs,
     usage,
@@ -75,6 +76,7 @@ router.include_router(settings_comms.router)
 router.include_router(settings_payees.router)
 router.include_router(connection_placing.router)
 router.include_router(bank_attention.router)
+router.include_router(status.router)
 router.include_router(transactions.router)
 router.include_router(transfer_pairs.router)
 router.include_router(receipts.router)

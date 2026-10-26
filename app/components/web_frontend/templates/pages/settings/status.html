@@ -1,0 +1,38 @@
+{% extends layout %}
+{% from "components/macros/connections.html" import need_row %}
+{% from "components/macros/layout.html" import badge, card, dot, page_header, page_link %}
+
+{% block title %}Status - {{ project_name }}{% endblock %}
+
+{# Whether it is you, the bank, or Steward (issue 585), kept apart by
+   whose it is: what needs you first, with its fix, then each service.
+   All of it read off what the app records; the history is Activity. #}
+{% block app_content %}
+{{ page_header("Status", "Whether it is you, the bank, or Steward") }}
+{% include "components/sub_nav.html" %}
+<div id="status" class="flex flex-col gap-6">
+  <p class="flex items-center gap-2 text-xl font-semibold text-aegis-text">
+    {{ dot(tone) }}<span data-headline>{{ headline }}</span>
+  </p>
+
+  {% if needs %}
+  {% call card("Needs you", id="status-needs") %}
+  <ul class="divide-y divide-aegis-border border-y border-aegis-border">
+    {% for row in needs %}{{ need_row(row, path) }}{% endfor %}
+  </ul>
+  {% endcall %}
+  {% endif %}
+
+  {% call card("Services", id="status-services") %}
+  <ul class="divide-y divide-aegis-border border-y border-aegis-border">
+    {% for row in services %}
+    <li data-service="{{ row.key }}" class="flex items-center justify-between gap-3 py-2 text-sm">
+      <span class="min-w-0 truncate text-aegis-text">{{ row.name }}</span>
+      {{ badge(row.words, row.tone) }}
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="text-xs text-aegis-muted">Every sync and import, with what it brought: {{ page_link(path ~ "/activity", "Activity") }}</p>
+  {% endcall %}
+</div>
+{% endblock %}
