@@ -1,6 +1,23 @@
 {# A bank link's fix, one home for the card and the banner (issue 580): the
    dialog that sends you to sign in again where the sign-in lives. #}
 {% from "components/macros/form.html" import action %}
+{% from "components/macros/layout.html" import page_link %}
 {% macro sign_in_again(path, connection_id, tone="default") -%}
 {{ action("Sign in again", hx_dialog_post(path ~ "/connections/" ~ connection_id ~ "/reconnect"), tone=tone) }}
+{%- endmacro %}
+
+{# What mends a link that needs you (a row of ``bank_attention.needing``):
+   Sign in again where that mends it, else its runs on Activity. One home
+   for the banner, its Review and the Status page (issue 585). #}
+{% macro need_fix(row, path, tone="default") -%}
+{%- if row.reconnect %}{{ sign_in_again(path, row.id, tone=tone) }}{% else %}{{ page_link(path ~ "/activity", "Activity", "text-xs shrink-0") }}{% endif -%}
+{%- endmacro %}
+
+{# A link that needs you as a list row: its name where its reason does not
+   already say it, the reason, and its fix. #}
+{% macro need_row(row, path) -%}
+<li data-need class="flex items-center justify-between gap-3 py-2 text-sm">
+  <span class="min-w-0">{% if row.name %}<span class="text-aegis-text">{{ row.name }}:</span> {% endif %}<span class="text-error">{{ row.reason }}</span></span>
+  {{ need_fix(row, path, tone="primary") }}
+</li>
 {%- endmacro %}

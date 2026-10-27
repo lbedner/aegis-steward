@@ -6,10 +6,10 @@
    It asks again as the page changes (htmx pushes the address), so it
    follows the reader on and off that page. Dismissed, it stays gone for
    the session until what needs you changes: the key is what it said. #}
-{% from "components/macros/connections.html" import sign_in_again %}
+{% from "components/macros/connections.html" import need_fix %}
 {% from "components/macros/form.html" import action %}
 {% from "components/macros/icons.html" import icon %}
-{% from "components/macros/layout.html" import dot, page_link %}
+{% from "components/macros/layout.html" import dot %}
 <div data-attention data-key="{{ key }}" role="status"
      hx-get="{{ path }}/connections/attention" hx-trigger="htmx:pushedIntoHistory from:body" hx-swap="outerHTML"
      {% if rows %}x-data="{ gone: false }" x-init="try { gone = sessionStorage.getItem('attention') === '{{ key }}' } catch (e) {}" x-show="!gone"{% else %}hidden{% endif %}
@@ -19,7 +19,7 @@
     {{ dot("error") }}
     {% if rows|length == 1 %}{% set row = rows[0] %}
     <span data-need class="min-w-0 truncate text-aegis-text">{% if row.name %}{{ row.name }}: {% endif %}{{ row.reason }}</span>
-    {% if row.reconnect %}{{ sign_in_again(path, row.id) }}{% else %}{{ page_link(path ~ "/activity", "Activity", "text-xs shrink-0") }}{% endif %}
+    {{ need_fix(row, path) }}
     {% else %}
     <span data-need class="min-w-0 truncate text-aegis-text">{{ rows|length }} banks need you</span>
     {{ action("Review", hx_dialog(path ~ "/connections/attention/review") ~ " data-review") }}
