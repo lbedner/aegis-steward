@@ -65,13 +65,13 @@ def listed() -> set[str]:
     return set(_listed((item.component.metadata or {}) if item else {})[1])
 
 
-def owners() -> dict[str, str]:
+async def owners() -> dict[str, str]:
     """Each table's owner as the ontology reads it: the id of the part its
     model's module belongs to (``service:auth``). None for a table no model
-    declares, or one whose model no part owns."""
-    return {
-        n.name: n.owner for n in current().nodes if n.kind is Kind.OBJECT and n.owner
-    }
+    declares, or one whose model no part owns. The model is read off the
+    loop: its first build parses the source."""
+    model = await asyncio.to_thread(current)
+    return {n.name: n.owner for n in model.nodes if n.kind is Kind.OBJECT and n.owner}
 
 
 def owner_link(owner: str | None) -> dict[str, str | None] | None:
@@ -111,7 +111,7 @@ async def tables(req: SectionRequest, metadata: dict[str, Any]) -> dict[str, Any
         raise HTTPException(status_code=404, detail=f"No table {name!r} to read.")
     readable = db_rows.tables(list(found) or None)
     table = db_rows.table_of(name) if name in readable else None
-    owned = owners()
+    owned = await owners()
     off = exposure.refusal(exposure.ROWS)
     tab = req.query.get("tab") or ""
     if tab not in TABS:
@@ -475,13 +475,11 @@ async def query(sql: str) -> tuple[str, dict[str, Any]]:
     from app.services.system import db_query, db_rows  # with the database component
 
     try:
-        found = await asyncio.to_thread(db_query.run, sql)
+        outcome, found = await asyncio.to_thread(db_query.attempt, sql)
     except db_rows.RowsHiddenError:
         raise HTTPException(status_code=404) from None
-    except db_query.QueryError as exc:
-        return "refused", {"query_error": str(exc)}
-    except db_rows.ReadTooSlowError as exc:
-        return "stopped", {"query_error": str(exc)}
+    if isinstance(found, str):
+        return outcome, {"query_error": found}
     shown = counted(len(found.rows), "row")
     if found.more:
         shown = f"the first {format_number(db_query.LIMIT)} rows"

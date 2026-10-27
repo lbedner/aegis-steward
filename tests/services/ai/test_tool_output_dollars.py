@@ -39,6 +39,19 @@ class TestWithDollars:
             "odd_cents": "12",
         }
 
+    def test_a_tool_that_hands_back_a_model_is_read_as_its_data(self) -> None:
+        """The template's tools return models (issue 587); steward's chat
+        reads dicts, so a model's cents get their dollars all the same."""
+        from pydantic import BaseModel
+
+        class Spend(BaseModel):
+            net_cents: int
+
+        assert with_dollars(Spend(net_cents=-149_203)) == {
+            "net_cents": -149_203,
+            "net_usd": "-$1,492.03",
+        }
+
     def test_printed_output_passes_through(self) -> None:
         assert with_dollars("net_cents: -149203") == "net_cents: -149203"
 

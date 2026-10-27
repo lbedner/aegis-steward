@@ -33,7 +33,7 @@ import statistics
 import time
 from typing import Any
 
-from app.core.cache import get_cache
+from app.core.cache import CACHE_ERRORS, get_cache
 from app.core.log import logger
 from app.core.series_store import get_store
 
@@ -72,7 +72,7 @@ RAW_LENGTH = int(KEEP_SECONDS / TICK_SECONDS)
 # between two looks.
 WATCH_SECONDS = 15
 # The windows a live chart offers, in seconds, labelled as every range chip
-# row labels them (``web_frontend/ranges.py``); none longer than is kept.
+# row labels them (``app/core/ranges.py``); none longer than is kept.
 WINDOWS: tuple[tuple[int, str], ...] = ((900, "15m"), (1800, "30m"), (3600, "1h"))
 DEFAULT_WINDOW = 900
 # A history sampler's tiers: (seconds a point, seconds kept), and the
@@ -190,8 +190,17 @@ async def watched(name: str) -> bool:
 
 
 async def latest(name: str) -> Any:
-    """The sampler's last reading as a whole, or None before its first."""
-    return await get_cache().get(LATEST + name)
+    """The sampler's last reading as a whole, or None before its first, or
+    with no cache to read it from (Redis down, or none: a shell, CI): every
+    reader already takes None as "no reading", so none fails for want of a
+    cache, and the log says so."""
+    try:
+        return await get_cache().get(LATEST + name)
+    except CACHE_ERRORS as exc:
+        logger.warning(
+            "No reading: the cache did not answer", sampler=name, error=str(exc)
+        )
+        return None
 
 
 async def current(sampler: Sampler, *, fill: bool = True) -> Any:

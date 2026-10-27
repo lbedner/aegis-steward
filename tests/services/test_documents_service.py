@@ -13,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.storage import FilesystemStorage, set_storage
 from app.services.documents import DocumentService
+from app.services.documents.models import DocumentSummary
 
 
 @pytest.fixture
@@ -304,16 +305,15 @@ class TestSummary:
 
         summary = await svc.summary(owner_user_id=1)
 
-        assert summary["total"] == 3
-        assert summary["this_month"] == 3
-        assert summary["bytes"] == 13
-        assert summary["by_kind"] == {"letter": 2, "statement": 1}
+        assert summary == DocumentSummary(
+            total=3, this_month=3, bytes=13, by_kind={"letter": 2, "statement": 1}
+        )
 
     @pytest.mark.asyncio
     async def test_an_empty_store_is_zeros_not_nulls(self, svc) -> None:
         summary = await svc.summary(owner_user_id=99)
 
-        assert summary == {"total": 0, "this_month": 0, "bytes": 0, "by_kind": {}}
+        assert summary == DocumentSummary(total=0, this_month=0, bytes=0, by_kind={})
 
 
 class TestLifecycle:
@@ -372,3 +372,19 @@ class TestLifecycle:
 
         rows, total = await svc.list_documents(owner_user_id=1, channel="mail")
         assert total == 1 and rows[0].channel == "mail"
+
+
+@pytest.mark.asyncio
+async def test_the_tags_aggregate_counts_each_label(
+    svc, async_db_session: AsyncSession
+) -> None:
+    """``documents.tags``: how many documents carry each label, never which."""
+    from app.services.documents import aggregates
+
+    for title, tags in (("One", ["tax"]), ("Two", ["tax", "2026"]), ("Three", [])):
+        doc = await svc.ingest(title.encode(), title=title, owner_user_id=1)
+        for tag in tags:
+            await svc.tag(doc.id, tag)
+    found = await aggregates.tags(async_db_session, 30)
+
+    assert found.by_tag == {"tax": 2, "2026": 1}

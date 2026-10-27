@@ -69,7 +69,7 @@ class CategoriesMixin(FinanceServiceBase):
         self,
         *,
         owner_user_id: int | None = None,
-        days: int = 30,
+        days: int | None = 30,
         account_ids: list[int] | None = None,
         through: date | None = None,
     ) -> list[tuple[str, int]]:

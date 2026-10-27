@@ -17,12 +17,23 @@ async def apply_before_serving() -> None:
     opened is closed before that loop ends, so serving opens its own rather
     than reusing connections bound to a closed loop."""
     await apply_saved_overrides()
+    await release()
+
+
+async def release() -> None:
+    """What this process opened on its event loop (the cache's pool, the
+    database's, the queue brokers), closed while the loop still runs: left
+    to Python, each is closed after the loop has gone and logs "Event loop
+    is closed"."""
     from app.core.cache import get_cache
 
     await get_cache().aclose()
     from app.core.db import async_engine
 
     await async_engine.dispose()
+    from app.components.worker.pools import shutdown_brokers
+
+    await shutdown_brokers()
 
 
 async def apply_saved_overrides() -> None:

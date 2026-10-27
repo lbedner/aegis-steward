@@ -27,6 +27,9 @@ class Function:
     params: tuple[Param, ...]
     calls: frozenset[str]  # each name called in it: ``f()`` and ``x.f()`` call ``f``
     statements: int  # in its body, a docstring not counted
+    # The calls made without ``await``, as written: ``f``, ``x.f``.
+    unawaited: frozenset[str] = frozenset()
+    returns: str | None = None  # its return annotation, as written
 
 
 def _written(lines: tuple[str, ...], node: ast.expr | None) -> str | None:
@@ -64,6 +67,22 @@ def called(func: ast.expr) -> str | None:
     return func.attr if isinstance(func, ast.Attribute) else None
 
 
+def _spelled(func: ast.expr) -> str | None:
+    """A call's name as written, its module or object with it where it is
+    a plain name: ``f()`` is ``f``, ``x.f()`` is ``x.f``."""
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        return f"{func.value.id}.{func.attr}"
+    return called(func)
+
+
+def _awaited(value: ast.expr) -> list[ast.Call]:
+    """The calls an ``await`` waits on: its call, or either way of a
+    conditional (``await (a() if x else b())``)."""
+    if isinstance(value, ast.IfExp):
+        return [*_awaited(value.body), *_awaited(value.orelse)]
+    return [value] if isinstance(value, ast.Call) else []
+
+
 def _function(
     node: ast.FunctionDef | ast.AsyncFunctionDef, qualname: str, lines: tuple[str, ...]
 ) -> Function:
@@ -73,10 +92,18 @@ def _function(
         and isinstance(body[0], ast.Expr)
         and isinstance(body[0].value, ast.Constant)
     )
-    calls = {
+    made: list[ast.Call] = []
+    awaited: set[int] = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call):
+            made.append(n)
+        elif isinstance(n, ast.Await):
+            awaited.update(id(call) for call in _awaited(n.value))
+    calls = {name for call in made if (name := called(call.func))}
+    unawaited = {
         name
-        for call in ast.walk(node)
-        if isinstance(call, ast.Call) and (name := called(call.func))
+        for call in made
+        if id(call) not in awaited and (name := _spelled(call.func))
     }
     return Function(
         qualname,
@@ -86,6 +113,8 @@ def _function(
         _params(node, lines),
         frozenset(calls),
         len(body) - int(docstring),
+        frozenset(unawaited),
+        _written(lines, node.returns),
     )
 
 
@@ -98,3 +127,15 @@ def functions(
             yield from functions(child, lines, f"{prefix}{child.name}.")
         elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
             yield _function(child, prefix + child.name, lines)
+
+
+def registered_tools(tree: ast.AST) -> frozenset[str]:
+    """The functions a module registers as an agent's tools:
+    ``register_tool("name", func)``, or ``func=func``."""
+    found = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or called(node.func) != "register_tool":
+            continue
+        given = node.args[1:2] + [k.value for k in node.keywords if k.arg == "func"]
+        found.update(g.id for g in given if isinstance(g, ast.Name))
+    return frozenset(found)

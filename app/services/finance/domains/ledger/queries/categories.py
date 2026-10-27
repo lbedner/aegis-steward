@@ -30,7 +30,12 @@ from app.services.finance.models import (
     FinanceTransactionSplit,
 )
 from app.services.finance.utils import current_date
-from app.services.shared.queries import owner_clause, owner_filters, visible_to
+from app.services.shared.queries import (
+    owner_clause,
+    owner_filters,
+    visible_to,
+    within,
+)
 
 
 async def category_alias_ids(
@@ -226,7 +231,7 @@ async def category_usage_rows(
 
 def _category_outflow_filters(
     owner_user_id: int | None,
-    start: date,
+    start: date | None,
     end: date | None,
     account_ids: list[int] | None,
 ) -> list[object]:
@@ -239,10 +244,8 @@ def _category_outflow_filters(
         not_duplicate(),
         FinanceTransaction.excluded_from_reports.is_(False),
         FinanceTransaction.account_id.in_(household_account_ids()),
-        FinanceTransaction.date_ >= start,
+        *within(FinanceTransaction.date_, start, end),
     ]
-    if end is not None:
-        filters.append(FinanceTransaction.date_ < end)
     if account_ids is not None:
         filters.append(FinanceTransaction.account_id.in_(account_ids))
     filters.extend(owner_filters(FinanceTransaction.owner_user_id, owner_user_id))
@@ -261,7 +264,7 @@ async def category_spend_totals(
     db: AsyncSession,
     *,
     owner_user_id: int | None = None,
-    start: date,
+    start: date | None,
     end: date | None = None,
     account_ids: list[int] | None = None,
 ) -> list[tuple[str, str, int]]:

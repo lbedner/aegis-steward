@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,9 +37,15 @@ from app.components.web_frontend.main import (  # noqa: E402
     add_error_pages,
     create_web_frontend_app,
 )
+from app.core import ontology  # noqa: E402
+from app.core.concurrency import background  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.core.constants import dashboard_upload_dir  # noqa: E402
 from app.core.log import logger, setup_logging  # noqa: E402
+
+
+async def _build_model() -> None:
+    await asyncio.to_thread(ontology.current)
 
 
 @asynccontextmanager
@@ -61,6 +68,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Execute backend startup hooks
     await backend_hooks.execute_startup_hooks()
+
+    # Every part has registered: build the system model now, off the loop,
+    # so its first reader (a map, a flow card) never parses the source
+    # mid-request, holding the server.
+    background(_build_model())
 
     logger.info("--- Application startup complete ---")
 

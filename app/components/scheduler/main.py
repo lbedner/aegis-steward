@@ -21,7 +21,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.components.worker.pools import enqueue_task
 from app.core import edges, run_log
-from app.core.boot import apply_saved_overrides
+from app.core.boot import apply_saved_overrides, release
 from app.core.config import settings
 from app.core.constants import ComponentName, QueueName
 from app.core.db import db_session, engine, init_database
@@ -283,3 +283,4 @@ async def run_scheduler() -> None:
         if scheduler.running:
             scheduler.shutdown()
             logger.info("Scheduler stopped gracefully")
+        await release()

@@ -3,6 +3,10 @@ dollars a model is shown beside the cents it computes with."""
 
 from typing import Any
 
+from pydantic import BaseModel
+
+from app.core.tools import result_data
+
 ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
 # Symbols for the codes a household ledger actually sees; anything else
 # shows its code.
@@ -24,7 +28,10 @@ def with_dollars(value: Any) -> Any:
     proposals compute with them - and a model left to convert read an
     unlabelled 297614 as dollars and put -149203 at -$149. The cents stay
     so a later script can reuse the exact figure. Anything else, printed
-    text included, passes through."""
+    text included, passes through. A tool that hands back a model is read
+    as its JSON data, so its cents are joined the same way."""
+    if isinstance(value, BaseModel):
+        value = result_data(value)
     if isinstance(value, list):
         return [with_dollars(item) for item in value]
     if not isinstance(value, dict):

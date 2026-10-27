@@ -9,12 +9,12 @@
    closes, even in a throttled background tab where frames stall. #}
 <button type="button" id="illiana-fab" x-show="!onChat && !illiana" x-cloak
         @click="openIlliana()"
-        class="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 floating rounded-full border-aegis-teal text-aegis-teal text-sm p-3 sm:pl-4 sm:pr-5 sm:py-2.5 hover:bg-aegis-teal/10 transition-colors"
-        aria-label="Ask {{ assistant }}">
-  {#- An icon on a phone, where the labelled pill sat on the balances and
-      amounts at the right edge (issue 470); the word is back from ``sm``. -#}
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" class="w-5 h-5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h8M8 14h5m-9 6.5 2.6-2H18a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14.5Z"/></svg>
-  <span class="sr-only sm:not-sr-only">Ask {{ assistant }}</span>
+        class="fixed bottom-5 right-5 z-40 rounded-xl transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-aegis-teal"
+        aria-label="Ask {{ assistant }}" title="Ask {{ assistant }}">
+  {#- Her rose shield, the template's (aegis-stack's chat button): an icon
+      on every width, so it never sits on the amounts at a phone's right
+      edge the way the labelled pill did (issue 470). -#}
+  <img src="{{ static('illiana.png') }}" alt="" width="64" height="64" class="w-12 h-12 sm:w-16 sm:h-16">
 </button>
 
 <template x-teleport="body">

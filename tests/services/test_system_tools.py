@@ -18,11 +18,13 @@ from app.core.ontology.model import (
     Kind,
     ObjectNode,
     PartNode,
+    QueueNode,
     RouteNode,
     SystemModel,
+    TaskNode,
 )
 from app.core.parts import Category
-from app.core.tools import acting_as, get_tool
+from app.core.tools import acting_as, get_tool, result_data
 from app.services.system import health as health_module
 from app.services.system import (
     live_status,
@@ -32,6 +34,7 @@ from app.services.system import (
     tools,
     ui_errors,
     ui_logs,
+    ui_runtime,
 )
 from app.services.system.errors.models import ErrorIssue
 from app.services.system.models import (
@@ -39,7 +42,7 @@ from app.services.system.models import (
     ComponentStatusType,
     SystemStatus,
 )
-from app.services.system.node_now import NodeNow
+from app.services.system.node_now import ContainerNow, NodeNow
 from app.services.system.pattern_findings import Finding
 from tests._ontology import model_of
 
@@ -96,7 +99,7 @@ def test_the_three_are_registered_as_reads() -> None:
 async def test_health_is_a_tree_of_statuses_without_details(
     status: SystemStatus,
 ) -> None:
-    result = await tools.health()
+    result = result_data(await tools.health())
 
     worker = result["components"]["aegis"]["parts"]["components"]["parts"]["worker"]
     assert worker == {"status": "unhealthy", "message": "1 queue stuck"}
@@ -110,7 +113,7 @@ async def test_health_counts_each_check_once_and_names_each_issue(
     """A part passing on its parts' issues (``aegis``, ``components``) is
     not one more: the counts are the checks', and every check that is not
     healthy is named, with its message."""
-    result = await tools.health()
+    result = result_data(await tools.health())
 
     assert result["counts"] == {"healthy": 1, "unhealthy": 1}
     assert result["attention"] == [
@@ -125,7 +128,7 @@ async def test_health_counts_each_check_once_and_names_each_issue(
 async def test_health_of_one_component_carries_its_details(
     status: SystemStatus,
 ) -> None:
-    result = await tools.health("worker")
+    result = result_data(await tools.health("worker"))
 
     assert result["component"]["metadata"]["queues"]["system"]["queued"] == 40
 
@@ -158,18 +161,53 @@ async def test_health_keeps_what_fits_a_prompt(
         return current, None
 
     monkeypatch.setattr(live_status, "live_status", fake)
-    told = (await tools.health("database"))["component"]["metadata"]
+    told = (result_data(await tools.health("database")))["component"]["metadata"]
     assert told["implementation"] == "postgresql" and told["table_count"] == 50
     assert "secret" not in json.dumps(told)
     assert told["url"] == "postgresql://app:***@db:5432/app"
     assert told["omitted"] == ["table_schemas"]
 
 
+async def test_a_few_short_rows_fit_where_a_schema_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scheduler's jobs, each with when it runs next, are what she is
+    asked for (2026-10-24: "when they run next" was left out)."""
+    jobs = [
+        {
+            "job_id": f"job_{i}",
+            "name": f"Job number {i}",
+            "next_run": "2026-10-24T19:00:00",
+            "schedule": "Every 1h",
+            "function": "app.components.scheduler.main:scheduled_run",
+            "description": "One run of a scheduled job: its task enqueued",
+        }
+        for i in range(6)
+    ]
+    scheduler = ComponentStatus(
+        name="scheduler", message="ok", metadata={"upcoming_tasks": jobs}
+    )
+    current = SystemStatus(
+        components={"scheduler": scheduler},
+        overall_healthy=True,
+        timestamp=datetime.now(UTC),
+    )
+
+    async def fake() -> tuple[SystemStatus, str | None]:
+        return current, None
+
+    monkeypatch.setattr(live_status, "live_status", fake)
+    told = (result_data(await tools.health("scheduler")))["component"]["metadata"]
+    assert [job["next_run"] for job in told["upcoming_tasks"]] == [
+        "2026-10-24T19:00:00"
+    ] * 6
+
+
 @pytest.mark.usefixtures("status")
 async def test_health_of_a_part_takes_its_ontology_id() -> None:
     """She holds the ontology's ids (``component:worker``): the check is
     the same part's."""
-    result = await tools.health(component="component:worker")
+    result = result_data(await tools.health(component="component:worker"))
     assert result["component"]["name"] == "worker"
 
 
@@ -300,8 +338,10 @@ async def test_errors_passes_its_filters_as_the_errors_page_query(
     errors_asked: dict[str, Any],
 ) -> None:
     seen = errors_asked
-    result = await tools.errors(
-        text="boom", service="worker", level="error", window_seconds=3600
+    result = result_data(
+        await tools.errors(
+            text="boom", service="worker", level="error", window_seconds=3600
+        )
     )
 
     assert seen == {
@@ -337,7 +377,7 @@ async def test_errors_says_why_it_has_none(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(ui_errors, "load", load)
 
-    result = await tools.errors()
+    result = result_data(await tools.errors())
 
     assert result["note"] == "Error tracking needs the Redis component."
 
@@ -395,7 +435,7 @@ async def test_logs_reads_every_service_by_default(
 async def test_logs_keeps_what_a_reader_needs_up_to_the_limit(
     recent: list[tuple[list[str], Any]],
 ) -> None:
-    result = await tools.logs(limit=2)
+    result = result_data(await tools.logs(limit=2))
 
     assert len(result["lines"]) == 2
     assert set(result["lines"][0]) == {
@@ -500,7 +540,7 @@ async def test_the_ontology_summary_fits_one_call_record() -> None:
     by owner with what each links to, and the changes to them): whole under
     the MCP call record's cap, so nothing a reader saw is clipped."""
     cap = pytest.importorskip("app.components.mcp.server").TEXT_CAP
-    result = await tools.ontology()
+    result = result_data(await tools.ontology())
 
     assert result["app"]["name"] == "app" and "stack" not in result
     assert result["counts"]["route"] == 151
@@ -523,15 +563,74 @@ async def test_the_ontology_summary_fits_one_call_record() -> None:
 
 @pytest.mark.usefixtures("model")
 async def test_a_filter_lists_the_first_hundred_and_says_how_many() -> None:
-    result = await tools.ontology(kind="route")
+    result = result_data(await tools.ontology(kind="route"))
 
     assert len(result["nodes"]) == 100
     assert result["total"] == 151
 
 
+async def test_a_queue_has_its_own_health_and_a_part_named_like_it_does_not(
+    model: SystemModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The load test queue's check sits under the worker's queues; read by
+    name anywhere in the tree it was the load test service's (2026-10-25),
+    from the node and from the health tool alike."""
+    queue = QueueNode(name="load_test", owner="component:backend")
+    shared = PartNode(kind=Kind.SHARED, name="load_test", category=Category.STACK)
+    found = model_of([*model.nodes, queue, shared], model.edges)
+    monkeypatch.setattr("app.core.ontology.system.current", lambda: found)
+    checked = ComponentStatus(name="load_test", message="idle")
+    tree = checked
+    for name in ("queues", "worker", "components"):
+        tree = ComponentStatus(
+            name=name, message="ok", sub_components={tree.name: tree}
+        )
+    # A check of the same name met first, by a search of the whole tree.
+    other = ComponentStatus(name="load_test", message="a service's")
+    services = ComponentStatus(
+        name="services", message="ok", sub_components={"load_test": other}
+    )
+    aegis = ComponentStatus(
+        name="aegis",
+        message="ok",
+        sub_components={"services": services, "components": tree},
+    )
+    status = SystemStatus(
+        components={"aegis": aegis}, overall_healthy=True, timestamp=datetime.now(UTC)
+    )
+
+    async def fake() -> tuple[SystemStatus, str | None]:
+        return status, None
+
+    monkeypatch.setattr(live_status, "live_status", fake)
+
+    of_queue = result_data(await tools.ontology(node=queue.id))
+    of_shared = result_data(await tools.ontology(node=shared.id))
+
+    assert NodeNow.model_validate(of_queue["now"]).health == checked
+    assert of_shared["now"]["health"]["message"] == "a service's"  # its own
+    told = result_data(await tools.health(queue.id))
+    assert told["component"]["message"] == "idle"
+
+
+async def test_a_task_is_listed_on_its_queue(
+    model: SystemModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Asked what a queue runs, she reads it off the listing."""
+    task = TaskNode(name="sync_catalog", queue="system", owner="component:backend")
+    found = model_of([*model.nodes, task], model.edges)
+    monkeypatch.setattr("app.core.ontology.system.current", lambda: found)
+
+    result = result_data(await tools.ontology(kind="task"))
+
+    assert [(n["id"], n["queue"]) for n in result["nodes"]] == [
+        ("task:sync_catalog", "system")
+    ]
+
+
 @pytest.mark.usefixtures("model")
 async def test_a_node_comes_with_its_edges_and_neighbours() -> None:
-    result = await tools.ontology(node="service:payment")
+    result = result_data(await tools.ontology(node="service:payment"))
 
     assert result["node"]["name"] == "payment"
     assert {n["id"] for n in result["neighbors"]} >= {
@@ -541,6 +640,24 @@ async def test_a_node_comes_with_its_edges_and_neighbours() -> None:
     assert {e["kind"] for e in result["edges"]} >= {"calls", "contains"}
     ids = [n["id"] for n in result["neighbors"]]
     assert ids == sorted(ids)  # the same answer every call
+    # A call that waits is every call: only a hand-off says its mode.
+    assert all("mode" not in e for e in result["edges"])
+
+
+@pytest.mark.usefixtures("model")
+async def test_several_nodes_are_one_call_each_answered_as_alone() -> None:
+    """A part and its neighbours asked at once read as one call, not one a
+    part (2026-10-23: nine calls to say how AI was wired)."""
+    asked = ["service:payment", "component:database"]
+    result = result_data(await tools.ontology(node=asked))
+
+    alone = [result_data(await tools.ontology(node=n)) for n in asked]
+    same = ("node", "edges", "neighbors", "findings")
+    assert [{k: a[k] for k in same} for a in result["nodes"]] == [
+        {k: a[k] for k in same} for a in alone
+    ]
+    with pytest.raises(ValueError, match="one node"):
+        await tools.ontology(node=asked, to="component:database")
 
 
 @pytest.mark.usefixtures("status")
@@ -604,7 +721,7 @@ async def test_a_part_says_what_is_true_of_it_now(
     model: live data she reads off the node, not out of her prompt
     (2026-10-16)."""
     asked = errors_asked
-    result = await tools.ontology(node="component:backend")
+    result = result_data(await tools.ontology(node="component:backend"))
 
     now = NodeNow.model_validate(result["now"])
     assert now.health is not None and now.health.name == "backend"
@@ -613,10 +730,64 @@ async def test_a_part_says_what_is_true_of_it_now(
     assert now.errors_total == 1
 
 
+@pytest.fixture
+def sampled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """One container on any page, as the sampler last read it; the pages
+    asked for."""
+    asked: list[str] = []
+
+    async def sampled(page: str) -> dict[str, Any]:
+        asked.append(page)
+        row = {
+            "name": "worker-system-1",
+            "state": "running",
+            "restarts_value": 0,
+            "uptime_seconds": 3600,
+            "cpu_value": 1.5,
+            "memory_value": 200 * 1024**2,
+            "memory_capacity": 1024**3,
+            "memory_percent": 19.5,
+        }
+        return {"rows": [row], "note": None}
+
+    monkeypatch.setattr(ui_runtime, "sampled", sampled)
+    return asked
+
+
+@pytest.mark.usefixtures("model", "status", "errors_asked")
+async def test_a_part_says_what_each_of_its_containers_uses(
+    sampled: list[str],
+) -> None:
+    """Each container behind it, as its Overseer page reads them: asked
+    which worker was using the memory, she had only the warning's one
+    line (2026-10-24)."""
+    result = result_data(await tools.ontology(node="component:backend"))
+
+    now = NodeNow.model_validate(result["now"])
+    assert sampled == [ui_runtime.page_of("backend")]
+    (box,) = now.containers
+    assert (box.name, box.state, box.restarts) == ("worker-system-1", "running", 0)
+    assert (box.memory_mb, box.memory_limit_mb, box.memory_percent) == (200, 1024, 19.5)
+    assert box.cpu_percent == 1.5
+
+
+@pytest.mark.usefixtures("status")
+async def test_health_of_a_part_says_what_its_containers_use(
+    sampled: list[str],
+) -> None:
+    """Asked what is happening on a worker, she reaches for health: it
+    carries the same containers as the part's ontology answer."""
+    result = result_data(await tools.health(component="component:worker"))
+
+    assert sampled == [ui_runtime.page_of("worker")]
+    (box,) = [ContainerNow.model_validate(c) for c in result["containers"]]
+    assert (box.memory_mb, box.memory_limit_mb) == (200, 1024)
+
+
 @pytest.mark.usefixtures("model", "status")
 async def test_a_table_has_no_now() -> None:
     """What is live is a part's: a table is what its code says."""
-    result = await tools.ontology(node="object:payment_charge")
+    result = result_data(await tools.ontology(node="object:payment_charge"))
 
     assert result["now"] is None
 
@@ -648,7 +819,7 @@ def found(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_a_part_says_what_its_code_breaks() -> None:
     """The findings the map shows on a part, on its node: what she reads to
     say how it is built, not only how it is doing."""
-    result = await tools.ontology(node="service:payment")
+    result = result_data(await tools.ontology(node="service:payment"))
 
     findings = [Finding.model_validate(f) for f in result["findings"]]
     assert [f.subject for f in findings] == ["service:payment"]
@@ -657,7 +828,7 @@ async def test_a_part_says_what_its_code_breaks() -> None:
 
 @pytest.mark.usefixtures("model", "status", "found")
 async def test_a_table_has_no_findings() -> None:
-    result = await tools.ontology(node="object:payment_charge")
+    result = result_data(await tools.ontology(node="object:payment_charge"))
 
     assert result["findings"] == []
 
@@ -665,8 +836,8 @@ async def test_a_table_has_no_findings() -> None:
 @pytest.mark.usefixtures("model")
 async def test_the_path_between_two_nodes_names_each_edge() -> None:
     """Where does the charge route touch the database? Through Payment."""
-    result = await tools.ontology(
-        node="route:POST /api/v1/charge", to="component:database"
+    result = result_data(
+        await tools.ontology(node="route:POST /api/v1/charge", to="component:database")
     )
 
     (path,) = result["paths"]
@@ -690,9 +861,9 @@ async def test_anyone_but_an_admin_reads_only_the_apps_data() -> None:
     """The tables and the changes to them are anyone's to ask about; the
     routes, containers and providers behind them an admin's."""
     with acting_as(None, "assistant", admin=False):
-        summary = await tools.ontology()
-        routes = await tools.ontology(kind="route")
-        table = await tools.ontology(node="object:payment_charge")
+        summary = result_data(await tools.ontology())
+        routes = result_data(await tools.ontology(kind="route"))
+        table = result_data(await tools.ontology(node="object:payment_charge"))
     assert summary["counts"] == {"object": 2, "change": 1}
     assert "parts" not in summary
     assert summary["tables"]["service:payment"]["payment_charge"] == [
@@ -706,13 +877,13 @@ async def test_anyone_but_an_admin_reads_only_the_apps_data() -> None:
         await tools.ontology(node="service:payment")
 
     with acting_as(None, "assistant", admin=True):
-        assert (await tools.ontology(kind="route"))["total"] == 151
+        assert (result_data(await tools.ontology(kind="route")))["total"] == 151
 
 
 async def test_a_routes_dry_path_is_an_admins(app: object) -> None:
     """Every hop it can take, each at its line: the code's, so an admin's."""
     with acting_as(None, "assistant", admin=True):
-        result = await tools.ontology(route="GET /health/detailed")
+        result = result_data(await tools.ontology(route="GET /health/detailed"))
     hops = result["dry_path"]["hops"]
     assert hops[0]["kind"] == "handler" and hops[0]["path"].startswith("app/")
     with acting_as(None, "assistant", admin=False), pytest.raises(ValueError):
@@ -731,3 +902,77 @@ async def test_a_routes_dry_path_is_hidden_with_the_code(
         monkeypatch.setattr(settings, "OVERSEER_CODE_ENABLED", False)
     with acting_as(None, "assistant", admin=True), pytest.raises(ValueError):
         await tools.ontology(route="GET /health/detailed")
+
+
+@pytest.fixture
+def declared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two parts' aggregates."""
+    from contextlib import nullcontext
+
+    from pydantic import BaseModel
+
+    from app.core import aggregates
+    from app.core.aggregates import Aggregate
+    from app.core.cache import CacheService
+    from app.core.figures import FIGURES
+
+    class Counted(BaseModel):
+        model_config = FIGURES
+
+        by: dict[str, int]
+
+    async def runs(session: object, days: int | None) -> Counted:
+        return Counted(by={"backup": 3 if days == 7 else 9})
+
+    async def tags(session: object, days: int | None) -> Counted:
+        return Counted(by={"tax": 2})
+
+    found = {
+        "scheduler.runs": Aggregate("runs", "Job runs by job", runs),
+        "documents.tags": Aggregate("tags", "Documents by tag", tags),
+    }
+    monkeypatch.setattr(aggregates, "declared", lambda: found)
+    cache = CacheService()
+    monkeypatch.setattr(aggregates, "get_cache", lambda: cache)
+    monkeypatch.setattr(aggregates, "_session", nullcontext)
+
+
+@pytest.mark.usefixtures("declared")
+async def test_the_aggregates_say_what_each_counts_and_the_windows() -> None:
+    from app.core import ranges
+    from app.services.system.aggregate_reads import aggregate
+
+    listed = result_data(await aggregate())
+
+    assert listed["aggregates"] == [
+        {"name": "documents.tags", "about": "Documents by tag"},
+        {"name": "scheduler.runs", "about": "Job runs by job"},
+    ]
+    assert listed["windows"] == list(ranges.DAYS)  # never "everything"'s 9999
+
+
+@pytest.mark.usefixtures("declared")
+async def test_an_aggregate_reads_as_figures() -> None:
+    from app.services.system.aggregate_reads import aggregate
+
+    assert result_data(await aggregate("scheduler.runs", 7)) == {"by": {"backup": 3}}
+    assert result_data(await aggregate("scheduler.runs")) == {"by": {"backup": 9}}
+
+
+def test_the_aggregates_are_an_admins() -> None:
+    """An operator's figures: the whole tool is an admin's, refused to
+    anyone else before it runs, and hidden from a non-admin MCP token."""
+    found = get_tool("aggregate")
+    assert found is not None and found.admin and found.effect == "read"
+
+
+@pytest.mark.usefixtures("declared")
+def test_the_app_map_names_each_aggregate() -> None:
+    """She uses what her map names (the worker queues, 2026-10-25)."""
+    from app.services.system.aggregate_reads import listed
+
+    assert listed() == (
+        "Aggregates (the aggregate tool reads each; days 1, 7, 14, 30, 90, "
+        "365 or all):\n- documents.tags: Documents by tag\n"
+        "- scheduler.runs: Job runs by job"
+    )

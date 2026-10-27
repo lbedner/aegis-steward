@@ -430,10 +430,19 @@ btn btn-outline {{ {"sm": "btn-sm", "xs": "btn-xs"}[size] }} {{ tones.get(tone, 
    so it doesn't accidentally submit a form it's nested inside — pass
    ``type="submit"`` explicitly when you want submit semantics. ``attrs``
    lets the caller pass arbitrary attributes (Alpine ``@click``,
-   ``:disabled``, ``aria-*``) without bloating the macro signature. #}
+   ``:disabled``, ``aria-*``) without bloating the macro signature. One
+   button height: it stands as tall as the actions beside it (Add account
+   beside Import); only a form's full-width submit is larger. #}
 {% macro primary_button(label, type="button", attrs="") %}
 <button type="{{ type }}" {{ attrs|safe }}
-  class="{{ button_classes() }}">{{ label }}</button>
+  class="{{ button_classes("primary", "xs") }}">{{ label }}</button>
+{% endmacro %}
+
+{# A file input behind a button-styled label: picking a file submits its
+   form (``name="file"``). #}
+{% macro file_button(id, label, accept=None) %}
+<input id="{{ id }}" type="file" name="file" required {% if accept %}accept="{{ accept }}"{% endif %} class="sr-only" @change="$el.form.requestSubmit()">
+<label for="{{ id }}" class="{{ button_classes("primary", "xs") }}">{{ label }}</label>
 {% endmacro %}
 
 {# Primary submit button with an inline loading spinner. Parent scope must

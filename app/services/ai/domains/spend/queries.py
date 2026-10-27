@@ -11,7 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.services.ai.domains.spend.recording import VOICE_ACTIONS
 from app.services.ai.models.llm import LLMUsage
-from app.services.shared.queries import within
+from app.services.shared.queries import day_of, within
 
 from .schemas import ActionSpend
 
@@ -27,10 +27,7 @@ async def daily_spend(
         .where(*within(LLMUsage.timestamp, start, end))
         .group_by(day)
     )
-    return {
-        (d if isinstance(d, date) else date.fromisoformat(str(d))): float(cost or 0)
-        for d, cost in rows.all()
-    }
+    return {date.fromisoformat(day_of(d)): float(cost or 0) for d, cost in rows.all()}
 
 
 async def spend_by_action(

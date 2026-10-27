@@ -13,28 +13,28 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from app.core import secrets, source_index
-from app.core.constants import ComponentName
 from app.core.formatting import counted
 from app.core.ontology import EdgeKind, Kind, SystemModel, calls
-from app.core.ontology.model import node_id, parse_node_id
+from app.core.ontology.model import node_id
 from app.core.ownership import HOST
 from app.core.source_index import Module
 from app.services.system import service_parts, service_pieces, topology
 from app.services.system.service_pieces import Piece
+from app.services.system.staged_paths import CODE, OUTSIDE, registry_of
 from app.services.system.ui import (
     get_component_title,
     is_service,
     registry_entry,
-    registry_key,
 )
 
 from . import overseer_code, overseer_map, overseer_secrets
 
-OUTSIDE = "outside:"  # an outside provider's node key, before its name
 # What hangs off a piece, counted on it: the model's nodes its modules define.
 HANGING = {
     Kind.ROUTE: "route",
     Kind.JOB: "job",
+    Kind.QUEUE: "queue",
+    Kind.TASK: "task",
     Kind.TOOL: "tool",
     Kind.CHANGE: "change type",
     Kind.OBJECT: "table",
@@ -47,16 +47,25 @@ Tones = dict[Pair, dict[str, Any]]
 @dataclass(frozen=True)
 class Path:
     """The way a request went through a level: the parts, in the order it
-    reached them, and the lines it went along (``along_server``)."""
+    reached them, and the lines it went along (``along_server``); of them,
+    the ones seen in traffic only (unknown: the ones the level has none
+    for, as a request's are)."""
 
     nodes: list[str]
     links: list[Pair]
+    seen: frozenset[Pair] | None = None
 
 
 RAIL = 3  # ponytail: a part this many pieces use rides the rail; tune by eye
 HOLDS = 12  # what a piece's hint names of what it holds; the rest counted
 # What each tone ``_tones`` gives a line means: the map's key.
 LINE_KEY = {"error": "Skips the facade, or a loop", "warn": "Goes back a lane"}
+# What each way a line is drawn means (``_overview_map.html``), by its flag.
+LINE_STYLES = {
+    "queued": "Handed to the queue",
+    "observed": "Seen in traffic, not in the code",
+    "key": "A key it needs is not set",
+}
 # Each module's code nodes by kind: each one's name, and the top-level name
 # defining it there (a table's class), where its code opens.
 Held = dict[str, dict[Kind, list[tuple[str, str]]]]
@@ -65,23 +74,6 @@ Held = dict[str, dict[Kind, list[tuple[str, str]]]]
 # the model last read (``current``'s, one a process once built).
 _read: dict[str, tuple[list[Piece], Lines]] = {}
 _held: tuple[SystemModel | None, Held] = (None, {})
-
-
-def registry_of(node_id: str) -> str:
-    """A model node's id as the map keys it: a service by its registry key
-    (a service and a component may share a name), an outside provider as
-    ``outside:<name>``, a component by its name; a sub-part as its part,
-    on whose card it is drawn (RAG's, AI's), and a table as the database
-    holding it."""
-    kind, name = parse_node_id(node_id)
-    if kind is Kind.EXTERNAL:
-        return OUTSIDE + name
-    if kind is Kind.OBJECT:
-        return ComponentName.DATABASE.value
-    name = name.partition(".")[0]
-    if kind is Kind.SERVICE:
-        return registry_key("services", name)
-    return name
 
 
 def _reaches(model: SystemModel, keys: set[str]) -> dict[str, list[str]]:
@@ -139,14 +131,7 @@ def pieces_of(subject: str, model: SystemModel) -> tuple[list[Piece], Lines]:
 
 
 def _pieces(subject: str, ids: set[str]) -> tuple[list[Piece], Lines]:
-    folder = next(
-        (
-            i.target
-            for i in service_parts.report().instances
-            if i.label == subject and i.target.held
-        ),
-        None,
-    )
+    folder = service_pieces.folder_of(subject)
     if folder is None:
         return [], {}
     found = service_pieces.pieces(folder)
@@ -379,7 +364,8 @@ def along_server(
     callers = [
         key for key in found if key not in targets or any(a == key for a, _ in went)
     ]
-    seen = {pair: {"observed": True} for pair in went if pair not in shape.links}
+    only = path.seen if path.seen is not None else set(went) - set(shape.links)
+    seen = {pair: {"observed": True} for pair in went if pair in only}
     calls = {key: [b for a, b in went if a == key] for key in callers}
     return list(found.values()), topology.zoomed(callers, calls), seen
 
@@ -411,6 +397,16 @@ def _on(
         for key in path.nodes
         if key in items or key.startswith(OUTSIDE)
     }
+    # A queue or a task, where a line joins it to what is drawn: a queue
+    # under the queue component, its tasks under it.
+    code = [key for key in path.nodes if key.partition(":")[0] in CODE]
+    while joined := [
+        key
+        for key in code
+        if key not in found
+        and any(key in pair and set(pair) & set(found) for pair in path.links)
+    ]:
+        found |= {key: _code(key) for key in joined}
     return found, [(a, b) for a, b in path.links if a in found and b in found]
 
 
@@ -426,12 +422,16 @@ def _laned(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def title_of(key: str) -> str:
-    """What a map key is called: an outside provider by its name."""
-    return (
-        key.removeprefix(OUTSIDE)
-        if key.startswith(OUTSIDE)
-        else get_component_title(key)
-    )
+    """What a map key is called: an outside provider, a queue or a task by
+    its name."""
+    kind, _, name = key.partition(":")
+    return name if key.startswith(OUTSIDE) or kind in CODE else get_component_title(key)
+
+
+def _code(key: str) -> dict[str, Any]:
+    """A worker's queue or task as a node of its own: its name, and what it
+    is under it."""
+    return _node(key, title_of(key), CODE[key.partition(":")[0]])
 
 
 def _outside(key: str) -> dict[str, Any]:

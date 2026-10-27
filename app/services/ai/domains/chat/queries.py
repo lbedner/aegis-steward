@@ -23,7 +23,9 @@ from app.services.ai.models.agents import (
     AgentUserMemory,
     MemoryModule,
 )
+from app.services.ai.models.conversation import ConversationStats
 from app.services.ai.models.sentiment import SentimentAnalysis
+from app.services.shared.queries import within
 
 # --- Conversations (ConversationManager) --------------------------------
 
@@ -62,6 +64,20 @@ async def message_count(session: AsyncSession) -> int:
     return (
         await session.exec(select(func.count()).select_from(ConversationMessage))
     ).one()
+
+
+async def conversation_stats(session: AsyncSession) -> ConversationStats:
+    """How much has been said, across every user."""
+    conversations = await conversation_count(session)
+    messages = await message_count(session)
+    return ConversationStats(
+        total_conversations=conversations,
+        total_messages=messages,
+        unique_users=await distinct_user_count(session),
+        average_messages_per_conversation=(
+            messages / conversations if conversations else 0
+        ),
+    )
 
 
 async def distinct_user_count(session: AsyncSession) -> int:
@@ -168,32 +184,44 @@ async def unscored_conversations(
     ).all()
 
 
-async def sentiment_counts(session: AsyncSession) -> Sequence[tuple[str, int]]:
+async def sentiment_counts(
+    session: AsyncSession, since: datetime | None = None
+) -> Sequence[tuple[str, int]]:
     return (
         await session.exec(
             select(
                 SentimentAnalysis.overall_sentiment,
                 func.count(),  # type: ignore[arg-type]
-            ).group_by(SentimentAnalysis.overall_sentiment)  # type: ignore[arg-type]
+            )
+            .where(*within(SentimentAnalysis.created_at, since, None))
+            .group_by(SentimentAnalysis.overall_sentiment)  # type: ignore[arg-type]
         )
     ).all()
 
 
-async def performance_counts(session: AsyncSession) -> Sequence[tuple[str, int]]:
+async def performance_counts(
+    session: AsyncSession, since: datetime | None = None
+) -> Sequence[tuple[str, int]]:
     return (
         await session.exec(
             select(
                 SentimentAnalysis.assistant_performance,
                 func.count(),  # type: ignore[arg-type]
-            ).group_by(SentimentAnalysis.assistant_performance)  # type: ignore[arg-type]
+            )
+            .where(*within(SentimentAnalysis.created_at, since, None))
+            .group_by(SentimentAnalysis.assistant_performance)  # type: ignore[arg-type]
         )
     ).all()
 
 
-async def average_sentiment_score(session: AsyncSession) -> float | None:
+async def average_sentiment_score(
+    session: AsyncSession, since: datetime | None = None
+) -> float | None:
     return (
         await session.exec(
-            select(func.avg(SentimentAnalysis.overall_score))  # type: ignore[arg-type]
+            select(func.avg(SentimentAnalysis.overall_score)).where(  # type: ignore[arg-type]
+                *within(SentimentAnalysis.created_at, since, None)
+            )
         )
     ).one_or_none()
 

@@ -4,15 +4,20 @@ labels and totals over them. Writes stay in ``service.py``.
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
 
 from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.time import utcnow
-from app.services.documents.models import Document, DocumentPage, DocumentTag
-from app.services.shared.queries import owner_filters
+from app.services.documents.models import (
+    Document,
+    DocumentPage,
+    DocumentSummary,
+    DocumentTag,
+)
+from app.services.shared.queries import owner_filters, within
 
 
 async def document_by_content(
@@ -129,8 +134,8 @@ async def documents_page(
 
 async def store_summary(
     db: AsyncSession, *, owner_user_id: int | None = None
-) -> dict[str, Any]:
-    """What the card shows: how much paper, how recent, how heavy."""
+) -> DocumentSummary:
+    """The ``DocumentSummary``: one grouped read and one count."""
     live = Document.deleted_at.is_(None)
     if owner_user_id is not None:
         live = live & (Document.owner_user_id == owner_user_id)
@@ -153,22 +158,27 @@ async def store_summary(
             .where(live, Document.received_at >= month_start)
         )
     ).one()
-    return {
-        "total": sum(int(n) for _, n, _ in by_kind),
-        "this_month": int(this_month),
-        "bytes": sum(int(b) for _, _, b in by_kind),
-        "by_kind": {kind: int(n) for kind, n, _ in by_kind},
-    }
+    return DocumentSummary(
+        total=sum(int(n) for _, n, _ in by_kind),
+        this_month=int(this_month),
+        bytes=sum(int(b) for _, _, b in by_kind),
+        by_kind={kind: int(n) for kind, n, _ in by_kind},
+    )
 
 
 async def tag_counts(
-    db: AsyncSession, *, owner_user_id: int | None = None
+    db: AsyncSession,
+    *,
+    owner_user_id: int | None = None,
+    since: datetime | None = None,
 ) -> list[tuple[str, int]]:
-    """Every label in use on live documents, most used first."""
+    """Every label in use on live documents (stored since ``since``, when
+    given), most used first."""
     query = (
         select(DocumentTag.label, func.count())
         .join(Document, Document.id == DocumentTag.document_id)
         .where(Document.deleted_at.is_(None))
+        .where(*within(Document.created_at, since, None))
     )
     query = query.where(*owner_filters(Document.owner_user_id, owner_user_id))
     rows = (

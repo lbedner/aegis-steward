@@ -20,7 +20,7 @@ class TaskRequest(BaseModel):
 
     task_name: str = Field(..., description="Name of the task function to execute")
     queue_type: str = Field(
-        QueueName.SYSTEM, description="Functional queue type: media or system"
+        QueueName.SYSTEM, description="Functional queue type: system or load_test"
     )
     args: list[Any] = Field(
         default_factory=list, description="Positional arguments for the task"
@@ -108,7 +108,7 @@ class LoadTestRequest(BaseModel):
     )
     target_queue: str = Field(
         QueueName.LOAD_TEST,
-        description="Which queue to test (system, media, or load_test)",
+        description="Which queue to test (system or load_test)",
         pattern=f"^({'|'.join(QueueName)})$",
     )
 
@@ -159,7 +159,7 @@ class LoadTestRequest(BaseModel):
                     "task_type": "memory_operations",
                     "batch_size": 25,
                     "delay_ms": 0,
-                    "target_queue": QueueName.MEDIA,
+                    "target_queue": QueueName.SYSTEM,
                     "expected_work": (
                         "Memory: allocation patterns, data manipulation, cleanup"
                     ),

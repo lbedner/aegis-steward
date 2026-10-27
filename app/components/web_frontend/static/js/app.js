@@ -217,15 +217,13 @@ document.addEventListener('click', (event) => {
   const tab = event.target.closest('[data-tab]');
   if (tab) showTab(tab.closest('[data-tabs]'), tab.dataset.tab);
 });
-document.body.addEventListener('htmx:load', (event) => {
-  const root = event.detail.elt;
-  if (!root.querySelectorAll) return;
-  const all = [...(root.matches('[data-tabs]') ? [root] : []), ...root.querySelectorAll('[data-tabs]')];
+function restoreTabs(root) {
+  const all = [...(root.matches?.('[data-tabs]') ? [root] : []), ...root.querySelectorAll('[data-tabs]')];
   for (const tabs of all) {
     const picked = pickedTabs[tabs.dataset.tabs];
     if (picked && tabs.querySelector(`:scope > [data-tab-panel="${picked}"]`)) showTab(tabs, picked);
   }
-});
+}
 // A fold (``<details data-fold="name">``) remembers whether it was opened or
 // closed, by name, so a block that re-sends itself (the worker's queues over
 // SSE) keeps what was folded. ``toggle`` does not bubble: caught on the way down.
@@ -234,13 +232,23 @@ document.addEventListener('toggle', (event) => {
   const fold = event.target;
   if (fold.matches?.('details[data-fold]')) folds[fold.dataset.fold] = fold.open;
 }, true);
-document.body.addEventListener('htmx:load', (event) => {
-  const root = event.detail.elt;
-  if (!root.querySelectorAll) return;
+function restoreFolds(root) {
   for (const fold of root.querySelectorAll('details[data-fold]')) {
     if (fold.dataset.fold in folds) fold.open = folds[fold.dataset.fold];
   }
-});
+}
+// The tabs picked and the folds left, back on whatever htmx brings in;
+// again the moment new content is in, before the browser paints it: htmx
+// fires ``load`` only once the swap settles, a frame later, and a view
+// re-reading itself every few seconds would flash its first tab, and shut
+// the folds held open, each time.
+function restoreView(root) {
+  if (!root?.querySelectorAll) return;
+  restoreTabs(root);
+  restoreFolds(root);
+}
+document.body.addEventListener('htmx:load', (event) => restoreView(event.detail.elt));
+document.body.addEventListener('htmx:afterSwap', () => restoreView(document.body));
 // Something in a hidden panel is shown before it is reached: a note's
 // line in the transcript, a ``data-scroll-to`` target, a search hit.
 function revealTab(target) {
@@ -268,6 +276,17 @@ document.addEventListener('click', (event) => {
 document.body.addEventListener('htmx:responseError', (event) => {
   if (event.detail.elt.dataset.apiDone !== undefined) return; // told below
   toast(`Request failed (${event.detail.xhr.status})`, 'error');
+});
+
+// A 422 swaps for the form it re-renders (base.html). One that is not HTML
+// (a service's refusal, FastAPI's own validation) would swap its JSON in
+// and blank its target: it is the error toast instead.
+document.body.addEventListener('htmx:beforeSwap', (event) => {
+  const { xhr, elt } = event.detail;
+  const type = xhr.getResponseHeader('Content-Type') || '';
+  if (xhr.status !== 422 || type.startsWith('text/html')) return;
+  event.detail.shouldSwap = false;
+  if (elt.dataset.apiDone === undefined) toast(apiDetail(xhr), 'error'); // told below
 });
 
 // A button that calls the JSON API directly (the Overseer's Authentication
@@ -890,11 +909,12 @@ document.addEventListener('input', (event) => {
 // page's): only the window asks the server; everything else narrows the
 // rows already here, new ones included (``showRows``), with no request.
 // Each checklist (``data-checklist``) keeps a row any of its ticks match
-// (``data-facet-<name>`` on the row: a level, a service, a container); an
+// (``data-facet-<name>`` on the row: a level, a service, a container; a
+// row with several, a voice's models, holds them space-separated); an
 // empty one keeps every row; every one must keep it. ``kept`` is that rule
 // on a row's values (``of(name)``).
 function kept(groups, of) {
-  return groups.every((ticks) => ticks.some(([name, value]) => of(name) === value));
+  return groups.every((ticks) => ticks.some(([name, value]) => (of(name) || '').split(' ').includes(value)));
 }
 function facetsOf(list) {
   return [...document.querySelectorAll('form[data-facets]')].find((form) => list.matches(form.dataset.facets));

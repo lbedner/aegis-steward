@@ -652,13 +652,27 @@ class TestDrawer:
         page = client.get("/chat").text
         one(page, "#chat-composer textarea.basis-full.sm\\:basis-auto")
 
-    def test_the_button_is_an_icon_on_a_phone(
-        self, client: TestClient, ledger: Ledger
-    ) -> None:
-        """On a phone the labelled pill sat on balances and amounts (#470);
-        the word stays for a screen reader and comes back at ``sm``."""
+    def test_the_button_is_her_shield(self, client: TestClient, ledger: Ledger) -> None:
+        """Her rose shield, at every width: the labelled pill sat on
+        balances and amounts on a phone (#470). Its name is the button's
+        label, so the picture says nothing to a screen reader."""
         page = client.get("/overview").text
-        one(page, "#illiana-fab span.sr-only.sm\\:not-sr-only")
+        shield = one(page, "#illiana-fab img")
+        assert "illiana" in shield.get("src")
+        assert shield.get("alt") == ""
+        none(page, "#illiana-fab svg")
+
+    def test_nothing_is_drawn_around_her_shield(self) -> None:
+        """The picture is cut out with its own glow; the pill's shadow,
+        kept on the button, drew a dark square around it."""
+        from pathlib import Path
+
+        import app
+
+        css = (
+            Path(app.__file__).parent / "components/web_frontend/static/input.css"
+        ).read_text()
+        assert "\n#illiana-fab {" not in css
 
     def test_the_panel_lets_a_click_reach_the_script(
         self, client: TestClient, ledger: Ledger
