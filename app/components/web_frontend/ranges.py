@@ -1,19 +1,22 @@
-"""The time windows the range chips offer.
+"""The time windows the range chips offer, and what a page does with one.
 
-One vocabulary for every chip row in the app. A window is a number of
-days; ``ALL`` is the "everything" chip. ``since()`` turns a window into
-the date a filter should start at, which is what the ledger pages need;
-the summary pages hand their day count to the API instead.
+The vocabulary (``ALL``, ``WINDOWS``, ``since``) is the app's
+(``app.core.ranges``), shared with every read that takes a window; what
+is here is the web's: a picked from-to range, the one this browser last
+picked, a value history's longer chips and its purchase windows.
 """
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Annotated, Any
 
 from fastapi import Depends, Query, Request, Response
 from pydantic import BeforeValidator
 
+from app.core.ranges import ALL
+from app.core.ranges import WINDOWS as WINDOWS
+from app.core.ranges import since as since
 from app.core.time import today
 
 
@@ -88,25 +91,6 @@ def date_params(start: date | None, end: date | None) -> dict[str, str]:
     return {name: day.isoformat() for name, day in picked.items() if day is not None}
 
 
-# Big enough to mean "no cutoff", small enough to stay a plain int in a
-# query string. The API's own windows cap at 3650 days, so a summary
-# page's "All" is that ceiling rather than this.
-ALL = 9999
-
-# One set of chips, everywhere. The pages differ in what a window means
-# (how far back the ledger reads, how far forward the forecast runs), not
-# in what it is called, so the row reads the same wherever it appears.
-WINDOWS: tuple[tuple[int, str], ...] = (
-    (1, "1d"),
-    (7, "7d"),
-    (14, "14d"),
-    (30, "1m"),
-    (90, "3m"),
-    (365, "1y"),
-    (ALL, "All"),
-)
-
-
 # The same chips at a different scale. A ledger is read in days and a
 # house is held in decades, so a value history offers years - but it is
 # the same row, the same field and the same ``since()``, because a second
@@ -134,13 +118,6 @@ PURCHASE_WINDOWS: tuple[tuple[int, str], ...] = (
 def relative_to_purchase(days: int) -> bool:
     """Whether this window is measured from the purchase, not from today."""
     return days in {BEFORE_PURCHASE, SINCE_PURCHASE}
-
-
-def since(days: int | None) -> date | None:
-    """The date a window starts at; ``None`` when it means everything."""
-    if days is None or days >= ALL:
-        return None
-    return today() - timedelta(days=days)
 
 
 def horizon(days: int, cap: int, start: date | None = None) -> int:

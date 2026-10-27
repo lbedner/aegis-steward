@@ -16,6 +16,7 @@ from app.core import series
 from app.core.db import get_async_session
 from app.core.log import logger
 from app.core.time import utcnow
+from app.core.tools import current_owner_user_id
 from app.services.ai.domains.llm import queries as llm_queries
 from app.services.ai.models.llm import LLMUsage
 
@@ -140,10 +141,15 @@ def _priced_input_cost(usage: dict[str, int], rates: llm_queries.Rates) -> float
 
 
 async def _write(row: LLMUsage, what: str) -> None:
-    """One ledger row, its model named bare like every other; a failed
+    """One ledger row, its model named bare like every other, and its user
+    whoever it is done for where the caller names none; a failed
     write is logged and swallowed - usage tracking must never fail the
     calling request."""
     row.model_id = _bare_model_name(row.model_id)
+    # Whose it is, where the caller names nobody: whoever it is being done
+    # for (``acting_as``, bound once by a turn or a meeting's bot).
+    owner = current_owner_user_id.get()
+    row.user_id = row.user_id or (None if owner is None else str(owner))
     # Naive UTC: asyncpg rejects an aware value for a ``timestamp without
     # time zone`` column, and the except below would swallow that as a
     # lost row.
@@ -249,11 +255,14 @@ def _measured_cost(
     input_seconds: float | None = None,
     output_seconds: float | None = None,
     characters: int | None = None,
+    tokens: Any = None,
 ) -> float:
     """Each measure times the rate the model lists for it. A model lists
     only the measures it bills by, so the others add nothing."""
     if not rates:
         return 0.0
+    if tokens is not None:
+        return realtime_cost(rates, tokens)
     return (
         (input_seconds or 0) * _rate(rates, "input_cost_per_second")
         + (output_seconds or 0) * _rate(rates, "output_cost_per_second")
@@ -288,16 +297,18 @@ async def record_speech(
     user_id: str | None = None,
     success: bool = True,
     error_message: str | None = None,
+    tokens: Any = None,
 ) -> None:
     """One ledger row for a transcription (``stt``) or spoken reply
-    (``tts``), beside the model calls. Tokens are 0: speech reports none."""
+    (``tts``), beside the model calls. Its tokens are a realtime model's
+    (``tokens``); a model billed by the second or character reports none."""
     await _write(
         LLMUsage(
             action=action,
             model_id=model,
             user_id=user_id,
-            input_tokens=0,
-            output_tokens=0,
+            input_tokens=_token_count(tokens, "input_tokens"),
+            output_tokens=_token_count(tokens, "output_tokens"),
             total_cost=cost,
             audio_seconds=seconds,
             duration_ms=duration_ms,

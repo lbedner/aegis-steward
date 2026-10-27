@@ -1,6 +1,6 @@
 """Async scheduled task manager using SQLModel for database abstraction."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, inspect
@@ -24,17 +24,13 @@ class ScheduledTaskManager:
     """
 
     async def has_persistence(self) -> bool:
-        """Check if apscheduler_jobs table exists."""
-        try:
-            async with async_engine.begin() as conn:
-                # Use inspector to check tables
-                tables = await conn.run_sync(
-                    lambda sync_conn: inspect(sync_conn).get_table_names()
-                )
-                return "apscheduler_jobs" in tables
-        except Exception as e:
-            logger.error(f"Error checking persistence: {e}")
-            return False
+        """Whether the apscheduler_jobs table exists. A database that cannot
+        be read raises: it is an error, not a missing table."""
+        async with async_engine.begin() as conn:
+            tables = await conn.run_sync(
+                lambda sync_conn: inspect(sync_conn).get_table_names()
+            )
+            return "apscheduler_jobs" in tables
 
     async def list_tasks(self) -> list[ScheduledTask]:
         """
@@ -107,7 +103,9 @@ class ScheduledTaskManager:
             schedule=describe_trigger(job_data.get("trigger")),
             trigger_type=trigger_kind(job_data.get("trigger")),
             next_run_time=(
-                datetime.fromtimestamp(job.next_run_time) if job.next_run_time else None
+                datetime.fromtimestamp(job.next_run_time, UTC)
+                if job.next_run_time
+                else None
             ),
             status="active" if job.next_run_time else "paused",
             max_instances=job_data.get("max_instances", 1),

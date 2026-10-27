@@ -5,9 +5,9 @@ Steward is an Aegis Stack project ported by hand, not by `aegis update`
 only where steward's shared files read as the template's do (#505). This
 page is the one list of where they still differ, and why.
 
-Measured against aegis-stack main (850d687) rendered with steward's
-answers (`.copier-answers.yml`), three ways from 44a3670, the commit
-steward last caught up to, 2026-10-22.
+Measured against aegis-stack main (5bb0c7b3) rendered with steward's
+answers (`.copier-answers.yml`), three ways from 850d687, the commit
+steward last caught up to, 2026-10-27 (issue 587).
 
 ## On purpose
 
@@ -61,6 +61,32 @@ steward last caught up to, 2026-10-22.
   The template's later work there (the turn built in `turn.py`, nothing
   live in the prompt, a tool's `ValueError` answered rather than raised,
   voice usage in `llm_usage` alone) lands only as steward's chat takes it.
+- **Voice**: the template's later voice work (Gemini's voices and its
+  voice library, the pronunciation list, realtime speech, voice profiles
+  designed in Overseer) is not taken; steward's voice is its own, as its
+  chat is. OpenAI retires `/v1/audio/speech` (`tts-1`) on 2027-01-06; the
+  template moved to `gpt-realtime-2.1-mini` over the Realtime API, which
+  steward's voice has yet to.
+- **Chat's later additions**: code mode's cards, path cards and
+  `mentions.js` (ask about a transcript line) serve the template's chat
+  surface, so they are not taken. Illiana's shield on the floating button
+  is (`static/illiana.png`).
+- **Tool results**: the template's system tools hand back models, and
+  steward's chat reads dicts, so `with_dollars` reads a model as its JSON
+  data. Finance's tools stay dicts. The template's `requests` tool (the
+  server's kept requests) is `server_requests` here: `requests` is
+  matters'.
+- **The favicon** is steward's brand mark, not the Aegis shield.
+- **`web_frontend/ranges.py`** stays for the web's own parts (a picked
+  range, the remembered one, the longer and purchase windows); the
+  vocabulary is the template's `app.core.ranges`, imported.
+- **Aegis's own standard is steward's too**: the template skips its layout
+  and budget tests outside Aegis's CI (`CONFORMANCE`); steward runs them.
+- **Documents' file response**: `stored_file` already sniffs the type and
+  sandboxes it, so the template's `app.core.untrusted` is not taken.
+- **The AI aggregates** (`ai/aggregates.py`) need spend windows and a
+  sentiment model steward's chat does not have, so the AI part answers no
+  `aggregate` read yet.
 - **The one `AIService`** lives in `app/services/ai/deps.py`, not the
   template's `api/ai/service.py`: a service (its health check) must not
   import a component for it.

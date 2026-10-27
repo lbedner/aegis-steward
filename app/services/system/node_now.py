@@ -1,6 +1,7 @@
 """What is true of a part now (``now``), beside what its code says: the
 ``ontology`` tool's answer for one part carries it. Its health check, the
-errors it owns, and for the AI service what it has spent, each read when
+errors it owns, what each container behind it uses, and for the AI
+service what it has spent, each read when
 asked and stamped with when, so a figure from an earlier turn reads as
 old. And what is wrong across the app right now (``right_now``), the one
 line an assistant's current message carries while something is."""
@@ -9,16 +10,17 @@ import asyncio
 from collections.abc import Iterator, Mapping
 from datetime import datetime
 import json
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, Field
 
 from app.core.edges_http import AI
+from app.core.figures import FIGURES
 from app.core.log import logger
 from app.core.ontology import Kind
-from app.core.ontology.model import Node, PartNode
+from app.core.ontology.model import Node, PartNode, QueueNode
 from app.core.time import utcnow
-from app.services.system import live_status, ui_errors
+from app.services.system import live_status, ui_errors, ui_runtime
 from app.services.system.errors.models import ErrorIssue
 from app.services.system.errors.read import search
 from app.services.system.errors.store import ErrorStore
@@ -27,10 +29,11 @@ from app.services.system.models import ComponentStatus, ComponentStatusType
 # The most issues a part's ``now`` lists, latest first; ``errors_total``
 # counts them all.
 NOW_ERRORS = 5
-# What an agent reads: a field that is not one, or a figure changed after
-# it was read, is refused (the AI service's ``schemas.FIGURES``; this
-# module ships where that one does not).
-FIGURES = ConfigDict(frozen=True, extra="forbid")
+# Money as an agent reads it, and says it aloud: to the cent (a ledger's
+# fractions of one were read as more than they are). Less than half of one
+# rounds to none.
+Cents = Annotated[float, AfterValidator(lambda usd: round(usd, 2))]
+HALF_CENT = 0.005
 
 
 class UsageWindow(BaseModel):
@@ -43,20 +46,46 @@ class UsageWindow(BaseModel):
     since: datetime | None
     total_requests: int
     total_tokens: int
-    total_cost: float  # USD
+    total_cost: Cents  # USD
+    # The cost by who served it (``unknown``: a model not in the catalog),
+    # by what it was for (chat, a voice kind) and by ``voice`` or ``text``,
+    # largest first.
+    by_vendor: dict[str, Cents] = Field(default_factory=dict)
+    by_action: dict[str, Cents] = Field(default_factory=dict)
+    by_mode: dict[str, Cents] = Field(default_factory=dict)
+
+
+class ContainerNow(BaseModel):
+    """One container behind a part, as its Overseer page last sampled it:
+    what it uses against what it may (no limit: None), and whether it is
+    up. A stopped one has no figures."""
+
+    model_config = FIGURES
+
+    name: str
+    state: str
+    restarts: int | None
+    uptime_seconds: float | None
+    cpu_percent: float | None
+    memory_mb: float | None
+    memory_limit_mb: float | None
+    memory_percent: float | None
 
 
 class NodeNow(BaseModel):
-    """A part's live state: its health check (None where it has none), the
-    issues it owns, its spend, and when all of it was read."""
+    """A part's or a queue's live state: its health check (None where it
+    has none), the issues it owns, its containers, its spend, and when all
+    of it was read."""
 
     model_config = FIGURES
 
     health: ComponentStatus | None
-    errors: tuple[ErrorIssue, ...]
-    errors_total: int
-    errors_note: str | None  # why errors could not be read, when not
-    spend: tuple[UsageWindow, ...]
+    errors: tuple[ErrorIssue, ...] = ()
+    errors_total: int = 0
+    errors_note: str | None = None  # why errors could not be read, when not
+    containers: tuple[ContainerNow, ...] = ()
+    containers_note: str | None = None  # why there are none, when there are none
+    spend: tuple[UsageWindow, ...] = ()
     read_at: datetime
 
 
@@ -134,23 +163,48 @@ async def right_now() -> RightNow:
     return RightNow(attention=attention(status.components), read_at=utcnow(), note=note)
 
 
-# An agent's copy of a check's details: what fits a prompt. The page
-# shows the rest (every table's schema, every migration). Passwords are
-# already hidden in every check (``ComponentStatus``).
-DETAIL_CHARS = 500
+# An agent's copy of a check's details: what fits a prompt, a few dozen
+# short rows (the scheduler's jobs and when each runs next, a worker's
+# queues). The page shows the rest (every table's schema, every
+# migration). Passwords are already hidden in every check
+# (``ComponentStatus``).
+DETAIL_CHARS = 2_000
+
+
+# Where a node's check sits in the tree, under its group: the load test
+# queue's (``queues``) is not the load test service's.
+GROUPS: dict[str, tuple[str, ...]] = {
+    Kind.COMPONENT: ("components",),
+    Kind.SERVICE: ("services",),
+    Kind.SHARED: ("components", "services"),
+    Kind.QUEUE: ("queues",),
+}
 
 
 def health_of(
-    components: dict[str, ComponentStatus], name: str
+    components: dict[str, ComponentStatus], name: str, within: tuple[str, ...] = ()
 ) -> ComponentStatus | None:
-    """The check named ``name``, wherever it sits in the tree, as an agent
-    reads it (``trimmed``)."""
+    """The check named ``name``, wherever it sits in the tree (only right
+    under a group in ``within``, given any), as an agent reads it
+    (``trimmed``)."""
     for key, component in components.items():
-        if key == name:
+        if key == name and not within:
             return trimmed(component)
-        if found := health_of(component.sub_components, name):
+        if key in within and name in component.sub_components:
+            return trimmed(component.sub_components[name])
+        if found := health_of(component.sub_components, name, within):
             return found
     return None
+
+
+def check_of(
+    components: dict[str, ComponentStatus], node_id: str
+) -> ComponentStatus | None:
+    """The check an ontology id names, under its kind's group
+    (``GROUPS``: ``queue:system`` the system queue's, not the system
+    service's); a bare name, wherever it sits."""
+    kind, _, name = node_id.rpartition(":")
+    return health_of(components, name, GROUPS.get(kind, ()))
 
 
 def trimmed(component: ComponentStatus) -> ComponentStatus:
@@ -174,25 +228,59 @@ def trimmed(component: ComponentStatus) -> ComponentStatus:
 
 
 async def now_of(node: Node) -> NodeNow | None:
-    """``node``'s live state, or None: only a top-level part has one (a
-    sub-part's errors and health are its part's). Its three reads run at
+    """``node``'s live state, or None: only a top-level part and a queue
+    have one (a sub-part's errors and health are its part's; a queue's
+    errors and containers, the worker's). A part's three reads run at
     once."""
+    if isinstance(node, QueueNode):
+        status, _ = await live_status.live_status()
+        return NodeNow(health=check_of(status.components, node.id), read_at=utcnow())
     if not isinstance(node, PartNode) or node.owner is not None:
         return None
     owner = "app_component" if node.kind is Kind.COMPONENT else "app_service"
-    (status, _), found, spend = await asyncio.gather(
+    (status, _), found, (boxes, boxes_note), spend = await asyncio.gather(
         live_status.live_status(),
         ui_errors.load({owner: node.name}, _owned),
+        containers_now(node.name),
         _spend(node),
     )
     return NodeNow(
-        health=health_of(status.components, node.name),
+        health=check_of(status.components, node.id),
         errors=tuple(found["error_rows"]),
         errors_total=found["error_total"],
         errors_note=found["error_note"],
+        containers=boxes,
+        containers_note=boxes_note,
         spend=spend,
         read_at=utcnow(),
     )
+
+
+async def containers_now(part: str) -> tuple[tuple[ContainerNow, ...], str | None]:
+    """The containers on ``part``'s page (``worker``), as last sampled
+    (``ui_runtime.sampled``: no Docker call, none set off), and why there
+    are none."""
+    if (page := ui_runtime.page_of(part)) is None:
+        return (), None
+    view = await ui_runtime.sampled(page)
+    return tuple(_container(row) for row in view["rows"]), view["note"]
+
+
+def _container(row: dict[str, Any]) -> ContainerNow:
+    return ContainerNow(
+        name=row["name"],
+        state=row["state"],
+        restarts=row.get("restarts_value"),
+        uptime_seconds=row.get("uptime_seconds"),
+        cpu_percent=row.get("cpu_value"),
+        memory_mb=_mb(row.get("memory_value")),
+        memory_limit_mb=_mb(row.get("memory_capacity")),
+        memory_percent=row.get("memory_percent"),
+    )
+
+
+def _mb(size: float | None) -> float | None:
+    return None if size is None else round(size / 1024**2, 1)
 
 
 async def _owned(store: ErrorStore, query: Mapping[str, str]) -> dict[str, Any]:

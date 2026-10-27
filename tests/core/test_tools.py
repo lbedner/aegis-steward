@@ -5,15 +5,18 @@ serve them without the AI service.
 """
 
 from collections.abc import Callable
+from datetime import datetime
 import importlib
 import json
 from pathlib import Path
 import subprocess
 import sys
 
+from pydantic import BaseModel
 import pytest
 
 import app
+from app.core.figures import FIGURES
 from app.core.tools import (
     get_tool,
     load_tools,
@@ -21,6 +24,8 @@ from app.core.tools import (
     native_write_tool_names,
     register_tool,
     registered_tool_names,
+    result_data,
+    result_text,
     unregister_tool,
 )
 
@@ -110,12 +115,21 @@ EXPECTED_EFFECTS = {
     "health": "read",
     "errors": "read",
     "logs": "read",
+    # Overseer's kept requests, named apart from matters' requests.
+    "server_requests": "read",
     "ontology": "read",
+    # What each part holds, as figures: counts and sums, never rows.
+    "aggregate": "read",
+    # What the app holds: its database (with that component) and buckets.
+    "query": "read",
+    "storage": "read",
     "plugins": "read",
     "research_search": "read",
     "research_thread": "read",
     "research_history": "read",
     "meetings_search": "read",
+    # What an agent knows: its knowledge bases, searched.
+    "knowledge": "read",
     "record_reading": "writes",
     # Steward's memory tools file a card the user approves.
     "save_memory": "proposes",
@@ -228,3 +242,25 @@ def test_a_services_tools_module_loads_without_editing_anything(
     load_tools()
 
     assert "demo_lookup" in registered_tool_names()
+
+
+class _Proposed(BaseModel):
+    model_config = FIGURES
+
+    pending_change_id: int
+    change_type: str
+    at: datetime
+
+
+def test_a_tools_model_reads_back_as_its_json() -> None:
+    """A tool hands back a model: every surface that keeps or shows its
+    result as text (the trace, a LangChain turn) gets its JSON, never its
+    repr."""
+    proposed = _Proposed(
+        pending_change_id=7, change_type="tag", at=datetime(2026, 10, 26)
+    )
+    shape = {"pending_change_id": 7, "change_type": "tag", "at": "2026-10-26T00:00:00"}
+
+    assert json.loads(result_text(proposed)) == shape
+    assert result_data([proposed]) == [shape]
+    assert result_text("refused: no such tag") == "refused: no such tag"

@@ -15,6 +15,12 @@
   html {
     font-size: var(--aegis-scale);
   }
+  /* No rubber-band bounce past a page's ends (macOS, iOS): an app's
+     surfaces stay put; a scroll inside one (a thread) stops at its edge. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
 }
 
 @layer components {
@@ -532,7 +538,7 @@
   /* Every hover hint's panel (popover_panel, the map's hints). */
   .tooltip-panel { @apply bg-aegis-card border border-aegis-border rounded-lg shadow-lg text-xxs normal-case tracking-normal text-aegis-muted text-left; }
   .map-link:is([data-tone="warn"], [data-tone="error"]) { @apply opacity-100; }
-  .map-link[data-queued] { stroke-dasharray: 5 4; }
+  .map-link[data-queued] { stroke-dasharray: 8 5; }
   .map-link[data-key] { stroke-dasharray: 1 4; stroke-linecap: round; }
   /* A data node's outline: its tone's stroke (inherited from .tone-border),
      filled like a card so the lines behind it stop at its edge. */
@@ -789,13 +795,6 @@ html:not([data-assistant="hide"]) #app-content:not(:has(#chat, .overseer-page)),
 html:not([data-assistant="hide"])
   .overseer-page:not([data-width="workspace"]):not(:has(#chat, .overseer-fill)) {
   padding-bottom: 5.5rem;
-}
-
-/* The assistant button is the one floating thing that is also the
-   accent: it glows. Outside the components layer, which only keeps rules
-   whose class appears in a template; this one is keyed on an id. */
-#illiana-fab {
-  box-shadow: var(--aegis-edge), var(--aegis-lift), var(--aegis-glow);
 }
 
 /* A highlighted script or JSON (the ``code`` filter's pygments classes),

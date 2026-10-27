@@ -186,6 +186,19 @@ class TestMatrix:
         for body in daisy_themes.values():
             assert len([k for k in body if k.startswith("--aegis-chart-")]) >= 8
 
+    def test_the_ramp_is_one_size_everywhere_it_is_counted(self) -> None:
+        """The theme's ramp, Flet's, the htmx charts' cycle and the colors a
+        logs page is given: one count, or the two UIs color the same thing
+        apart."""
+        from app.components.frontend.dashboard.modals.modal_sections.chart_primitives import (
+            ChartColors,
+        )
+        from app.core.constants import CHART_RAMP
+
+        charts = (WEB / "static/js/charts.js").read_text()
+        cycle = re.search(r"const RAMP = (\d+);", charts)
+        assert cycle and int(cycle[1]) == CHART_RAMP == len(ChartColors.RAMP)
+
     def test_tailwind_colors_read_daisyui_variables(self) -> None:
         """``bg-aegis-card`` and friends keep working; the values come from
         the active DaisyUI theme rather than a second table."""

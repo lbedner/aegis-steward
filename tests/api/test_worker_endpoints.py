@@ -64,6 +64,10 @@ class TestWorkerEndpoints:
 
         app.dependency_overrides.clear()
 
+        # Clean up after test: what the startup hooks began, stopped (left
+        # running, the test's loop waits 300s for it as it closes).
+        await backend_hooks.execute_shutdown_hooks()
+
     # These two enqueue tests patch arq's ``create_pool``; dramatiq and
     # taskiq pools expose a broker API instead and need their own tests.
     @patch("app.components.worker.pools.create_pool")

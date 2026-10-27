@@ -21,6 +21,7 @@ from app.services.documents.models import (
     DOCUMENT_KINDS,
     TAX_FORMS,
     Document,
+    DocumentSummary,
     DocumentTag,
     utcnow,
 )
@@ -327,8 +328,8 @@ class DocumentService:
             seen.add(target.id or 0)
             target = await self.get(target.supersedes_id, owner_user_id=owner_user_id)
 
-    async def summary(self, *, owner_user_id: int | None = None) -> dict[str, Any]:
-        """What the card shows: how much paper, how recent, how heavy."""
+    async def summary(self, *, owner_user_id: int | None = None) -> DocumentSummary:
+        """The store's ``DocumentSummary``, one owner's or everyone's."""
         return await queries.store_summary(self.db, owner_user_id=owner_user_id)
 
     async def tag_counts(

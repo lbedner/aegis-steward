@@ -5,7 +5,7 @@ Tests the service layer for scheduled task management, including database
 operations and task data transformations.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import pickle
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -90,14 +90,16 @@ class TestScheduledTaskManager:
     async def test_has_persistence_database_error(
         self, manager: ScheduledTaskManager
     ) -> None:
-        """Test has_persistence handles database errors gracefully."""
+        """A database that cannot be read is an error, not a missing table:
+        read as "no persistence", the scheduler's health said its jobs
+        table was not found while it was there (2026-10-24)."""
         with patch(
             "app.services.scheduler.scheduled_task_manager.async_engine"
         ) as mock_engine:
-            mock_engine.begin.side_effect = Exception("Database error")
+            mock_engine.begin.side_effect = OSError("Database error")
 
-            result = await manager.has_persistence()
-            assert result is False
+            with pytest.raises(OSError, match="Database error"):
+                await manager.has_persistence()
 
     @pytest.mark.asyncio
     async def test_list_tasks_no_persistence(
@@ -136,6 +138,9 @@ class TestScheduledTaskManager:
             assert task.name == "Test Job"
             assert task.args == []
             assert task.status == "active"  # Has next_run_time
+            # Says its zone: a reader (an agent, a page) never guesses it.
+            assert task.next_run_time is not None
+            assert task.next_run_time.utcoffset() == timedelta(0)
 
     @pytest.mark.asyncio
     async def test_list_tasks_empty_database(

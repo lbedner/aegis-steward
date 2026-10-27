@@ -115,7 +115,9 @@ rows (`None`) for whoever is signed in. See the `protect-an-endpoint` skill.
 
 Task procedures live in `.claude/skills/<name>/SKILL.md` and load on demand when
 the task matches. Reach for one when adding a PAGE, an API endpoint, a model, a
-job, or a CLI command, or when changing the stack.
+job, or a CLI command, or when changing the stack. Before planning any change to
+the code, run it past the twin (the app's model of itself): the
+`plan-with-the-twin` skill.
 
 `add-page` is the one to read before touching the htmx frontend: the six
 interaction patterns, the response contract, the render helper, the macro kit,

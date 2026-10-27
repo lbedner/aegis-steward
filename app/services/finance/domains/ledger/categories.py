@@ -235,13 +235,13 @@ async def spending_by_category(
     db: AsyncSession,
     *,
     owner_user_id: int | None = None,
-    days: int = 30,
+    days: int | None = 30,
     account_ids: list[int] | None = None,
     through: date | None = None,
 ) -> list[tuple[str, int]]:
-    """Total outflow per PARENT category over the recent window — the
-    spending breakdown. Expense outflows only (amount < 0), on live
-    accounts, returned largest-first as positive cents.
+    """Total outflow per PARENT category over the last ``days`` (all of
+    it, when None) — the spending breakdown. Expense outflows only
+    (amount < 0), on live accounts, returned largest-first as positive cents.
 
     Rolled up to the parent segment of a "Parent:Child" category name
     (the part before the first ":") - a flat name (no colon, e.g. a
@@ -261,7 +261,7 @@ async def spending_by_category(
     ``account_ids`` narrows the breakdown to those accounts (still
     intersected with live accounts and the owner scope, so a stray id can
     never widen the view)."""
-    since = current_date() - timedelta(days=days)
+    since = None if days is None else current_date() - timedelta(days=days)
     return (await flow_by_category(db, owner_user_id, since, account_ids, through))[0]
 
 
@@ -283,7 +283,7 @@ async def income_by_category(
 async def flow_by_category(
     db: AsyncSession,
     owner_user_id: int | None,
-    since: date,
+    since: date | None,
     account_ids: list[int] | None,
     through: date | None,
 ) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
