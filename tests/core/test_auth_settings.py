@@ -15,7 +15,12 @@ _PROD = {
 
 def _settings(monkeypatch: pytest.MonkeyPatch, **values: str) -> Settings:
     """Settings from these values alone: no .env, no ambient value."""
-    for name in ("AUTH_ENABLED", "REGISTRATION_ENABLED", "ALLOWED_HOSTS"):
+    for name in (
+        "AUTH_ENABLED",
+        "REGISTRATION_ENABLED",
+        "ALLOWED_HOSTS",
+        "API_BASE_URL",
+    ):
         monkeypatch.delenv(name, raising=False)
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
 
@@ -41,7 +46,9 @@ def test_signups_are_closed_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_hosts_default_to_this_machine(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _settings(monkeypatch, **_PROD).ALLOWED_HOSTS == [
+    """Off a container (a test runner in one adds ``webserver``, below)."""
+    local = _settings(monkeypatch, **_PROD, API_BASE_URL="http://localhost:8000")
+    assert local.ALLOWED_HOSTS == [
         "localhost",
         "127.0.0.1",
         "testserver",
@@ -61,6 +68,19 @@ def test_a_server_answers_on_the_domain_its_deploy_stamped(
         monkeypatch, **_PROD, DOMAIN="app.example.com", PUBLIC_BASE_URL="https://x.dev"
     )
     assert named.PUBLIC_BASE_URL == "https://x.dev"
+
+
+def test_it_answers_to_the_address_it_calls_itself_by(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In a container the app calls its own API as ``webserver`` (#589):
+    refused that name, Overseer could not sign in. Only Traefik is public
+    and it routes by ``DOMAIN``, so the service name is never one from
+    outside."""
+    monkeypatch.setenv("DOCKER_CONTAINER", "1")
+    assert "webserver" in _settings(monkeypatch, **_PROD).ALLOWED_HOSTS
+    named = _settings(monkeypatch, **_PROD, API_BASE_URL="http://api.internal:9000")
+    assert "api.internal" in named.ALLOWED_HOSTS
 
 
 def _cookies() -> list[str]:
