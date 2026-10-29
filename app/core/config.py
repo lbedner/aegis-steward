@@ -7,6 +7,7 @@ from environment variables for easy configuration in different environments.
 """
 
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 from pydantic_settings import SettingsConfigDict
@@ -674,10 +675,13 @@ class Settings(
 
     @model_validator(mode="after")
     def _answer_on_the_domain(self) -> Settings:
-        """The deployed server's own name, from the one stamp (``DOMAIN``)."""
+        """The names this app is called by: the deployed server's own, from
+        the one stamp (``DOMAIN``), and the one it calls its own API on (in
+        a container the ``webserver`` service, #589)."""
+        for name in (self.DOMAIN, urlsplit(self.API_BASE_URL).hostname):
+            if name and name not in self.ALLOWED_HOSTS:
+                self.ALLOWED_HOSTS = [*self.ALLOWED_HOSTS, name]
         if self.DOMAIN:
-            if self.DOMAIN not in self.ALLOWED_HOSTS:
-                self.ALLOWED_HOSTS = [*self.ALLOWED_HOSTS, self.DOMAIN]
             if "PUBLIC_BASE_URL" not in self.model_fields_set:
                 self.PUBLIC_BASE_URL = f"https://{self.DOMAIN}"
         return self
